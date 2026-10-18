@@ -1,0 +1,334 @@
+<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the seven tools, and the limits." -->
+<p class="lede">
+  <a href="../start/glossary.html#sanshain">Sanshain</a> exposes its catalog to AI assistants over
+  the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>. An assistant with the
+  endpoint configured answers "who provides the orders API and who depends on it?", "where is the
+  endpoint that creates an invoice?", "what changed in <code>payments</code> between 2.3.0 and
+  2.4.0?" or "show me the spec of <code>inventory</code>" straight from the catalog. Read-only, and
+  only the catalog: never users, roles, settings, authentication, audit or observability data.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <p>
+    <code>describe_service</code> answers the system's
+    <a href="../start/glossary.html#catalog-context">catalog context</a>: owner, description, source
+    location and links from its Backstage <code>catalog-info.yaml</code>, or <code>null</code> when
+    the build never pushed one. The endpoint and the other tools are as in 2.5.0.
+  </p>
+</div>
+
+<h2>In short</h2>
+<ul>
+  <li><strong>Endpoint</strong>: <code>POST /mcp</code>, Streamable HTTP, stateless.</li>
+  <li>
+    <strong>Auth</strong>: <code>Authorization: Bearer &lt;API token&gt;</code>. Sessions are
+    refused. Mint a <a href="../start/glossary.html#scope">read-only</a> token.
+  </li>
+  <li>
+    <strong>Tools</strong>: <code>list_services</code>, <code>describe_service</code>,
+    <code>find_endpoint</code>, <code>get_spec</code>, <code>get_graph</code>,
+    <code>diff_versions</code>, <code>blame</code>.
+  </li>
+  <li>
+    <strong>Limits</strong>: 60 tool calls per minute per token, 64 KiB per answer; larger answers
+    come back as a summary with a hint.
+  </li>
+  <li>
+    <strong>Off switch</strong>: <code>MCP_ENABLED=false</code> leaves <code>/mcp</code> unmounted.
+  </li>
+</ul>
+
+<h2>The token</h2>
+<p>
+  The endpoint authenticates with <a href="../start/glossary.html#api-token">API tokens</a>, the
+  same tokens CI uses, and nothing else. Create one on <code>/account.html</code> and tick
+  <strong>Read-only (for AI / MCP clients)</strong>: a <code>read_only</code> token can query
+  everything the tools answer but is refused on every route that changes the catalog (provide,
+  retire, require, catalog push), so a misdirected assistant cannot publish or pin anything. A
+  <code>full</code> token works too; prefer read-only unless the same token also drives a build. The
+  token list on the account page shows when an assistant last used its token.
+</p>
+
+<h2>The endpoint</h2>
+<p>
+  <code>/mcp</code> speaks MCP's Streamable HTTP transport in stateless mode: every request carries
+  the token, no session is kept, and a restart loses nothing a client could notice. JSON-RPC
+  requests are <code>POST</code>ed with <code>Accept: application/json, text/event-stream</code>;
+  the route also answers <code>GET</code> and <code>DELETE</code> as the transport requires.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Condition</th>
+      <th>Answer</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>No <code>Authorization</code> header</td>
+      <td><code>401</code> with <code>WWW-Authenticate: Bearer</code></td>
+    </tr>
+    <tr>
+      <td>A session token, or an unknown or expired API token</td>
+      <td>
+        <code>401</code>:
+        <em>unknown or expired API token (session tokens are not accepted here)</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>MCP_ENABLED=false</code></td>
+      <td><code>404</code>: the route is not mounted</td>
+    </tr>
+    <tr>
+      <td>Over the rate limit</td>
+      <td>
+        A tool result with <code>isError: true</code> and <code>rate limited - retry in N s</code>,
+        never an HTTP 429, which would break the client's session
+      </td>
+    </tr>
+    <tr>
+      <td>Answer above <code>MCP_MAX_RESULT_BYTES</code></td>
+      <td>That tool's summary and a hint on how to narrow the question</td>
+    </tr>
+    <tr>
+      <td>Unknown service, version or endpoint</td>
+      <td>A tool result with <code>isError: true</code> and a message naming it</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <a href="../start/glossary.html#dev-mode">Developer mode</a> substitutes the dev user when no
+  header is sent, exactly as the API does. Local only.
+</p>
+
+<h2>Client configuration</h2>
+<p><strong>Claude Code</strong></p>
+<pre><code>claude mcp add --transport http sanshain https://&lt;host&gt;/mcp --header "Authorization: Bearer &lt;token&gt;"</code></pre>
+<p><strong>Any stdio-only client</strong>, through the <code>mcp-remote</code> bridge:</p>
+<pre><code>{
+  "mcpServers": {
+    "sanshain": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://&lt;host&gt;/mcp", "--header", "Authorization: Bearer &lt;token&gt;"]
+    }
+  }
+}</code></pre>
+<p><strong>Cursor</strong> (<code>.cursor/mcp.json</code>):</p>
+<pre><code>{
+  "mcpServers": {
+    "sanshain": {
+      "url": "https://&lt;host&gt;/mcp",
+      "headers": { "Authorization": "Bearer &lt;token&gt;" }
+    }
+  }
+}</code></pre>
+<p>
+  <strong>VS Code</strong> (<code>.vscode/mcp.json</code>) spells the top-level key
+  <code>servers</code> and the transport <code>"type": "http"</code>:
+</p>
+<pre><code>{
+  "servers": {
+    "sanshain": {
+      "type": "http",
+      "url": "https://&lt;host&gt;/mcp",
+      "headers": { "Authorization": "Bearer &lt;token&gt;" }
+    }
+  }
+}</code></pre>
+<p>
+  Keep the token out of files you commit; most clients read it from an environment variable (<code
+    >${env:SANSHAIN_TOKEN}</code
+  >
+  in VS Code, <code>${SANSHAIN_TOKEN}</code> in Cursor).
+</p>
+
+<h2>The tools</h2>
+<p>
+  Every tool answers compact JSON stamped with the <code>scope</code> (and <code>at</code>) it was
+  computed for. Scopes are the reports': <code>dev</code> (default) is everything ever provided or
+  required, <code>main</code> is what trunk builds currently pin, and a
+  <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> name is a release cut;
+  <code>main</code> and branches take an <code>at</code> instant on <code>get_graph</code>. Unknown
+  names are refused with a message, never with a transport error.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Tool</th>
+      <th>Parameters</th>
+      <th>Answers, and an example question</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>list_services</code></td>
+      <td><code>scope?</code></td>
+      <td>
+        Producers (domain, icon, API types, version line per type, endpoint and consumer counts,
+        <code>unrequired</code>) and Consumers (what they require).
+        <em>Which services are in production?</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>describe_service</code></td>
+      <td><code>name</code>, <code>scope?</code></td>
+      <td>
+        One service: version lines (with <code>last_provided_at</code>, <code>superseded</code>),
+        endpoints of the latest version per line, its consumers and what they pin, what it requires,
+        its periphery and who shares it, and its <code>context</code> from catalog-info.
+        <em>Who owns <code>orders</code>, and where is its code?</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>find_endpoint</code></td>
+      <td>
+        <code>query</code>, <code>method?</code>, <code>api_type?</code>, <code>all_versions?</code>
+      </td>
+      <td>
+        Endpoints across all Producers whose path, channel or method name contains
+        <code>query</code> (case-insensitive, <code>*</code> wildcard), latest versions by default,
+        with the consumer count. <em>Where is the endpoint that cancels an order?</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>get_spec</code></td>
+      <td>
+        <code>service</code>, <code>api_type</code>, <code>version?</code>, <code>path?</code>,
+        <code>method?</code>, <code>offset?</code>, <code>limit?</code>
+      </td>
+      <td>
+        The stored document (latest version when <code>version</code> is omitted) or one endpoint's
+        snippet, paged by line with <code>offset</code>/<code>limit</code> and
+        <code>next_offset</code>. <em>Show me the request body of <code>POST /orders</code>.</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>get_graph</code></td>
+      <td>
+        <code>scope?</code>, <code>at?</code>, <code>service?</code>, <code>api_type?</code>,
+        <code>include_periphery?</code>
+      </td>
+      <td>
+        Nodes (<code>producer</code>, <code>consumer</code>, <code>both</code>,
+        <code>missing</code>, <code>resource</code>) and edges (api_type, method, path, version,
+        stability, <code>outdated</code>, <code>superseded</code>, <code>harvested</code>,
+        <code>peripheral</code>). <em>What did the release graph look like on the 1st?</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>diff_versions</code></td>
+      <td>
+        <code>service</code>, <code>api_type</code>, <code>from</code>, <code>to</code>,
+        <code>ignore_whitespace?</code>, <code>path?</code>, <code>method?</code>
+      </td>
+      <td>
+        The unified diff (the UI's engine) and the added and removed line counts.
+        <em>What changed between 2.3.0 and 2.4.0 of <code>payments</code>?</em>
+      </td>
+    </tr>
+    <tr>
+      <td><code>blame</code></td>
+      <td>
+        <code>service</code>, <code>api_type</code>, <code>version</code>, <code>path?</code>,
+        <code>method?</code>
+      </td>
+      <td>
+        Blocks of lines with the version that last changed them, who provided it and when.
+        <em>Since when has this field been required?</em>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <code>api_type</code> is <code>openapi</code>, <code>asyncapi</code> or <code>proto</code>;
+  versions are <code>MAJOR.MINOR.PATCH</code>; <code>path</code> and <code>method</code> always go
+  together. Every schema refuses unknown parameters.
+</p>
+
+<h3>Over-budget answers</h3>
+<p>An answer above <code>MCP_MAX_RESULT_BYTES</code> is never truncated silently:</p>
+<ul>
+  <li>
+    <code>get_spec</code> answers
+    <code
+      >{summary: {lines, bytes, endpoints: [...]}, hint: "use offset/limit (line numbers) or
+      path+method"}</code
+    >;
+  </li>
+  <li>
+    <code>get_graph</code> answers the node counts per kind and the edge count, with a hint to
+    narrow with <code>service</code> or <code>api_type</code>;
+  </li>
+  <li>
+    <code>diff_versions</code> answers the added and removed counts with a hint to narrow with
+    <code>path</code> and <code>method</code>;
+  </li>
+  <li>
+    <code>blame</code> answers the blocks without their lines (<code>line_count</code> instead);
+  </li>
+  <li>
+    <code>list_services</code>, <code>describe_service</code> and <code>find_endpoint</code> answer
+    counts and a hint.
+  </li>
+</ul>
+
+<h2>Limits and settings</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Variable</th>
+      <th>Default</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>MCP_ENABLED</code></td>
+      <td><code>true</code></td>
+      <td>Mount <code>/mcp</code>. <code>false</code> leaves it unmounted (404).</td>
+    </tr>
+    <tr>
+      <td><code>MCP_CALLS_PER_MINUTE</code></td>
+      <td><code>60</code></td>
+      <td>
+        Tool calls per minute per API token: a token bucket, a burst of 60, refilled continuously.
+        Must be greater than 0.
+      </td>
+    </tr>
+    <tr>
+      <td><code>MCP_MAX_RESULT_BYTES</code></td>
+      <td><code>65536</code></td>
+      <td>
+        The size budget of one tool answer; above it the summary is answered. Must be greater than
+        0.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <code>initialize</code> and <code>tools/list</code> do not count against the rate limit; only tool
+  calls do. The HTTP body limit (<code>MAX_SPEC_BODY_BYTES</code>) applies to requests as everywhere
+  else. Two Prometheus counters on <code>/metrics</code> describe the traffic:
+  <code>sanshain_mcp_tool_calls_total{tool, outcome}</code> with <code>outcome</code> one of
+  <code>ok</code>, <code>error</code>, <code>rate_limited</code>, <code>over_budget</code>, and
+  <code>sanshain_mcp_result_bytes_total{tool}</code>.
+</p>
+
+<h2>Security notes</h2>
+<ul>
+  <li>
+    Only API tokens are accepted, so there is no ambient credential a browser could ride; the
+    endpoint is outside CSRF protection for that reason.
+  </li>
+  <li>
+    <code>Host</code>-header validation is disabled on the transport: Sanshain is reached under
+    whatever name the deployment gave it, and the bearer token, not the <code>Host</code> header,
+    keeps a DNS-rebinding attacker out.
+  </li>
+  <li>
+    A token's <code>last_used_at</code> on the account page shows when an assistant last used it.
+  </li>
+</ul>
+
+<p class="checked">Checked against v2.6.0.</p>

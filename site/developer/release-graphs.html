@@ -1,0 +1,287 @@
+<!-- page: title="Release graphs" track="developer" order=5 summary="Streams: how a trunk build maintains the main graph, how a releaser cuts a sanshain-branch at any instant, how hotfix builds update it with a tag, and how the timeline and compare answer what a release is." -->
+<p class="lede">
+  The <a href="../start/glossary.html#dev-graph">dev graph</a> is everything any build ever
+  recorded. To know what production <em>is</em>, a build declares its
+  <a href="../start/glossary.html#stream">stream</a>: trunk builds maintain the
+  <a href="../start/glossary.html#main-graph">main graph</a>, and a releaser cuts named copies of
+  it, <a href="../start/glossary.html#sanshain-branch">sanshain-branches</a>, that hotfix builds
+  keep up to date.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      A branch cut emits the <code>branch.cut</code>
+      <a href="../start/glossary.html#webhook">webhook</a>
+      event to global hooks, and a require that records a new edge in a stream emits
+      <code>dependency.recorded</code> with that stream's name.
+    </li>
+    <li>
+      The graph's node panel shows a system's catalog context in every view; the periphery of a
+      branch is still what trunk had when the branch was cut.
+    </li>
+  </ul>
+</div>
+
+<h2>The three streams</h2>
+<p>
+  Every provide, require and bundle may carry one stream marker; the catalog push takes only
+  <code>trunk</code>:
+</p>
+<ul>
+  <li>
+    <strong>none</strong>: the call records dev activity only. The dev graph is accumulated activity
+    thinned by <code>dependency_max_age_days</code> (default 30).
+  </li>
+  <li>
+    <strong><code>trunk: true</code></strong> (<code>trunk=true</code> on a GET): this build is your
+    default-branch CI. A trunk provide stamps the version as
+    <a href="../start/glossary.html#trunk">trunk</a>'s current version, shown as a badge on the
+    Producer page; a trunk require records the pin in the append-only trunk store, last write per
+    endpoint wins, which is what the main graph reads. Re-running an unchanged trunk build is
+    exactly what keeps trunk fresh.
+  </li>
+  <li>
+    <strong><code>tag: "&lt;branch&gt;"</code></strong
+    >: this build belongs to the named sanshain-branch, a release pipeline or a hotfix. The call
+    updates that branch's graph instead of trunk.
+  </li>
+</ul>
+<p>
+  Streams never change version rules or what a require is answered; they decide which graph records
+  the call. A GA backport provided from a release branch without <code>trunk</code> is a normal GA
+  version that trunk does not claim.
+</p>
+<p>
+  The graph never fails a build. An unknown <a href="../start/glossary.html#tag">tag</a>, or
+  <code>trunk</code> and <code>tag</code> together, still succeeds: the spec is stored and served,
+  the dev graph records the activity, trunk and every branch stay untouched, and the response
+  carries a <a href="../start/glossary.html#sanshain-warning"><code>Sanshain-Warning</code></a>
+  header:
+</p>
+<pre><code>Sanshain-Warning: no sanshain-branch 'release-maribu' - this build was not recorded in a release graph
+Sanshain-Warning: trunk and tag are mutually exclusive - this build was recorded in neither</code></pre>
+<p>
+  Branches are never auto-created, so a typo cannot mint a half-empty release graph; it surfaces as
+  a printed warning, and as a failed build in
+  <a href="../start/glossary.html#strict-mode">strict mode</a>. A
+  <a href="../start/glossary.html#retire">retire</a> keeps its own rule: <code>trunk</code> or
+  <code>tag</code> alongside <code>retired: true</code> is a <code>400</code>.
+</p>
+
+<h2>Trunk data ages, visibly</h2>
+<p>
+  A Producer that was quietly scrapped, or a Consumer that keeps a require it no longer uses, is a
+  forgotten thing, and the main graph's job is to show that rather than present stale data as
+  current. Trunk provides and requires carry a last-seen timestamp with their own
+  <a href="../start/glossary.html#trunk-ttl">TTL</a>, <code>trunk_max_age_days</code> (default 90,
+  independent of the dev window). Entries past half the TTL are highlighted as stale in the main
+  view (the amber dashed edge); past the TTL they leave the current main graph. They stay in
+  history: the TTL closes an entry, it never deletes it.
+</p>
+
+<h2>The timeline</h2>
+<figure class="diagram">
+  <svg viewBox="0 0 720 300" role="img" aria-labelledby="fig-branch-title fig-branch-desc">
+    <title id="fig-branch-title">The main graph's timeline and a branch cut from it</title>
+    <desc id="fig-branch-desc">
+      Trunk builds append markers to the main graph's timeline: a pin recorded, a version provided.
+      A releaser cuts the sanshain-branch release-maribou at one of those instants, and can place
+      the cut at an earlier instant with as_of. From the cut on, hotfix builds that send tag:
+      release-maribou append to the branch's own timeline, while trunk keeps moving. Compare diffs
+      the branch's current state against main's.
+    </desc>
+    <defs>
+      <marker
+        id="arr-g"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow" />
+      </marker>
+      <marker
+        id="arr-g-accent"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow-accent" />
+      </marker>
+    </defs>
+
+    <!-- main timeline -->
+    <text x="8" y="24" class="d-text d-strong">main graph · fed by trunk builds</text>
+    <path d="M8 90H700" class="d-line" marker-end="url(#arr-g)" />
+
+    <circle cx="110" cy="90" r="6" class="d-box" />
+    <text x="110" y="64" text-anchor="middle" class="d-muted">web-shop pins</text>
+    <text x="110" y="78" text-anchor="middle" class="d-muted d-mono">orders 1.4.0</text>
+
+    <circle cx="250" cy="90" r="6" class="d-box" />
+    <text x="250" y="64" text-anchor="middle" class="d-muted">trunk provides</text>
+    <text x="250" y="78" text-anchor="middle" class="d-muted d-mono">orders 2.0.0</text>
+
+    <circle cx="400" cy="90" r="7" class="d-ga" />
+    <text x="400" y="64" text-anchor="middle" class="d-accent">release cut</text>
+    <text x="400" y="78" text-anchor="middle" class="d-muted">POST /admin/branches</text>
+
+    <circle cx="540" cy="90" r="6" class="d-box" />
+    <text x="540" y="64" text-anchor="middle" class="d-muted">trunk provides</text>
+    <text x="540" y="78" text-anchor="middle" class="d-muted d-mono">payments 2.1.0</text>
+
+    <circle cx="660" cy="90" r="6" class="d-box" />
+    <text x="660" y="78" text-anchor="middle" class="d-muted">now</text>
+
+    <!-- retroactive cut -->
+    <path
+      d="M392 102C340 130 300 120 262 102"
+      class="d-line-accent"
+      stroke-dasharray="4 3"
+      marker-end="url(#arr-g-accent)"
+    />
+    <text x="330" y="134" text-anchor="middle" class="d-muted">
+      as_of: the cut can be placed at a past instant
+    </text>
+
+    <!-- branch -->
+    <path d="M400 97V200H700" class="d-line-accent" marker-end="url(#arr-g-accent)" />
+    <text x="412" y="178" class="d-accent">release-maribou</text>
+    <text x="412" y="192" class="d-muted">a sanshain-branch: main copied at the cut</text>
+
+    <circle cx="400" cy="200" r="6" class="d-ga" />
+
+    <circle cx="520" cy="200" r="6" class="d-snap" />
+    <text x="520" y="224" text-anchor="middle" class="d-muted">hotfix build with</text>
+    <text x="520" y="238" text-anchor="middle" class="d-muted d-mono">tag: release-maribou</text>
+    <text x="520" y="252" text-anchor="middle" class="d-muted d-mono">orders 2.0.1</text>
+
+    <circle cx="620" cy="200" r="6" class="d-snap" />
+    <text x="620" y="224" text-anchor="middle" class="d-muted">another hotfix</text>
+
+    <!-- compare -->
+    <path d="M660 98V190" class="d-line-muted" />
+    <text x="652" y="150" text-anchor="end" class="d-muted">compare</text>
+    <text x="652" y="164" text-anchor="end" class="d-muted">main vs branch</text>
+
+    <text x="8" y="286" class="d-muted">
+      Markers are the instants a graph changed. Writes append; nothing here is ever rewritten.
+    </text>
+  </svg>
+  <figcaption>
+    Trunk builds feed main; a releaser cuts a branch at an instant, past or present; tagged builds
+    feed the branch.
+  </figcaption>
+</figure>
+<p>
+  Trunk and branch writes are append-only: "last write wins" is how the current graph is read, not
+  how it is stored. So the main graph and every branch can be rendered as they were at any past
+  instant, which the <a href="../start/glossary.html#timeline">timeline</a> slider on the graph page
+  does; its markers are the instants the graph changed. History is unbounded by default and is only
+  ever read.
+</p>
+
+<h2>Cutting a branch</h2>
+<p>
+  A <a href="../start/glossary.html#release-cut">release cut</a> is a copy of the main graph, or of
+  another branch, at a chosen instant. It needs the
+  <a href="../start/glossary.html#releaser">releaser</a> role; the admin page, the graph page's
+  <strong>Create branch here</strong> on the timeline, or the release pipeline does it:
+</p>
+<p class="example-caption">Request</p>
+<pre><code>curl -X POST $SANSHAIN/admin/branches \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name": "release-maribou"}'
+# optional: "source": "&lt;another branch&gt;", "as_of": "2026-10-01T00:00:00Z"</code></pre>
+<p>
+  <code>source</code> defaults to trunk, <code>as_of</code> to now. A past <code>as_of</code> is a
+  first-class path: releases are cut from protected branches and carry no code drift, so
+  trunk-at-cut-date is the release whenever someone gets around to naming it. The branch is complete
+  by construction, because the main graph holds every service regardless of recent build activity,
+  and it takes the periphery trunk had at that instant.
+</p>
+<p>
+  Names are unique among live branches; <code>main</code>, <code>dev</code> and
+  <code>trunk</code> are reserved, because the first two name the built-in views and the third is
+  the stream a trunk build records. Renaming and deleting a branch are administrative acts: a rename
+  keeps membership, timeline and audit history (a pipeline still sending the old name gets the
+  warning above until it is reconfigured); a delete frees the name.
+</p>
+<p>
+  The <code>/admin/branches</code> routes are session-authenticated, so a pipeline cuts a branch
+  with a session token from <code>POST /auth/login</code>; an API token is refused there. Every
+  other call of a release pipeline (the tagged provides and requires) uses the API token as usual.
+</p>
+
+<h2>Branch membership on the Producer page</h2>
+<p>
+  A version row shows chips naming every branch that references the version, next to the trunk
+  badge:
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/producer_version_card_crop.png"
+    alt="A version row with the GA badge, the trunk badge and chips naming the branches that reference it"
+    loading="lazy"
+  />
+  <figcaption>Which releases contain this version, at a glance.</figcaption>
+</figure>
+<p>
+  Branches reference versions by value, never by row id. Deleting a version leaves a visibly
+  dangling reference in every branch that pins it (the orange dotted edge), and a later re-provide
+  of that number heals it. Deleting a Producer or Consumer that a branch's recorded graph references
+  is refused with <code>409</code> naming the branches, so a release cut that already happened is
+  never silently rewritten.
+</p>
+
+<h2>Reading a branch</h2>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_branch.png"
+    alt="A sanshain-branch's graph, including a hotfixed pin and a dangling reference"
+    loading="lazy"
+  />
+  <figcaption>A branch's graph with a hotfixed pin and a dangling reference.</figcaption>
+</figure>
+<ul>
+  <li>
+    <strong>The graph page</strong>: pick the branch in the toolbar; drag the timeline for a past
+    state; open <strong>Compare</strong> for the structured diff (services added and removed, pins
+    added, removed and changed, periphery added and removed) between any two graphs at any two
+    instants. Exports are stamped with view, branch and instant.
+  </li>
+  <li>
+    <strong>Reports</strong>: <code>?scope=&lt;branch&gt;[@instant]</code> on <code>/report</code>,
+    <code>/report/markdown</code> and <code>/report/isolation</code>, and the scope selector on the
+    reports page. <code>dev</code> has no timeline, so <code>dev@instant</code> is refused.
+  </li>
+  <li>
+    <strong>MCP</strong>: the same <code>scope</code> and <code>at</code> on
+    <code>list_services</code>, <code>describe_service</code> and <code>get_graph</code> (<a
+      href="mcp.html"
+      >MCP</a
+    >).
+  </li>
+  <li>
+    <strong>Audit</strong>: provide and require entries record their declared stream, and the audit
+    page filters by it, by branch identity, so a renamed branch keeps its history findable.
+  </li>
+</ul>
+
+<h2>Setting it up in CI</h2>
+<p>
+  Trunk CI sets <code>SANSHAIN_TRUNK=true</code> (or the client's <code>--trunk</code>,
+  <code>-Dsanshain.trunk=true</code>); release and hotfix pipelines set
+  <code>SANSHAIN_TAG=&lt;branch&gt;</code>. Nightly re-runs of an unchanged trunk build are wanted.
+  The <a href="ci-integration.html#streams-from-the-pipeline">CI integration</a> chapter has the
+  pipeline shapes.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

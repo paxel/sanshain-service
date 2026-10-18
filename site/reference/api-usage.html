@@ -222,7 +222,7 @@
     a result with <code>isError: true</code> and <code>rate limited - retry in N s</code>, never an
     HTTP 429, so the client's session survives. One tool answer is capped at 64 KiB
     (<code>MCP_MAX_RESULT_BYTES</code>); larger answers come back as a summary with a hint. See
-    <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md">docs/mcp.md</a>.
+    <a href="../developer/mcp.html">MCP for AI assistants</a>.
   </li>
   <li>
     Every require route supports <code>ETag</code> and <code>If-None-Match</code>; unchanged content
@@ -238,11 +238,8 @@
   <code>?scope=&lt;branch&gt;[@instant]</code> replaces the graph with that pin set
   (<code>dev</code>, the default, is the accumulated activity). The same parameter applies to
   <code>/report/markdown</code> and <code>/report/isolation</code>. The report routes are not in
-  <code>api.yaml</code> (see below), so this parameter is documented only here and in the
-  <a
-    href="https://github.com/paxel/sanshain-service/blob/summer/docs/user-guide.md#reports-reportshtml"
-    >user guide</a
-  >.
+  <code>api.yaml</code> (see below), so this parameter is documented only here and in
+  <a href="../developer/web-ui.html#reports">The web UI</a>.
 </p>
 
 <h2>Not in the contract</h2>
@@ -266,7 +263,7 @@
   </li>
   <li>
     <code>POST /mcp</code>: API token only, documented in
-    <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md">docs/mcp.md</a>.
+    <a href="../developer/mcp.html">MCP for AI assistants</a>.
   </li>
 </ul>
 

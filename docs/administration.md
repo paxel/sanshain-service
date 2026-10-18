@@ -13,7 +13,7 @@ This guide covers the admin dashboard at `/admin.html` and administrative tasks.
 
 ## Accessing the Dashboard
 
-Open `/admin.html` in your browser and sign in with an admin account. On a fresh installation the only admin account is **root** — see [Getting Started](getting-started.md) for the initial password procedure.
+Open `/admin.html` in your browser and sign in with an admin account. On a fresh installation the only admin account is **root** — see [Getting Started](https://paxel.github.io/sanshain-service/start/getting-started.html) for the initial password procedure.
 
 ![Admin login screen](images/login.png)
 
@@ -435,7 +435,7 @@ the size. On PostgreSQL the button is absent and the route answers `409` naming 
 backups and the restore steps for both engines are in the
 [Deployment Guide — Backup and restore](deployment.md#backup-and-restore).
 
-For detailed setup instructions, see [Getting Started — PostgreSQL](getting-started.md#installation-with-docker-postgresql).
+For detailed setup instructions, see [Getting Started — PostgreSQL](https://paxel.github.io/sanshain-service/start/getting-started.html#docker-with-postgresql).
 
 ## Related Pages
 

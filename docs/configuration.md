@@ -31,7 +31,7 @@ Sanshain Service can be configured using environment variables.
 | `RUST_LOG`                     | `sanshain_service=info,tower_http=info`   | Log level filter (e.g., `sanshain_service=debug,tower_http=debug` for verbose output).                    |
 | `EXTRA_CA_CERTS_DIR`           | *unset*                                   | Directory of additional CA certificates to trust for outbound TLS. See below.                             |
 | `LDAP_OPERATION_TIMEOUT_SECS`  | `10`                                      | How long one LDAP exchange (handshake, bind, search, unbind) may take after the TCP connect, in seconds. Must be > 0. |
-| `MCP_ENABLED`                  | `true`                                    | Mount the MCP endpoint at `/mcp` for AI clients. `false` leaves the route unmounted (404). See [MCP](mcp.md). |
+| `MCP_ENABLED`                  | `true`                                    | Mount the MCP endpoint at `/mcp` for AI clients. `false` leaves the route unmounted (404). See [MCP](https://paxel.github.io/sanshain-service/developer/mcp.html). |
 | `WEBHOOKS_ENABLED`             | `true`                                    | Write webhook events to the outbox and run the delivery worker. `false` writes and sends nothing; hooks can still be managed. See [Administration](administration.md#webhooks). |
 | `WEBHOOK_WORKER_INTERVAL_SECS` | `5`                                       | How often each replica's worker looks for due webhook deliveries.                                        |
 | `WEBHOOK_DELIVERY_TIMEOUT_SECS` | `10`                                     | How long one webhook `POST` may take before it counts as a failed attempt.                               |

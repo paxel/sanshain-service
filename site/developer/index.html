@@ -1,24 +1,74 @@
-<!-- page: title="Developer guide" track="developer" order=1 summary="Clients, sanshain.yaml, CI integration, the API lifecycle and MCP for AI assistants." -->
+<!-- page: title="Developer track" track="developer" order=0 summary="For the developer integrating a build: the web UI, sanshain.yaml, the clients, the API lifecycle, release graphs, CI integration and MCP." -->
 <p class="lede">
-  This chapter is not written yet. The content moves here with issue
-  <a href="https://github.com/paxel/sanshain-service/issues/56">#56</a>; a recorded walkthrough
-  with the live graph follows in
-  <a href="https://github.com/paxel/sanshain-service/issues/57">#57</a>.
+  Seven chapters for the developer who provides a spec, pins a dependency and wires both into a
+  build. They assume the <a href="../start/concepts.html">Concepts</a> page.
 </p>
 
-<h2>What this track will cover</h2>
-<ul>
-  <li>The client ecosystem: Maven, Cargo, Go, JavaScript and Conan.</li>
-  <li><code>sanshain.yaml</code> and CI integration, including webhooks.</li>
-  <li>The API lifecycle: snapshots, GA, deprecation and breaking changes.</li>
-  <li>MCP: letting an AI assistant query the catalog.</li>
+<ul class="cards">
+  <li>
+    <a class="card" href="web-ui.html">
+      <p class="eyebrow">Chapter 1</p>
+      <p class="card-title">The web UI</p>
+      <p>Producers, the spec viewer with diff and blame, Consumers, the graph, the reports.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="sanshain-yaml.html">
+      <p class="eyebrow">Chapter 2</p>
+      <p class="card-title">sanshain.yaml</p>
+      <p>The one file every client reads: provides, requires with exact pins, the catalog push.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="clients.html">
+      <p class="eyebrow">Chapter 3</p>
+      <p class="card-title">Clients</p>
+      <p>Maven, cargo, Go, JavaScript with its GitHub Action, Conan: install and commands.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="api-lifecycle.html">
+      <p class="eyebrow">Chapter 4</p>
+      <p class="card-title">API lifecycle</p>
+      <p>Snapshots, GA, the proposed next version, deprecation, AsyncAPI message contracts.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="release-graphs.html">
+      <p class="eyebrow">Chapter 5</p>
+      <p class="card-title">Release graphs</p>
+      <p>Trunk and the main graph, cutting a sanshain-branch, hotfixes by tag, the timeline.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="ci-integration.html">
+      <p class="eyebrow">Chapter 6</p>
+      <p class="card-title">CI integration</p>
+      <p>Tokens, stability and streams from the pipeline, dry runs, idempotency, examples.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="mcp.html">
+      <p class="eyebrow">Chapter 7</p>
+      <p class="card-title">MCP for AI assistants</p>
+      <p>A read-only token, the endpoint, client configuration, the seven tools, the limits.</p>
+    </a>
+  </li>
 </ul>
 
-<h2>Until then</h2>
 <p>
-  Read
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/user-guide.md">docs/user-guide.md</a>
-  and
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/clients.md">docs/clients.md</a>
-  on GitHub.
+  The REST contract itself is the <a href="../reference/api.html">REST API</a> reference, and
+  <a href="../reference/api-usage.html">Using the API</a> explains tokens, scopes and error shapes.
+  Webhook receivers, deployment and administration are still the Markdown guides on GitHub (<a
+    href="https://github.com/paxel/sanshain-service/blob/summer/docs/deployment.md"
+    >deployment</a
+  >,
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/administration.md"
+    >administration</a
+  >,
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/ci-integration.md#webhooks"
+    >webhooks</a
+  >) until the Operator chapters land.
 </p>
+
+<p class="checked">Checked against v2.6.0.</p>

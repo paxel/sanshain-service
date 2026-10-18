@@ -1,0 +1,279 @@
+<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff and blame, Consumers, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
+<p class="lede">
+  Everything a build records is browsable. This chapter walks the pages a developer opens: Producers
+  and their <a href="../start/glossary.html#version-line">version lines</a>, the spec viewer,
+  Consumers and their <a href="../start/glossary.html#pin">pins</a>, the
+  <a href="../start/glossary.html#dependency-graph">dependency graph</a> and the reports. The admin
+  page is
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/administration.md"
+    >docs/administration.md</a
+  >
+  on GitHub (Operator chapter coming).
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      The graph's node panel and the Producer and Consumer pages show the system's
+      <a href="../start/glossary.html#catalog-context">catalog context</a>: owner, description, a
+      repository chip and link chips, when the build pushed a <code>catalog-info.yaml</code>.
+    </li>
+    <li>
+      Producer and Consumer pages carry a <strong>Webhooks</strong> card for the system's own hooks,
+      visible to its maintainers and administrators.
+    </li>
+    <li>
+      Pages read through a cache that expires after 10 s, so on a multi-replica install what one
+      replica stored is visible on the others within 10 s.
+    </li>
+  </ul>
+</div>
+
+<h2>The landing page and the validator</h2>
+<p>
+  <code>/</code> needs no login. Its <strong>Try it</strong> form is the
+  <a href="../start/glossary.html#validator">validator</a>: paste an OpenAPI, AsyncAPI or Protobuf
+  document and Sanshain runs exactly the provide-side checks, version extraction and endpoint
+  splitting, and shows the version it read and a preview of the endpoints it would store. Nothing is
+  saved. The same check is <code>POST /validate</code>, unauthenticated.
+</p>
+<figure class="screenshot">
+  <picture>
+    <source srcset="../assets/images/landing_dark.png" media="(prefers-color-scheme: dark)" />
+    <img
+      src="../assets/images/landing.png"
+      alt="The landing page: Provide, Manage, Require cards and the Try it validator form"
+      loading="lazy"
+    />
+  </picture>
+  <figcaption>The landing page with the validator below the fold.</figcaption>
+</figure>
+
+<h2>The account page</h2>
+<p>
+  <code>/account.html</code> is where you change your password and mint
+  <a href="../start/glossary.html#api-token">API tokens</a>: a name, an expiry in days, and the
+  <strong>Read-only (for AI / MCP clients)</strong> box that sets the scope to
+  <code>read_only</code>. The raw token is shown once. The list below shows every token you own with
+  its scope, its expiry and when it last authenticated a request, to the minute, and lets you revoke
+  it. The star next to a Producer on the Producers page marks it as one of your favourites.
+</p>
+
+<h2>Producers</h2>
+<p>
+  <code>/producers.html</code> lists every
+  <a href="../start/glossary.html#producer">Producer</a> with a search box. A Producer opens to its
+  version lines, one card per API type, each version a row with its
+  <a href="../start/glossary.html#stability">stability</a>, endpoint count, who provided it and
+  when. Badges on a row:
+</p>
+<ul>
+  <li>
+    <strong><a href="../start/glossary.html#ga">GA</a></strong> or
+    <strong><a href="../start/glossary.html#snapshot">snapshot</a></strong
+    >.
+  </li>
+  <li>
+    <strong>Expires in N d</strong> on a snapshot when cleanup is on: the
+    <a href="../start/glossary.html#snapshot-expiry">use-based expiry</a>.
+  </li>
+  <li>
+    <strong>superseded by X ga</strong> on a snapshot below the latest GA of its line: Consumers
+    pinning it should move.
+  </li>
+  <li>
+    <strong>trunk</strong> when trunk CI last provided this version, and a chip per
+    <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> that references it.
+  </li>
+</ul>
+<figure class="screenshot">
+  <img
+    src="../assets/images/producer_version_card_crop.png"
+    alt="A version row with the GA badge, the trunk badge and branch membership chips"
+    loading="lazy"
+  />
+  <figcaption>A version row with stability, trunk badge and branch chips.</figcaption>
+</figure>
+<p>
+  Expanding a row lists the endpoints of that version, each with a <strong>deprecated</strong>
+  badge where the spec marks it and a count of the Consumers that pin it; clicking one opens its
+  <a href="../start/glossary.html#snippet">snippet</a> in the spec viewer, where it can be copied or
+  downloaded. <strong>View spec</strong> opens the whole document in the viewer;
+  <strong>Download</strong> saves it; <strong>Delete</strong> is the audited escape hatch for admins
+  and the Producer's maintainers, and it lists the pinned Consumers and referencing branches before
+  asking for confirmation.
+</p>
+<p>
+  Under the Producer's title, when its build pushed a <code>catalog-info.yaml</code>, the page shows
+  the catalog context: the owner (<code>team-orders (group)</code>), the description, and a row of
+  chips: the repository first, labelled by the host of its source location, then the Backstage links
+  by their title. Below it, maintainers and administrators see the <strong>Webhooks</strong> card:
+  signed POSTs for this Producer's events (new versions, rejected provides, deprecations, new
+  Consumers, catalog pushes) with a delivery log per hook.
+</p>
+
+<h2>The spec viewer: history, diff and blame</h2>
+<p>
+  The viewer shows one document, or one endpoint of it, with its <strong>Version History</strong>
+  down the side: every version of the line, its stability and provider, marked
+  <strong>changed</strong> where the text differs from the version before. Pick two versions in
+  <strong>Compare / Diff</strong> for a unified diff; switch <strong>Blame</strong> on to see, for
+  every line, the version that last changed it. Copy and Download act on what is shown.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/yaml_viewer.png"
+    alt="The spec viewer for POST /predict of ml-inference: version history on the left, the YAML with line numbers on the right, blame toggle, copy and download"
+    loading="lazy"
+  />
+  <figcaption>One endpoint across its version line.</figcaption>
+</figure>
+
+<h2>Consumers</h2>
+<p>
+  <code>/consumers.html</code> lists every <a href="../start/glossary.html#consumer">Consumer</a>
+  and the exact pins it holds: Producer, API type, version and endpoints. The catalog context block
+  and the Webhooks card work as on the Producer page; a Consumer's hooks receive the events of every
+  Producer the Consumer currently requires, and are managed by a maintainer of the Producer of the
+  same name or by an administrator.
+</p>
+
+<h2>The dependency graph</h2>
+<p>
+  <code>/graph.html</code> renders the graph as an interactive SVG. The toolbar selects one of three
+  views:
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_toolbar_crop.png"
+    alt="The graph toolbar: focus tags, the Dev/Main toggle, branch selector, protocol filters and highlight toggles"
+    loading="lazy"
+  />
+  <figcaption>Focus, view, branch, protocol filters, highlights.</figcaption>
+</figure>
+<ul>
+  <li>
+    <strong>Dev</strong> (default): the <a href="../start/glossary.html#dev-graph">dev graph</a>,
+    everything ever provided or required, snapshots included.
+  </li>
+  <li>
+    <strong>Main</strong>: the <a href="../start/glossary.html#main-graph">main graph</a>, every
+    Producer at its <a href="../start/glossary.html#trunk">trunk</a> version, edges from trunk pins.
+  </li>
+  <li><strong>Branch</strong>: a sanshain-branch's pin set, what a release is.</li>
+</ul>
+<p>
+  All views share the focus filter (type a service name to spotlight its neighbourhood), the
+  Circular layout, the protocol filters (OpenAPI, AsyncAPI, Proto), the
+  <strong>Periphery</strong> switch for
+  <a href="../start/glossary.html#peripheral-resource">peripheral resources</a>, and the
+  <strong>Outdated</strong> and <strong>Snapshot-pinned</strong> highlights. A pin to a
+  <a href="../start/glossary.html#superseded">superseded</a> snapshot counts as outdated, and
+  hovering the edge says <code>superseded by X ga</code>.
+</p>
+<p>
+  Badges on a node show its protocols in the current view: solid badges on the top edge for what it
+  provides (braces for REST, two-way arrows for gRPC, an envelope for messaging, a hexagon for a
+  peripheral resource), outlined badges on the bottom edge for how it requires others. A
+  <a href="../start/glossary.html#harvested-subscription">harvested subscription</a> to a channel
+  nobody provides points at a dashed node named <code>&lt;channel&gt; ?</code>. Producers nobody
+  requires and that require nothing sit as chips in one <strong>(unrequired)</strong> box at the end
+  of the flow; the <strong>Unrequired</strong> switch hides the box (remembered in the URL as
+  <code>hide_protocols=unrequired</code>).
+</p>
+<p>
+  Hovering a node opens its <strong>node panel</strong>: its version lines, what it provides and
+  requires, and, below that, its catalog context with the owner, the description and the link chips,
+  each opening in a new tab. A system without a catalog-info shows no such block.
+</p>
+
+<h3>The main view</h3>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_main.png"
+    alt="The main graph view with the trunk pin set"
+    loading="lazy"
+  />
+  <figcaption>The main view: trunk versions and trunk pins.</figcaption>
+</figure>
+<p>The main view surfaces what the dev view cannot see:</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_legend_main_crop.png"
+    alt="The graph legend in the main view: red, amber dashed, orange dotted and snapshot-pinned edges"
+    loading="lazy"
+  />
+  <figcaption>The legend of the main view.</figcaption>
+</figure>
+<ul>
+  <li><strong>Red edge</strong>: the pin lags the Producer's trunk version by a major.</li>
+  <li>
+    <strong>Amber dashed edge (stale)</strong>: the pin was not refreshed since half the
+    <a href="../start/glossary.html#trunk-ttl">trunk TTL</a>, a forgotten build about to age out.
+  </li>
+  <li>
+    <strong>Orange dotted edge (dangling)</strong>: the pinned version was deleted. It heals when
+    the number is re-provided.
+  </li>
+  <li><strong>Snapshot-pinned</strong>: the pin is served from an overwritable snapshot.</li>
+</ul>
+
+<h3>Branches, the timeline and compare</h3>
+<p>
+  Pick a branch in the toolbar to render its graph. The main and branch views carry a timeline
+  slider whose markers are the instants the graph changed; drag it to see the graph as it was, and,
+  with the releaser role, <strong>Create branch here</strong> cuts a branch at that instant. The
+  <strong>Compare</strong> panel diffs any two selections, release against release or against main,
+  either side optionally at a past instant, as services added or removed and pins added, removed or
+  changed. Exports (SVG, PNG, mermaid) are stamped with view, branch and instant. The
+  <a href="release-graphs.html">Release graphs</a> chapter has the model behind these.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_timeline_crop.png"
+    alt="The timeline slider over the main graph's change instants"
+    loading="lazy"
+  />
+  <figcaption>The timeline slider.</figcaption>
+</figure>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_diff_crop.png"
+    alt="The compare panel diffing a release branch against main"
+    loading="lazy"
+  />
+  <figcaption>Compare: a release branch against main.</figcaption>
+</figure>
+
+<h2>Reports</h2>
+<p>
+  <code>/reports.html</code> offers the Producer isolation report and the full dependency report
+  (every provided and required endpoint with each dependency's pinned version). Both take a
+  <a href="../start/glossary.html#report-scope">graph scope</a>: <code>dev</code>,
+  <code>main</code> or a sanshain-branch, the latter two optionally at an instant, so a
+  release-scoped report describes what production is. The viewer copies the report as Markdown or
+  downloads it. The same data is <code>GET /report</code>, <code>/report/markdown</code> and
+  <code>/report/isolation</code> with <code>?scope=main[@instant]</code> or
+  <code>?scope=&lt;branch&gt;[@instant]</code>; a read-only token may read them.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/report_scope_crop.png"
+    alt="The report scope selector offering dev, main and the branches"
+    loading="lazy"
+  />
+  <figcaption>The scope selector on the reports page.</figcaption>
+</figure>
+
+<h2>The audit timeline</h2>
+<p>
+  <code>/audit.html</code> is the <a href="../start/glossary.html#audit">audit timeline</a>, every
+  spec update and administrative action with a side-by-side diff, filtered by date, action, service
+  or version wildcard and <a href="../start/glossary.html#stream">stream</a>. It needs the
+  <code>view_audit</code> permission, held by the admin and viewer roles: the link is hidden from
+  everyone else and the data behind it is restricted. When a Producer's snapshot you pinned changed
+  under you, someone with that permission can tell you who provided it.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

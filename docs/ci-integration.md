@@ -2,7 +2,7 @@
 
 This guide covers how to integrate Sanshain into your CI/CD pipelines for automated contract validation and dependency management.
 
-> **Prerequisites:** A running Sanshain instance with authentication configured. See [Getting Started](getting-started.md) for installation and [Administration](administration.md) for configuration.
+> **Prerequisites:** A running Sanshain instance with authentication configured. See [Getting Started](https://paxel.github.io/sanshain-service/start/getting-started.html) for installation and [Administration](administration.md) for configuration.
 
 ## API Tokens
 
@@ -45,11 +45,11 @@ Every Provide declares a **stability** — and the pipeline is the natural place
 - **Release-branch builds** (`main`, `master`, release branches) provide with `"stability": "ga"` — the version becomes immutable.
 - **Feature-branch builds** provide with `"stability": "snapshot"` — overwritable work-in-progress that expires when unused.
 
-Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANSHAIN_GA=true`, `-Dsanshain.ga=true`, or `--ga` — see [How stability is decided](sanshain-yaml.md#how-stability-is-decided)); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
+Every build provides as `snapshot` unless the pipeline sets the ga switch (`SANSHAIN_GA=true`, `-Dsanshain.ga=true`, or `--ga` — see [How stability is decided](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html#how-stability-is-decided)); raw `curl` pipelines set the field themselves. The **version** is never a pipeline concern — it is read from the spec file (`info.version`, or the `// sanshain-version:` comment for proto).
 
 ## Streams from the Pipeline
 
-Alongside stability, the pipeline declares the **stream** ([User Guide — Declaring the Stream](user-guide.md#declaring-the-stream)):
+Alongside stability, the pipeline declares the **stream** ([User Guide — Declaring the Stream](https://paxel.github.io/sanshain-service/developer/release-graphs.html#the-three-streams)):
 
 - **Trunk CI** (the build of your default branch) adds `trunk: true` to provides and `trunk=true` to requires — this maintains the main graph. Nightly re-runs of an unchanged trunk build are wanted: they keep trunk data fresh instead of aging out.
 - **Release pipelines and hotfix builds** add `tag: "<sanshain-branch>"` — the calls update that release's graph instead of trunk. The branch must already exist (created by a releaser at cut time). An unknown tag — or `trunk` and `tag` together — does not fail the call: the build is recorded in the dev graph only and the response carries a `Sanshain-Warning` header (see below).
@@ -63,7 +63,7 @@ A build with `catalogInfo` in its `sanshain.yaml` also pushes the project's Back
 the `Component` named like the project and of it: `spec.dependsOn` (the Peripheral Resources drawn
 in the graph), `spec.owner`, `metadata.description`, the `backstage.io/source-location` annotation
 and `metadata.links` — the owner, description, repository and link chips shown on the system's node
-and page. Nothing else is read; see [sanshain.yaml — Catalog Phase](sanshain-yaml.md#catalog-phase)
+and page. Nothing else is read; see [sanshain.yaml — Catalog Phase](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html#the-catalog-phase)
 for the exact rules. Nightly re-runs of an unchanged file change nothing.
 
 ### The `Sanshain-Warning` header
@@ -410,6 +410,6 @@ Formats are body shapes, not connectors: every one is a signed `POST` to the URL
 
 ## Related Pages
 
-- [User Guide](user-guide.md) — Day-to-day usage: providing specs, requiring endpoints, browsing the UI.
+- [User Guide](https://paxel.github.io/sanshain-service/developer/web-ui.html) — Day-to-day usage: providing specs, requiring endpoints, browsing the UI.
 - [Administration](administration.md) — Managing users, versions, and settings.
-- [Getting Started](getting-started.md) — Installation and first-time setup.
+- [Getting Started](https://paxel.github.io/sanshain-service/start/getting-started.html) — Installation and first-time setup.

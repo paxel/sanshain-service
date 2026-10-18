@@ -3,29 +3,29 @@
 Detailed guides for users, administrators, and developers.
 
 ### TL;DR
-- **New Users**: Start with [**Getting Started**](getting-started.md).
-- **Producers**: Learn how to [**Provide Specs**](user-guide.md#providing-a-spec).
-- **Consumers**: Learn how to [**Require Endpoints**](user-guide.md#requiring-an-endpoint).
-- **Automation**: Use [**CI Integration**](ci-integration.md) and [**`sanshain.yaml`**](sanshain-yaml.md).
+- **New Users**: Start with [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html).
+- **Producers**: Learn how to [**Provide Specs**](https://paxel.github.io/sanshain-service/start/getting-started.html#the-first-provide-by-hand).
+- **Consumers**: Learn how to [**Require Endpoints**](https://paxel.github.io/sanshain-service/start/getting-started.html#the-first-require-by-hand).
+- **Automation**: Use [**CI Integration**](ci-integration.md) and [**`sanshain.yaml`**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html).
 
 ---
 
 ## Guide Index
 
 ### Fundamentals
-- [**Getting Started**](getting-started.md) — Installation, first launch, and initial setup.
-- [**User Guide**](user-guide.md) — Day-to-day usage: providing and requiring APIs.
-- [**Client Ecosystem**](clients.md) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
-- [**API Lifecycle**](api-lifecycle.md) — Handling breaking changes and versioning.
+- [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html) — Installation, first launch, and initial setup.
+- [**User Guide**](https://paxel.github.io/sanshain-service/developer/web-ui.html) — Day-to-day usage: providing and requiring APIs.
+- [**Client Ecosystem**](https://paxel.github.io/sanshain-service/developer/clients.html) — Detailed guide for Maven, Cargo, Go, JS, and Conan.
+- [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — Handling breaking changes and versioning.
 - [**API Usage**](api-usage.md) — Authentication and detailed endpoint reference.
 - [**Troubleshooting**](troubleshooting.md) — Solutions to common issues.
 - [**Corporate Best Practices**](corporate-best-practices.md) — Recommendations for enterprise usage and [Maven-specific patterns](../../SanshainMaven/docs/corporate-usage.md).
 
 ### Integration & Configuration
 - [**CI Integration**](ci-integration.md) — Automating contract validation in pipelines.
-- [**`sanshain.yaml`**](sanshain-yaml.md) — Standard client configuration format.
+- [**`sanshain.yaml`**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Standard client configuration format.
 - [**AI Migration**](ai-migration.md) — Using AI to migrate existing services to Sanshain.
-- [**MCP**](mcp.md) — Letting AI assistants query the catalog over the Model Context Protocol: token setup, client configuration, the seven tools, limits.
+- [**MCP**](https://paxel.github.io/sanshain-service/developer/mcp.html) — Letting AI assistants query the catalog over the Model Context Protocol: token setup, client configuration, the seven tools, limits.
 
 ### Administration & Operations
 - [**Administration**](administration.md) — Managing users, versions, and LDAP.

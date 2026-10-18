@@ -5,24 +5,24 @@
 </p>
 
 <p>
-  A Producer publishes its full specification once. A Consumer does not take the whole document;
-  it requires only the endpoints, channels or methods it actually calls, at the version it pins.
-  The service keeps every version, tracks who depends on what, and rejects a publish that forgot
-  its version bump or hides a breaking change behind a minor one, proposing the correct next
-  version instead.
+  A Producer publishes its full specification once. A Consumer does not take the whole document; it
+  requires only the endpoints, channels or methods it actually calls, at the version it pins. The
+  service keeps every version, tracks who depends on what, and rejects a publish that forgot its
+  version bump or hides a breaking change behind a minor one, proposing the correct next version
+  instead.
 </p>
 
 <h2>Producers and Consumers</h2>
 <p>
   <strong>Producers</strong> <em>provide</em> their complete spec. Sanshain stores it as a new
-  version in the Producer's version line and splits it into the endpoints, channels and methods
-  it contains.
+  version in the Producer's version line and splits it into the endpoints, channels and methods it
+  contains.
 </p>
 <p>
   <strong>Consumers</strong> <em>require</em> only the snippets they use and receive a spec that
-  holds nothing else. Each entry under <code>requires</code> in <code>sanshain.yaml</code> names
-  the Producer, the exact version and the endpoints, channels or methods it uses, so a Consumer
-  never ships with a dependency on an endpoint it does not call. A system is usually both.
+  holds nothing else. Each entry under <code>requires</code> in <code>sanshain.yaml</code> names the
+  Producer, the exact version and the endpoints, channels or methods it uses, so a Consumer never
+  ships with a dependency on an endpoint it does not call. A system is usually both.
 </p>
 
 <h2>Version lines</h2>
@@ -36,23 +36,22 @@
     again replaces it.
   </li>
   <li>
-    <strong>ga</strong> — a released version. The number is claimed permanently and its content
-    is immutable; only elements marked deprecated may be removed later.
+    <strong>ga</strong> — a released version. The number is claimed permanently and its content is
+    immutable; only elements marked deprecated may be removed later.
   </li>
 </ul>
 <p>
-  A forgotten version bump, or a breaking change hiding behind a minor bump, is rejected at the
-  door with the correct next version proposed. Consumers pin exact versions: no fallback, no
-  surprises at build time.
+  A forgotten version bump, or a breaking change hiding behind a minor bump, is rejected at the door
+  with the correct next version proposed. Consumers pin exact versions: no fallback, no surprises at
+  build time.
 </p>
 
 <h2>The dependency graph</h2>
 <p>
-  Because every requirement is recorded, Sanshain knows exactly which Consumer pins which version
-  of which endpoint. The dashboard draws that as a live graph of your services, highlighting
-  Consumers that build against outdated versions or against snapshots. Release cuts, named
-  branches and a timeline of past graph states turn the graph into a record of what production
-  actually is.
+  Because every requirement is recorded, Sanshain knows exactly which Consumer pins which version of
+  which endpoint. The dashboard draws that as a live graph of your services, highlighting Consumers
+  that build against outdated versions or against snapshots. Release cuts, named branches and a
+  timeline of past graph states turn the graph into a record of what production actually is.
 </p>
 
 <h2>Quick start</h2>
@@ -61,49 +60,63 @@
 <p>From source (SQLite by default; migrations run on startup):</p>
 <pre><code>cargo run</code></pre>
 <ol>
-  <li>Open <code>http://localhost:3000/admin.html</code> and log in as the initial admin (default <code>root</code>, see <code>INITIAL_ADMIN_USERNAME</code>) with the random password printed in the logs.</li>
+  <li>
+    Open <code>http://localhost:3000/admin.html</code> and log in as the initial admin (default
+    <code>root</code>, see <code>INITIAL_ADMIN_USERNAME</code>) with the random password printed in
+    the logs.
+  </li>
   <li>Change that password.</li>
-  <li>Run <code>./scripts/demo.sh</code> to populate the service with sample Producers and Consumers.</li>
+  <li>
+    Run <code>./scripts/demo.sh</code> to populate the service with sample Producers and Consumers.
+  </li>
 </ol>
 <p>
-  The full walk-through, including PostgreSQL and the first API token, is still
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/getting-started.md">docs/getting-started.md</a>
-  on GitHub until the <a href="start/index.html">Getting started</a> chapter is written.
+  The full walk-through, including PostgreSQL, the first API token and the first provide and
+  require, is <a href="start/getting-started.html">Getting started</a>.
 </p>
 
 <h2>The documentation</h2>
 <p>
-  Four tracks, one per kind of reader. The chapters are being moved here from the Markdown guides
-  on GitHub; until then each card links to the guide it will replace. Press <kbd>/</kbd> to search
-  what is already here.
+  Four tracks, one per kind of reader. The Start and Developer tracks are here; the Operator
+  chapters are being moved from the Markdown guides on GitHub, and that card links to the guide it
+  will replace. Press <kbd>/</kbd> to search what is already here.
 </p>
 <ul class="cards">
   <li>
-    <a class="card" href="https://github.com/paxel/sanshain-service/blob/summer/docs/getting-started.md">
-      <p class="eyebrow">Start · upcoming</p>
+    <a class="card" href="start/index.html">
+      <p class="eyebrow">Start</p>
       <p class="card-title">Getting started</p>
-      <p>Will cover install, first login, a first provide and a first require. Today: docs/getting-started.md.</p>
+      <p>Install, first login, a first provide and a first require; the concepts; the glossary.</p>
     </a>
   </li>
   <li>
-    <a class="card" href="https://github.com/paxel/sanshain-service/blob/summer/docs/user-guide.md">
-      <p class="eyebrow">Developer · upcoming</p>
+    <a class="card" href="developer/index.html">
+      <p class="eyebrow">Developer</p>
       <p class="card-title">Day-to-day use</p>
-      <p>Will cover clients, <code>sanshain.yaml</code>, CI integration, the API lifecycle and MCP. Today: docs/user-guide.md.</p>
+      <p>
+        The web UI, <code>sanshain.yaml</code>, the clients, the API lifecycle, release graphs, CI
+        integration and MCP.
+      </p>
     </a>
   </li>
   <li>
     <a class="card" href="https://github.com/paxel/sanshain-service/blob/summer/docs/deployment.md">
       <p class="eyebrow">Operator · upcoming</p>
       <p class="card-title">Running it</p>
-      <p>Will cover deployment, configuration, authentication, backup and administration. Today: docs/deployment.md.</p>
+      <p>
+        Will cover deployment, configuration, authentication, backup and administration. Today:
+        docs/deployment.md.
+      </p>
     </a>
   </li>
   <li>
     <a class="card" href="https://github.com/paxel/sanshain-service/blob/summer/api.yaml">
       <p class="eyebrow">Reference · upcoming</p>
       <p class="card-title">The contracts</p>
-      <p>Will hold the REST reference and the arc42 architecture. Today: api.yaml and maintenance.yaml.</p>
+      <p>
+        Will hold the REST reference and the arc42 architecture. Today: api.yaml and
+        maintenance.yaml.
+      </p>
     </a>
   </li>
 </ul>

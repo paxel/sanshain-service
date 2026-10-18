@@ -1,0 +1,285 @@
+<!-- page: title="Getting started" track="start" order=1 summary="Run Sanshain with Docker or from source, log in as the initial admin, approve a user, mint a token, then provide a spec and require an endpoint by hand and with a client." -->
+<p class="lede">
+  Twenty minutes from nothing to a first dependency: start
+  <a href="glossary.html#sanshain">Sanshain</a>, log in, mint a token, provide one spec as a
+  <a href="glossary.html#producer">Producer</a> and require one endpoint as a
+  <a href="glossary.html#consumer">Consumer</a>, first with <code>curl</code>, then with a client.
+</p>
+
+<h2>Run it</h2>
+
+<h3>Docker with SQLite</h3>
+<p>
+  The image uses SQLite by default and keeps the database under <code>/data</code>. Mount a volume
+  so it survives the container:
+</p>
+<pre><code>docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest</code></pre>
+<p>
+  Migrations run on startup. The service listens on port 3000 (<code>BIND_ADDRESS</code> changes
+  that).
+</p>
+
+<h3>Docker with PostgreSQL</h3>
+<p>
+  Set <code>DATABASE_URL</code> and Sanshain uses PostgreSQL instead; the backend is detected from
+  the URL.
+</p>
+<pre><code>docker run -p 3000:3000 \
+  -e DATABASE_URL=postgres://user:pass@host:5432/sanshain \
+  ghcr.io/paxel/sanshain-service:latest</code></pre>
+<p>
+  <a
+    href="https://github.com/paxel/sanshain-service/blob/summer/docker-compose.release.template.yaml"
+    >docker-compose.release.template.yaml</a
+  >
+  in the repository is a Compose file for the SQLite setup; for PostgreSQL add the
+  <code>DATABASE_URL</code> above to its <code>environment</code>. Helm, scaling and backup are in
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/deployment.md"
+    >docs/deployment.md</a
+  >
+  on GitHub (Operator chapter coming).
+</p>
+
+<h3>From source</h3>
+<p>
+  The toolchain is pinned in <code>rust-toolchain.toml</code>; <code>cargo</code> picks it up.
+  Without <code>DATABASE_URL</code> the service creates <code>sanshain.db</code> in the working
+  directory.
+</p>
+<pre><code>cargo run
+# or a release build:
+cargo build --release
+DATABASE_URL=sqlite://sanshain.db ./target/release/sanshain_service</code></pre>
+
+<h2>First login</h2>
+<p>
+  On the very first start, with no user in the database, Sanshain creates the initial admin and
+  prints its password to the console (stderr):
+</p>
+<pre><code>[INITIAL SETUP] Admin user created. Username: root, Password: &lt;random&gt;
+[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html</code></pre>
+<p>
+  The username is <code>root</code> unless <code>INITIAL_ADMIN_USERNAME</code> says otherwise, and
+  <code>INITIAL_ADMIN_PASSWORD</code> replaces the random password. This account is
+  <a href="glossary.html#root">root</a>: its authority comes from configuration and cannot be
+  revoked from inside the application. When <code>SANSHAIN_ROOT_USERS</code> is set, that list alone
+  names the root accounts; otherwise the initial admin's username is root.
+</p>
+<ol>
+  <li>Open <code>http://localhost:3000/</code> and sign in with those credentials.</li>
+  <li>Open the account page (<code>/account.html</code>) and change the password.</li>
+</ol>
+<figure class="screenshot">
+  <img
+    src="../assets/images/login.png"
+    alt="The sign-in form with username and password fields, a Sign In button and a Sign in with SSO button"
+    loading="lazy"
+  />
+  <figcaption>
+    The sign-in form. The SSO button appears when OpenID Connect is configured.
+  </figcaption>
+</figure>
+
+<h2>Approving users</h2>
+<p>
+  Colleagues register themselves on the Register tab of the same page. A new local account cannot
+  log in until an administrator approves it: on <code>/admin.html</code>, the
+  <strong>Users</strong> section lists registered users with an approve button. The
+  <strong>Auto-approve users</strong> toggle on the same page approves new registrations
+  automatically; it is off by default. See <a href="glossary.html#approval">approval</a>.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/register.png"
+    alt="The Register tab: username, password, confirm password, and the note that an admin must approve the account"
+    loading="lazy"
+  />
+  <figcaption>Registration tells the user that approval is pending.</figcaption>
+</figure>
+
+<h2>Mint an API token</h2>
+<p>
+  Every call from a build or a script authenticates with an
+  <a href="glossary.html#api-token">API token</a>, never with a password. On
+  <code>/account.html</code>, under <strong>API Tokens</strong>, enter a name and an expiry in days,
+  leave <strong>Read-only (for AI / MCP clients)</strong> unticked for a token that will provide and
+  require, and create it. The raw token (<code>san_</code> followed by 64 hex characters) is shown
+  once.
+</p>
+<p>The same with the API: log in for a session token, then mint with it.</p>
+<p class="example-caption">Request</p>
+<pre><code>curl -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"root","password":"…"}'</code></pre>
+<p class="example-caption">Response</p>
+<pre><code>{ "token": "…" }</code></pre>
+<p class="example-caption">Request</p>
+<pre><code>curl -s -X POST http://localhost:3000/auth/tokens \
+  -H "Authorization: Bearer $SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"laptop","expires_in_days":30}'</code></pre>
+<p class="example-caption">Response</p>
+<pre><code>{ "id": "…", "name": "laptop", "scope": "full", "token": "san_…" }</code></pre>
+<p>
+  Export it as <code>SANSHAIN_TOKEN</code> for the rest of this chapter. A token's
+  <a href="glossary.html#scope">scope</a> is fixed at creation; a <code>read_only</code> token is
+  refused on every call below that changes something.
+</p>
+
+<h2>The first provide, by hand</h2>
+<p>
+  A <a href="glossary.html#provide">provide</a> sends the whole document. The
+  <a href="glossary.html#version">version</a> is read from <code>info.version</code>; the caller
+  declares only the <a href="glossary.html#stability">stability</a>. Save this as
+  <code>orders.yaml</code>:
+</p>
+<pre><code>openapi: 3.0.3
+info:
+  title: Orders
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      summary: List orders
+      responses:
+        "200":
+          description: OK
+  /orders/{id}:
+    get:
+      summary: One order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK</code></pre>
+<p class="example-caption">Request</p>
+<pre><code>curl -s -X POST http://localhost:3000/provide \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"producername\": \"orders\",
+    \"stability\": \"snapshot\",
+    \"openapi_yaml\": $(jq -Rs . &lt; orders.yaml)
+  }"</code></pre>
+<p class="example-caption">Response (202 Accepted)</p>
+<pre><code>{
+  "version": "1.0.0",
+  "stability": "snapshot",
+  "content_hash": "sha256:…",
+  "changes": { "inserts": 2, "updates": 0, "deletes": 0 }
+}</code></pre>
+<p>
+  Sanshain stored version <code>1.0.0</code> of the Producer <code>orders</code> as a
+  <a href="glossary.html#snapshot">snapshot</a> and split it into two endpoint
+  <a href="glossary.html#snippet">snippets</a>. Run the same command again: the answer is
+  <code>changes</code> all zero and nothing is stored, the
+  <a href="glossary.html#idempotent-no-op">idempotent no-op</a>.
+</p>
+<p>
+  To release it, send <code>"stability": "ga"</code> with the same number. The snapshot is
+  <a href="glossary.html#promotion">promoted</a> in place and the response adds
+  <code>"promoted": true</code>. Publishing <a href="glossary.html#ga">GA</a> needs the
+  <a href="glossary.html#releaser">releaser</a> role; root has it. A user without it gets
+  <code>403</code> and this message:
+</p>
+<pre><code>{ "error": "publishing GA for 'orders' requires the 'releaser' role — publish as a snapshot, or ask an administrator to grant the role" }</code></pre>
+
+<h2>The first require, by hand</h2>
+<p>
+  A <a href="glossary.html#require">require</a> names the Consumer, the Producer, the exact
+  <a href="glossary.html#pin">pin</a> and one endpoint. It answers a snippet that holds only that
+  operation, and records that <code>web-shop</code> depends on it.
+</p>
+<p class="example-caption">Request</p>
+<pre><code>curl -g -si "http://localhost:3000/require?consumername=web-shop&amp;producername=orders&amp;version=1.0.0&amp;path=/orders/{id}&amp;method=GET" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN"</code></pre>
+<p class="example-caption">Response</p>
+<pre><code>HTTP/1.1 200 OK
+content-type: application/yaml
+x-sanshain-resolution: served
+x-sanshain-version: 1.0.0
+x-sanshain-stability: ga
+etag: "…"
+
+openapi: 3.0.3
+info:
+  title: Orders
+  version: 1.0.0
+paths:
+  /orders/{id}:
+    get:
+      summary: One order
+      …</code></pre>
+<p>
+  <code>x-sanshain-stability</code> says what actually answered, GA or snapshot. Two things cannot
+  happen: a pin to a version that does not exist is answered <code>404</code> at once (<a
+    href="glossary.html#unknown"
+    >unknown</a
+  >), and a pin to a version that exists but lacks the endpoint is answered <code>410</code> (<a
+    href="glossary.html#absent"
+    >absent</a
+  >). There is no fallback to another version. Open <code>/graph.html</code>: the
+  <a href="glossary.html#dependency-graph">dependency graph</a> now shows
+  <code>web-shop</code> pinning <code>orders 1.0.0</code>.
+</p>
+
+<h2>The same with a client</h2>
+<p>
+  Builds do not call <code>curl</code>. Every official client reads one file,
+  <code>sanshain.yaml</code>, in the project root; the Producer side and the Consumer side of the
+  example above look like this:
+</p>
+<pre><code># orders/sanshain.yaml
+serviceName: orders
+provides:
+  - file: orders.yaml        # version read from info.version</code></pre>
+<pre><code># web-shop/sanshain.yaml
+serviceName: web-shop
+requires:
+  - serviceName: orders
+    version: 1.0.0           # the pin
+    outputDirectory: generated/orders
+    endpoints:
+      - method: GET
+        path: /orders/{id}</code></pre>
+<p>
+  With <code>SANSHAIN_URL</code> and <code>SANSHAIN_TOKEN</code> in the environment, the Rust client
+  is:
+</p>
+<pre><code>cargo install cargo-sanshain
+cargo sanshain provide       # snapshot; --ga releases
+cargo sanshain require       # writes generated/orders/…</code></pre>
+<p>
+  The Maven, Go, JavaScript and Conan clients speak the same file; the
+  <a href="../developer/clients.html">Clients</a> chapter lists each one's install and commands, and
+  <a href="../developer/sanshain-yaml.html"><code>sanshain.yaml</code></a> documents every field.
+</p>
+
+<h2>Sample data</h2>
+<p>
+  <code>scripts/demo.sh</code> in the repository fills an instance with Producers, Consumers,
+  snapshots, promotions and deliberate <code>409</code> rejections, so the graph and the reports
+  have something to show:
+</p>
+<pre><code>SANSHAIN_TOKEN=san_… ./scripts/demo.sh</code></pre>
+
+<h2>A shortcut for a local trial</h2>
+<p>
+  <a href="glossary.html#dev-mode">Developer mode</a> switches authentication off. It needs both the
+  switch and the safety gate, and it belongs on a laptop only:
+</p>
+<pre><code>docker run -p 3000:3000 -e ALLOW_INSECURE_DEV_MODE=true -e SANSHAIN_DEV_MODE=true \
+  ghcr.io/paxel/sanshain-service:latest</code></pre>
+<p>Without the gate the service logs a refusal and keeps authentication enforced.</p>
+
+<h2>Where next</h2>
+<ul>
+  <li><a href="concepts.html">Concepts</a>: the model behind what you just did.</li>
+  <li><a href="../developer/index.html">Developer track</a>: clients, CI, the API lifecycle.</li>
+  <li><a href="../reference/api-usage.html">Using the API</a>: tokens, scopes and error shapes.</li>
+</ul>
+
+<p class="checked">Checked against v2.6.0.</p>

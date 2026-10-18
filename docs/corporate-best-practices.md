@@ -35,7 +35,7 @@ Pinned Consumers can never be broken by a new version — Sanshain's job is keep
 
 **Best Practice**:
 - Publish breaking changes as a new **major** GA version; the old majors remain immutable and keep serving their pinned Consumers.
-- Follow the **deprecate-then-remove** strategy described in the [API Lifecycle](api-lifecycle.md) guide.
+- Follow the **deprecate-then-remove** strategy described in the [API Lifecycle](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) guide.
 - Use the **Dependency Graph** in the Sanshain UI to identify which teams still pin old versions of your API (**Outdated** highlights).
 - Only delete an old GA version (the audited admin escape hatch) after the dependents listing shows zero pinned Consumers.
 
@@ -61,7 +61,7 @@ For production usage, ensure your Sanshain instance is robust.
 ---
 
 ## Related Guides
-- [**`sanshain.yaml` Reference**](sanshain-yaml.md) — Configuration details.
+- [**`sanshain.yaml` Reference**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Configuration details.
 - [**CI Integration**](ci-integration.md) — Setting up pipelines.
-- [**API Lifecycle**](api-lifecycle.md) — Handling versioning.
+- [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — Handling versioning.
 - [**Administration**](administration.md) — LDAP setup and version administration.

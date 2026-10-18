@@ -1,19 +1,19 @@
 {
   "_comment": "Box name in docs/arc42 → URL relative to reference/architecture.html. A box with a whitebox gets { doc, whitebox }: the diagram links to the whitebox section, its table row to doc. A box in neither links nor unlinked fails the build.",
-  "_todo": "TODO #56: re-point these once the chapters exist. Placeholders ../developer/ (Build Tooling, Web UI, MCP Server) and ../operator/ (LDAP / Active Directory, OIDC Provider, Database Server, Observability Stack, Telemetry, Auth Providers, Persistence, Webhooks); GitHub docs that #56 deletes: docs/mcp.md (AI Client) and docs/ci-integration.md#webhooks (Webhook Receivers); the api-usage.html anchors (Report & Validate Endpoints, Live Update Endpoints, Auth Endpoints, Request Guards).",
+  "_todo": "TODO #56: re-point these once the Operator chapters exist. Placeholders ../operator/ (LDAP / Active Directory, OIDC Provider, Database Server, Observability Stack, Telemetry, Auth Providers, Persistence, Webhooks); the GitHub doc docs/ci-integration.md#webhooks (Webhook Receivers) moves to the Operator track.",
   "links": {
     "Sanshain Service": { "doc": "../index.html", "whitebox": "#sanshain-service" },
-    "Build Tooling": "../developer/",
+    "Build Tooling": "../developer/clients.html",
     "LDAP / Active Directory": "../operator/",
     "OIDC Provider": "../operator/",
     "Database Server": "../operator/",
     "Observability Stack": "../operator/",
     "Webhook Receivers": "https://github.com/paxel/sanshain-service/blob/summer/docs/ci-integration.md#webhooks",
-    "AI Client": "https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md",
+    "AI Client": "../developer/mcp.html",
     "Backup Job": "maintenance.html#admin-backup-sqlite",
 
     "HTTP API": { "doc": "api.html", "whitebox": "#http-api" },
-    "Web UI": "../developer/",
+    "Web UI": "../developer/web-ui.html",
     "Application Services": {
       "doc": "https://github.com/paxel/sanshain-service/tree/summer/src/application",
       "whitebox": "#application-services"
@@ -23,7 +23,7 @@
     "Auth Providers": "../operator/",
     "Persistence": { "doc": "../operator/", "whitebox": "#persistence" },
     "Webhooks": "../operator/",
-    "MCP Server": "../developer/",
+    "MCP Server": "../developer/mcp.html",
 
     "Provide Endpoints": "api.html#provide",
     "Require Endpoints": "api.html#require",

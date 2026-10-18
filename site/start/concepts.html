@@ -1,0 +1,343 @@
+<!-- page: title="Concepts" track="start" order=2 summary="The model in one page: Producers and Consumers, version lines, snapshot and GA, pins and how a require is answered, the graph with its trunk and release branches, periphery and catalog context, token scopes and webhooks." -->
+<p class="lede">
+  Sanshain is small enough to hold in one head. This page is the whole model; the
+  <a href="glossary.html">glossary</a> has every term in one or two sentences, and the Developer
+  track has the details.
+</p>
+
+<h2>Producers and Consumers</h2>
+<p>
+  A <a href="glossary.html#producer">Producer</a> publishes its complete API specification: OpenAPI,
+  AsyncAPI or gRPC/Proto. A <a href="glossary.html#consumer">Consumer</a> does not take that
+  document. It asks for the endpoints, channels or methods it actually calls and receives a document
+  that contains nothing else: a <a href="glossary.html#snippet">snippet</a>, cut from the Producer's
+  spec with the schemas it references. Producer and Consumer are roles, not kinds of system: a
+  system is usually both, and Sanshain lists it once in each role.
+</p>
+<p>
+  Whoever calls Sanshain on a system's behalf is <a href="glossary.html#tooling">tooling</a>: the
+  Maven plugin, a CLI, a <code>curl</code> line in a pipeline. Tooling reads one file,
+  <code>sanshain.yaml</code>, and turns it into the calls below.
+</p>
+<figure class="diagram">
+  <svg viewBox="0 0 720 230" role="img" aria-labelledby="fig-flow-title fig-flow-desc">
+    <title id="fig-flow-title">How Sanshain works</title>
+    <desc id="fig-flow-desc">
+      Producers on the left provide their full specs. Sanshain in the middle stores each as an entry
+      of the Producer's version line and splits it into endpoints. Consumers on the right require
+      single endpoints at an exact pinned version.
+    </desc>
+    <defs>
+      <marker
+        id="arr-f"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow" />
+      </marker>
+    </defs>
+    <text x="8" y="22" class="d-muted">Producers</text>
+    <rect x="8" y="34" width="150" height="56" rx="6" class="d-box" />
+    <text x="20" y="56" class="d-text d-strong">orders</text>
+    <text x="20" y="76" class="d-muted">provides openapi.yaml</text>
+    <rect x="8" y="110" width="150" height="56" rx="6" class="d-box" />
+    <text x="20" y="132" class="d-text d-strong">payments</text>
+    <text x="20" y="152" class="d-muted">provides payments.proto</text>
+
+    <path d="M158 62H232" class="d-line" marker-end="url(#arr-f)" />
+    <path d="M158 138H232" class="d-line" marker-end="url(#arr-f)" />
+    <text x="195" y="108" text-anchor="middle" class="d-accent">provide</text>
+    <text x="195" y="122" text-anchor="middle" class="d-muted">the full spec</text>
+
+    <text x="236" y="22" class="d-muted">Sanshain</text>
+    <rect x="236" y="34" width="248" height="176" rx="6" class="d-box" />
+    <text x="248" y="56" class="d-text d-strong">version lines</text>
+    <text x="248" y="76" class="d-text d-mono">orders 1.0.0 ga · 1.1.0 snap</text>
+    <text x="248" y="94" class="d-text d-mono">payments 2.0.0 ga</text>
+    <text x="248" y="124" class="d-text d-strong">split into endpoints</text>
+    <text x="248" y="144" class="d-text d-mono">GET /orders</text>
+    <text x="248" y="162" class="d-text d-mono">GET /orders/{id}</text>
+    <text x="248" y="180" class="d-text d-mono">rpc Charge</text>
+    <text x="248" y="200" class="d-muted">one snippet per endpoint</text>
+
+    <path d="M484 62H558" class="d-line" marker-end="url(#arr-f)" />
+    <path d="M484 138H558" class="d-line" marker-end="url(#arr-f)" />
+    <text x="521" y="108" text-anchor="middle" class="d-accent">require</text>
+    <text x="521" y="122" text-anchor="middle" class="d-muted">at a pin</text>
+
+    <text x="562" y="22" class="d-muted">Consumers</text>
+    <rect x="562" y="34" width="150" height="56" rx="6" class="d-box" />
+    <text x="574" y="56" class="d-text d-strong">web-shop</text>
+    <text x="574" y="76" class="d-muted d-mono">orders 1.0.0</text>
+    <rect x="562" y="110" width="150" height="56" rx="6" class="d-box" />
+    <text x="574" y="132" class="d-text d-strong">billing</text>
+    <text x="574" y="152" class="d-muted d-mono">payments 2.0.0</text>
+  </svg>
+  <figcaption>Provide on the left, version lines in the middle, pins on the right.</figcaption>
+</figure>
+
+<h2>Version lines, snapshot and GA</h2>
+<p>
+  A <a href="glossary.html#version">version</a> is <code>MAJOR.MINOR.PATCH</code> and lives in the
+  spec file: <code>info.version</code>, or for proto a mandatory
+  <code>// sanshain-version:</code> comment. Sanshain never assigns one. The versions one Producer
+  has published for one API type form its <a href="glossary.html#version-line">version line</a>; a
+  Producer's OpenAPI line and its proto line evolve independently.
+</p>
+<p>
+  Every <a href="glossary.html#provide">provide</a> declares a
+  <a href="glossary.html#stability">stability</a>, and there are exactly two:
+</p>
+<ul>
+  <li>
+    A <a href="glossary.html#snapshot">snapshot</a> is work in progress. Providing the same number
+    again replaces it; the last writer wins and the overwrite is audited. Snapshots are never
+    compatibility-checked, and one that is neither provided nor required for 30 days (the
+    <a href="glossary.html#snapshot-expiry">snapshot window</a>) is cleaned up.
+  </li>
+  <li>
+    <a href="glossary.html#ga">GA</a> is released. The content is immutable and the number is
+    claimed forever: providing different content under it is refused with the next free version
+    proposed, and no snapshot may ever carry that number again. Providing a GA number that exists as
+    a snapshot <a href="glossary.html#promotion">promotes</a> it in place.
+  </li>
+</ul>
+<p>
+  How a build decides is the tooling's business: every client provides a snapshot unless its
+  <em>ga switch</em> (<code>SANSHAIN_GA=true</code>, <code>--ga</code>,
+  <code>-Dsanshain.ga=true</code>) is set, which CI does on its release pipelines. Sanshain never
+  looks at a git branch. Publishing GA needs the <a href="glossary.html#releaser">releaser</a>
+  role.
+</p>
+<p>
+  Two rules keep the numbers honest, and both are self-service: a GA provide under an existing GA
+  number with different content, and a GA provide whose changes against the previous GA are
+  <a href="glossary.html#breaking-change">breaking</a> without a major bump, are refused with
+  <code>409</code> and a <a href="glossary.html#proposed-version">proposed version</a>. Set it in
+  the spec and republish. The <a href="../developer/api-lifecycle.html">API lifecycle</a> chapter
+  draws the rules and quotes the messages.
+</p>
+
+<h2>Pins, and how a require is answered</h2>
+<p>
+  A Consumer's dependency is a <a href="glossary.html#pin">pin</a>: the exact version it builds
+  against, written in its own <code>sanshain.yaml</code>. No ranges, no <code>latest</code>, no
+  default. A <a href="glossary.html#require">require</a> names the Producer, the pin and one
+  endpoint; a <a href="glossary.html#bundle">bundle</a> names several endpoints of one Producer at
+  one pin and gets one merged document with each shared schema once.
+</p>
+<figure class="diagram">
+  <svg viewBox="0 0 720 290" role="img" aria-labelledby="fig-require-title fig-require-desc">
+    <title id="fig-require-title">How a require is resolved</title>
+    <desc id="fig-require-desc">
+      The Consumer web-shop pins orders 1.0.0 and requires GET /orders/{id}. Sanshain looks at the
+      version line of orders: 1.1.0 snapshot, 1.0.0 GA, 0.9.0 GA. The pin lands on 1.0.0. If the
+      entry contains the endpoint the answer is served (200) and the edge is recorded; if the entry
+      exists but lacks the endpoint the answer is absent (410); if the line has no such version the
+      answer is unknown (404). Nothing falls back to another version.
+    </desc>
+    <defs>
+      <marker
+        id="arr"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow" />
+      </marker>
+      <marker
+        id="arr-accent"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow-accent" />
+      </marker>
+      <marker
+        id="arr-muted"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow-muted" />
+      </marker>
+    </defs>
+
+    <!-- Consumer -->
+    <rect x="8" y="92" width="160" height="104" rx="6" class="d-box" />
+    <text x="20" y="112" class="d-muted">Consumer</text>
+    <text x="20" y="132" class="d-text d-strong">web-shop</text>
+    <text x="20" y="156" class="d-text d-mono">orders 1.0.0</text>
+    <text x="20" y="176" class="d-text d-mono">GET /orders/{id}</text>
+    <text x="20" y="190" class="d-muted">the pin, in sanshain.yaml</text>
+
+    <!-- require arrow -->
+    <path d="M168 144H232" class="d-line-accent" marker-end="url(#arr-accent)" />
+    <text x="200" y="136" text-anchor="middle" class="d-accent">require</text>
+
+    <!-- Sanshain version line -->
+    <rect x="236" y="30" width="236" height="232" rx="6" class="d-box" />
+    <text x="248" y="50" class="d-muted">version line of orders · openapi</text>
+
+    <rect x="252" y="66" width="204" height="38" rx="5" class="d-snap" />
+    <text x="264" y="90" class="d-text d-mono">1.1.0</text>
+    <text x="320" y="90" class="d-muted">snapshot · overwritable</text>
+
+    <text x="456" y="118" text-anchor="end" class="d-accent">the pin</text>
+    <rect x="252" y="124" width="204" height="38" rx="5" class="d-ga" />
+    <text x="264" y="148" class="d-ga-text d-mono">1.0.0</text>
+    <text x="320" y="148" class="d-ga-text">GA · immutable</text>
+
+    <rect x="252" y="182" width="204" height="38" rx="5" class="d-box" />
+    <text x="264" y="206" class="d-text d-mono">0.9.0</text>
+    <text x="320" y="206" class="d-muted">GA</text>
+
+    <text x="252" y="246" class="d-muted">One entry per version, snapshot or GA.</text>
+    <text x="252" y="258" class="d-muted">No fallback to any other version.</text>
+
+    <!-- outcomes -->
+    <path d="M456 136C490 136 490 76 508 76" class="d-line-accent" marker-end="url(#arr-accent)" />
+    <rect x="512" y="52" width="200" height="50" rx="6" class="d-box" />
+    <text x="524" y="72" class="d-accent">served · 200</text>
+    <text x="524" y="90" class="d-muted">snippet answered, edge recorded</text>
+
+    <path d="M456 150C490 150 490 160 508 160" class="d-line" marker-end="url(#arr)" />
+    <rect x="512" y="136" width="200" height="50" rx="6" class="d-box" />
+    <text x="524" y="156" class="d-text d-strong">absent · 410</text>
+    <text x="524" y="174" class="d-muted">1.0.0 exists, lacks the endpoint</text>
+
+    <path d="M472 236C490 236 490 244 508 244" class="d-line-muted" marker-end="url(#arr-muted)" />
+    <rect x="512" y="220" width="200" height="50" rx="6" class="d-faint" />
+    <text x="524" y="240" class="d-text d-strong">unknown · 404</text>
+    <text x="524" y="258" class="d-muted">the line has no 1.0.0</text>
+  </svg>
+  <figcaption>
+    A require lands on exactly one entry of the line and ends in exactly one of three states.
+  </figcaption>
+</figure>
+<p>
+  <a href="glossary.html#resolution">Resolution</a> looks at the one entry the line holds for the
+  pinned version, snapshot or GA; nothing else is consulted and nothing waits. A successful require
+  is <a href="glossary.html#served">served</a> and records the dependency. A version that exists
+  without the endpoint is <a href="glossary.html#absent">absent</a> (<code>410</code>): the spec was
+  complete, so the omission is deliberate. A version that does not exist is
+  <a href="glossary.html#unknown">unknown</a> (<code>404</code>): fix the pin. A failed require
+  records nothing, so the graph never shows a dependency that could not have compiled.
+</p>
+<p>
+  Because pins are exact, a new version can never break a Consumer. The version rules above exist so
+  that a Consumer reading <code>2.4.0 → 2.5.0</code> can trust the upgrade is compatible.
+</p>
+
+<h2>The dependency graph</h2>
+<p>
+  Every recorded require is an edge, so Sanshain knows which Consumer pins which version of which
+  endpoint, and draws it as the <a href="glossary.html#dependency-graph">dependency graph</a>. The
+  graph highlights two things a pin set can hide: an
+  <a href="glossary.html#outdated">outdated</a> pin, below the latest GA of its line, and a
+  <a href="glossary.html#snapshot-pinned">snapshot-pinned</a> one, built against overwritable
+  content. Both are display states; neither changes what is served.
+</p>
+<figure class="screenshot">
+  <picture>
+    <source srcset="../assets/images/graph_dark.png" media="(prefers-color-scheme: dark)" />
+    <img
+      src="../assets/images/graph.png"
+      alt="The dependency graph page: service nodes connected by pinned-version edges"
+      loading="lazy"
+    />
+  </picture>
+  <figcaption>The graph on <code>/graph.html</code>.</figcaption>
+</figure>
+
+<h3>Streams: dev, trunk and main</h3>
+<p>
+  A plain provide or require records dev activity: the
+  <a href="glossary.html#dev-graph">dev graph</a> is everything ever recorded, snapshots and feature
+  builds included, thinned by a 30-day window. That is noise when the question is "what is
+  production?". So a build may declare its <a href="glossary.html#stream">stream</a>:
+  <code>trunk: true</code> on the calls of your default-branch CI stamps the version as
+  <a href="glossary.html#trunk">trunk</a>'s and maintains the
+  <a href="glossary.html#main-graph">main graph</a>, the set of trunk pins, deterministic after
+  every trunk build. A trunk entry not refreshed for half the
+  <a href="glossary.html#trunk-ttl">trunk TTL</a> (45 days by default) is highlighted as stale; one
+  not refreshed for the whole TTL (90 days) leaves the main graph. Nightly re-runs of an unchanged
+  trunk build are what keeps them fresh. Streams never change version rules or what a require is
+  answered; they only decide which graph records the call.
+</p>
+
+<h3>Sanshain-branches: what a release is</h3>
+<p>
+  A <a href="glossary.html#sanshain-branch">sanshain-branch</a> is a named copy of the main graph
+  (or of another branch) at a chosen instant: the
+  <a href="glossary.html#release-cut">release cut</a>. A releaser creates it, with a past instant if
+  the cut was forgotten. Hotfix builds send <code>tag: "&lt;branch&gt;"</code> and update that
+  branch instead of trunk. Branches are never auto-created: an unknown tag still succeeds, is
+  recorded in the dev graph only, and answers a
+  <a href="glossary.html#sanshain-warning"><code>Sanshain-Warning</code></a> header. Graph writes
+  are append-only, so the main graph and every branch have a
+  <a href="glossary.html#timeline">timeline</a>: any of them can be rendered as it was on any date,
+  and any two can be diffed. The <a href="../developer/release-graphs.html">Release graphs</a>
+  chapter draws it.
+</p>
+
+<h3>Periphery and catalog context</h3>
+<p>
+  The graph knows only Producers and Consumers until a build pushes the system's Backstage
+  <code>catalog-info.yaml</code> (the <a href="glossary.html#catalog-push">catalog push</a>). Of it
+  Sanshain reads the <code>resource:</code> refs in <code>spec.dependsOn</code>, which become
+  <a href="glossary.html#peripheral-resource">peripheral resources</a>: a database, bucket or queue
+  as its own node, shared by every system that names it. Since 2.6.0 it also reads the system's
+  owner, description, source location and links, the
+  <a href="glossary.html#catalog-context">catalog context</a> shown on the node panel and on the
+  system's page. Edges between systems are never read from Backstage; those are what requires
+  record.
+</p>
+
+<h2>Credentials</h2>
+<p>
+  People log in and get a <a href="glossary.html#session">session</a>; builds and assistants send an
+  <a href="glossary.html#api-token">API token</a>. A token belongs to one user, is shown once,
+  expires, and has a <a href="glossary.html#scope">scope</a> fixed at creation:
+  <code>full</code> may do everything its owner may, <code>read_only</code> may read reports,
+  versions, the update streams and the MCP endpoint, and is refused with <code>403</code> on every
+  call that changes the catalog. Mint a read-only token for an AI assistant and a full one for CI.
+  What a token may do beyond its scope is its owner's permissions: a GA provide needs the releaser
+  role, deleting a version needs admin or <a href="glossary.html#maintainer">maintainer</a>
+  rights on that Producer.
+</p>
+
+<h2>Webhooks and MCP</h2>
+<p>
+  Everything Sanshain records can also be pushed out: a
+  <a href="glossary.html#webhook">webhook</a> is a signed <code>POST</code> for a version published,
+  a provide rejected, a deprecation, a new dependency, a branch cut or a catalog push. A Producer's
+  hooks live on its page; a Consumer's hooks receive the events of every Producer it currently
+  requires. Receivers must be on an administrator's allow-list. And an AI assistant can ask the
+  catalog directly over <a href="glossary.html#mcp">MCP</a>, read-only: who provides what, where an
+  endpoint is, what changed between two versions.
+</p>
+
+<h2>Where next</h2>
+<ul>
+  <li><a href="getting-started.html">Getting started</a> runs all of this once, by hand.</li>
+  <li>
+    <a href="../developer/index.html">The Developer track</a>: <code>sanshain.yaml</code>, the
+    clients, CI, the lifecycle rules, release graphs, MCP.
+  </li>
+</ul>
+
+<p class="checked">Checked against v2.6.0.</p>

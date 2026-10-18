@@ -1,20 +1,46 @@
-<!-- page: title="Getting started" track="start" order=1 summary="Install Sanshain, log in for the first time, provide a spec and require an endpoint." -->
+<!-- page: title="Start here" track="start" order=0 summary="The Start track: run Sanshain in a few minutes, understand the model, look up any term." -->
 <p class="lede">
-  This chapter is not written yet. It arrives with issue
-  <a href="https://github.com/paxel/sanshain-service/issues/56">#56</a>, which moves and
-  re-checks every existing guide.
+  Three chapters for a new reader: one to run it, one to understand it, one to look things up.
 </p>
 
-<h2>What this track will cover</h2>
-<ul>
-  <li>Installation with Docker (SQLite and PostgreSQL) and from source.</li>
-  <li>First login, changing the root password, approving users.</li>
-  <li>The first provide and the first require, by hand and with a client.</li>
+<ul class="cards">
+  <li>
+    <a class="card" href="getting-started.html">
+      <p class="eyebrow">Chapter 1</p>
+      <p class="card-title">Getting started</p>
+      <p>
+        Docker with SQLite or PostgreSQL, or from source. First login, approving users, a token, the
+        first provide and require by hand, then with a client.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="concepts.html">
+      <p class="eyebrow">Chapter 2</p>
+      <p class="card-title">Concepts</p>
+      <p>
+        Producers and Consumers, version lines, snapshot and GA, pins and resolution, the graph with
+        trunk and release branches, periphery, token scopes, webhooks.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="glossary.html">
+      <p class="eyebrow">Chapter 3</p>
+      <p class="card-title">Glossary</p>
+      <p>Every term in one or two sentences. Chapters link here on the first use of a term.</p>
+    </a>
+  </li>
 </ul>
 
-<h2>Until then</h2>
 <p>
-  The current guide is
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/getting-started.md">docs/getting-started.md</a>
-  on GitHub.
+  After that, the <a href="../developer/index.html">Developer track</a> is for integrating a build,
+  the Operator track (coming; until then
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/deployment.md"
+    >docs/deployment.md</a
+  >
+  on GitHub) for running the service, and the <a href="../reference/index.html">Reference</a> for
+  the contracts.
 </p>
+
+<p class="checked">Checked against v2.6.0.</p>

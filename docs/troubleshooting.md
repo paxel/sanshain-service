@@ -74,7 +74,7 @@ By far the most common reason is a scheme and port mismatch:
 
 ### 409 Conflict: Provide rejected by the version rules
 **Issue**: Your Provide was rejected — the version already exists as GA with different content, the changes are breaking without a major bump, or you sent a snapshot for a number that has gone GA.
-**Solution**: Every rejection is self-service. The response body carries `proposed_version` — the next free version, bumped by what actually changed. Set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to it and republish. See [**API Lifecycle**](api-lifecycle.md) for the full rules.
+**Solution**: Every rejection is self-service. The response body carries `proposed_version` — the next free version, bumped by what actually changed. Set your spec's version (`info.version`, or the `// sanshain-version:` comment for proto) to it and republish. See [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) for the full rules.
 
 If you are sure you changed nothing, the difference is probably whitespace or comments: content
 is compared byte-for-byte after the service has normalized line endings (CRLF and CR become LF)

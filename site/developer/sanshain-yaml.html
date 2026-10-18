@@ -1,0 +1,578 @@
+<!-- page: title="sanshain.yaml" track="developer" order=2 summary="The one configuration file every client reads: provides, requires with exact pins, the catalog push, how stability is decided, how path and method match what Sanshain stored, and what the clients send." -->
+<p class="lede">
+  Every official client reads the same <code>sanshain.yaml</code> from the project root and turns it
+  into <a href="../start/glossary.html#provide">provide</a>,
+  <a href="../start/glossary.html#require">require</a> and
+  <a href="../start/glossary.html#catalog-push">catalog</a> calls. This chapter is the file's
+  reference. What each client adds on top (flags, properties, its own caching) is in
+  <a href="clients.html">Clients</a>.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <p>
+    The catalog push now also records the system's owner, description, source location and links
+    (the <a href="../start/glossary.html#catalog-context">catalog context</a>); the fields Sanshain
+    reads are listed under <a href="#the-catalog-phase">the catalog phase</a>. The file format is
+    unchanged.
+  </p>
+</div>
+
+<h2>What the file declares</h2>
+<ol>
+  <li>
+    <strong>Connection</strong>: the server URL (better set in the environment) and whether to ask
+    for gzip.
+  </li>
+  <li>
+    <strong>Provides</strong>: the spec files this project publishes. The
+    <a href="../start/glossary.html#version">version</a> is never configured here; it lives in the
+    spec file. The <a href="../start/glossary.html#stability">stability</a> is not configured here
+    either; the build's ga switch decides it.
+  </li>
+  <li>
+    <strong>Requires</strong>: the endpoints this project depends on, each
+    <a href="../start/glossary.html#pin">pinned</a> to an exact version.
+  </li>
+  <li>
+    <strong>Catalog info</strong> (optional): the project's Backstage
+    <code>catalog-info.yaml</code>, whose <code>dependsOn</code> names its
+    <a href="../start/glossary.html#peripheral-resource">peripheral resources</a> and whose owner,
+    description and links introduce the system on its node and page.
+  </li>
+</ol>
+
+<h2>A complete example</h2>
+<p>
+  A gateway that provides an OpenAPI spec and a proto file, and consumes REST, messaging and gRPC
+  from three other systems:
+</p>
+<pre><code>serviceName: gateway-service
+compression: true
+catalogInfo: catalog-info.yaml       # optional
+# sanshainUrl is omitted: SANSHAIN_URL in the environment
+
+provides:
+  - file: src/main/resources/openapi.yaml        # version from info.version
+  - file: src/main/resources/gateway.proto       # version from // sanshain-version:
+    apiType: proto
+
+requires:
+  - serviceName: user-service
+    apiType: openapi
+    version: 2.3.0
+    outputDirectory: target/generated-sources/sanshain/user-service
+    endpoints:
+      - method: GET
+        path: /api/v1/users/{id}
+
+  - serviceName: notification-service
+    apiType: asyncapi
+    version: 1.1.0
+    outputDirectory: target/generated-sources/sanshain/notification-service
+    endpoints:
+      - method: PUB
+        path: notifications.email
+
+  - serviceName: inventory-service
+    apiType: proto
+    version: 3.0.1
+    outputDirectory: target/generated-sources/sanshain/inventory-service
+    endpoints:
+      - method: GetProduct
+        path: inventory.v1.InventoryService</code></pre>
+
+<h2>Top-level fields</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Required</th>
+      <th>Default</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>serviceName</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>
+        The name of this <a href="../start/glossary.html#system">system</a>: the
+        <code>producername</code> of its provides, the <code>consumername</code> of its requires,
+        the <code>systemname</code> of its catalog push.
+      </td>
+    </tr>
+    <tr>
+      <td><code>sanshainUrl</code></td>
+      <td>no</td>
+      <td>—</td>
+      <td>
+        Base URL of the instance. Prefer <code>SANSHAIN_URL</code> in the environment so the URL is
+        not committed; the environment overrides the file.
+      </td>
+    </tr>
+    <tr>
+      <td><code>compression</code></td>
+      <td>no</td>
+      <td><code>false</code></td>
+      <td>
+        Ask for gzip-compressed answers. Honoured by the Maven (default <code>true</code> there), Go
+        and JavaScript clients; the Rust and Conan clients accept the key and ignore it.
+      </td>
+    </tr>
+    <tr>
+      <td><code>bestEffort</code></td>
+      <td>no</td>
+      <td><code>false</code></td>
+      <td>
+        Turn failed calls into warnings. Read by the Rust, Go, Maven and Conan clients; the
+        JavaScript client takes <code>SANSHAIN_BEST_EFFORT</code> instead.
+      </td>
+    </tr>
+    <tr>
+      <td><code>catalogInfo</code></td>
+      <td>no</td>
+      <td>—</td>
+      <td>Path to the Backstage <code>catalog-info.yaml</code> the build pushes.</td>
+    </tr>
+    <tr>
+      <td><code>strict</code></td>
+      <td>no</td>
+      <td><code>false</code></td>
+      <td>
+        <a href="../start/glossary.html#strict-mode">Strict mode</a>: missing configuration and any
+        <code>Sanshain-Warning</code> fail the build instead of warning.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Every relative path in the file (<code>file</code>, <code>outputDirectory</code>,
+  <code>catalogInfo</code>) resolves against the directory that contains
+  <code>sanshain.yaml</code> (named with <code>--config</code> on the Go, JavaScript and Conan CLIs,
+  <code>config_path</code> in the Conan helper, <code>configFile</code> in Maven), not the working
+  directory, so a build that points its client at another config file finds the same files.
+</p>
+<p>
+  The file carries no secrets. The token comes from <code>SANSHAIN_TOKEN</code> or the build tool's
+  credential store, and is sent as <code>Authorization: Bearer san_…</code>.
+</p>
+
+<h2>How stability is decided</h2>
+<p>
+  Sanshain never sees your git repository and the clients do no git detection. The rule is binary:
+</p>
+<ul>
+  <li>
+    Every provide is a <a href="../start/glossary.html#snapshot">snapshot</a> by default. A
+    developer building locally cannot release by accident.
+  </li>
+  <li>
+    <a href="../start/glossary.html#ga">GA</a> is an explicit act: the build sets the ga switch,
+    <code>SANSHAIN_GA=true</code> in every client, <code>-Dsanshain.ga=true</code> in Maven,
+    <code>--ga</code> on a CLI. CI sets it on its protected-branch pipelines and nobody else touches
+    it. Publishing GA needs the <a href="../start/glossary.html#releaser">releaser</a> role.
+  </li>
+</ul>
+
+<h2 id="provides">The provides section</h2>
+<p>
+  A list under <code>provides</code>, or a single <code>provide</code> object. Omit it entirely when
+  the project only consumes.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Required</th>
+      <th>Default</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>file</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>The specification file.</td>
+    </tr>
+    <tr>
+      <td><code>apiType</code></td>
+      <td>no</td>
+      <td><code>openapi</code></td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code>.</td>
+    </tr>
+    <tr>
+      <td><code>retired</code></td>
+      <td>no</td>
+      <td><code>false</code></td>
+      <td>The project no longer provides this family; see below.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The version is read from the file: <code>MAJOR[.MINOR[.PATCH]]</code>, optionally
+  <code>v</code>-prefixed; omitted parts are zero and the stored form is always three-part. For
+  OpenAPI and AsyncAPI it is <code>info.version</code>. A proto file must carry exactly one
+  <code>// sanshain-version: MAJOR.MINOR.PATCH</code> comment; a missing, malformed or conflicting
+  marker rejects the provide with <code>400</code>. The marker travels into the split files
+  Consumers download.
+</p>
+
+<h3>Retiring a protocol</h3>
+<p>
+  Sanshain cannot tell a dropped protocol from a pipeline that stopped running, so removing a
+  <code>provides</code> entry changes nothing on the server. To
+  <a href="../start/glossary.html#retire">retire</a> a family, keep the entry and set
+  <code>retired: true</code>. The client sends a provide for that family with
+  <code>retired: true</code> and no body. Sanshain clears the family's capability tag (<code
+    >messaging</code
+  >
+  or <code>grpc</code>), closes its open trunk pins and releases its AsyncAPI
+  <a href="../start/glossary.html#message-contract">message contracts</a>, and answers what it shed:
+</p>
+<pre><code>{ "tag_cleared": "messaging", "trunk_pins_closed": 3, "contracts_released": 2 }</code></pre>
+<p>
+  Version history stays and Consumers pinned to old versions keep resolving. A retire carries no
+  body, no <code>stability</code>, no <code>trunk</code> and no <code>tag</code>; sending any of
+  them alongside <code>retired: true</code> is refused with <code>400</code>. Retiring needs the
+  releaser role or a <a href="../start/glossary.html#maintainer">maintainer</a> grant on the
+  Producer; under <code>dry_run</code> the permission check runs and nothing is retired.
+</p>
+
+<h2 id="requires">The requires section</h2>
+<p>
+  One entry per Producer and version. An entry with several endpoints becomes one
+  <a href="../start/glossary.html#bundle"><code>POST /require-bundle</code></a
+  >; an entry with one endpoint becomes <code>GET /require</code> (or
+  <code>/require/asyncapi</code>, <code>/require/grpc</code>).
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Required</th>
+      <th>Default</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>serviceName</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>The Producer to require from.</td>
+    </tr>
+    <tr>
+      <td><code>version</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>The exact pin, <code>MAJOR.MINOR.PATCH</code>. No ranges, no <code>latest</code>.</td>
+    </tr>
+    <tr>
+      <td><code>outputDirectory</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>Where the answered document is written.</td>
+    </tr>
+    <tr>
+      <td><code>endpoints</code></td>
+      <td>yes</td>
+      <td>—</td>
+      <td>A list of <code>method</code> and <code>path</code> pairs; see the matching table.</td>
+    </tr>
+    <tr>
+      <td><code>apiType</code></td>
+      <td>no</td>
+      <td><code>openapi</code></td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code>.</td>
+    </tr>
+    <tr>
+      <td><code>format</code></td>
+      <td>no</td>
+      <td>—</td>
+      <td>
+        Only <code>openapi</code>, only with <code>apiType: asyncapi</code>: receive the payload
+        schemas as an OpenAPI document (below).
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The pin is the whole contract: what the build downloads changes only when someone edits
+  <code>version</code>. A pin that does not exist fails with <code>404</code> (<a
+    href="../start/glossary.html#unknown"
+    >unknown</a
+  >); a pin that exists but lacks an endpoint fails with <code>410</code> (<a
+    href="../start/glossary.html#absent"
+    >absent</a
+  >), and a bundle names the missing endpoints.
+</p>
+
+<h3>Payload schemas as OpenAPI (<code>format: openapi</code>)</h3>
+<p>
+  A Consumer whose code generator only speaks OpenAPI can ask for the message payloads of an
+  AsyncAPI requirement as an OpenAPI 3.0.3 document. The client sends <code>format=openapi</code>;
+  the answer has <code>info.title</code> <code>&lt;producername&gt; message schemas</code>,
+  <code>info.version</code> the pin, empty <code>paths</code>, and in
+  <code>components.schemas</code> only the payload schemas of the required channels' messages with
+  everything they reference. A payload given as <code>$ref: '#/components/schemas/X'</code> keeps
+  the name <code>X</code>; an inline payload is named <code>&lt;MessageKey&gt;Payload</code>. Every
+  <code>$ref</code> resolves inside the file, so <code>openapi-generator</code> with
+  <code>generateApis=false</code> produces the DTOs. AsyncAPI 2.x and 3.x both work.
+</p>
+<pre><code>requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    format: openapi
+    version: 2.0.0
+    outputDirectory: generated/order-service-dtos
+    endpoints:
+      - method: PUB
+        path: orders.created</code></pre>
+<p>
+  To get both formats, list the entry twice with different <code>outputDirectory</code>s. The
+  service answers <code>400</code> when two different schemas would get the same name, a payload
+  uses a non-AsyncAPI <code>schemaFormat</code> (Avro, say), a <code>$ref</code> is external, or
+  <code>format</code> is set on another <code>apiType</code>. The ETag of the OpenAPI answer never
+  matches the AsyncAPI answer's.
+</p>
+
+<h2>How path and method match</h2>
+<p>
+  On a provide Sanshain splits the document and stores each endpoint under a
+  <em>path</em> (or channel, or service) and a <em>method</em> (or operation, or rpc). A require
+  looks those up at the pinned version. When the version exists but the values do not line up, the
+  require fails <code>410</code>.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Protocol</th>
+      <th>Sanshain stores</th>
+      <th><code>path</code></th>
+      <th><code>method</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>OpenAPI</td>
+      <td>each <code>paths.*</code> entry and HTTP verb</td>
+      <td>the OpenAPI path, e.g. <code>/api/v1/users/{id}</code></td>
+      <td>the verb, case-insensitive (<code>GET</code>, <code>POST</code>, …)</td>
+    </tr>
+    <tr>
+      <td>AsyncAPI 2.x</td>
+      <td>each <code>channels.*</code> key with <code>publish</code> / <code>subscribe</code></td>
+      <td>the channel key, e.g. <code>orders.created</code></td>
+      <td><code>PUB</code> or <code>SUB</code></td>
+    </tr>
+    <tr>
+      <td>AsyncAPI 3.x</td>
+      <td>
+        each operation, resolved to the channel <code>address</code>, <code>send</code> /
+        <code>receive</code>
+      </td>
+      <td>the channel <strong>address</strong>, not the key</td>
+      <td><code>PUB</code> or <code>SUB</code></td>
+    </tr>
+    <tr>
+      <td>Proto</td>
+      <td>each <code>service</code> and <code>rpc</code></td>
+      <td>the fully qualified service, e.g. <code>inventory.v1.InventoryService</code></td>
+      <td>the rpc name, case-sensitive (<code>GetProduct</code>)</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  OpenAPI path matching is lenient: parameter names are normalised, so
+  <code>/users/{id}</code> and <code>/users/{userId}</code> match; doubled separators and a trailing
+  slash are ignored too. Two paths in one document that are the same endpoint after normalisation
+  reject the provide with <code>400</code>.
+</p>
+
+<h3>An OpenAPI example</h3>
+<p>
+  A <code>user-service</code> document with <code>GET /api/v1/users</code>,
+  <code>POST /api/v1/users</code> and <code>GET /api/v1/users/{id}</code> is stored as three
+  endpoints. To require two of them:
+</p>
+<pre><code>requires:
+  - serviceName: user-service
+    version: 1.0.0
+    outputDirectory: generated/user-service
+    endpoints:
+      - method: GET
+        path: /api/v1/users/{id}
+      - method: POST
+        path: /api/v1/users</code></pre>
+<p>
+  The client calls <code>POST /require-bundle</code> and receives one merged OpenAPI document with
+  the two operations and each shared schema once, which is why bundles exist: separate snippets
+  would give typed languages two copies of <code>CreateUserRequest</code> that are not
+  interchangeable.
+</p>
+
+<h3>AsyncAPI: the perspective convention</h3>
+<p>
+  Sanshain reads AsyncAPI 2.x <code>publish</code> and <code>subscribe</code> from the
+  <strong>application's</strong> perspective: <code>publish</code> means
+  <em>this service publishes to the channel</em>, <code>subscribe</code> means
+  <em>this service consumes it</em>. The official 2.x specification defines the keywords from the
+  client's perspective, exactly inverted. Sanshain uses the application reading because it matches
+  the unambiguous 3.x <code>send</code> / <code>receive</code> mapping. A 2.x document authored with
+  the spec-literal reading registers its
+  <a href="../start/glossary.html#message-contract">message contracts</a> and harvests its
+  subscriptions exactly backwards.
+</p>
+<p>
+  So a Consumer requires a channel the Producer <em>publishes</em> with <code>method: PUB</code>. A
+  Consumer's own <code>subscribe</code> operations need no require at all: they are
+  <a href="../start/glossary.html#harvested-subscription">harvested</a> from its provide (see the
+  <a href="api-lifecycle.html#subscribe-operations-become-consumer-edges">API lifecycle</a>).
+</p>
+<p>
+  Moving from 2.x to 3.x changes the identifier: 2.x stores the channel <em>key</em>, 3.x the
+  channel <em>address</em>, the key being only a local label. Write the address in
+  <code>path</code>; when a 3.x channel has no <code>address</code>, Sanshain falls back to the key.
+</p>
+<pre><code># AsyncAPI 3.x:
+#   channels:
+#     OrderCreated:               # a local key
+#       address: orders.created   # what Sanshain stores
+requires:
+  - serviceName: order-service
+    apiType: asyncapi
+    version: 2.0.0
+    outputDirectory: generated/order-service
+    endpoints:
+      - method: PUB
+        path: orders.created      # the address</code></pre>
+
+<h3>Proto</h3>
+<p>
+  The answer to a proto require is a <code>.proto</code> file with the service, only the requested
+  rpcs, and every message they reference, transitively, with the
+  <code>// sanshain-version:</code> marker in it.
+</p>
+<pre><code>requires:
+  - serviceName: inventory-service
+    apiType: proto
+    version: 1.0.0
+    outputDirectory: generated/inventory-service
+    endpoints:
+      - method: GetProduct
+        path: inventory.v1.InventoryService
+      - method: ListProducts
+        path: inventory.v1.InventoryService</code></pre>
+
+<h2>What the clients send</h2>
+
+<h3>The provide phase</h3>
+<p>
+  For each entry: read the file, decide the stability from the ga switch, and call
+  <code>POST /provide</code>, <code>/provide/asyncapi</code> or <code>/provide/grpc</code> with the
+  document, the stability and, when the build declares a
+  <a href="../start/glossary.html#stream">stream</a>, <code>trunk</code> or <code>tag</code>. Every
+  provide answers <code>202 Accepted</code>:
+</p>
+<pre><code>{
+  "version": "1.4.0",
+  "stability": "ga",
+  "content_hash": "sha256:…",
+  "changes": { "inserts": 1, "updates": 2, "deletes": 0 },
+  "promoted": false
+}</code></pre>
+<p>
+  <code>changes</code> is the endpoint diff against what that exact version stored before; a new
+  version reports its whole endpoint set as inserts, and byte-identical content reports all zero,
+  the <a href="../start/glossary.html#idempotent-no-op">idempotent no-op</a>. An AsyncAPI provide
+  adds <code>harvested_subscriptions</code>. A <code>409</code> carries
+  <code>proposed_version</code>: set it in the spec file and republish, there is nothing to pull or
+  merge. A <code>400</code> means the document itself is invalid, most often a missing or non-semver
+  version.
+</p>
+
+<h3 id="the-catalog-phase">The catalog phase</h3>
+<p>
+  A step of its own (<code>sanshain catalog</code>, <code>sanshain:catalog</code>,
+  <code>Sanshain(self).catalog()</code>), because a pure Consumer never provides and a pure Producer
+  may never require. Once per build the client reads the file at <code>catalogInfo</code> and calls
+  <code>PUT /catalog/&lt;serviceName&gt;</code> with
+  <code>{"catalog_info_yaml": "…", "trunk": true|false}</code>; <code>trunk</code> follows the same
+  switch as provides and requires. Without <code>catalogInfo</code> the client warns and skips, or
+  fails under strict. Sanshain reads only the <code>Component</code> whose
+  <code>metadata.name</code> equals <code>serviceName</code> (case-insensitive), and of it:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>What becomes of it</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>spec.dependsOn</code></td>
+      <td>
+        Only <code>resource:</code> refs become
+        <a href="../start/glossary.html#peripheral-resource">peripheral resources</a>. A ref without
+        a kind is read as a resource; one without a namespace takes the Component's namespace (<code
+          >default</code
+        >
+        when it has none); refs are lower-cased. <code>component:</code> refs and
+        <code>consumesApis</code> are ignored: edges between systems are what requires record.
+      </td>
+    </tr>
+    <tr>
+      <td><code>spec.owner</code></td>
+      <td>
+        Shown as the owner with the ref's kind and name: a bare <code>team-orders</code> is
+        <code>group:default/team-orders</code>, shown as <code>team-orders (group)</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>metadata.description</code></td>
+      <td>Shown under the title; trimmed, at most 1000 characters.</td>
+    </tr>
+    <tr>
+      <td><code>metadata.annotations["backstage.io/source-location"]</code></td>
+      <td>
+        The repository chip, without the <code>url:</code> prefix; kept only as an
+        <code>http(s)</code> URL of at most 2048 characters, labelled by its host.
+      </td>
+    </tr>
+    <tr>
+      <td><code>metadata.links</code></td>
+      <td>
+        Link chips by <code>title</code> (the URL's host when there is none); <code>type</code> and
+        <code>icon</code> kept as text. A link that is not <code>http(s)</code> is dropped; at most
+        20 links.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Everything else is ignored. Each push replaces the previous state: a resource no longer listed
+  leaves the current graph (it stays in the timeline), a file without owner or links leaves those
+  empty, and a push whose content has not changed changes nothing. A trunk push updates the main
+  graph and the dev graph; a plain push only the dev graph. The answer is
+  <code>{"system", "trunk", "resources": [...], "recorded": true}</code>. When Sanshain cannot read
+  the file as this system's Component (invalid YAML, no or more than one matching Component, usually
+  a <code>metadata.name</code> that is not the <code>serviceName</code>), it still answers
+  <code>200</code> with <code>"recorded": false</code>, records nothing, keeps the previous state
+  and names the reason in a <code>Sanshain-Warning</code> header. Older services answer
+  <code>404</code>; the catalog push needs Sanshain Service 2.4.0 or later.
+</p>
+
+<h3>The require phase</h3>
+<p>
+  For each entry: one bundle or one single require, then the answer is written to
+  <code>outputDirectory</code> and code generation runs on it. Every require answer carries an
+  <a href="../start/glossary.html#etag">ETag</a>; the clients store it and send
+  <code>If-None-Match</code> next time, so an unchanged pin answers <code>304</code> and no file is
+  rewritten. A GA pin never changes; a snapshot pin can, and the ETag is what detects that.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

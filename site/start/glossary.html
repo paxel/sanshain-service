@@ -1,0 +1,456 @@
+<!-- page: title="Glossary" track="start" order=3 summary="Every Sanshain term in one or two sentences: Producer, Consumer, version line, snapshot, GA, pin, trunk, sanshain-branch, token scope and the rest." -->
+<p class="lede">
+  Every term the documentation uses, defined once. Chapters link here on the first use of a term;
+  the vocabulary itself is kept in <code>CONTEXT.md</code> in the repository.
+</p>
+
+<h2>Who is who</h2>
+<dl class="glossary">
+  <dt id="sanshain">Sanshain</dt>
+  <dd>
+    The registry itself: the server that stores, splits and distributes API specifications. Where a
+    longer name is needed, <em>Sanshain Service</em>.
+  </dd>
+
+  <dt id="producer">Producer</dt>
+  <dd>
+    A system that publishes an API spec to Sanshain. On the wire it is named by
+    <code>producername</code>. A role, not an entity type: one system is usually a Producer and a
+    Consumer at once.
+  </dd>
+
+  <dt id="consumer">Consumer</dt>
+  <dd>
+    A system that requires endpoints from a Producer and is recorded as depending on them. Named by
+    <code>consumername</code>.
+  </dd>
+
+  <dt id="system">System</dt>
+  <dd>
+    A Producer or Consumer seen as one thing: the <code>serviceName</code> of a
+    <code>sanshain.yaml</code>. The catalog push and the node panel speak of systems because they do
+    not care which role the build plays.
+  </dd>
+
+  <dt id="tooling">Tooling (client)</dt>
+  <dd>
+    Software that speaks HTTP to Sanshain on a Producer's or Consumer's behalf: the Maven plugin,
+    the cargo subcommand, the Go, JavaScript and Conan clients, or plain <code>curl</code>. Tooling
+    acts <em>for</em> a system; it is never a domain entity itself.
+  </dd>
+
+  <dt id="actor">Actor</dt>
+  <dd>
+    The authenticated caller behind a request, as the audit log records it. A version's "provided
+    by" is the actor of its last provide, except that a byte-identical promotion keeps the
+    snapshot's provider.
+  </dd>
+
+  <dt id="role">Role</dt>
+  <dd>
+    A fixed, named bundle of permissions held instance-wide (<code>admin</code>,
+    <code>releaser</code>, ...). The set of roles is part of the product.
+  </dd>
+
+  <dt id="permission">Permission</dt>
+  <dd>
+    One thing an actor may do; what every authorisation check tests. For example
+    <code>release_ga</code> is the permission that publishing a GA version needs.
+  </dd>
+
+  <dt id="releaser">Releaser</dt>
+  <dd>
+    The role that holds <code>release_ga</code>: publishing a GA version, retiring a protocol family
+    and cutting a sanshain-branch need it. Admins and root hold it implicitly.
+  </dd>
+
+  <dt id="maintainer">Maintainer</dt>
+  <dd>
+    An actor responsible for a named set of Producers, with powers over those and no others: delete
+    one of their versions, retire a family, manage the Producer's webhooks.
+  </dd>
+
+  <dt id="root">Root</dt>
+  <dd>
+    An account whose authority comes from configuration rather than from stored grants, so it cannot
+    be revoked from inside Sanshain. <code>SANSHAIN_ROOT_USERS</code>, when set, alone names the
+    root accounts; otherwise the initial admin (<code>INITIAL_ADMIN_USERNAME</code>, default
+    <code>root</code>) is root. Holds every permission.
+  </dd>
+
+  <dt id="approval">Approval</dt>
+  <dd>
+    A locally registered user cannot log in until an administrator approves the account, unless the
+    administrator switched on <em>auto-approve</em> on the admin page.
+  </dd>
+</dl>
+
+<h2>Versions</h2>
+<dl class="glossary">
+  <dt id="version">Version</dt>
+  <dd>
+    The Producer-declared identity of a spec: <code>MAJOR.MINOR.PATCH</code>, read from the spec
+    file itself (<code>info.version</code>; for proto a mandatory
+    <code>// sanshain-version:</code> comment). Sanshain never assigns one. <code>v2</code> and
+    <code>2.1</code> are accepted and stored as <code>2.0.0</code> and <code>2.1.0</code>.
+  </dd>
+
+  <dt id="version-line">Version line</dt>
+  <dd>
+    The ordered set of versions one Producer has published for one API type. Diffing, compatibility
+    checks and cleanup happen within a single line; a Producer's OpenAPI and proto lines evolve
+    independently.
+  </dd>
+
+  <dt id="stability">Stability</dt>
+  <dd>
+    Which of exactly two states a stored version is in, snapshot or GA. Declared by the caller on
+    every provide; how the caller decides is the tooling's business (the <em>ga switch</em>), never
+    Sanshain's.
+  </dd>
+
+  <dt id="snapshot">Snapshot</dt>
+  <dd>
+    A version in its mutable state: re-providing it overwrites it (last writer wins, every overwrite
+    audited), it is never compatibility-checked, and it expires once neither provided nor required
+    for the snapshot window.
+  </dd>
+
+  <dt id="ga">GA</dt>
+  <dd>
+    A version in its immutable state. Re-providing identical content is a no-op; different content
+    is rejected with a proposed next version. A GA permanently claims its number: no snapshot may
+    ever exist for it again, and cleanup never removes it.
+  </dd>
+
+  <dt id="promotion">Promotion</dt>
+  <dd>
+    The GA provide of a number that existed as a snapshot. The entry becomes GA in place and the
+    snapshot content is gone. The response says <code>"promoted": true</code>.
+  </dd>
+
+  <dt id="proposed-version">Proposed version</dt>
+  <dd>
+    The <code>proposed_version</code> field of a <code>409</code> that refused a provide: the next
+    free number of the line, bumped by what actually changed (breaking: major, additive: minor,
+    shape-identical: patch). Set it in the spec file and republish.
+  </dd>
+
+  <dt id="breaking-change">Breaking change</dt>
+  <dd>
+    A change the compatibility classifier flags between two documents of one line: a removed
+    endpoint, parameter, property, message or rpc, a type change, a new required field. A GA version
+    that is breaking relative to the highest GA below it must bump the major.
+  </dd>
+
+  <dt id="deprecation">Deprecation</dt>
+  <dd>
+    A per-element marker in the spec (<code>deprecated: true</code>,
+    <code>option deprecated = true;</code>, <code>[deprecated = true]</code>). Removing an element
+    that was deprecated in the previous GA is not breaking.
+  </dd>
+
+  <dt id="retire">Retire</dt>
+  <dd>
+    A provide call with <code>retired: true</code> and no body: the Producer no longer provides that
+    API family. It clears the family's capability tag, closes its trunk pins and releases its
+    message contracts; versions and existing pins stay. Needs the releaser role or a maintainer
+    grant.
+  </dd>
+
+  <dt id="snapshot-expiry">Snapshot expiry</dt>
+  <dd>
+    A snapshot that is neither provided nor required for <code>snapshot_max_age_days</code> (default
+    30, <code>0</code> disables) is cleaned up. Use keeps it alive. GA never expires.
+  </dd>
+
+  <dt id="instance-version">Instance version</dt>
+  <dd>
+    Sanshain's own build version, answered by <code>GET /version</code>. Always qualified, to keep
+    it apart from spec versions.
+  </dd>
+</dl>
+
+<h2>Publishing and requiring</h2>
+<dl class="glossary">
+  <dt id="provide">Provide</dt>
+  <dd>
+    A Producer's submission of a complete spec for one version of one API type, with a declared
+    stability (<code>POST /provide</code>, <code>/provide/asyncapi</code>,
+    <code>/provide/grpc</code>). Because it is complete, an endpoint absent from it is absent from
+    that version's API.
+  </dd>
+
+  <dt id="snippet">Snippet</dt>
+  <dd>
+    The part of a spec Sanshain cuts out for one endpoint: one OpenAPI operation with the schemas it
+    references, one AsyncAPI channel with its messages, one proto service with one rpc and the
+    messages it needs.
+  </dd>
+
+  <dt id="require">Require</dt>
+  <dd>
+    A Consumer's request for specific endpoints at its pin (<code>GET /require</code>,
+    <code>/require/asyncapi</code>, <code>/require/grpc</code>). A successful require also records
+    the dependency; a failed one records nothing.
+  </dd>
+
+  <dt id="bundle">Bundle</dt>
+  <dd>
+    <code>POST /require-bundle</code>: several endpoints of one Producer at one pin, answered as a
+    single merged document with one copy of each shared schema. If any endpoint is absent the whole
+    bundle fails and names the missing ones.
+  </dd>
+
+  <dt id="pin">Pin</dt>
+  <dd>
+    A Consumer's exact version choice for one dependency, written in its own configuration. No
+    ranges, no <code>latest</code>, no default: what a Consumer builds against changes only when
+    someone edits the pin.
+  </dd>
+
+  <dt id="resolution">Resolution</dt>
+  <dd>
+    Answering "what is this endpoint at this pin?". The line holds one entry per version, snapshot
+    or GA; that entry answers, and there is no fallback to any other version. Every resolution ends
+    in exactly one of three states: served, absent or unknown.
+  </dd>
+
+  <dt id="served">Served</dt>
+  <dd>
+    Resolution state: the pinned version exists and contains the endpoint. The
+    <code>X-Sanshain-Stability</code> header says whether GA or snapshot answered.
+  </dd>
+
+  <dt id="absent">Absent</dt>
+  <dd>
+    Resolution state, <code>410 Gone</code>: the pinned version exists and deliberately does not
+    include this endpoint. A definitive no.
+  </dd>
+
+  <dt id="unknown">Unknown</dt>
+  <dd>
+    Resolution state, <code>404 Not Found</code>: the Producer, or the pinned version in either
+    stability, does not exist. A configuration error on the Consumer's side, answered immediately.
+  </dd>
+
+  <dt id="dry-run">Dry run</dt>
+  <dd>
+    <code>dry_run: true</code> on a provide, require or bundle: the full validation runs and nothing
+    is stored, not even the Producer. Made for pull-request pipelines.
+  </dd>
+
+  <dt id="idempotent-no-op">Idempotent no-op</dt>
+  <dd>
+    Re-providing byte-identical content (after line endings are normalised to LF and a leading BOM
+    is removed) stores nothing and answers <code>changes</code> all zero. CI re-runs never fight.
+  </dd>
+
+  <dt id="etag">ETag</dt>
+  <dd>
+    Every require answer carries an <code>ETag</code>; sending it back as
+    <code>If-None-Match</code> yields <code>304 Not Modified</code> when the content is unchanged. A
+    GA pin never changes; a snapshot pin can, and the ETag is what detects it.
+  </dd>
+
+  <dt id="sanshain-warning">Sanshain-Warning</dt>
+  <dd>
+    A response header, one line per warning, on a call that succeeded but could not be recorded the
+    way it was declared: an unknown tag, trunk and tag together, a catalog push that recorded
+    nothing. Clients print it and fail on it only in strict mode.
+  </dd>
+
+  <dt id="strict-mode">Strict mode</dt>
+  <dd>
+    A client setting (<code>strict: true</code> in <code>sanshain.yaml</code> or the client's flag):
+    missing configuration and any <code>Sanshain-Warning</code> fail the build instead of printing a
+    warning.
+  </dd>
+
+  <dt id="message-contract">Message contract (AsyncAPI)</dt>
+  <dd>
+    On a GA provide, every named <code>publish</code> message registers a contract keyed by channel
+    and message name, owned by the first Producer to publish it. The owner may widen it; another
+    Producer may co-publish only an identical payload schema.
+  </dd>
+
+  <dt id="harvested-subscription">Harvested subscription</dt>
+  <dd>
+    An AsyncAPI <code>subscribe</code> (2.x) or <code>receive</code> (3.x) operation in a provided
+    document becomes a version-less consumer edge in the graph, resolved against the channel's
+    message contract. No hand-written require is needed for it.
+  </dd>
+
+  <dt id="validator">Validator</dt>
+  <dd>
+    <code>POST /validate</code> and the form on the landing page: the provide-side checks (version
+    extraction, splitting) on any document, without authentication and without storing anything.
+  </dd>
+</dl>
+
+<h2>The graph</h2>
+<dl class="glossary">
+  <dt id="dependency-graph">Dependency graph</dt>
+  <dd>
+    What Sanshain knows about who pins which version of which endpoint, drawn as a live SVG on
+    <code>/graph.html</code> and answered as JSON by <code>GET /report</code>.
+  </dd>
+
+  <dt id="outdated">Outdated</dt>
+  <dd>
+    A dependency whose pin is below the latest GA of its line. A display state only: being outdated
+    changes nothing about what is served.
+  </dd>
+
+  <dt id="snapshot-pinned">Snapshot-pinned</dt>
+  <dd>
+    A dependency served from a snapshot because its pin has no GA. It flags building against
+    overwritable content; such a pin may even be ahead of the latest GA.
+  </dd>
+
+  <dt id="superseded">Superseded</dt>
+  <dd>
+    A snapshot below the latest GA of its line. The producers page marks it
+    <code>superseded by X ga</code>, and a pin to it counts as outdated.
+  </dd>
+
+  <dt id="stream">Stream</dt>
+  <dd>
+    Where a build belongs: plain calls record dev activity, <code>trunk: true</code> marks the trunk
+    stream, <code>tag: "&lt;branch&gt;"</code> marks a sanshain-branch. Streams never change version
+    rules or what is served; they only decide which graph records the call.
+  </dd>
+
+  <dt id="dev-graph">Dev graph</dt>
+  <dd>
+    The default view: everything ever provided or required, snapshots included, thinned by the
+    dependency window (<code>dependency_max_age_days</code>, default 30).
+  </dd>
+
+  <dt id="trunk">Trunk</dt>
+  <dd>
+    The stream of your default-branch CI. A trunk provide stamps the version as "trunk's current
+    version"; a trunk require maintains the main graph's pin set, last write per endpoint wins.
+  </dd>
+
+  <dt id="main-graph">Main graph</dt>
+  <dd>
+    The trunk stream's view: every Producer at its trunk version, edges from trunk pins. What trunk
+    <em>is</em>, deterministic after every trunk build.
+  </dd>
+
+  <dt id="trunk-ttl">Trunk TTL</dt>
+  <dd>
+    Trunk entries not refreshed within <code>trunk_max_age_days</code> (default 90) leave the main
+    graph; they are highlighted as stale once they pass half the window. History keeps them.
+  </dd>
+
+  <dt id="sanshain-branch">Sanshain-branch</dt>
+  <dd>
+    A named copy of a graph at a chosen instant: the release cut. Created by a releaser from trunk
+    or from another branch, updated by tagged builds, diffable against main or other branches.
+    <code>main</code>, <code>dev</code> and <code>trunk</code> are reserved names.
+  </dd>
+
+  <dt id="tag">Tag</dt>
+  <dd>
+    The <code>tag</code> parameter of a provide, require or bundle: the call updates the named
+    sanshain-branch instead of trunk. Branches are never auto-created; an unknown tag records the
+    call in the dev graph only and answers a <code>Sanshain-Warning</code>.
+  </dd>
+
+  <dt id="release-cut">Release cut</dt>
+  <dd>
+    Creating a sanshain-branch: <code>POST /admin/branches</code> with a name, optionally a source
+    branch and an <code>as_of</code> instant. A past instant repairs a forgotten cut.
+  </dd>
+
+  <dt id="timeline">Timeline</dt>
+  <dd>
+    Trunk and branch writes are append-only, so the main graph and every branch can be rendered as
+    they were at any past instant. The slider's markers are the instants the graph changed.
+  </dd>
+
+  <dt id="peripheral-resource">Peripheral resource</dt>
+  <dd>
+    Something outside Sanshain a system depends on (a database, bucket, queue), known only by its
+    Backstage ref <code>resource:&lt;namespace&gt;/&lt;name&gt;</code> from the system's own
+    <code>catalog-info.yaml</code>. One node per ref, shared by every system that names it.
+  </dd>
+
+  <dt id="catalog-push">Catalog push</dt>
+  <dd>
+    <code>PUT /catalog/{systemname}</code> with the system's Backstage
+    <code>catalog-info.yaml</code>, once per build. Sanshain reads the Component named like the
+    system and of it the periphery and the catalog context; everything else is ignored.
+  </dd>
+
+  <dt id="catalog-context">Catalog context</dt>
+  <dd>
+    What the catalog push records besides the periphery: the system's owner, description, source
+    location and links. Shown on the graph's node panel and on the Producer and Consumer pages. One
+    present-day fact per system, not tracked per stream.
+  </dd>
+
+  <dt id="report-scope">Report scope</dt>
+  <dd>
+    <code>?scope=dev</code> (default), <code>main[@instant]</code> or
+    <code>&lt;branch&gt;[@instant]</code> on <code>/report</code> and its variants: which graph a
+    report describes.
+  </dd>
+
+  <dt id="audit">Audit timeline</dt>
+  <dd>
+    The log of every provide, require and administrative action, with a diff viewer and filters by
+    date, action, service and stream. For holders of the <code>view_audit</code> permission: the
+    admin and viewer roles.
+  </dd>
+</dl>
+
+<h2>Credentials and integrations</h2>
+<dl class="glossary">
+  <dt id="session">Session</dt>
+  <dd>
+    What <code>POST /auth/login</code> answers and what the web UI sends: a token that expires with
+    the session (7 days). Sessions can mint API tokens; API tokens cannot.
+  </dd>
+
+  <dt id="api-token">API token</dt>
+  <dd>
+    A long-lived credential (<code>san_</code> + 64 hex characters) owned by one user, minted on the
+    account page or with <code>POST /auth/tokens</code>, shown once, with a mandatory expiry. What
+    CI, scripts and AI clients send as <code>Authorization: Bearer</code>.
+  </dd>
+
+  <dt id="scope">Token scope</dt>
+  <dd>
+    Decided when a token is minted, immutable afterwards. <code>full</code> may do everything its
+    owner may; <code>read_only</code> may read reports, versions, the update streams and the MCP
+    endpoint, and is refused with <code>403</code> on every route that changes the catalog.
+  </dd>
+
+  <dt id="webhook">Webhook</dt>
+  <dd>
+    A signed <code>POST</code> Sanshain sends to a registered URL for every fact it records and
+    every provide it rejects: <code>version.published</code>, <code>provide.rejected</code>,
+    <code>version.deprecated</code>, <code>dependency.recorded</code>, <code>branch.cut</code>,
+    <code>catalog.recorded</code>. Registered globally by an administrator, or per Producer and
+    Consumer on their pages.
+  </dd>
+
+  <dt id="mcp">MCP</dt>
+  <dd>
+    The Model Context Protocol endpoint <code>POST /mcp</code>: seven read-only tools that let an AI
+    assistant list and describe services, find an endpoint, read a spec, walk the graph, diff and
+    blame versions. API tokens only, 60 calls per minute per token, 64 KiB per answer.
+  </dd>
+
+  <dt id="dev-mode">Developer mode</dt>
+  <dd>
+    A local-only switch that bypasses authentication. It needs both the admin setting (or
+    <code>SANSHAIN_DEV_MODE</code>) and the <code>ALLOW_INSECURE_DEV_MODE=true</code> safety gate,
+    and fails closed otherwise.
+  </dd>
+</dl>
+
+<p class="checked">Checked against v2.6.0.</p>

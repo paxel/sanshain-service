@@ -6,7 +6,7 @@ Migrating your microservices to Sanshain can be significantly accelerated by usi
 1. **Identify**: Find where your service currently publishes its OpenAPI/AsyncAPI/Proto spec.
 2. **Configure**: Create a `sanshain.yaml` in the project root.
 3. **Automate**: Add a step to your CI pipeline to call `POST /provide`.
-4. **Consume**: Update client code to use `GET /require` or the [official clients](clients.md).
+4. **Consume**: Update client code to use `GET /require` or the [official clients](https://paxel.github.io/sanshain-service/developer/clients.html).
 
 ---
 
@@ -43,7 +43,7 @@ Automate the integration of Sanshain Service into this project for API contract 
 ### 3. Consumer Integration
 - Identify external API dependencies (where does this project get its client stubs?).
 - Add a `requires` section to `sanshain.yaml` for each dependency, pinning an exact `version` (check `GET /producers/{name}/versions` for what exists).
-- Configure the Sanshain [official client](clients.md) to fetch these snippets during the build process.
+- Configure the Sanshain [official client](https://paxel.github.io/sanshain-service/developer/clients.html) to fetch these snippets during the build process.
 ```
 
 ---
@@ -56,7 +56,7 @@ You can use these prompts in ChatGPT, Claude, or Copilot to help with the manual
 > "I want to migrate this [Java/Rust/Python] service to use Sanshain for API contract management. Can you help me create a `sanshain.yaml` file that points to my `src/main/resources/api.yaml`? Please follow corporate best practices: don't hardcode the URL in the YAML file, assume it comes from an environment variable. Also, write a GitHub Action step that uploads this spec using the `SANSHAIN_URL` and `SANSHAIN_TOKEN` secrets."
 
 ### For a Consumer Service
-> "This project consumes the `UserService` and `OrderService`. I want to use Sanshain to fetch only the specific endpoints I need. Please create a `sanshain.yaml` (without hardcoded URL) with a `requires` section for `UserService` (GET /users/{id}) and `OrderService` (POST /orders), each pinned to an exact version. Then, show me how to configure the Sanshain [official client](clients.md) to download these."
+> "This project consumes the `UserService` and `OrderService`. I want to use Sanshain to fetch only the specific endpoints I need. Please create a `sanshain.yaml` (without hardcoded URL) with a `requires` section for `UserService` (GET /users/{id}) and `OrderService` (POST /orders), each pinned to an exact version. Then, show me how to configure the Sanshain [official client](https://paxel.github.io/sanshain-service/developer/clients.html) to download these."
 
 ---
 
@@ -68,6 +68,6 @@ You can use these prompts in ChatGPT, Claude, or Copilot to help with the manual
 ---
 
 ## Related Links
-- [**`sanshain.yaml` Reference**](sanshain-yaml.md) — Full configuration schema.
-- [**Client Ecosystem**](clients.md) — Official Maven, Cargo, Go, JS, and Conan clients.
+- [**`sanshain.yaml` Reference**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Full configuration schema.
+- [**Client Ecosystem**](https://paxel.github.io/sanshain-service/developer/clients.html) — Official Maven, Cargo, Go, JS, and Conan clients.
 - [**CI Integration**](ci-integration.md) — Detailed pipeline examples.

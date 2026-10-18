@@ -113,7 +113,7 @@ fields.
 - `GET /producers/{producername}/versions` lists a Producer's version lines — version, stability, content hash, timestamps, endpoint count, and snapshot expiry. This is what "what can I upgrade to?" tooling reads.
 
 ### Reports and Graph Scopes
-- `GET /report` returns the dependency report; `?scope=main[@instant]` or `?scope=<branch>[@instant]` replaces the graph with that pin set (`dev`, the default, is the accumulated activity). The same scope applies to `/report/markdown` and `/report/isolation`. See the [User Guide](user-guide.md#reports-reportshtml).
+- `GET /report` returns the dependency report; `?scope=main[@instant]` or `?scope=<branch>[@instant]` replaces the graph with that pin set (`dev`, the default, is the accumulated activity). The same scope applies to `/report/markdown` and `/report/isolation`. See [The web UI](https://paxel.github.io/sanshain-service/developer/web-ui.html#reports).
 
 ### API Tokens
 Machine clients authenticate with `Authorization: Bearer <token>`. Users mint their own tokens at
@@ -126,7 +126,7 @@ creation and immutable afterwards:
 | `read_only` | `GET /version`, `/report*`, `/producers/{producername}/versions`, `/endpoint-versions`, the SSE/WS update streams, the MCP endpoint. | Provide (all types), retire, `/require*`, `/require-bundle`, `PUT /catalog/*` — `403`, the body names the token's scope. |
 
 Tick **Read-only (for AI / MCP clients)** on the account page, or send `"scope": "read_only"`, to
-mint one — that is the token an AI assistant uses on the [MCP endpoint](mcp.md). The token list shows each token's scope and when it last authenticated a request (to the
+mint one — that is the token an AI assistant uses on the [MCP endpoint](https://paxel.github.io/sanshain-service/developer/mcp.html). The token list shows each token's scope and when it last authenticated a request (to the
 minute). Expired tokens stop validating and are cleaned up in the background.
 
 ### Admin & Auth

@@ -1,0 +1,359 @@
+<!-- page: title="CI integration" track="developer" order=6 summary="Tokens for pipelines, stability and streams decided by the pipeline, the catalog push, the Sanshain-Warning header, dry runs for pull requests, idempotency and ETag caching, the typical Producer and Consumer pipelines, a GitHub Actions example." -->
+<p class="lede">
+  A pipeline provides and requires unconditionally on every build. This chapter is what it needs to
+  know: which credential to send, how to say snapshot or GA and which
+  <a href="../start/glossary.html#stream">stream</a> it is, how to validate a pull request without
+  writing anything, and why re-runs never fight.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      Instead of polling, a pipeline or a chat channel can be told: Sanshain delivers signed
+      <a href="../start/glossary.html#webhook">webhooks</a> for every published or rejected provide,
+      every new dependency, every branch cut and catalog push. Registering receivers and verifying
+      the signature is
+      <a
+        href="https://github.com/paxel/sanshain-service/blob/summer/docs/ci-integration.md#webhooks"
+        >docs/ci-integration.md</a
+      >
+      on GitHub (Operator chapter coming).
+    </li>
+    <li>
+      On a multi-replica PostgreSQL install, a provide handled by one replica is visible on the
+      others within 10 s (the data cache's expiry). A pipeline that provides and immediately
+      requires the same version from another replica should expect at most that delay.
+    </li>
+  </ul>
+</div>
+
+<h2>API tokens</h2>
+<p>
+  Pipelines use <a href="../start/glossary.html#api-token">API tokens</a>, never passwords. A token
+  is long-lived, revocable, owned by one user, and has a
+  <a href="../start/glossary.html#scope">scope</a>; CI needs <code>full</code>, because
+  <code>read_only</code> is refused on provide, require and the catalog push. What the token may do
+  beyond that is its owner's permissions: GA provides need the
+  <a href="../start/glossary.html#releaser">releaser</a> role, so the CI user that releases holds
+  it.
+</p>
+<ol>
+  <li>Log in to <code>/account.html</code> as the CI user.</li>
+  <li>
+    Under <strong>API Tokens</strong>, enter a name (<code>jenkins-ci</code>) and an expiry in days,
+    leave the read-only box unticked, and create.
+  </li>
+  <li>The raw token (<code>san_…</code>) is shown once; copy it into the CI secret store.</li>
+</ol>
+<p>Or with the API, from a session token:</p>
+<pre><code>SESSION=$(curl -s -X POST $SANSHAIN/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"ci-user","password":"…"}' | jq -r .token)
+
+curl -s -X POST $SANSHAIN/auth/tokens \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name":"jenkins-ci","expires_in_days":365}'</code></pre>
+<p>
+  Every API call then sends <code>Authorization: Bearer san_…</code>. The header is the only place a
+  token is read from; a call without it is refused with a bare <code>403</code>, an invalid token
+  with a bare <code>401</code>.
+</p>
+
+<h2>Stability from the pipeline</h2>
+<p>
+  Every provide declares a <a href="../start/glossary.html#stability">stability</a>, and the
+  pipeline is the place to decide it. Release-branch builds provide <code>ga</code>; everything else
+  provides <code>snapshot</code>. With a client that is the ga switch
+  (<code>SANSHAIN_GA=true</code>, <code>--ga</code>, <code>-Dsanshain.ga=true</code>) set on the
+  protected-branch pipeline only; a raw <code>curl</code> pipeline sets the field itself. The
+  <a href="../start/glossary.html#version">version</a> is never a pipeline concern: it is read from
+  the spec file.
+</p>
+
+<h2>Streams from the pipeline</h2>
+<p>Alongside stability, the pipeline declares the stream:</p>
+<ul>
+  <li>
+    <strong>Trunk CI</strong> (the build of your default branch) adds <code>trunk: true</code> to
+    provides, bundles and the catalog push, and <code>trunk=true</code> to requires. This maintains
+    the <a href="../start/glossary.html#main-graph">main graph</a>. Nightly re-runs of an unchanged
+    trunk build are wanted: they keep trunk data fresh instead of ageing out.
+  </li>
+  <li>
+    <strong>Release and hotfix pipelines</strong> add <code>tag: "&lt;sanshain-branch&gt;"</code>.
+    The calls update that release's graph. The branch must exist, cut by a releaser; an unknown tag,
+    or <code>trunk</code> and <code>tag</code> together, does not fail the call but records it in
+    the dev graph only, with a warning header.
+  </li>
+</ul>
+<p>
+  Streams never change what is served or any version rule. The model is in
+  <a href="release-graphs.html">Release graphs</a>.
+</p>
+
+<h3>The catalog push</h3>
+<p>
+  A build with <code>catalogInfo</code> in its <code>sanshain.yaml</code> also pushes the project's
+  Backstage <code>catalog-info.yaml</code> once per build:
+  <code>PUT /catalog/{systemname}</code> with <code>{"catalog_info_yaml": "…", "trunk": …}</code>.
+  Sanshain reads the <code>Component</code> named like the project and of it the
+  <a href="../start/glossary.html#peripheral-resource">periphery</a> and the
+  <a href="../start/glossary.html#catalog-context">catalog context</a>; the exact fields are in
+  <a href="sanshain-yaml.html#the-catalog-phase">sanshain.yaml</a>. A file Sanshain cannot read as
+  the project's Component is answered <code>200</code> with <code>"recorded": false</code> and a
+  warning header; nothing is recorded and the previous state stays. An unchanged file changes
+  nothing.
+</p>
+
+<h3>The <code>Sanshain-Warning</code> header</h3>
+<p>
+  The graph is informational and never fails a build. When Sanshain cannot record a call the way it
+  was declared, the call still succeeds and the response carries one
+  <a href="../start/glossary.html#sanshain-warning"><code>Sanshain-Warning</code></a> line per
+  problem, on provides, requires, bundles and catalog pushes, dry runs and <code>304</code> answers
+  included:
+</p>
+<pre><code>Sanshain-Warning: no sanshain-branch '&lt;name&gt;' - this build was not recorded in a release graph
+Sanshain-Warning: trunk and tag are mutually exclusive - this build was recorded in neither
+Sanshain-Warning: &lt;the reason a catalog push recorded nothing&gt;</code></pre>
+<p>
+  The value is plain ASCII: any other character, from a tag name say, is escaped as
+  <code>\u{XXXX}</code> (the code point in hex, at least four digits), so <code>Größe</code> arrives
+  as <code>Gr\u{00F6}\u{00DF}e</code>. The clients print each warning; in
+  <a href="../start/glossary.html#strict-mode">strict mode</a> they fail the build on it. A raw
+  <code>curl</code> pipeline checks the header itself (<code>-D -</code> dumps the headers).
+</p>
+
+<h2>Dry runs for pull requests</h2>
+<p>
+  <code>/provide</code> (all three types), <code>/require</code> and
+  <code>/require-bundle</code> accept
+  <a href="../start/glossary.html#dry-run"><code>dry_run</code></a
+  >. The request runs the full validation and persists nothing, not even the Producer: a provide
+  parses the spec, reads and validates the version, splits the endpoints and applies the version
+  rules; a require resolves the endpoint at the pin without recording a dependency. Dry runs emit no
+  webhook events. That is what a pull-request pipeline wants: a forgotten bump or a semver lie
+  blocks the merge, and the database holds nothing temporary.
+</p>
+
+<h3>Validate a Producer's spec</h3>
+<p class="example-caption">Request (in the Producer's pipeline, on a pull request)</p>
+<pre><code>curl -f -X POST $SANSHAIN/provide \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" -H "Content-Type: application/json" \
+  -d "{
+    \"producername\": \"orders\",
+    \"stability\": \"ga\",
+    \"openapi_yaml\": $(jq -Rs . &lt; openapi.yaml),
+    \"dry_run\": true
+  }"</code></pre>
+<p class="example-caption">Response when the version needs a bump</p>
+<pre><code>HTTP/1.1 409 Conflict
+{ "error": "version 1.1.0 of openapi 'orders' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as 1.2.0 instead",
+  "proposed_version": "1.2.0" }</code></pre>
+<p>
+  <code>curl -f</code> fails the job on the <code>409</code>, and the developer knows which version
+  to set before merging. A dry run as <code>ga</code> still needs the releaser role.
+</p>
+
+<h3>Validate a Consumer's pins</h3>
+<p class="example-caption">Request</p>
+<pre><code>curl -f "$SANSHAIN/require?consumername=web-shop&amp;producername=orders&amp;version=2.1.0&amp;path=/orders&amp;method=GET&amp;dry_run=true" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN"</code></pre>
+<p class="example-caption">Responses</p>
+<pre><code>HTTP/1.1 404 Not Found
+{ "error": "Producer 'orders' has no openapi version 2.1.0 (in either stability) — a missing pinned version is a configuration error, nothing waits for it to appear" }
+
+HTTP/1.1 410 Gone
+{ "error": "openapi version 2.1.0 of 'orders' does not include GET /orders" }</code></pre>
+<p>
+  <code>404</code> is <a href="../start/glossary.html#unknown">unknown</a>, fix the pin;
+  <code>410</code> is <a href="../start/glossary.html#absent">absent</a>, the version exists and
+  deliberately lacks the endpoint.
+</p>
+
+<h3>Validate a bundle</h3>
+<p class="example-caption">Request</p>
+<pre><code>curl -f -X POST $SANSHAIN/require-bundle \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "consumername": "web-shop",
+    "producername": "orders",
+    "version": "2.1.0",
+    "endpoints": [
+      {"path": "/orders", "method": "GET"},
+      {"path": "/orders/{id}", "method": "DELETE"}
+    ],
+    "dry_run": true
+  }'</code></pre>
+<p class="example-caption">Response when endpoints are missing</p>
+<pre><code>HTTP/1.1 410 Gone
+{ "error": "openapi version 2.1.0 of 'orders' does not include: DELETE /orders/{id}" }</code></pre>
+
+<h2>Idempotency and caching</h2>
+<p>Sanshain is built so pipelines can provide and require unconditionally on every build.</p>
+<h3>Byte-identical content is a no-op</h3>
+<p>
+  Re-providing identical content, whatever the stability or the caller, stores nothing and answers
+  <code>changes</code> all zero: the
+  <a href="../start/glossary.html#idempotent-no-op">idempotent no-op</a>. Before comparing, hashing
+  and storing, Sanshain normalises every upload: CRLF and lone CR become LF and a leading UTF-8 BOM
+  is removed, so the same file hashes the same from every platform. The comparison is byte-for-byte
+  on the normalised text; whitespace and comments still count. A <code>.gitattributes</code> rule
+  keeps the repository's files equal to what Sanshain stores:
+</p>
+<pre><code>*.yaml  text eol=lf
+*.proto text eol=lf</code></pre>
+<h3>Version conflicts are self-service</h3>
+<p>
+  There is no pull-merge-retry loop. A <code>409</code> carries the
+  <a href="../start/glossary.html#proposed-version">proposed version</a>; the fix is a version bump
+  in your own spec file. Two developers editing the same spec coordinate in git, and the next
+  publish after their merge converges the snapshot.
+</p>
+<h3>ETags on requires</h3>
+<p>
+  Every require answer carries an <a href="../start/glossary.html#etag">ETag</a>;
+  <code>If-None-Match</code> yields <code>304 Not Modified</code> when the content is unchanged, so
+  a pipeline skips code generation. A GA pin can never change content; a snapshot pin can, and the
+  ETag detects exactly that. The clients do this for you.
+</p>
+
+<h2>The typical pipelines</h2>
+<h3>A Producer</h3>
+<pre><code>pull request   → provide as ga with dry_run (validate the version rules)
+merge to main  → provide as ga, trunk: true (store; trunk's current version)
+feature branch → provide as snapshot (optional; opted-in Consumers can pin it)
+hotfix branch  → provide as ga, tag: "&lt;release&gt;"</code></pre>
+<h3>A Consumer</h3>
+<pre><code>pull request   → require or bundle with dry_run (every pin exists and holds its endpoints)
+merge to main  → require or bundle, trunk=true (record the edge, generate the client)
+hotfix branch  → require with tag=&lt;release&gt;</code></pre>
+
+<h2>What an error says</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>409 Conflict</code></td>
+      <td>
+        Refused by the version rules; <code>proposed_version</code> names the number to publish as.
+      </td>
+    </tr>
+    <tr>
+      <td><code>403 Forbidden</code></td>
+      <td>
+        A GA provide without the releaser role, a retire without the role or a maintainer grant, or
+        a read-only token on a write route. The body names the role or scope needed.
+      </td>
+    </tr>
+    <tr>
+      <td><code>404 Not Found</code></td>
+      <td>Unknown: the Producer or the pinned version does not exist. Fix the pin.</td>
+    </tr>
+    <tr>
+      <td><code>410 Gone</code></td>
+      <td>Absent: the pinned version exists and lacks the endpoint(s); bundles name them.</td>
+    </tr>
+    <tr>
+      <td><code>400 Bad Request</code></td>
+      <td>
+        The document is invalid: malformed YAML, a missing or non-semver version, a missing proto
+        marker.
+      </td>
+    </tr>
+    <tr>
+      <td><code>422</code></td>
+      <td>
+        The JSON body has the wrong shape: a missing <code>stability</code>, or a 1.x field such as
+        <code>branch</code>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The messages are written to be shown in CI logs as they are; the complete list of shapes is in
+  <a href="../reference/api-usage.html#error-shapes">Using the API</a>.
+</p>
+
+<h2>GitHub Actions</h2>
+<p>
+  Keep the URL in a repository or organisation variable and the token in a secret, so moving the
+  service changes one variable. With the JavaScript client's Action:
+</p>
+<pre><code>name: Contracts
+on: [pull_request, push]
+
+jobs:
+  sanshain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: paxel/sanshain-js@main
+        with:
+          command: provide
+          ga: ${{ github.ref == 'refs/heads/main' }}
+          trunk: ${{ github.ref == 'refs/heads/main' }}
+        env:
+          SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
+          SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}</code></pre>
+<p>Or with <code>curl</code>, as a pull-request check:</p>
+<pre><code>      - name: Validate the API contract (dry run)
+        run: |
+          curl -f -X POST ${{ vars.SANSHAIN_URL }}/provide \
+            -H "Authorization: Bearer ${{ secrets.SANSHAIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"producername\": \"my-service\",
+              \"stability\": \"ga\",
+              \"openapi_yaml\": $(jq -Rs . &lt; openapi.yaml),
+              \"dry_run\": true
+            }"</code></pre>
+
+<h2>Maven and the other build tools</h2>
+<p>
+  The Maven plugin reads the URL from a property and the token from a
+  <code>&lt;server&gt;</code> entry, so neither has to live in the repository; the
+  <code>&lt;sanshain.url&gt;</code> property can also sit in <code>pom.xml</code>. The profile needs
+  activating:
+</p>
+<p class="example-caption">Maven <code>settings.xml</code></p>
+<pre><code>&lt;profiles&gt;
+  &lt;profile&gt;
+    &lt;id&gt;sanshain-config&lt;/id&gt;
+    &lt;activation&gt;
+      &lt;activeByDefault&gt;true&lt;/activeByDefault&gt;
+    &lt;/activation&gt;
+    &lt;properties&gt;
+      &lt;sanshain.url&gt;https://sanshain.corp.com&lt;/sanshain.url&gt;
+    &lt;/properties&gt;
+  &lt;/profile&gt;
+&lt;/profiles&gt;
+
+&lt;servers&gt;
+  &lt;server&gt;
+    &lt;id&gt;sanshain&lt;/id&gt;
+    &lt;username&gt;ignored&lt;/username&gt;
+    &lt;password&gt;san_xxxxxxxxxxxx&lt;/password&gt;
+  &lt;/server&gt;
+&lt;/servers&gt;</code></pre>
+<p>
+  The <a href="clients.html#maven-java-kotlin">Maven plugin</a> keeps the require ETags in
+  <code>target/.sanshain-cache.json</code>, which <code>mvn clean</code> removes. Every other build
+  tool (Gradle included, which has no plugin and runs one of the CLIs) gets the URL and the token
+  from the environment:
+</p>
+<pre><code>export SANSHAIN_URL=https://sanshain.corp.com
+export SANSHAIN_TOKEN=san_xxxxxxxxxxxx</code></pre>
+<p>
+  To check the <code>format: openapi</code> answer end to end with
+  <code>openapi-generator</code> against a running instance, the repository has
+  <code>scripts/openapi-generator-check.sh</code>, a manual check that is not part of CI.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

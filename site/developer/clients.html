@@ -1,0 +1,186 @@
+<!-- page: title="Clients" track="developer" order=3 summary="The official clients, one per ecosystem: Maven, cargo, Go, JavaScript with its GitHub Action, Conan. Install, commands, the ga switch, streams and strict mode, with a link to each client's own documentation." -->
+<p class="lede">
+  Builds do not call <code>curl</code>. Each client reads
+  <a href="sanshain-yaml.html"><code>sanshain.yaml</code></a>
+  and speaks the same contract; what differs is how it is installed and invoked. This chapter gives
+  the shape of each one and links its own documentation, which stays the authority for flags and
+  edge cases.
+</p>
+
+<h2>What every client has in common</h2>
+<ul>
+  <li>
+    <strong>Compatibility</strong>: client 2.x speaks Sanshain Service 2.x. The catalog push and
+    <code>format: openapi</code> need Sanshain Service 2.4.0 or later; everything else works with
+    any 2.x service.
+  </li>
+  <li><strong>Three commands</strong>: provide, require, catalog, each a separate step.</li>
+  <li>
+    <strong>The ga switch</strong>: every provide is a
+    <a href="../start/glossary.html#snapshot">snapshot</a> unless <code>SANSHAIN_GA=true</code> (or
+    the client's flag) is set. No git detection anywhere.
+  </li>
+  <li>
+    <strong>Streams</strong>: <code>SANSHAIN_TRUNK=true</code> marks a
+    <a href="../start/glossary.html#trunk">trunk</a> build,
+    <code>SANSHAIN_TAG=&lt;branch&gt;</code> a
+    <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> build. Both set, the client
+    sends neither and warns (strict mode fails before any request).
+  </li>
+  <li>
+    <strong>Environment</strong>: <code>SANSHAIN_URL</code> overrides <code>sanshainUrl</code>,
+    <code>SANSHAIN_TOKEN</code> is the bearer token, <code>SANSHAIN_BEST_EFFORT=true</code> turns
+    failed calls into warnings. Boolean switches are on for <code>true</code> or <code>1</code>.
+  </li>
+  <li>
+    <strong>Warnings</strong>: a
+    <a href="../start/glossary.html#sanshain-warning"><code>Sanshain-Warning</code></a>
+    header is printed and the build carries on; in
+    <a href="../start/glossary.html#strict-mode">strict mode</a> it fails the command with
+    <code>strict: Sanshain warned: &lt;text&gt;</code>.
+  </li>
+  <li>
+    <strong>Caching</strong>: provides always upload (the server's
+    <a href="../start/glossary.html#idempotent-no-op">no-op</a> makes that free); requires keep the
+    <a href="../start/glossary.html#etag">ETag</a> in a state file and skip rewriting on
+    <code>304</code>.
+  </li>
+  <li>
+    <strong>Rejections</strong>: a <code>409</code> is printed with its
+    <a href="../start/glossary.html#proposed-version">proposed version</a>; a <code>404</code> on
+    require means the pin does not exist, a <code>410</code> that the version lacks the endpoint.
+  </li>
+  <li>
+    <strong>Unknown fields</strong> in <code>sanshain.yaml</code> are reported; the 1.x fields
+    (<code>branch</code>, <code>timeout</code>, <code>baseVersion</code>,
+    <code>releaseBranches</code>) are rejected with a migration hint.
+  </li>
+</ul>
+
+<h2>Maven (Java, Kotlin)</h2>
+<p>
+  <a href="https://github.com/paxel/sanshain-maven-plugin">paxel/sanshain-maven-plugin</a>, artifact
+  <code>io.github.paxel.sanshain:sanshain-maven-plugin</code> on Maven Central, Java 11 or later.
+  Three goals, all bound to the <code>initialize</code> phase by default:
+</p>
+<pre><code>mvn sanshain:provide     # snapshot
+mvn sanshain:provide -Dsanshain.ga=true
+mvn sanshain:require
+mvn sanshain:catalog</code></pre>
+<p>
+  Configuration comes from <code>sanshain.yaml</code>, overridable by Maven properties
+  (<code>-Dsanshain.url</code>, <code>-Dsanshain.token</code>, <code>-Dsanshain.ga</code>,
+  <code>-Dsanshain.trunk</code>, <code>-Dsanshain.tag</code>, <code>-Dsanshain.strict</code>) and by
+  the environment; URL and token can also live in <code>settings.xml</code> (a
+  <code>&lt;server&gt;</code> with id <code>sanshain</code> for the token). The plugin inlines local
+  <code>$ref</code>s and proto <code>import</code>s into one document before upload
+  (<code>combine</code>, on by default), and picks <code>/require-bundle</code> automatically when
+  an entry has two or more endpoints. <code>configFile</code> points it at another
+  <code>sanshain.yaml</code>. Require ETags are kept in <code>target/.sanshain-cache.json</code>,
+  removed by <code>mvn clean</code>. Its README documents the full precedence chain, strict and
+  best-effort modes, and the <code>openapi-generator</code> wiring.
+</p>
+
+<h2>Rust (cargo)</h2>
+<p>
+  <a href="https://github.com/paxel/sanshain-rs">paxel/sanshain-rs</a>: the
+  <code>sanshain</code> library crate and the <code>cargo-sanshain</code> subcommand.
+</p>
+<pre><code>cargo install cargo-sanshain
+
+cargo sanshain provide        # snapshot (the default)
+cargo sanshain provide --ga   # immutable GA
+cargo sanshain require        # download the pinned snippets
+cargo sanshain catalog        # push catalog-info.yaml</code></pre>
+<p>
+  The subcommand README has the flags and CI recipes; the library README has the configuration
+  reference and the <code>Client</code> API for builds that embed the client.
+</p>
+
+<h2>Go</h2>
+<p>
+  <a href="https://github.com/paxel/sanshain-go">paxel/sanshain-go</a>, a CLI and a client library
+  under the <code>/v2</code> module path:
+</p>
+<pre><code>go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
+
+SANSHAIN_TOKEN=san_… sanshain-go provide
+sanshain-go --ga provide
+sanshain-go --trunk provide      # or SANSHAIN_TRUNK=true
+sanshain-go --tag R1 provide     # or SANSHAIN_TAG=R1
+sanshain-go require
+sanshain-go catalog</code></pre>
+<p>
+  <code>--config path/to/sanshain.yaml</code> points it at another file; <code>strict: true</code>
+  in the file turns on strict mode. The README covers the failure modes, the ETag state file and the
+  1.x migration.
+</p>
+
+<h2>JavaScript and TypeScript, and the GitHub Action</h2>
+<p>
+  <a href="https://github.com/paxel/sanshain-js">paxel/sanshain-js</a>: the <code>sanshain</code>
+  npm package with a Node client, a CLI and a composite GitHub Action.
+</p>
+<pre><code>npm install --save-dev sanshain
+
+npx sanshain provide          # snapshot
+npx sanshain provide --ga
+npx sanshain provide --trunk  # or --tag R1
+npx sanshain require
+npx sanshain catalog</code></pre>
+<p>
+  A <code>"prebuild": "sanshain require"</code> script in <code>package.json</code> fetches the
+  pinned snippets before every build. Beyond the shared variables the CLI reads
+  <code>SANSHAIN_SERVICE_NAME</code>, <code>SANSHAIN_STRICT</code> and
+  <code>SANSHAIN_COMPRESSION</code>; <code>--url</code> wins over <code>SANSHAIN_URL</code>, which
+  wins over the file.
+</p>
+<p>
+  The Action wraps the CLI. Its inputs are <code>command</code> (provide, require or catalog),
+  <code>token</code> (or the <code>SANSHAIN_TOKEN</code> secret in the environment),
+  <code>ga</code>, <code>trunk</code>, <code>tag</code> and <code>working-directory</code>:
+</p>
+<pre><code>- uses: paxel/sanshain-js@main
+  with:
+    command: provide
+    ga: ${{ github.ref == 'refs/heads/main' }}
+    trunk: ${{ github.ref == 'refs/heads/main' }}
+  env:
+    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
+    SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}</code></pre>
+
+<h2>Conan (C, C++)</h2>
+<p>
+  <a href="https://github.com/paxel/sanshain-conan">paxel/sanshain-conan</a>, the
+  <code>sanshain-conan</code> package on PyPI, installed into the environment Conan runs in. The
+  earlier <code>python_requires</code> pattern is gone.
+</p>
+<pre><code>pip install sanshain-conan</code></pre>
+<pre><code># conanfile.py
+from conan import ConanFile
+from sanshainconan import Sanshain
+
+class MyProject(ConanFile):
+    def generate(self):
+        sanshain = Sanshain(self)
+        sanshain.require()     # runs during `conan install`
+        sanshain.catalog()     # optional</code></pre>
+<p>
+  Providing runs from the CLI, after the tests: <code>sanshain-conan provide</code> (or
+  <code>python3 -m sanshainconan.cli provide</code>), with <code>--ga</code>, <code>--trunk</code>,
+  <code>--tag</code> and <code>--best-effort</code> as flags. <code>strict: true</code> in
+  <code>sanshain.yaml</code> turns on strict mode.
+</p>
+
+<h2>No client for your language?</h2>
+<p>
+  The contract is <a href="../reference/api.html">eight routes</a>: <code>POST /provide</code>,
+  <code>/provide/asyncapi</code> and <code>/provide/grpc</code>; <code>GET /require</code>,
+  <code>/require/asyncapi</code> and <code>/require/grpc</code>; <code>POST /require-bundle</code>;
+  <code>PUT /catalog/{systemname}</code>. <a href="ci-integration.html">CI integration</a> shows
+  each of them as a <code>curl</code> line, and
+  <a href="../reference/api-usage.html">Using the API</a> covers tokens and error shapes.
+  <code>api.yaml</code> in the repository is the OpenAPI document to generate a client from.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>
