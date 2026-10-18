@@ -721,7 +721,7 @@ relations:
   text: 'manage hooks: create, test, rotate secret, list deliveries, redeliver (/admin/webhooks, per Producer and Consumer)'
   short: manage hooks
   frame_sides:
-    14: right
+    14: left
   look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 72
   owner: 1
@@ -747,7 +747,7 @@ relations:
   - block: 14
     side: bottom
   - block: 56
-    side: left
+    side: bottom
   b:
   - block: 60
     side: top
@@ -761,6 +761,8 @@ relations:
     mode: always
   - diagram: 14
     mode: always
+  frame_sides:
+    14: bottom
   look: b6acfdd1-d110-4c5d-a696-3bc277647fa3
 - id: 74
   owner: 1
