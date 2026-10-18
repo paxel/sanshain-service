@@ -515,3 +515,54 @@ fn extra_env_is_appended_to_the_container() {
     assert!(rendered.contains("configMapRef:"));
     assert!(rendered.contains("secretRef:"));
 }
+
+#[test]
+fn default_render_omits_the_empty_secret_keys() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+
+    // Before 2.6.1 both keys were rendered with an empty value, which reached
+    // the service as INITIAL_ADMIN_PASSWORD="" and DATABASE_URL="".
+    assert!(
+        !rendered.contains("INITIAL_ADMIN_PASSWORD"),
+        "an empty initial admin password must not be rendered, got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("DATABASE_URL:"),
+        "an empty database URL must not be rendered, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("kind: Secret"),
+        "the Secret itself still exists for the secretRef"
+    );
+}
+
+#[test]
+fn configured_secret_values_are_rendered_base64_encoded() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[
+        "--set",
+        "secrets.databaseUrl=postgres://u:p@db/sanshain",
+        "--set",
+        "secrets.initialAdminPassword=s3cret",
+    ])
+    .expect("chart renders with both secrets set");
+
+    // echo -n "postgres://u:p@db/sanshain" | base64 ; echo -n "s3cret" | base64
+    assert!(
+        rendered.contains(r#"DATABASE_URL: "cG9zdGdyZXM6Ly91OnBAZGIvc2Fuc2hhaW4=""#),
+        "got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(r#"INITIAL_ADMIN_PASSWORD: "czNjcmV0""#),
+        "got:\n{rendered}"
+    );
+}

@@ -173,7 +173,8 @@
   </dd>
   <dt><code>POST /auth/login</code> answers <code>401</code></dt>
   <dd>
-    Wrong username or password; with LDAP, the directory refused and the local check refused too.
+    Wrong username or password, or an empty password, which is refused before any check; with LDAP,
+    the directory refused and the local check refused too.
   </dd>
   <dt><code>POST /auth/login</code> answers <code>403</code></dt>
   <dd>

@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The startup log line for a claimed `SANSHAIN_ROOT_USERS` name no longer tells the operator to reset a password that does not exist; it says the placeholder is taken over by the first LDAP or OIDC login under that name.
 - `maintenance.yaml` documents `201` for granting a role, which is what the route has always answered; the generated reference follows.
 - The first-start message names the admin page under `PUBLIC_BASE_URL` (or the bind address) instead of a hardcoded `http://localhost:3000/admin.html`.
+- A default Helm or Kustomize install no longer creates the initial admin with an empty password: an empty `INITIAL_ADMIN_PASSWORD` or `DATABASE_URL` counts as unset (random password, SQLite default), the charts render the two Secret keys only when set, and login refuses an empty password outright.
 
 ---
 

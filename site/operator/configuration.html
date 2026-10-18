@@ -38,7 +38,7 @@
       <td>
         The database. <code>postgres://user:pass@host:5432/db</code> (or <code>postgresql://</code>)
         selects PostgreSQL, anything else SQLite. The image sets
-        <code>sqlite:/data/sanshain.db?mode=rwc</code>.
+        <code>sqlite:/data/sanshain.db?mode=rwc</code>. Set but empty counts as unset.
       </td>
     </tr>
     <tr>
@@ -234,11 +234,8 @@
       <td><code>INITIAL_ADMIN_PASSWORD</code></td>
       <td>random, printed to stderr</td>
       <td>
-        Password of that account, read on the first start only. Set it; a variable that is set but
-        empty is used as the password, which is what the shipped Helm and Kustomize Secrets do (<a
-          href="deployment.html#the-helm-chart"
-          >Deployment</a
-        >).
+        Password of that account, read on the first start only. Set but empty counts as unset: the
+        random password is generated and printed.
       </td>
     </tr>
     <tr>

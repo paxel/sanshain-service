@@ -43,6 +43,18 @@ where
     }
 }
 
+/// The database to open: `DATABASE_URL`, or the SQLite default.
+///
+/// Set but empty counts as unset: the Helm chart and the Kustomize Secret used
+/// to render the key with an empty value when nothing was configured, and an
+/// empty SQLite file name opens a private temporary database instead of the
+/// file under `/data`.
+fn database_url(configured: Option<String>) -> String {
+    configured
+        .filter(|u| !u.trim().is_empty())
+        .unwrap_or_else(|| "sqlite:sanshain.db?mode=rwc".into())
+}
+
 /// Same contract for a setting with a fixed vocabulary: an unrecognised value
 /// is refused rather than quietly treated as "not the special one".
 fn env_choice(name: &str, allowed: &[&str], default: &str) -> String {
@@ -148,8 +160,7 @@ pub async fn main() {
         std::process::exit(1);
     }
 
-    let db_connection_str =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:sanshain.db?mode=rwc".into());
+    let db_connection_str = database_url(std::env::var("DATABASE_URL").ok());
 
     let repo = if db_connection_str.starts_with("postgres://")
         || db_connection_str.starts_with("postgresql://")
@@ -630,4 +641,21 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("signal received, starting graceful shutdown");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::database_url;
+
+    /// Defect 1 of 2.6.1: the shipped Secrets injected `DATABASE_URL=""`.
+    #[test]
+    fn database_url_treats_empty_as_unset() {
+        assert_eq!(
+            database_url(Some("postgres://u:p@db/sanshain".to_string())),
+            "postgres://u:p@db/sanshain"
+        );
+        for unset in [None, Some(String::new()), Some("  ".to_string())] {
+            assert_eq!(database_url(unset), "sqlite:sanshain.db?mode=rwc");
+        }
+    }
 }

@@ -96,10 +96,12 @@ config:
   # this at the same mountPath. A malformed certificate fails startup.
   extraCaCertsDir: ""
 
+# Each key is rendered into the Secret only when its value is non-empty.
 secrets:
-  # DATABASE_URL: "sqlite:///data/sanshain.db"
+  # DATABASE_URL. Empty: the image's default, SQLite under /data.
   databaseUrl: ""
-  # If empty, a random password will be generated if it's the first install (not implemented in chart logic yet, but good practice)
+  # INITIAL_ADMIN_PASSWORD. Empty: the service generates a random password on
+  # the first start and prints it to the log.
   initialAdminPassword: ""
 
 # Any other environment variable of the service (see

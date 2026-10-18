@@ -72,6 +72,18 @@ pub async fn claim_root_usernames(
     Ok(())
 }
 
+/// The initial admin's password: `INITIAL_ADMIN_PASSWORD` as configured, or a
+/// random one.
+///
+/// Set but empty counts as unset. The Helm chart and the Kustomize Secret used
+/// to render the key with an empty value when nothing was configured, and ""
+/// reached the service as the password of the bootstrap administrator.
+pub fn initial_admin_password(configured: Option<String>) -> String {
+    configured
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or_else(generate_random_password)
+}
+
 /// Where the first-login message sends the operator: the admin page under
 /// `PUBLIC_BASE_URL` when it is set, under the bind address otherwise.
 pub fn initial_admin_url(public_base_url: Option<&str>, bind_address: &str) -> String {
@@ -91,8 +103,7 @@ pub async fn ensure_initial_admin(
     if count == 0 {
         let username =
             std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "root".to_string());
-        let password =
-            std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| generate_random_password());
+        let password = initial_admin_password(std::env::var("INITIAL_ADMIN_PASSWORD").ok());
         let hash = hash_password(&password)?;
         let admin = repo.create_user(&username, &hash, true).await?;
         // The flag is gone, so the bootstrap account's authority comes from an
@@ -117,6 +128,11 @@ pub async fn login(
     username: &str,
     password: &str,
 ) -> Result<(Session, User), AppError> {
+    // An empty password is never a credential: refused before any lookup, so
+    // an account that was created with an empty hash cannot be entered.
+    if password.is_empty() {
+        return Err(AppError::Unauthorized);
+    }
     let user = repo
         .find_user(username)
         .await?
@@ -376,6 +392,11 @@ pub async fn login_with_provider(
     username: &str,
     password: &str,
 ) -> Result<Session, AppError> {
+    // Same rule as the local login: an empty password is refused outright, not
+    // handed to the directory (an empty simple bind is anonymous on many).
+    if password.is_empty() {
+        return Err(AppError::Unauthorized);
+    }
     // The provider's answer establishes identity; the username is all that is
     // needed from it, since privileges are resolved separately.
     let _authenticated = provider
@@ -1046,6 +1067,44 @@ mod tests {
         assert_eq!(
             initial_admin_url(None, "127.0.0.1:3000"),
             "http://127.0.0.1:3000/admin.html"
+        );
+    }
+
+    #[test]
+    fn initial_admin_password_treats_empty_as_unset() {
+        assert_eq!(
+            initial_admin_password(Some("configured".to_string())),
+            "configured"
+        );
+        for unset in [None, Some(String::new()), Some("   ".to_string())] {
+            let password = initial_admin_password(unset);
+            assert_eq!(password.len(), 16, "a random password, not the empty one");
+            assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+        }
+    }
+
+    /// Defect 1 of 2.6.1: an account created with the hash of "" (the shipped
+    /// Helm and Kustomize Secrets rendered an empty INITIAL_ADMIN_PASSWORD)
+    /// must not be enterable with an empty password.
+    #[tokio::test]
+    async fn login_refuses_an_empty_password() {
+        let repo = MockRepo::new();
+        let hash = hash_password("").unwrap();
+        repo.create_user("root", &hash, true).await.unwrap();
+        let err = login(&repo, "root", "").await.unwrap_err();
+        assert!(matches!(err, AppError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn directory_login_refuses_an_empty_password() {
+        let repo = MockRepo::new();
+        let err = login_with_provider(&repo, &AcceptingProvider, "alice", "")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Unauthorized));
+        assert!(
+            repo.find_user("alice").await.unwrap().is_none(),
+            "no shadow account for a refused login"
         );
     }
 }

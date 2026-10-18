@@ -57,12 +57,12 @@ DATABASE_URL=sqlite://sanshain.db ./target/release/sanshain_service</code></pre>
 [INITIAL SETUP] Change this password immediately at http://0.0.0.0:3000/admin.html</code></pre>
 <p>
   The username is <code>root</code> unless <code>INITIAL_ADMIN_USERNAME</code> says otherwise, and
-  <code>INITIAL_ADMIN_PASSWORD</code> replaces the random password. The address is
-  <code>PUBLIC_BASE_URL</code> when set, otherwise the bind address (<code>BIND_ADDRESS</code>,
-  default <code>0.0.0.0:3000</code>). This account is <a href="glossary.html#root">root</a>: its
-  authority comes from configuration and cannot be revoked from inside the application. When
-  <code>SANSHAIN_ROOT_USERS</code> is set, that list alone names the root accounts; otherwise the
-  initial admin's username is root.
+  <code>INITIAL_ADMIN_PASSWORD</code> replaces the random password (set but empty, it counts as
+  unset). The address is <code>PUBLIC_BASE_URL</code> when set, otherwise the bind address
+  (<code>BIND_ADDRESS</code>, default <code>0.0.0.0:3000</code>). This account is
+  <a href="glossary.html#root">root</a>: its authority comes from configuration and cannot be
+  revoked from inside the application. When <code>SANSHAIN_ROOT_USERS</code> is set, that list alone
+  names the root accounts; otherwise the initial admin's username is root.
 </p>
 <ol>
   <li>Open <code>http://localhost:3000/</code> and sign in with those credentials.</li>

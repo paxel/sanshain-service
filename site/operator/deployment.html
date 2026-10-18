@@ -95,8 +95,10 @@
       <td><code>secret.yaml</code></td>
       <td>
         <code>sanshain-secrets</code>: <code>DATABASE_URL</code> and
-        <code>INITIAL_ADMIN_PASSWORD</code>, base64-encoded, both empty in the template. Fill both
-        in, see the warning below.
+        <code>INITIAL_ADMIN_PASSWORD</code>, base64-encoded, both commented out in the template. Add
+        the ones you set. A key left out, or set to an empty value, counts as unset: the image's
+        SQLite default under <code>/data</code>, and a random initial admin password printed to the
+        log on the first start.
       </td>
     </tr>
     <tr>
@@ -128,36 +130,18 @@
 <pre><code>kubectl create namespace sanshain
 echo -n "postgres://user:pass@db:5432/sanshain" | base64   # into secret.yaml
 kubectl apply -k deploy/kubernetes -n sanshain</code></pre>
-<div class="callout">
-  <p class="eyebrow">Security warning</p>
-  <p>
-    Applied as shipped, the Secret injects <code>DATABASE_URL=""</code> and
-    <code>INITIAL_ADMIN_PASSWORD=""</code>: the initial admin gets an
-    <strong>empty password</strong> and the empty database URL replaces the image's
-    <code>/data</code> default (SQLite opens an empty file name as a private temporary database, so
-    nothing lands on the volume). Put both values into <code>secret.yaml</code> before applying; for
-    SQLite on the volume, <code>sqlite:/data/sanshain.db?mode=rwc</code>. The code fix is tracked
-    separately.
-  </p>
-</div>
 <h2>The Helm chart</h2>
 <p>
   <code>deploy/helm/sanshain</code>, chart version 2.6.0, <code>appVersion</code> 2.6.0. The image
   tag defaults to <code>v</code> plus the <code>appVersion</code>.
 </p>
 <pre><code>helm install sanshain deploy/helm/sanshain -n sanshain --create-namespace</code></pre>
-<div class="callout">
-  <p class="eyebrow">Security warning</p>
-  <p>
-    The chart's Secret always renders both keys, so with the default values the pod receives
-    <code>DATABASE_URL=""</code> and <code>INITIAL_ADMIN_PASSWORD=""</code>, and the service reads a
-    set variable as given: the initial admin is created with an <strong>empty password</strong>, and
-    the empty database URL replaces the image's <code>/data</code> default (SQLite opens an empty
-    file name as a private temporary database, so nothing lands on the data volume). Always set
-    <code>secrets.databaseUrl</code> and <code>secrets.initialAdminPassword</code>. The code fix is
-    tracked separately.
-  </p>
-</div>
+<p>
+  With the default values the pod gets SQLite on the data volume and a random initial admin password
+  in the log: the Secret renders <code>DATABASE_URL</code> and <code>INITIAL_ADMIN_PASSWORD</code>
+  only when the value is non-empty, and the service treats an empty value as unset. To choose the
+  password:
+</p>
 <pre><code># my-values.yaml
 secrets:
   databaseUrl: "sqlite:/data/sanshain.db?mode=rwc"
@@ -239,17 +223,17 @@ secrets:
       <td><code>secrets.databaseUrl</code></td>
       <td><code>""</code></td>
       <td>
-        <code>DATABASE_URL</code> in the chart's Secret. Always rendered: an empty value is injected
-        as <code>""</code> and overrides the image's default, see the warning above. Set it to
-        <code>sqlite:/data/sanshain.db?mode=rwc</code> for SQLite on the data volume.
+        <code>DATABASE_URL</code> in the chart's Secret, rendered only when non-empty. Empty keeps
+        the image's <code>sqlite:/data/sanshain.db?mode=rwc</code> on the data volume; set it for
+        PostgreSQL.
       </td>
     </tr>
     <tr>
       <td><code>secrets.initialAdminPassword</code></td>
       <td><code>""</code></td>
       <td>
-        <code>INITIAL_ADMIN_PASSWORD</code>. Always rendered: an empty value is the password, see
-        the warning above. Set it.
+        <code>INITIAL_ADMIN_PASSWORD</code>, rendered only when non-empty. Empty, the service prints
+        a random password to the log on the first start.
       </td>
     </tr>
     <tr>

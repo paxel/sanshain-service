@@ -103,11 +103,12 @@
     >approval</a
   >): the <strong>Users</strong> section of the admin page, or
   <code>POST /admin/users/{id}/approve</code> (<code>manage_users</code>). A pending user's login
-  answers <code>403</code>; a wrong password <code>401</code>. The
-  <strong>Auto Acknowledge New Users</strong> toggle (<code>auto_approve_users</code>) approves new
-  registrations at once; it is off by default and meant for a lab, not for a company. In the
-  <strong>Users</strong> list every account carries its badges: one per role it holds directly
-  (<code>admin</code>, <code>viewer</code>, …), and <code>approved</code> or <code>pending</code>.
+  answers <code>403</code>; a wrong password <code>401</code>, and so does an empty one, refused
+  before any check. The <strong>Auto Acknowledge New Users</strong> toggle
+  (<code>auto_approve_users</code>) approves new registrations at once; it is off by default and
+  meant for a lab, not for a company. In the <strong>Users</strong> list every account carries its
+  badges: one per role it holds directly (<code>admin</code>, <code>viewer</code>, …), and
+  <code>approved</code> or <code>pending</code>.
 </p>
 <p>
   Registration refuses a name twice: <code>409 User already exists</code>, and
@@ -141,7 +142,9 @@
 [INITIAL SETUP] Change this password immediately at https://sanshain.corp/admin.html</code></pre>
 <p>
   The second line names the admin page under <code>PUBLIC_BASE_URL</code>; without it, under the
-  bind address (<code>http://0.0.0.0:3000/admin.html</code> by default).
+  bind address (<code>http://0.0.0.0:3000/admin.html</code> by default). A set but empty
+  <code>INITIAL_ADMIN_PASSWORD</code> counts as unset, and an empty password is never accepted at
+  login.
 </p>
 <p>
   That account is also <a href="../start/glossary.html#root">root</a> by the default of
