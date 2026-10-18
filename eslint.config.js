@@ -87,7 +87,7 @@ export default [
   },
   {
     // Documentation site build script and its tests: Node, ES modules.
-    files: ["scripts/build-site.js", "tests/site/*.js"],
+    files: ["scripts/build-site.js", "scripts/site/*.js", "tests/site/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",

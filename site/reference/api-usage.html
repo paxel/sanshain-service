@@ -1,0 +1,298 @@
+<!-- page: title="Using the API" track="reference" order=2 summary="Tokens and scopes, session versus API token, where a read-only token is refused, error shapes, size and rate limits." -->
+<p class="lede">
+  The two generated references list every route: the <a href="api.html">REST API</a> that build
+  plugins and CLIs speak (<code>api.yaml</code>) and the
+  <a href="maintenance.html">Maintenance API</a> behind the admin pages
+  (<code>maintenance.yaml</code>). This page is the prose around them: how a call authenticates,
+  what a token may do, and what an error looks like.
+</p>
+
+<h2>In one minute</h2>
+<ul>
+  <li>
+    <strong>Provide</strong>: <a href="api.html#post-provide"><code>POST /provide</code></a> for
+    OpenAPI, <a href="api.html#post-provide-asyncapi"><code>/provide/asyncapi</code></a> and
+    <a href="api.html#post-provide-grpc"><code>/provide/grpc</code></a> for the other types, with a
+    declared <code>stability</code>; the version is read from the spec itself.
+  </li>
+  <li>
+    <strong>Require</strong>: <a href="api.html#get-require"><code>GET /require</code></a> for one
+    endpoint or <a href="api.html#post-require-bundle"><code>POST /require-bundle</code></a> for
+    several, always at an exact pinned version.
+  </li>
+  <li>
+    <strong>Authenticate</strong> with <code>Authorization: Bearer &lt;token&gt;</code>. The header
+    is the only place a token is read from, never a query parameter, so tokens do not end up in
+    logs, history or referrers.
+  </li>
+  <li>
+    <strong>Validate for free</strong>:
+    <a href="api.html#post-validate"><code>POST /validate</code></a>
+    runs the provide-side checks without authentication and without storing anything.
+  </li>
+</ul>
+
+<h2>Sessions and API tokens</h2>
+<p>
+  Sanshain knows two credentials, and both travel in the same header. A
+  <strong>session token</strong> is what <code>POST /auth/login</code> answers (<code
+    >{"token": "…"}</code
+  >) and what the web UI sends with every call; it expires with the session. An
+  <strong>API token</strong> is long-lived, belongs to one user and is meant for CI, scripts and AI
+  clients. Users mint their own on the account page (<code>/account.html</code>) or with
+  <a href="api.html#post-auth-tokens"><code>POST /auth/tokens</code></a
+  >; the raw token is shown once, <code>expires_in_days</code> is mandatory, and the listing shows
+  when each token last authenticated a request.
+</p>
+<p>Which credential a route takes is stated on every entry of the generated pages:</p>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Routes</th>
+        <th>Session token</th>
+        <th>API token</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          Provide, require, catalog push and version listings (<a href="api.html">REST API</a>), the
+          reports, <code>/endpoint-versions</code> and the update streams
+        </td>
+        <td>accepted</td>
+        <td>accepted; the scope decides what it may do</td>
+      </tr>
+      <tr>
+        <td><code>/auth/tokens</code> (minting and revoking tokens)</td>
+        <td>required</td>
+        <td>refused: a token cannot mint tokens</td>
+      </tr>
+      <tr>
+        <td>
+          <a href="maintenance.html">Maintenance API</a> (<code>/admin/*</code>) and the UI's own
+          endpoints (<code>/auth/*</code>, the dashboard, the audit timeline)
+        </td>
+        <td>required</td>
+        <td>
+          refused with <code>401</code> and an <code>ErrorBody</code>, whatever the scope: these
+          routes validate sessions only. The one exception is
+          <a href="maintenance.html#get-admin-backup-sqlite"
+            ><code>GET /admin/backup/sqlite</code></a
+          >, which also admits a <code>full</code> token for the scheduled backup and refuses a
+          <code>read_only</code> one with <code>403</code>.
+        </td>
+      </tr>
+      <tr>
+        <td><code>/mcp</code> (AI assistants)</td>
+        <td>refused</td>
+        <td>required; prefer <code>read_only</code></td>
+      </tr>
+      <tr>
+        <td>
+          <code>/validate</code>, <code>/version</code>, <code>/health</code>, <code>/ready</code>
+        </td>
+        <td colspan="2">no authentication</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>Scopes: full and read-only</h2>
+<p>
+  A token has a <strong>scope</strong>, decided when it is minted and immutable afterwards (<a
+    href="api.html#schema-ApiTokenScope"
+    ><code>ApiTokenScope</code></a
+  >):
+</p>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Scope</th>
+        <th>May</th>
+        <th>Refused with <code>403</code></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>full</code></td>
+        <td>Everything its owner may do.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><code>read_only</code></td>
+        <td>
+          <code>GET /report</code> and its variants,
+          <a href="api.html#get-producers-producername-versions"
+            ><code>/producers/{producername}/versions</code></a
+          >, <code>/endpoint-versions</code>, the SSE and WebSocket update streams, the MCP
+          endpoint.
+        </td>
+        <td>
+          Provide (all types, including retire), <code>/require</code>,
+          <code>/require/asyncapi</code>, <code>/require/grpc</code>, <code>/require-bundle</code>,
+          <a href="api.html#put-catalog-systemname"><code>PUT /catalog/{systemname}</code></a
+          >, and <code>GET /admin/backup/sqlite</code>. The body names the token's scope and the
+          scope the call needs.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  The reference marks these routes <span class="chip">session or API token (full)</span>; routes a
+  read-only token may call are marked
+  <span class="chip">session or API token (full or read-only)</span>. Tick
+  <strong>Read-only (for AI / MCP clients)</strong> on the account page, or send
+  <code>"scope": "read_only"</code>, to mint one.
+</p>
+<p>
+  Independently of the scope, publishing a GA version (<code>stability: ga</code>) needs the
+  <code>release_ga</code> permission of the token's owner, the <code>releaser</code> role; admins
+  and root hold it implicitly. Retiring a family needs the same permission or maintainership of the
+  Producer. On the maintenance side the reference shows, per route, the permission its contract
+  description names and whether a Producer's maintainers are admitted too; a route whose description
+  names none is marked <code class="gap">not stated</code> there, and the router is the authority
+  for it.
+</p>
+
+<h2>Error shapes</h2>
+<p>
+  Errors raised by the application (<code>AppError</code>) answer JSON in the shape of
+  <a href="api.html#schema-ErrorBody"><code>ErrorBody</code></a
+  >: <code>error</code> carries the human-readable message, <code>proposed_version</code> appears
+  only on a <code>409</code> from the version rules and is the next free version to publish as
+  instead. Not every refusal reaches the application; the exceptions are listed with their status
+  below.
+</p>
+<pre><code class="language-json">{ "error": "GA version 1.2.0 exists with different content", "proposed_version": "1.3.0" }</code></pre>
+<ul>
+  <li>
+    <code>400</code>: the request is understood but wrong: a malformed spec, a bad version, an
+    instant that is not RFC 3339.
+  </li>
+  <li>
+    <code>401</code>: the token or session sent is not valid. The maintenance routes answer an
+    <code>ErrorBody</code>; the API routes and <code>/auth/tokens</code> answer a bare status with
+    no body (the authentication guards, not the application, refuse). An API call with no
+    <code>Authorization</code> header at all is refused with a bare <code>403</code>.
+  </li>
+  <li>
+    <code>403</code>: signed in, but refused: a read-only token on a write route, a GA provide
+    without <code>release_ga</code>, or a missing administrative permission. All three carry an
+    <code>ErrorBody</code>.
+  </li>
+  <li>
+    <code>404</code> versus <code>410</code> on require: the Producer or the pinned version does not
+    exist (a pin configuration error) versus the version exists and deliberately does not contain
+    the endpoint.
+  </li>
+  <li><code>409</code>: the version rules refused a provide; fix the version and republish.</li>
+  <li>
+    <code>413</code>: the body exceeds <code>MAX_SPEC_BODY_BYTES</code> (default 4 MiB). Axum's body
+    limit answers it before any handler runs; the body is plain text.
+  </li>
+  <li>
+    <code>422</code>: the JSON body has the wrong shape, for example a missing
+    <code>stability</code> or a 1.x field such as <code>branch</code>, which is rejected by name.
+    The body is the deserializer's plain-text message, for example
+    <code>missing field `stability`</code>.
+  </li>
+  <li>
+    <code>503</code>: authentication is switched off in maintenance mode; the body is plain text.
+  </li>
+</ul>
+<p>
+  A successful call can still carry a <code>Sanshain-Warning</code> header, once per warning, for
+  things a build should print without failing: an unknown <code>tag</code>, <code>trunk</code> and
+  <code>tag</code> together, a catalog push that recorded nothing.
+</p>
+
+<h2>Limits and caching</h2>
+<ul>
+  <li>
+    REST routes are not rate limited; the request body limit (<code>MAX_SPEC_BODY_BYTES</code>) is
+    the only ceiling.
+  </li>
+  <li>
+    The MCP endpoint allows 60 tool calls per minute per API token
+    (<code>MCP_CALLS_PER_MINUTE</code>, a token bucket that refills continuously);
+    <code>initialize</code> and <code>tools/list</code> do not count. Over the limit, a tool answers
+    a result with <code>isError: true</code> and <code>rate limited - retry in N s</code>, never an
+    HTTP 429, so the client's session survives. One tool answer is capped at 64 KiB
+    (<code>MCP_MAX_RESULT_BYTES</code>); larger answers come back as a summary with a hint. See
+    <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md">docs/mcp.md</a>.
+  </li>
+  <li>
+    Every require route supports <code>ETag</code> and <code>If-None-Match</code>; unchanged content
+    answers <code>304 Not Modified</code>. Responses carry <code>X-Sanshain-Version</code> (the pin)
+    and <code>X-Sanshain-Stability</code> (what actually answered, <code>ga</code> or
+    <code>snapshot</code>).
+  </li>
+</ul>
+
+<h2>Reports and graph scopes</h2>
+<p>
+  <code>GET /report</code> returns the dependency report; <code>?scope=main[@instant]</code> or
+  <code>?scope=&lt;branch&gt;[@instant]</code> replaces the graph with that pin set
+  (<code>dev</code>, the default, is the accumulated activity). The same parameter applies to
+  <code>/report/markdown</code> and <code>/report/isolation</code>. The report routes are not in
+  <code>api.yaml</code> (see below), so this parameter is documented only here and in the
+  <a
+    href="https://github.com/paxel/sanshain-service/blob/summer/docs/user-guide.md#reports-reportshtml"
+    >user guide</a
+  >.
+</p>
+
+<h2>Not in the contract</h2>
+<p>
+  The REST reference lists what <code>api.yaml</code> documents. These routes take an API token as
+  well (<code>api_auth</code> in the router, read-only tokens accepted) or a session, but the
+  contract does not list them, so the generated page cannot show them:
+</p>
+<ul>
+  <li>
+    <code>GET /report</code>, <code>/report/markdown</code>, <code>/report/isolation</code>:
+    <code>api_auth</code>.
+  </li>
+  <li><code>GET /endpoint-versions</code>: <code>api_auth</code>.</li>
+  <li>
+    <code>GET /api/sse/updates</code>, <code>GET /api/ws/updates</code>: <code>api_auth</code>.
+  </li>
+  <li>
+    <code>GET /api/audit/timeline</code>: session with the <code>view_audit</code> permission; API
+    tokens are refused.
+  </li>
+  <li>
+    <code>POST /mcp</code>: API token only, documented in
+    <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md">docs/mcp.md</a>.
+  </li>
+</ul>
+
+<h2>Names</h2>
+<p>
+  The two roles are <strong>Producer</strong> (provides a spec) and
+  <strong>Consumer</strong> (requires endpoints). Only the canonical field names
+  <code>producername</code> and <code>consumername</code> are accepted; the 1.x aliases
+  <code>servicename</code> and <code>clientname</code>, and the branch-era fields
+  <code>branch</code>, <code>base_version</code>, <code>force</code>, <code>timeout</code> and
+  <code>pull_from_branch</code>, are rejected as unknown fields.
+</p>
+<p>
+  Admin routes are not aliased either: <code>/admin/services*</code> became
+  <code>/admin/producers*</code>, <code>/admin/clients*</code> became
+  <code>/admin/consumers*</code>, and <code>/admin/nuke/services</code> /
+  <code>/admin/nuke/clients</code> became <code>/admin/nuke/producers</code> /
+  <code>/admin/nuke/consumers</code>. The old paths answer <code>404</code>.
+</p>
+
+<h2>Developer Mode</h2>
+<p>
+  For local testing only, Developer Mode bypasses authentication; it needs both the switch and the
+  <code>ALLOW_INSECURE_DEV_MODE=true</code> safety gate and fails closed otherwise. See
+  <a
+    href="https://github.com/paxel/sanshain-service/blob/summer/docs/administration.md#enabling-dev-mode-local-only"
+    >Enabling Dev Mode (local only)</a
+  >.
+</p>

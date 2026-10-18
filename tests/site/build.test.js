@@ -68,6 +68,7 @@ function buildVariant(name, overrides, options = {}) {
     srcDir: src,
     outDir: path.join(tmp, `${name}-out`),
     version: "1.0.0",
+    contracts: [],
     ...options,
   });
 }
@@ -77,7 +78,7 @@ before(() => {
   srcDir = path.join(tmp, "site");
   outDir = path.join(tmp, "site-dist");
   writeFixture(srcDir, FIXTURE);
-  buildSite({ srcDir, outDir, version: "9.9.9" });
+  buildSite({ srcDir, outDir, version: "9.9.9", contracts: [] });
 });
 
 after(() => {
@@ -272,7 +273,7 @@ test("404 page and assets are written in the site look; no empty TOC aside", () 
 
 test("a base path makes the 404 page absolute while nested pages stay relative", () => {
   const out = path.join(tmp, "based");
-  buildSite({ srcDir, outDir: out, version: "1.0.0", base: "/sanshain-service/" });
+  buildSite({ srcDir, outDir: out, version: "1.0.0", base: "/sanshain-service/", contracts: [] });
   const notFound = fs.readFileSync(path.join(out, "404.html"), "utf8");
   assert.match(notFound, /href="\/sanshain-service\/assets\/site\.css"/);
   assert.match(notFound, /data-root="\/sanshain-service\/"/);
@@ -379,19 +380,11 @@ test("checkLinks accepts external links, same-page anchors, root and directory l
 });
 
 test("the output folder guard refuses dangerous targets", () => {
-  assert.throws(() => buildSite({ srcDir, outDir: "/", version: "1" }), /Refusing to wipe/);
-  assert.throws(
-    () => buildSite({ srcDir, outDir: os.homedir(), version: "1" }),
-    /Refusing to wipe/,
-  );
-  assert.throws(
-    () => buildSite({ srcDir, outDir: tmp, version: "1" }),
-    /contains the source folder/,
-  );
-  assert.throws(
-    () => buildSite({ srcDir, outDir: srcDir, version: "1" }),
-    /contains the source folder/,
-  );
+  const opts = { srcDir, version: "1", contracts: [] };
+  assert.throws(() => buildSite({ ...opts, outDir: "/" }), /Refusing to wipe/);
+  assert.throws(() => buildSite({ ...opts, outDir: os.homedir() }), /Refusing to wipe/);
+  assert.throws(() => buildSite({ ...opts, outDir: tmp }), /contains the source folder/);
+  assert.throws(() => buildSite({ ...opts, outDir: srcDir }), /contains the source folder/);
 });
 
 test("renderPage escapes the title and renders without a track", () => {

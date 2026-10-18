@@ -9,6 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
+import { escapeHtml } from "./site/html.js";
+import { contractPages } from "./site/reference.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -22,6 +24,27 @@ export const TRACKS = [
 ];
 
 const FRONT_MATTER_KEYS = ["title", "track", "order", "summary"];
+
+// The REST reference pages generated from the contracts (issue #54). They are
+// written to the output only; the framing prose is the authored
+// site/reference/api-usage.html.
+export const DEFAULT_CONTRACTS = [
+  {
+    file: path.join(REPO_ROOT, "api.yaml"),
+    url: "reference/api.html",
+    title: "REST API",
+    order: 3,
+    summary:
+      "Every Producer and Consumer endpoint of api.yaml: parameters, bodies, responses, authentication.",
+  },
+  {
+    file: path.join(REPO_ROOT, "maintenance.yaml"),
+    url: "reference/maintenance.html",
+    title: "Maintenance API",
+    order: 4,
+    summary: "Every /admin/* route of maintenance.yaml with the permission and scope it requires.",
+  },
+];
 
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400&display=swap";
@@ -37,13 +60,7 @@ const SUN_MARK =
 // ---------------------------------------------------------------------------
 // Small helpers
 
-export function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export { escapeHtml };
 
 const NAMED_ENTITIES = {
   lt: "<",
@@ -207,8 +224,11 @@ export function loadPages(srcDir) {
     }
   };
   walk(srcDir);
-  // Landing page first, then tracks in order, then page order: the search
-  // index inherits this order and uses it to break ranking ties.
+  return sortPages(pages);
+}
+
+/** Landing page first, then tracks in order, then page order: the search index inherits this order and uses it to break ranking ties. */
+export function sortPages(pages) {
   const trackNo = (id) => (id ? TRACKS.findIndex((t) => t.id === id) : -1);
   return pages.sort(
     (a, b) =>
@@ -226,10 +246,13 @@ export function buildNav(pages) {
   }));
 }
 
+/** Generated example blocks (`<pre class="example">`) are placeholders, not text worth finding. */
+export const GENERATED_EXAMPLE = /<pre class="example">[\s\S]*?<\/pre>/g;
+
 export function buildIndex(pages) {
   const trackLabel = (id) => TRACKS.find((t) => t.id === id)?.label || "";
   return pages.map((page) => {
-    const { headings, intro, sections } = processHeadings(page.body);
+    const { headings, intro, sections } = processHeadings(page.body.replace(GENERATED_EXAMPLE, ""));
     return {
       title: page.title,
       track: trackLabel(page.track),
@@ -342,7 +365,7 @@ export function renderPage(page, { nav, version }) {
     currentUrl: page.url,
     eyebrow: track ? track.label : "",
     main,
-    toc: renderToc(headings),
+    toc: page.toc !== undefined ? page.toc : renderToc(headings),
     version,
   });
 }
@@ -490,6 +513,7 @@ export function buildSite({
   outDir = path.join(REPO_ROOT, "site-dist"),
   version = readVersion(fs.readFileSync(path.join(REPO_ROOT, "Cargo.toml"), "utf8")),
   base = "/",
+  contracts = DEFAULT_CONTRACTS,
 } = {}) {
   if (!base.startsWith("/") || !base.endsWith("/")) {
     throw new Error(`--base must start and end with "/": got "${base}"`);
@@ -497,6 +521,16 @@ export function buildSite({
   guardOutDir(outDir, srcDir);
   const pages = loadPages(srcDir);
   if (!pages.some((p) => p.url === "index.html")) throw new Error(`${srcDir}: no index.html`);
+  for (const generated of contractPages(contracts, {
+    repoUrl: REPO_URL,
+    usageUrl: "api-usage.html",
+  })) {
+    if (pages.some((p) => p.url === generated.url)) {
+      throw new Error(`${generated.url}: an authored page shadows the generated reference page`);
+    }
+    pages.push(generated);
+  }
+  sortPages(pages);
   for (const page of pages) rejectRootRelativeLinks(page);
   const nav = buildNav(pages);
   const ctx = { nav, version, base };

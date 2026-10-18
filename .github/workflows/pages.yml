@@ -37,8 +37,8 @@ jobs:
 
       - name: Lint site sources
         run: |
-          npx eslint scripts/build-site.js site/assets/site.js tests/site
-          npx prettier --check scripts/build-site.js site/assets/site.js site/assets/site.css tests/site
+          npx eslint scripts/build-site.js scripts/site site/assets/site.js tests/site
+          npx prettier --check scripts/build-site.js scripts/site site/assets/site.js site/assets/site.css tests/site
 
       - name: Build site
         run: node scripts/build-site.js --base "/${{ github.event.repository.name }}/"
