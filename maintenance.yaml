@@ -3219,8 +3219,8 @@ paths:
           schema:
             type: integer
       responses:
-        "200":
-          description: Success.
+        "201":
+          description: Created. The role is granted; the body is empty.
         "401":
           description: Not signed in.
           content:
