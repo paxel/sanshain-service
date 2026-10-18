@@ -281,7 +281,7 @@ curl -s -X DELETE $SANSHAIN/admin/producers/payments/versions/openapi/2.1.0 -H "
 
 <h2 id="scrape-the-metrics">Scrape the metrics</h2>
 <div class="recipe">
-  <p>Unauthenticated by default; <code>PROMETHEUS_ENDPOINT</code> moves the path.</p>
+  <p>Unauthenticated by default, always at <code>/metrics</code>.</p>
   <pre><code>curl -s $SANSHAIN/metrics | grep '^sanshain_'</code></pre>
   <p class="evidence-label">Recorded (<a href="story.html#step-10">story, step 10</a>)</p>
   <pre class="evidence" data-evidence="operator/10-metrics.txt"></pre>

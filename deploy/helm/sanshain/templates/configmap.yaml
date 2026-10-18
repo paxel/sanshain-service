@@ -15,9 +15,7 @@ data:
   LOG_BUFFER_SIZE: {{ .Values.config.logBufferSize | quote }}
   SPEC_UPDATED_CHANNEL_SIZE: {{ .Values.config.specUpdatedChannelSize | quote }}
   CAPTURE_LOG_FILTER: {{ .Values.config.captureLogFilter | quote }}
-  PROMETHEUS_ENDPOINT: {{ .Values.config.prometheusEndpoint | quote }}
   STATIC_DIR: {{ .Values.config.staticDir | quote }}
-  LOGIN_SESSION_DURATION_HOURS: {{ .Values.config.loginSessionDurationHours | quote }}
   INITIAL_ADMIN_USERNAME: {{ .Values.config.initialAdminUsername | quote }}
   {{- with .Values.config.extraCaCertsDir }}
   EXTRA_CA_CERTS_DIR: {{ . | quote }}

@@ -349,8 +349,7 @@
   </tbody>
 </table>
 <p>
-  The Helm chart and the Kustomize ConfigMap also set <code>PROMETHEUS_ENDPOINT</code> and
-  <code>LOGIN_SESSION_DURATION_HOURS</code>; the service does not read them. Metrics are always at
+  There is no variable for the metrics path or the session length: metrics are always at
   <code>/metrics</code>, a session always lasts 7 days.
 </p>
 

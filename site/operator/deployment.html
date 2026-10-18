@@ -140,12 +140,6 @@ kubectl apply -k deploy/kubernetes -n sanshain</code></pre>
     separately.
   </p>
 </div>
-<p>
-  The ConfigMap also sets <code>PROMETHEUS_ENDPOINT</code> and
-  <code>LOGIN_SESSION_DURATION_HOURS</code>. The service reads neither; metrics are always at
-  <code>/metrics</code> and a session lasts 7 days. They are harmless and can be removed.
-</p>
-
 <h2>The Helm chart</h2>
 <p>
   <code>deploy/helm/sanshain</code>, chart version 2.6.0, <code>appVersion</code> 2.6.0. The image
@@ -236,10 +230,7 @@ secrets:
         <code>sqliteBusyTimeoutMs</code>, <code>cleanupIntervalSecs</code>,
         <code>csrfMaxAgeHours</code>, <code>logBufferSize</code>,
         <code>specUpdatedChannelSize</code>, <code>captureLogFilter</code>, <code>staticDir</code>,
-        <code>initialAdminUsername</code>, <code>extraCaCertsDir</code>. (<code
-          >prometheusEndpoint</code
-        >
-        and <code>loginSessionDurationHours</code> are rendered too and ignored by the service.)
+        <code>initialAdminUsername</code>, <code>extraCaCertsDir</code>.
       </td>
     </tr>
     <tr>
@@ -517,4 +508,4 @@ secrets:
   fix, and attaches two reports as workflow artifacts: the fixable findings and the full list.
 </p>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.6.1.</p>

@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `CLEANUP_INTERVAL_SECS=0` is refused at startup with a message naming the variable, instead of crashing the service right after it logged its start.
+- The Helm chart and the Kustomize manifests no longer set `PROMETHEUS_ENDPOINT` and `LOGIN_SESSION_DURATION_HOURS`, two variables the service never read.
 
 ---
 

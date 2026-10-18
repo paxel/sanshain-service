@@ -15,9 +15,7 @@ data:
   LOG_BUFFER_SIZE: "100"
   SPEC_UPDATED_CHANNEL_SIZE: "100"
   CAPTURE_LOG_FILTER: "sanshain_service=debug,tower_http=debug"
-  PROMETHEUS_ENDPOINT: "/metrics"
   STATIC_DIR: "static"
-  LOGIN_SESSION_DURATION_HOURS: "24"
   INITIAL_ADMIN_USERNAME: "root"
   # Directory of additional CA certificates (*.pem) to trust for outbound TLS.
   # Unset means platform certificates only. See the ca-certs mount in

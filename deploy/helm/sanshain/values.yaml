@@ -85,9 +85,7 @@ config:
   logBufferSize: 100
   specUpdatedChannelSize: 100
   captureLogFilter: "sanshain_service=debug,tower_http=debug"
-  prometheusEndpoint: "/metrics"
   staticDir: "static"
-  loginSessionDurationHours: 24
   initialAdminUsername: "root"
   # Directory of additional CA certificates (*.pem) to trust for outbound TLS,
   # e.g. LDAPS against a directory server using a corporate CA. They are added

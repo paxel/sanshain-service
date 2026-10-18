@@ -388,3 +388,29 @@ fn default_render_pulls_the_release_image_of_this_version() {
         "the default image must be the release image of this version: {expected}"
     );
 }
+
+// --- 2.6.1 (#58) ---
+
+#[test]
+fn default_render_has_no_env_and_no_dead_keys() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+
+    assert!(
+        !rendered.contains("\n          env:\n"),
+        "no env block without extraEnv, so existing installations are untouched"
+    );
+    // The service never read these two; the chart stopped claiming otherwise.
+    assert!(
+        !rendered.contains("PROMETHEUS_ENDPOINT"),
+        "got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("LOGIN_SESSION_DURATION_HOURS"),
+        "got:\n{rendered}"
+    );
+}
