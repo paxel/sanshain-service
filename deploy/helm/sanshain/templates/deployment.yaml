@@ -42,6 +42,10 @@ spec:
                 name: {{ include "sanshain.fullname" . }}-config
             - secretRef:
                 name: {{ include "sanshain.fullname" . }}-secrets
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /health

@@ -102,6 +102,23 @@ secrets:
   # If empty, a random password will be generated if it's the first install (not implemented in chart logic yet, but good practice)
   initialAdminPassword: ""
 
+# Any other environment variable of the service (see
+# https://paxel.github.io/sanshain-service/operator/configuration.html),
+# appended to the container's env as given: `name`/`value` pairs or
+# `name`/`valueFrom` references.
+#
+# extraEnv:
+#   - name: PUBLIC_BASE_URL
+#     value: https://sanshain.corp
+#   - name: SANSHAIN_ROOT_USERS
+#     value: root,breakglass
+#   - name: OTEL_EXPORTER_OTLP_HEADERS
+#     valueFrom:
+#       secretKeyRef:
+#         name: otel-headers
+#         key: headers
+extraEnv: []
+
 persistence:
   enabled: true
   # Set to false if using external PostgreSQL

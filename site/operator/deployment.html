@@ -273,6 +273,17 @@ secrets:
       </td>
     </tr>
     <tr>
+      <td><code>extraEnv</code></td>
+      <td><code>[]</code></td>
+      <td>
+        Any other <a href="configuration.html#environment-variables">environment variable</a> of the
+        service, as a list of <code>name</code>/<code>value</code> or <code>name</code>/<code
+          >valueFrom</code
+        >
+        entries appended to the container's env; see below.
+      </td>
+    </tr>
+    <tr>
       <td><code>podSecurityContext</code>, <code>securityContext</code></td>
       <td><code>fsGroup: 1000</code>; <code>runAsNonRoot</code>, UID 1000</td>
       <td>Applied to the pod and the container, and to the backup job.</td>
@@ -298,26 +309,25 @@ secrets:
   post-renderer or a fork of the template. <code>tests/helm_render_test.rs</code> renders the chart
   in CI, so the values above are checked against the templates on every build.
 </p>
-<div class="callout">
-  <p class="eyebrow">Not settable through the chart</p>
-  <p>
-    The ConfigMap template renders only the <code>config.*</code> keys above and the Secret the two
-    <code>secrets.*</code> keys; there is no <code>extraEnv</code>. These variables cannot be set
-    with values today: <code>CACHE_MEMORY_MB</code>, <code>MAX_SPEC_BODY_BYTES</code>,
-    <code>LOG_FORMAT</code>, <code>OTEL_ENABLED</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>,
-    <code>INSTANCE_ID</code>, <code>SANSHAIN_ROOT_USERS</code>,
-    <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code>, <code>SANSHAIN_DEV_MODE</code>,
-    <code>ALLOW_INSECURE_DEV_MODE</code>, <code>LDAP_OPERATION_TIMEOUT_SECS</code>,
-    <code>MCP_ENABLED</code>, <code>MCP_CALLS_PER_MINUTE</code>, <code>MCP_MAX_RESULT_BYTES</code>,
-    <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
-    <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code>, <code>PUBLIC_BASE_URL</code>. Until the chart gains
-    <code>extraEnv</code>, add them with a Kustomize patch on the rendered Deployment (<code
-      >helm template … | kubectl apply -k</code
-    >
-    with a strategic-merge patch on <code>spec.template.spec.containers[0].env</code>) or a fork of
-    the chart.
-  </p>
-</div>
+<p>
+  The ConfigMap template renders the <code>config.*</code> keys above and the Secret the two
+  <code>secrets.*</code> keys. Every other variable the service reads (<code>PUBLIC_BASE_URL</code>,
+  <code>SANSHAIN_ROOT_USERS</code>, the <code>OTEL_*</code>, <code>MCP_*</code> and
+  <code>WEBHOOK_*</code> settings, <code>CACHE_MEMORY_MB</code>, <code>LOG_FORMAT</code>,
+  <code>LDAP_OPERATION_TIMEOUT_SECS</code>, …) goes into <code>extraEnv</code>, which is appended to
+  the container's env as given, so a <code>valueFrom</code> reference to your own Secret works too:
+</p>
+<pre><code># my-values.yaml
+extraEnv:
+  - name: PUBLIC_BASE_URL
+    value: https://sanshain.corp
+  - name: SANSHAIN_ROOT_USERS
+    value: root,breakglass
+  - name: OTEL_EXPORTER_OTLP_HEADERS
+    valueFrom:
+      secretKeyRef:
+        name: otel-headers
+        key: headers</code></pre>
 <pre><code>helm uninstall sanshain -n sanshain</code></pre>
 
 <h2>SQLite or PostgreSQL</h2>

@@ -477,3 +477,41 @@ fn autoscaling_renders_an_hpa_from_the_values() {
         "the Deployment leaves the replica count to the HPA"
     );
 }
+
+#[test]
+fn extra_env_is_appended_to_the_container() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[
+        "--set",
+        "extraEnv[0].name=PUBLIC_BASE_URL",
+        "--set",
+        "extraEnv[0].value=https://sanshain.corp",
+        "--set",
+        "extraEnv[1].name=OTEL_EXPORTER_OTLP_HEADERS",
+        "--set",
+        "extraEnv[1].valueFrom.secretKeyRef.name=otel-headers",
+        "--set",
+        "extraEnv[1].valueFrom.secretKeyRef.key=headers",
+    ])
+    .expect("chart renders with extraEnv");
+
+    assert!(
+        rendered.contains(
+            "          env:\n            - name: PUBLIC_BASE_URL\n              value: https://sanshain.corp"
+        ),
+        "a name/value entry must reach the container env, got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "            - name: OTEL_EXPORTER_OTLP_HEADERS\n              valueFrom:\n                secretKeyRef:\n                  key: headers\n                  name: otel-headers"
+        ),
+        "a valueFrom entry must be passed through, got:\n{rendered}"
+    );
+    // The ConfigMap and the Secret are still wired in.
+    assert!(rendered.contains("configMapRef:"));
+    assert!(rendered.contains("secretRef:"));
+}
