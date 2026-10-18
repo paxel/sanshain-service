@@ -80,7 +80,7 @@
         Period of the background pass that expires snapshots, prunes stale dependencies, closes
         stale trunk data, removes expired sessions and tokens, settled webhook deliveries and old
         CSRF tokens. See <a href="administration.html#retention-and-cleanup">Administration</a>.
-        Must be at least 1: <code>0</code> is accepted and crashes the service at startup.
+        Must be at least 1; <code>0</code> is refused at startup.
       </td>
     </tr>
     <tr>
@@ -365,15 +365,14 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
 <p>
   The same for values that would make the service useless: <code>MAX_SPEC_BODY_BYTES=0</code>,
   <code>MCP_CALLS_PER_MINUTE=0</code>, <code>MCP_MAX_RESULT_BYTES=0</code>,
-  <code>WEBHOOK_WORKER_INTERVAL_SECS=0</code>, <code>WEBHOOK_DELIVERY_TIMEOUT_SECS=0</code>, a
-  <code>PUBLIC_BASE_URL</code> without a scheme, and an unparsable <code>BIND_ADDRESS</code> or
-  <code>DATABASE_URL</code>. One zero is not caught: <code>CLEANUP_INTERVAL_SECS=0</code> passes the
-  number check and panics when the cleanup timer is created, so the process dies right after it logs
-  its start. Two variables are the exception and fall back quietly:
-  <code>LDAP_OPERATION_TIMEOUT_SECS</code> and <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code> use
-  their default when the value is not a whole number (and, for the LDAP timeout, when it is zero).
-  Boolean-like variables read with a plain comparison (<code>SANSHAIN_DEV_MODE</code>,
-  <code>ALLOW_INSECURE_DEV_MODE</code>) are true only for the exact string <code>true</code>.
+  <code>WEBHOOK_WORKER_INTERVAL_SECS=0</code>, <code>WEBHOOK_DELIVERY_TIMEOUT_SECS=0</code>,
+  <code>CLEANUP_INTERVAL_SECS=0</code>, a <code>PUBLIC_BASE_URL</code> without a scheme, and an
+  unparsable <code>BIND_ADDRESS</code> or <code>DATABASE_URL</code>. Two variables are the exception
+  and fall back quietly: <code>LDAP_OPERATION_TIMEOUT_SECS</code> and
+  <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code> use their default when the value is not a whole
+  number (and, for the LDAP timeout, when it is zero). Boolean-like variables read with a plain
+  comparison (<code>SANSHAIN_DEV_MODE</code>, <code>ALLOW_INSECURE_DEV_MODE</code>) are true only
+  for the exact string <code>true</code>.
 </p>
 
 <h2>Root users</h2>
@@ -551,4 +550,4 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
   <code>400</code> <code>days must be at most 36500</code>.
 </p>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.6.1.</p>

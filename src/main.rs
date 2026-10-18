@@ -418,6 +418,12 @@ pub async fn main() {
     let cleanup_csrf = state.csrf_tokens.clone();
 
     let cleanup_interval_secs = env_number::<u64>("CLEANUP_INTERVAL_SECS", 3600);
+    // A zero period is not a valid timer: refused here like the webhook
+    // intervals, instead of panicking when the interval is created.
+    if cleanup_interval_secs == 0 {
+        eprintln!("CONFIGURATION ERROR: CLEANUP_INTERVAL_SECS must be greater than 0.");
+        std::process::exit(1);
+    }
 
     let csrf_max_age_hours = env_number::<i64>("CSRF_MAX_AGE_HOURS", 24);
 
