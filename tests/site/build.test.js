@@ -69,6 +69,7 @@ function buildVariant(name, overrides, options = {}) {
     outDir: path.join(tmp, `${name}-out`),
     version: "1.0.0",
     contracts: [],
+    arc42: null,
     ...options,
   });
 }
@@ -78,7 +79,7 @@ before(() => {
   srcDir = path.join(tmp, "site");
   outDir = path.join(tmp, "site-dist");
   writeFixture(srcDir, FIXTURE);
-  buildSite({ srcDir, outDir, version: "9.9.9", contracts: [] });
+  buildSite({ srcDir, outDir, version: "9.9.9", contracts: [], arc42: null });
 });
 
 after(() => {
@@ -273,7 +274,14 @@ test("404 page and assets are written in the site look; no empty TOC aside", () 
 
 test("a base path makes the 404 page absolute while nested pages stay relative", () => {
   const out = path.join(tmp, "based");
-  buildSite({ srcDir, outDir: out, version: "1.0.0", base: "/sanshain-service/", contracts: [] });
+  buildSite({
+    srcDir,
+    outDir: out,
+    version: "1.0.0",
+    base: "/sanshain-service/",
+    contracts: [],
+    arc42: null,
+  });
   const notFound = fs.readFileSync(path.join(out, "404.html"), "utf8");
   assert.match(notFound, /href="\/sanshain-service\/assets\/site\.css"/);
   assert.match(notFound, /data-root="\/sanshain-service\/"/);
@@ -380,7 +388,7 @@ test("checkLinks accepts external links, same-page anchors, root and directory l
 });
 
 test("the output folder guard refuses dangerous targets", () => {
-  const opts = { srcDir, version: "1", contracts: [] };
+  const opts = { srcDir, version: "1", contracts: [], arc42: null };
   assert.throws(() => buildSite({ ...opts, outDir: "/" }), /Refusing to wipe/);
   assert.throws(() => buildSite({ ...opts, outDir: os.homedir() }), /Refusing to wipe/);
   assert.throws(() => buildSite({ ...opts, outDir: tmp }), /contains the source folder/);

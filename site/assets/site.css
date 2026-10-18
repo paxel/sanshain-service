@@ -12,6 +12,8 @@
   --sun: #c97a12; /* the mark: a graphic, not text */
   --code-bg: #eceff1;
   --mark-bg: color-mix(in srgb, var(--sun) 25%, transparent);
+  /* behind the arc42 diagrams, which keep their exported colours */
+  --diagram-bg: #ffffff;
   /* HTTP method chips on the generated REST reference */
   --method-get: #1f6f3f;
   --method-post: #1d5fa6;
@@ -44,6 +46,8 @@
     --sun: #f2b24a;
     --code-bg: #0f161d;
     --mark-bg: color-mix(in srgb, var(--sun) 25%, transparent);
+    --diagram-bg: #e3e8ed;
+    --diagram-muted: #4d5862;
     --method-get: #6fcf97;
     --method-post: #7ab8ff;
     --method-put: #f2b24a;
@@ -64,6 +68,8 @@
   --sun: #f2b24a;
   --code-bg: #0f161d;
   --mark-bg: color-mix(in srgb, var(--sun) 25%, transparent);
+  --diagram-bg: #e3e8ed;
+  --diagram-muted: #4d5862;
   --method-get: #6fcf97;
   --method-post: #7ab8ff;
   --method-put: #f2b24a;
@@ -306,6 +312,66 @@ h3 .method {
 
 .contract-meta {
   margin: 0 0 1rem;
+}
+
+/* ---------- arc42 architecture page ---------- */
+
+.breadcrumb {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: -0.5rem 0 1rem;
+}
+
+.line-kinds {
+  margin: 0 0 1.5rem;
+}
+
+.line-kinds dt {
+  margin: 0.5rem 0 0.15rem;
+}
+
+.line-kinds dd {
+  margin: 0;
+}
+
+/* The SVG keeps its exported colours; the figure gives it a light surface in
+   both themes and scrolls sideways when the page is narrower than the diagram. */
+.arc42-diagram {
+  margin: 0 0 1.25rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+  background: var(--diagram-bg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.arc42-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* set per figure by the generator from the export's viewBox width */
+  min-width: var(--diagram-min-width, 640px);
+}
+
+/* The one deviation from the exported colours: the export's frame title and
+   partner labels (#8a939e) reach 2.5:1 on the dark theme's diagram surface, so
+   the dark blocks define --diagram-muted and this rule darkens them there; the
+   light theme has no token and keeps the export. */
+.arc42-svg text[fill="#8a939e"] {
+  fill: var(--diagram-muted, #8a939e);
+}
+
+.arc42-svg a {
+  cursor: pointer;
+}
+
+.arc42-svg a:hover text,
+.arc42-svg a:focus-visible text {
+  text-decoration: underline;
+}
+
+.arc42-svg a:focus-visible {
+  outline: 2px solid var(--accent);
 }
 
 .endpoint {
@@ -1039,6 +1105,8 @@ h3:hover .anchor,
     --sun: #c97a12;
     --code-bg: #eceff1;
     --mark-bg: transparent;
+    --diagram-bg: #ffffff;
+    --diagram-muted: #8a939e;
     --method-get: #1f6f3f;
     --method-post: #1d5fa6;
     --method-put: #8a5a00;

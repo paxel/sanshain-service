@@ -11,6 +11,7 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { escapeHtml } from "./site/html.js";
 import { contractPages } from "./site/reference.js";
+import { arc42Page } from "./site/arc42.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -45,6 +46,16 @@ export const DEFAULT_CONTRACTS = [
     summary: "Every /admin/* route of maintenance.yaml with the permission and scope it requires.",
   },
 ];
+
+// The arc42 Architecture page (issue #55), built from the whiteboxed export
+// and the link map; written to the output only.
+export const DEFAULT_ARC42 = {
+  dir: path.join(REPO_ROOT, "docs/arc42"),
+  linksFile: path.join(REPO_ROOT, "site/reference/architecture.links.json"),
+  adrDir: path.join(REPO_ROOT, "docs/adr"),
+  url: "reference/architecture.html",
+  order: 5,
+};
 
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400&display=swap";
@@ -248,11 +259,15 @@ export function buildNav(pages) {
 
 /** Generated example blocks (`<pre class="example">`) are placeholders, not text worth finding. */
 export const GENERATED_EXAMPLE = /<pre class="example">[\s\S]*?<\/pre>/g;
+/** Inline diagrams carry box names and legend labels, which the tables below them repeat. */
+export const GENERATED_DIAGRAM = /<figure class="arc42-diagram"[^>]*>[\s\S]*?<\/figure>/g;
 
 export function buildIndex(pages) {
   const trackLabel = (id) => TRACKS.find((t) => t.id === id)?.label || "";
   return pages.map((page) => {
-    const { headings, intro, sections } = processHeadings(page.body.replace(GENERATED_EXAMPLE, ""));
+    const { headings, intro, sections } = processHeadings(
+      page.body.replace(GENERATED_EXAMPLE, "").replace(GENERATED_DIAGRAM, ""),
+    );
     return {
       title: page.title,
       track: trackLabel(page.track),
@@ -391,11 +406,11 @@ export function render404({ nav, version, base = "/" }) {
 // ---------------------------------------------------------------------------
 // Link check
 
-const ATTR_LINK = /\s(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g;
+const ATTR_LINK = /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g;
 const SRCSET = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
 
-/** Every link (href, src, srcset candidates, CSS url()) in one output file. */
+/** Every link (href or xlink:href, also inside inline SVG, src, srcset candidates, CSS url()) in one output file. */
 export function extractLinks(file, content) {
   const links = [];
   if (file.endsWith(".css")) {
@@ -514,6 +529,7 @@ export function buildSite({
   version = readVersion(fs.readFileSync(path.join(REPO_ROOT, "Cargo.toml"), "utf8")),
   base = "/",
   contracts = DEFAULT_CONTRACTS,
+  arc42 = DEFAULT_ARC42,
 } = {}) {
   if (!base.startsWith("/") || !base.endsWith("/")) {
     throw new Error(`--base must start and end with "/": got "${base}"`);
@@ -529,6 +545,13 @@ export function buildSite({
       throw new Error(`${generated.url}: an authored page shadows the generated reference page`);
     }
     pages.push(generated);
+  }
+  if (arc42) {
+    const page = arc42Page({ ...arc42, repoUrl: REPO_URL });
+    if (pages.some((p) => p.url === page.url)) {
+      throw new Error(`${page.url}: an authored page shadows the generated architecture page`);
+    }
+    pages.push(page);
   }
   sortPages(pages);
   for (const page of pages) rejectRootRelativeLinks(page);

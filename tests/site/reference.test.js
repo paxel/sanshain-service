@@ -769,6 +769,7 @@ test("a contract that cannot be parsed or resolved fails the build with a clear 
       outDir: path.join(tmp, "out"),
       version: "1.0.0",
       contracts: [{ file, url: "reference/x.html", title: "X", order: 1, summary: "" }],
+      arc42: null,
     });
   const broken = contractFile(
     "broken.yaml",

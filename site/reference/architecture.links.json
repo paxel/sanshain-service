@@ -1,0 +1,50 @@
+{
+  "_comment": "Box name in docs/arc42 → URL relative to reference/architecture.html. A box with a whitebox gets { doc, whitebox }: the diagram links to the whitebox section, its table row to doc. A box in neither links nor unlinked fails the build.",
+  "_todo": "TODO #56: re-point these once the chapters exist. Placeholders ../developer/ (Build Tooling, Web UI, MCP Server) and ../operator/ (LDAP / Active Directory, OIDC Provider, Database Server, Observability Stack, Telemetry, Auth Providers, Persistence, Webhooks); GitHub docs that #56 deletes: docs/mcp.md (AI Client) and docs/ci-integration.md#webhooks (Webhook Receivers); the api-usage.html anchors (Report & Validate Endpoints, Live Update Endpoints, Auth Endpoints, Request Guards).",
+  "links": {
+    "Sanshain Service": { "doc": "../index.html", "whitebox": "#sanshain-service" },
+    "Build Tooling": "../developer/",
+    "LDAP / Active Directory": "../operator/",
+    "OIDC Provider": "../operator/",
+    "Database Server": "../operator/",
+    "Observability Stack": "../operator/",
+    "Webhook Receivers": "https://github.com/paxel/sanshain-service/blob/summer/docs/ci-integration.md#webhooks",
+    "AI Client": "https://github.com/paxel/sanshain-service/blob/summer/docs/mcp.md",
+    "Backup Job": "maintenance.html#admin-backup-sqlite",
+
+    "HTTP API": { "doc": "api.html", "whitebox": "#http-api" },
+    "Web UI": "../developer/",
+    "Application Services": {
+      "doc": "https://github.com/paxel/sanshain-service/tree/summer/src/application",
+      "whitebox": "#application-services"
+    },
+    "Telemetry": "../operator/",
+    "Spec Parsers": "https://github.com/paxel/sanshain-service/tree/summer/src",
+    "Auth Providers": "../operator/",
+    "Persistence": { "doc": "../operator/", "whitebox": "#persistence" },
+    "Webhooks": "../operator/",
+    "MCP Server": "../developer/",
+
+    "Provide Endpoints": "api.html#provide",
+    "Require Endpoints": "api.html#require",
+    "Report & Validate Endpoints": "api-usage.html#reports-and-graph-scopes",
+    "Live Update Endpoints": "api-usage.html#not-in-the-contract",
+    "Admin Endpoints": "maintenance.html",
+    "Auth Endpoints": "api-usage.html#sessions-and-api-tokens",
+    "Request Guards": "api-usage.html#scopes-full-and-read-only",
+
+    "Provide": "https://github.com/paxel/sanshain-service/blob/summer/src/application/provide_service.rs",
+    "Require": "https://github.com/paxel/sanshain-service/blob/summer/src/application/require_service.rs",
+    "Spec Query": "https://github.com/paxel/sanshain-service/blob/summer/src/application/spec_service.rs",
+    "Version Rules": "https://github.com/paxel/sanshain-service/blob/summer/src/application/version_rules.rs",
+    "Branches & Reports": "https://github.com/paxel/sanshain-service/blob/summer/src/application/branch_service.rs",
+    "Access Control": "https://github.com/paxel/sanshain-service/blob/summer/src/application/auth_service.rs",
+    "Administration": "https://github.com/paxel/sanshain-service/blob/summer/src/application/admin_service.rs",
+    "Catalog": "https://github.com/paxel/sanshain-service/blob/summer/src/application/catalog_service.rs",
+
+    "Repository Cache": "https://github.com/paxel/sanshain-service/blob/summer/src/infrastructure/cached_repository.rs",
+    "SQL Repositories": "https://github.com/paxel/sanshain-service/tree/summer/src/infrastructure",
+    "SQLite Snapshot": "maintenance.html#admin-backup-sqlite"
+  },
+  "unlinked": ["User"]
+}
