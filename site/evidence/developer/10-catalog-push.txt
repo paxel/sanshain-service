@@ -1,20 +1,2 @@
-# payments/, trunk CI
-$ mvn -s settings.xml -Dsanshain.trunk=true io.github.paxel.sanshain:sanshain-maven-plugin:2.2.0:catalog
-[INFO] Scanning for projects...
-[INFO] 
-[INFO] -------------------------< com.acme:payments >--------------------------
-[INFO] Building payments 2.1.0
-[INFO]   from pom.xml
-[INFO] --------------------------------[ jar ]---------------------------------
-[INFO] 
-[INFO] --- sanshain:2.2.0:catalog (default-cli) @ payments ---
-[INFO] Pushing catalog for payments: catalog-info.yaml
-[INFO] Catalog recorded for payments (main+dev): 2 resources
-[INFO]   resource:default/bank-gateway
-[INFO]   resource:default/payments-db
-[INFO] ------------------------------------------------------------------------
-[INFO] BUILD SUCCESS
-[INFO] ------------------------------------------------------------------------
-[INFO] Total time:  0.603 s
-[INFO] Finished at: 2026-10-18T15:10:43Z
-[INFO] ------------------------------------------------------------------------
+# recorded with curl; the the Maven plugin invocation is:
+$ mvn io.github.paxel.sanshain:sanshain-maven-plugin:2.2.0:catalog -Dsanshain.trunk=true

@@ -1,5 +1,2 @@
-# payments/, release pipeline
+# recorded with curl; the sanshain-go invocation is:
 $ SANSHAIN_GA=true sanshain-go -trunk provide
-Providing OpenAPI payments (stability: ga) to https://sanshain.corp...
-✓ Provided payments v2.0.0 (ga): 3 new, 0 updated, 0 deleted endpoints
-Successfully provided spec(s).

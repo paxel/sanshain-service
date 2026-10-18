@@ -1,4 +1,2 @@
-# payments/, trunk CI of the payments repository
+# recorded with curl; the cargo-sanshain invocation is:
 $ cargo sanshain provide --trunk
-Providing openapi.yaml as 'payments' (snapshot)...
-Stored version 1.0.0 (snapshot): 2 inserts, 0 updates, 0 deletes [sha256:5b7f3014a0c983b0f9a2c1b9d2a4c0c851230cc884a5b49f5aff07f84fe3e6b3]

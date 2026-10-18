@@ -10,13 +10,13 @@ content-length: 671
     "api_type": "openapi",
     "version": "2.0.0",
     "stability": "ga",
-    "content_hash": "sha256:48af3d04942bb3017cbb82b2947b935216f0d5db9e05fcbdc16d40b7fcf17d96",
+    "content_hash": "sha256:e68af956da1af90a7196425b5be13004d405efbbe340e8690c56e73f34ae3339",
     "provided_by": "root",
-    "created_at": "2026-10-18T15:10:40Z",
-    "updated_at": "2026-10-18T15:10:40Z",
+    "created_at": "2026-10-18T16:08:02Z",
+    "updated_at": "2026-10-18T16:08:02Z",
     "last_required_at": null,
     "endpoint_count": 3,
-    "trunk_provided_at": "2026-10-18T15:10:40Z"
+    "trunk_provided_at": "2026-10-18T16:08:02Z"
   },
   {
     "api_type": "openapi",
@@ -24,10 +24,10 @@ content-length: 671
     "stability": "ga",
     "content_hash": "sha256:c79fec9c98fc8f883b24e080ef5f3a19644c5200c82362f06122186585d4574b",
     "provided_by": "root",
-    "created_at": "2026-10-18T15:10:31Z",
-    "updated_at": "2026-10-18T15:10:32Z",
-    "last_required_at": "2026-10-18T15:10:32Z",
+    "created_at": "2026-10-18T16:07:53Z",
+    "updated_at": "2026-10-18T16:07:54Z",
+    "last_required_at": "2026-10-18T16:07:54Z",
     "endpoint_count": 2,
-    "trunk_provided_at": "2026-10-18T15:10:32Z"
+    "trunk_provided_at": "2026-10-18T16:07:54Z"
   }
 ]

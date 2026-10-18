@@ -1,0 +1,26 @@
+POST /provide HTTP/1.1
+Authorization: Bearer san_…
+Content-Type: application/json
+
+{
+  "producername": "payments",
+  "stability": "ga",
+  "openapi_yaml": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        \"201\":\n          description: Created\n  /payments/{paymentId}:\n    get:\n      summary: One payment\n      parameters:\n        - name: paymentId\n          in: path\n          required: true\n          schema: { type: string }\n      responses:\n        \"200\":\n          description: OK\n  /payments/{id}/capture:\n    post:\n      summary: Capture an authorised payment\n      responses:\n        \"200\":\n          description: OK",
+  "trunk": true
+}
+
+HTTP/1.1 202 Accepted
+content-type: application/json
+content-length: 190
+
+{
+  "version": "2.0.0",
+  "stability": "ga",
+  "content_hash": "sha256:e68af956da1af90a7196425b5be13004d405efbbe340e8690c56e73f34ae3339",
+  "changes": {
+    "inserts": 3,
+    "updates": 0,
+    "deletes": 0
+  },
+  "promoted": false
+}

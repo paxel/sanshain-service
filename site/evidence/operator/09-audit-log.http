@@ -7,11 +7,11 @@ content-length: 2921
 
 [
   {
-    "id": 27,
-    "timestamp": "2026-10-18T15:10:46.024237494+00:00",
+    "id": 25,
+    "timestamp": "2026-10-18T16:08:05.620855031+00:00",
     "username": "root",
     "action": "DATABASE_SNAPSHOT",
-    "details": "Produced database snapshot sanshain-2.6.0-20261018T151046Z.db (385024 bytes)",
+    "details": "Produced database snapshot sanshain-2.6.1-20261018T160805Z.db (385024 bytes)",
     "service": null,
     "version": null,
     "action_type": "ADMIN",
@@ -19,8 +19,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 26,
-    "timestamp": "2026-10-18T15:10:45.976338558+00:00",
+    "id": 24,
+    "timestamp": "2026-10-18T16:08:05.579860513+00:00",
     "username": "root",
     "action": "SNAPSHOT_CLEANUP",
     "details": "Manually triggered snapshot cleanup, removed 0 snapshots",
@@ -31,8 +31,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 25,
-    "timestamp": "2026-10-18T15:10:45.903067371+00:00",
+    "id": 23,
+    "timestamp": "2026-10-18T16:08:05.510968713+00:00",
     "username": "root",
     "action": "SET_SNAPSHOT_MAX_AGE",
     "details": "Set snapshot max age to 30 days",
@@ -43,8 +43,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 24,
-    "timestamp": "2026-10-18T15:10:44.712809053+00:00",
+    "id": 22,
+    "timestamp": "2026-10-18T16:08:04.314122960+00:00",
     "username": "root",
     "action": "WEBHOOK_CREATED",
     "details": "Registered webhook 1 (global instance-wide, slack format, host receiver.sanshain.svc)",
@@ -55,8 +55,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 23,
-    "timestamp": "2026-10-18T15:10:44.629590931+00:00",
+    "id": 21,
+    "timestamp": "2026-10-18T16:08:04.228415162+00:00",
     "username": "root",
     "action": "SET_WEBHOOK_ALLOWED_HOSTS",
     "details": "Set the webhook allow-list to: hooks.slack.com, http://receiver.sanshain.svc",
@@ -67,8 +67,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 22,
-    "timestamp": "2026-10-18T15:10:44.510150478+00:00",
+    "id": 20,
+    "timestamp": "2026-10-18T16:08:04.100843100+00:00",
     "username": "root",
     "action": "ASSIGN_MAINTAINER",
     "details": "User 2 now maintains 'payments'",
@@ -79,8 +79,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 21,
-    "timestamp": "2026-10-18T15:10:44.474911022+00:00",
+    "id": 19,
+    "timestamp": "2026-10-18T16:08:04.065233157+00:00",
     "username": "root",
     "action": "GRANT_ROLE",
     "details": "Granted role 'releaser' to user 2",
@@ -91,8 +91,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 20,
-    "timestamp": "2026-10-18T15:10:44.433924150+00:00",
+    "id": 18,
+    "timestamp": "2026-10-18T16:08:04.021717238+00:00",
     "username": "root",
     "action": "APPROVE_USER",
     "details": "Approved user 'maria'",
@@ -103,8 +103,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 19,
-    "timestamp": "2026-10-18T15:10:44.357276791+00:00",
+    "id": 17,
+    "timestamp": "2026-10-18T16:08:03.947200140+00:00",
     "username": "DevMode/Anonymous",
     "action": "REGISTER_USER",
     "details": "Registered user 'maria'",
@@ -115,8 +115,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 18,
-    "timestamp": "2026-10-18T15:10:44.284054727+00:00",
+    "id": 16,
+    "timestamp": "2026-10-18T16:08:03.877597934+00:00",
     "username": "root",
     "action": "UPDATE_SETTINGS",
     "details": "Updated auth mode to 'local' and LDAP configurations",
@@ -127,8 +127,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 17,
-    "timestamp": "2026-10-18T15:10:44.211379119+00:00",
+    "id": 15,
+    "timestamp": "2026-10-18T16:08:03.803321289+00:00",
     "username": "root",
     "action": "UPDATE_SETTINGS",
     "details": "Updated auth mode to 'oidc' and LDAP configurations",
@@ -139,8 +139,8 @@ content-length: 2921
     "stream": null
   },
   {
-    "id": 16,
-    "timestamp": "2026-10-18T15:10:44.104609126+00:00",
+    "id": 14,
+    "timestamp": "2026-10-18T16:08:03.681745512+00:00",
     "username": "root",
     "action": "CHANGE_PASSWORD",
     "details": "Successfully changed user password",
