@@ -1,0 +1,198 @@
+<!-- page: title="Backup and restore" track="operator" order=7 summary="Everything is one database: the SQLite snapshot endpoint and its CronJob, pg_dump for PostgreSQL, the Helm backup values, retention, and the restore steps for both engines." -->
+<p class="lede">
+  Sanshain keeps everything in one database, so a backup is a copy of that database and a restore is
+  putting the copy back. How the copy is taken depends on the engine: on SQLite the service produces
+  it, on PostgreSQL <code>pg_dump</code> does.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      <code>GET /admin/backup/sqlite</code> streams a consistent snapshot while the service runs,
+      with a button on the admin page.
+    </li>
+    <li>
+      The Helm chart's <code>backup.*</code> values render a nightly CronJob for either engine;
+      Kustomize users get the same job as commented examples.
+    </li>
+  </ul>
+</div>
+
+<h2>What is in the database</h2>
+<p>
+  Specs and their endpoint snippets, version lines, dependencies, branches and timeline, users,
+  password hashes, sessions, API tokens, the authentication configuration including the LDAP bind
+  password and the OIDC client secret, webhook secrets and the delivery log, the audit log, every
+  setting. A backup is as sensitive as the instance; keep it where only operators can read it.
+</p>
+
+<h2>SQLite</h2>
+<p>
+  Do not copy <code>sanshain.db</code> from the volume while the service runs: with the write-ahead
+  log open a file copy can be inconsistent. Sanshain produces the copy itself:
+</p>
+<pre><code>curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+  -o sanshain-backup.db "$SANSHAIN/admin/backup/sqlite"</code></pre>
+<ul>
+  <li>
+    The engine writes the snapshot (<code>VACUUM INTO</code>) to a temporary file next to the
+    database, streams it as <code>application/vnd.sqlite3</code> with
+    <code>Content-Length</code> and
+    <code>Content-Disposition: attachment; filename="sanshain-2.6.0-20261018T020000Z.db"</code>
+    (instance version, UTC timestamp), and removes the file when the download ends, also when the
+    client disconnects. The data volume needs room for one extra copy.
+  </li>
+  <li>
+    The route needs <code>run_destructive_operations</code> (admins and root). It is the one
+    administrative route that admits an API token: a <code>full</code> token of such an account
+    works, a <code>read_only</code> token answers <code>403</code>. Mint it on
+    <code>/account.html</code>; it is the only credential the job holds.
+  </li>
+  <li>
+    One snapshot at a time: a second request answers <code>409</code>
+    <code>A database snapshot is already being produced; retry when it has finished</code>.
+  </li>
+  <li>
+    On PostgreSQL the route answers <code>409</code>
+    <code
+      >This instance runs PostgreSQL, which has no snapshot download; take backups with pg_dump (see
+      the deployment guide, Backup and restore)</code
+    >, and the button is absent.
+  </li>
+  <li>
+    Every download is a <code>DATABASE_SNAPSHOT</code> audit entry with the acting user, the file
+    name and the size.
+  </li>
+</ul>
+<p>
+  The same snapshot is <strong>Download database snapshot</strong> under
+  <strong>Database Configuration</strong> on the admin page.
+</p>
+
+<h3 id="the-helm-cronjob">The Helm CronJob</h3>
+<p>
+  With <code>backup.enabled</code> the chart renders one CronJob that fetches the snapshot to a
+  backup volume and keeps the newest <code>retain</code> files:
+</p>
+<pre><code>backup:
+  enabled: true
+  schedule: "0 2 * * *"            # cluster time zone
+  retain: 7
+  # existingClaim: nightly-backups  # otherwise the chart creates a 5Gi claim
+  tokenSecret:
+    name: sanshain-backup-token     # kubectl create secret generic sanshain-backup-token --from-literal=token=&lt;api token&gt;
+    key: token</code></pre>
+<table>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Default</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>backup.enabled</code></td>
+      <td><code>false</code></td>
+      <td>Render the CronJob and, without <code>existingClaim</code>, its claim.</td>
+    </tr>
+    <tr>
+      <td><code>backup.schedule</code></td>
+      <td><code>"0 2 * * *"</code></td>
+      <td>Cron schedule; <code>concurrencyPolicy: Forbid</code>.</td>
+    </tr>
+    <tr>
+      <td><code>backup.engine</code></td>
+      <td><code>""</code></td>
+      <td>
+        <code>sqlite</code> or <code>postgres</code>; empty derives it from
+        <code>secrets.databaseUrl</code> (<code>postgres://</code> or <code>postgresql://</code>
+        means PostgreSQL).
+      </td>
+    </tr>
+    <tr>
+      <td><code>backup.retain</code></td>
+      <td><code>7</code></td>
+      <td>
+        Files kept on the volume; older ones are deleted after each successful run. Below 1 the
+        chart refuses to render.
+      </td>
+    </tr>
+    <tr>
+      <td><code>backup.existingClaim</code></td>
+      <td><code>""</code></td>
+      <td>Mount this claim instead of creating one.</td>
+    </tr>
+    <tr>
+      <td><code>backup.storage.size</code>, <code>storageClass</code>, <code>accessMode</code></td>
+      <td><code>5Gi</code>, <code>""</code>, <code>ReadWriteOnce</code></td>
+      <td>The claim the chart creates.</td>
+    </tr>
+    <tr>
+      <td><code>backup.tokenSecret.name</code>, <code>key</code></td>
+      <td><code>""</code>, <code>token</code></td>
+      <td>SQLite only: the Secret holding the API token. Required; the chart fails without it.</td>
+    </tr>
+    <tr>
+      <td><code>backup.images.curl</code>, <code>backup.images.postgres</code></td>
+      <td><code>curlimages/curl:8.11.1</code>, <code>postgres:17-alpine</code></td>
+      <td>The job images for the two engines.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The SQLite job calls the service inside the cluster
+  (<code>http://&lt;release&gt;:&lt;service.port&gt;/admin/backup/sqlite</code>), writes
+  <code>/backup/sanshain-&lt;UTC timestamp&gt;.db</code> through a <code>.part</code> file, then
+  prunes. Kustomize users find the same job, with its claim and the Secret command, as a commented
+  example in <code>deploy/kubernetes/backup-cronjob-sqlite.yaml</code>; uncomment it and add the
+  file to <code>resources</code>.
+</p>
+
+<h3>Restore</h3>
+<ol>
+  <li>Scale Sanshain to zero (<code>kubectl scale deployment sanshain --replicas=0</code>).</li>
+  <li>
+    On the data volume replace <code>sanshain.db</code> with the snapshot and delete
+    <code>sanshain.db-wal</code> and <code>sanshain.db-shm</code> if present.
+  </li>
+  <li>
+    Scale back up. The migration runner brings the snapshot's schema up to the running version, so a
+    snapshot from an older instance version restores; a snapshot from a <em>newer</em>
+    version does not.
+  </li>
+</ol>
+
+<h2>PostgreSQL</h2>
+<pre><code>pg_dump --format=custom --file=sanshain.dump "$DATABASE_URL"</code></pre>
+<p>
+  With Helm, the same <code>backup</code> section renders a <code>pg_dump</code> CronJob when the
+  engine is <code>postgres</code>; it reads <code>DATABASE_URL</code> from the chart's own Secret,
+  so no further credential is needed, and writes
+  <code>/backup/sanshain-&lt;UTC timestamp&gt;.dump</code>:
+</p>
+<pre><code>backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retain: 7</code></pre>
+<p>
+  Kustomize: <code>deploy/kubernetes/backup-cronjob-postgres.yaml</code>, commented like the SQLite
+  one.
+</p>
+<h3>Restore</h3>
+<ol>
+  <li>Scale Sanshain to zero.</li>
+  <li><code>pg_restore --clean --if-exists --dbname="$DATABASE_URL" sanshain.dump</code></li>
+  <li>Scale back up; migrations run on start as above.</li>
+</ol>
+
+<h2>Before an upgrade or a reset</h2>
+<p>
+  Take a backup before changing the image tag and before anything in the
+  <a href="administration.html#the-danger-zone">Danger Zone</a>: migrations are forward-only and the
+  resets have no undo. See
+  <a href="deployment.html#upgrades-and-migrations">Upgrades and migrations</a>.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

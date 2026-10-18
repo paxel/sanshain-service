@@ -1,4 +1,4 @@
-# Example: nightly PostgreSQL backup (docs/deployment.md, "Backup and restore").
+# Example: nightly PostgreSQL backup (https://paxel.github.io/sanshain-service/operator/backup.html).
 #
 # Runs `pg_dump --format=custom` with the DATABASE_URL from secret.yaml onto a
 # backup volume and keeps the newest RETAIN dumps. Not part of

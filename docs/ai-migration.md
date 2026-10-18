@@ -70,4 +70,4 @@ You can use these prompts in ChatGPT, Claude, or Copilot to help with the manual
 ## Related Links
 - [**`sanshain.yaml` Reference**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Full configuration schema.
 - [**Client Ecosystem**](https://paxel.github.io/sanshain-service/developer/clients.html) — Official Maven, Cargo, Go, JS, and Conan clients.
-- [**CI Integration**](ci-integration.md) — Detailed pipeline examples.
+- [**CI Integration**](https://paxel.github.io/sanshain-service/developer/ci-integration.html) — Detailed pipeline examples.

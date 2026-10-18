@@ -849,7 +849,7 @@ test("the real site build renders both references into the Reference track", () 
   );
   assert.match(
     maintenance,
-    /href="https:\/\/github\.com\/paxel\/sanshain-service\/blob\/summer\/docs\/administration\.md"/,
+    /href="https:\/\/paxel\.github\.io\/sanshain-service\/operator\/roles\.html"/,
   );
   const mtoc = maintenance.slice(
     maintenance.indexOf('<aside class="toc"'),

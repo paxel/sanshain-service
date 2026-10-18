@@ -1,0 +1,520 @@
+<!-- page: title="Deployment" track="operator" order=1 summary="The container image, Docker and Compose, Kubernetes with Kustomize or the Helm chart, SQLite or PostgreSQL, scaling and session affinity, probes, upgrades and migrations, and how to verify a release's signature and SBOM." -->
+<p class="lede">
+  <a href="../start/glossary.html#sanshain">Sanshain</a> is one binary, one database and one port.
+  This chapter is how to run it: the image, Docker and Compose for a single host, Kustomize or the
+  Helm chart for Kubernetes, the choice between SQLite and PostgreSQL, and what an upgrade does.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      The image carries the platform CA bundle (<code>ca-certificates</code>), so
+      <code>ldaps://</code> against a directory with a publicly trusted certificate works without a
+      certificate mount. Private CAs still go through <code>EXTRA_CA_CERTS_DIR</code>.
+    </li>
+    <li>
+      The Helm chart renders an optional backup CronJob (<code>backup.*</code>): a SQLite snapshot
+      fetched from the service, or <code>pg_dump</code>. See
+      <a href="backup.html">Backup and restore</a>.
+    </li>
+    <li>
+      Every release is signed with cosign and ships CycloneDX SBOMs; the weekly security run scans
+      the released image. See <a href="#verifying-a-release">Verifying a release</a>.
+    </li>
+    <li>
+      Every data cache expires its entries after 10 s, which bounds what a second replica can serve
+      stale. See <a href="#scaling">Scaling</a>.
+    </li>
+  </ul>
+</div>
+
+<h2>The image</h2>
+<p>
+  <code>ghcr.io/paxel/sanshain-service:&lt;tag&gt;</code>, built by the release workflow from the
+  repository's <code>Dockerfile</code>. Release tags carry a <code>v</code> (<code>v2.6.0</code>);
+  <code>latest</code> follows the newest release. The image is Alpine with <code>sqlite-libs</code>,
+  <code>tini</code> as PID 1 and <code>ca-certificates</code>; the binary is
+  <code>/usr/local/bin/sanshain</code>, the working directory <code>/app</code>, the static files
+  <code>/app/static</code>. It sets one variable:
+  <code>DATABASE_URL=sqlite:/data/sanshain.db?mode=rwc</code>, so the database lives under
+  <code>/data</code>. It exposes port 3000 and declares a Docker <code>HEALTHCHECK</code> on
+  <code>GET /health</code>. The Kubernetes manifests run it as UID 1000; the image itself does not
+  switch user.
+</p>
+<p>
+  On every start the service runs its SQL migrations, creates the initial admin when the user table
+  is empty (<a href="../start/getting-started.html#first-login">Getting started</a>), claims the
+  configured root names, and logs the instance id. A failed migration is fatal: the container exits
+  with <code>ERROR: Can't run SQLite migrations: …</code> (or PostgreSQL) on stderr.
+</p>
+
+<h2>Docker and Compose</h2>
+<pre><code>docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:v2.6.0</code></pre>
+<p>
+  <code>docker-compose.release.template.yaml</code> in the repository is the same as a Compose
+  service: the volume on <code>/data</code>, <code>init: true</code>,
+  <code>restart: unless-stopped</code>, and
+  <code>RUST_LOG=sanshain_service=info,tower_http=info</code>. Replace <code>__VERSION__</code> with
+  the tag. For PostgreSQL add <code>DATABASE_URL</code> to its <code>environment</code> and drop the
+  volume:
+</p>
+<pre><code>services:
+  sanshain:
+    image: ghcr.io/paxel/sanshain-service:v2.6.0
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgres://user:pass@db:5432/sanshain
+    init: true
+    restart: unless-stopped</code></pre>
+<p>
+  Every setting is an environment variable; the complete list is
+  <a href="configuration.html">Configuration</a>.
+</p>
+
+<h2>Kubernetes with Kustomize</h2>
+<p><code>deploy/kubernetes</code> holds base manifests for <code>kubectl apply -k</code>:</p>
+<table>
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>What it creates</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>configmap.yaml</code></td>
+      <td>
+        <code>sanshain-config</code>: <code>BIND_ADDRESS</code>, <code>RUST_LOG</code>, the pool
+        sizes, cleanup interval, log buffer, <code>INITIAL_ADMIN_USERNAME</code> and friends, with a
+        commented <code>EXTRA_CA_CERTS_DIR</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>secret.yaml</code></td>
+      <td>
+        <code>sanshain-secrets</code>: <code>DATABASE_URL</code> and
+        <code>INITIAL_ADMIN_PASSWORD</code>, base64-encoded, both empty in the template. Fill both
+        in, see the warning below.
+      </td>
+    </tr>
+    <tr>
+      <td><code>pvc.yaml</code></td>
+      <td>A 1 Gi <code>ReadWriteOnce</code> claim mounted at <code>/data</code> for SQLite.</td>
+    </tr>
+    <tr>
+      <td><code>deployment.yaml</code></td>
+      <td>
+        One replica of <code>ghcr.io/paxel/sanshain-service:v2.6.0</code>, <code>envFrom</code> the
+        ConfigMap and the Secret, UID 1000, <code>100m</code>/<code>128Mi</code> requests and
+        <code>500m</code>/<code>512Mi</code> limits, liveness on <code>/health</code> and readiness
+        on <code>/ready</code> every 10 s.
+      </td>
+    </tr>
+    <tr>
+      <td><code>service.yaml</code>, <code>ingress.yaml</code></td>
+      <td>A ClusterIP service and an Ingress with TLS; set your host and TLS secret.</td>
+    </tr>
+    <tr>
+      <td><code>backup-cronjob-sqlite.yaml</code>, <code>backup-cronjob-postgres.yaml</code></td>
+      <td>
+        Commented examples, not in <code>kustomization.yaml</code>. See
+        <a href="backup.html">Backup and restore</a>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<pre><code>kubectl create namespace sanshain
+echo -n "postgres://user:pass@db:5432/sanshain" | base64   # into secret.yaml
+kubectl apply -k deploy/kubernetes -n sanshain</code></pre>
+<div class="callout">
+  <p class="eyebrow">Security warning</p>
+  <p>
+    Applied as shipped, the Secret injects <code>DATABASE_URL=""</code> and
+    <code>INITIAL_ADMIN_PASSWORD=""</code>: the initial admin gets an
+    <strong>empty password</strong> and the empty database URL replaces the image's
+    <code>/data</code> default (SQLite opens an empty file name as a private temporary database, so
+    nothing lands on the volume). Put both values into <code>secret.yaml</code> before applying; for
+    SQLite on the volume, <code>sqlite:/data/sanshain.db?mode=rwc</code>. The code fix is tracked
+    separately.
+  </p>
+</div>
+<p>
+  The ConfigMap also sets <code>PROMETHEUS_ENDPOINT</code> and
+  <code>LOGIN_SESSION_DURATION_HOURS</code>. The service reads neither; metrics are always at
+  <code>/metrics</code> and a session lasts 7 days. They are harmless and can be removed.
+</p>
+
+<h2>The Helm chart</h2>
+<p>
+  <code>deploy/helm/sanshain</code>, chart version 2.6.0, <code>appVersion</code> 2.6.0. The image
+  tag defaults to <code>v</code> plus the <code>appVersion</code>.
+</p>
+<pre><code>helm install sanshain deploy/helm/sanshain -n sanshain --create-namespace</code></pre>
+<div class="callout">
+  <p class="eyebrow">Security warning</p>
+  <p>
+    The chart's Secret always renders both keys, so with the default values the pod receives
+    <code>DATABASE_URL=""</code> and <code>INITIAL_ADMIN_PASSWORD=""</code>, and the service reads a
+    set variable as given: the initial admin is created with an <strong>empty password</strong>, and
+    the empty database URL replaces the image's <code>/data</code> default (SQLite opens an empty
+    file name as a private temporary database, so nothing lands on the data volume). Always set
+    <code>secrets.databaseUrl</code> and <code>secrets.initialAdminPassword</code>. The code fix is
+    tracked separately.
+  </p>
+</div>
+<pre><code># my-values.yaml
+secrets:
+  databaseUrl: "sqlite:/data/sanshain.db?mode=rwc"
+  initialAdminPassword: "…"</code></pre>
+<p>With an external PostgreSQL:</p>
+<pre><code># my-values.yaml
+persistence:
+  enabled: false
+secrets:
+  databaseUrl: "postgres://user:password@postgres-host:5432/sanshain"
+  initialAdminPassword: "…"</code></pre>
+<pre><code>helm install sanshain deploy/helm/sanshain -f my-values.yaml -n sanshain</code></pre>
+<p>The values that matter, with their defaults:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Default</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>replicaCount</code></td>
+      <td><code>1</code></td>
+      <td>Pods. Stay at 1 on SQLite; see <a href="#scaling">Scaling</a>.</td>
+    </tr>
+    <tr>
+      <td><code>image.repository</code>, <code>image.tag</code></td>
+      <td><code>ghcr.io/paxel/sanshain-service</code>, <code>""</code></td>
+      <td>An empty tag means <code>v&lt;appVersion&gt;</code>.</td>
+    </tr>
+    <tr>
+      <td><code>service.type</code>, <code>service.port</code></td>
+      <td><code>ClusterIP</code>, <code>80</code></td>
+      <td>The service in front of container port 3000.</td>
+    </tr>
+    <tr>
+      <td><code>ingress.enabled</code></td>
+      <td><code>false</code></td>
+      <td>
+        Renders an Ingress; <code>ingress.hosts</code> (default <code>sanshain.local</code>),
+        <code>ingress.tls</code>, <code>ingress.className</code> and
+        <code>ingress.annotations</code> shape it.
+      </td>
+    </tr>
+    <tr>
+      <td><code>resources</code></td>
+      <td>
+        <code>100m</code>/<code>128Mi</code> requests, <code>500m</code>/<code>512Mi</code> limits
+      </td>
+      <td>The container's resources.</td>
+    </tr>
+    <tr>
+      <td><code>autoscaling.enabled</code></td>
+      <td><code>false</code></td>
+      <td>
+        <code>true</code> only omits <code>replicas:</code> from the Deployment, for an HPA you
+        create yourself; the chart has no HPA template, and <code>minReplicas</code>,
+        <code>maxReplicas</code> and <code>targetCPUUtilizationPercentage</code> are unused.
+      </td>
+    </tr>
+    <tr>
+      <td><code>config.*</code></td>
+      <td>the service defaults</td>
+      <td>
+        Rendered into the ConfigMap:
+        <code>rustLog</code> (<code>info,sanshain_service=debug</code>), <code>bindAddress</code>,
+        <code>maxPostgresConnections</code>, <code>maxSqliteConnections</code>,
+        <code>sqliteBusyTimeoutMs</code>, <code>cleanupIntervalSecs</code>,
+        <code>csrfMaxAgeHours</code>, <code>logBufferSize</code>,
+        <code>specUpdatedChannelSize</code>, <code>captureLogFilter</code>, <code>staticDir</code>,
+        <code>initialAdminUsername</code>, <code>extraCaCertsDir</code>. (<code
+          >prometheusEndpoint</code
+        >
+        and <code>loginSessionDurationHours</code> are rendered too and ignored by the service.)
+      </td>
+    </tr>
+    <tr>
+      <td><code>secrets.databaseUrl</code></td>
+      <td><code>""</code></td>
+      <td>
+        <code>DATABASE_URL</code> in the chart's Secret. Always rendered: an empty value is injected
+        as <code>""</code> and overrides the image's default, see the warning above. Set it to
+        <code>sqlite:/data/sanshain.db?mode=rwc</code> for SQLite on the data volume.
+      </td>
+    </tr>
+    <tr>
+      <td><code>secrets.initialAdminPassword</code></td>
+      <td><code>""</code></td>
+      <td>
+        <code>INITIAL_ADMIN_PASSWORD</code>. Always rendered: an empty value is the password, see
+        the warning above. Set it.
+      </td>
+    </tr>
+    <tr>
+      <td><code>persistence.enabled</code></td>
+      <td><code>true</code></td>
+      <td>
+        Mounts a claim at <code>persistence.mountPath</code> (<code>/data</code>).
+        <code>persistence.createPvc</code> (<code>true</code>) creates it with
+        <code>persistence.size</code> (<code>1Gi</code>), <code>storageClass</code> and
+        <code>accessMode</code> (<code>ReadWriteOnce</code>); with <code>createPvc: false</code> the
+        template mounts <code>persistence.existingClaim</code>, which you add yourself. Required for
+        SQLite to survive a pod restart; set <code>enabled: false</code> on PostgreSQL.
+      </td>
+    </tr>
+    <tr>
+      <td><code>extraVolumes</code>, <code>extraVolumeMounts</code></td>
+      <td><code>[]</code></td>
+      <td>
+        Anything else to mount, typically a CA bundle for <code>config.extraCaCertsDir</code>; the
+        values file carries a commented example.
+      </td>
+    </tr>
+    <tr>
+      <td><code>podSecurityContext</code>, <code>securityContext</code></td>
+      <td><code>fsGroup: 1000</code>; <code>runAsNonRoot</code>, UID 1000</td>
+      <td>Applied to the pod and the container, and to the backup job.</td>
+    </tr>
+    <tr>
+      <td><code>backup.*</code></td>
+      <td><code>enabled: false</code></td>
+      <td>
+        The backup CronJob: <code>schedule</code> (<code>"0 2 * * *"</code>), <code>engine</code>,
+        <code>retain</code> (<code>7</code>), <code>existingClaim</code>,
+        <code>storage.size</code> (<code>5Gi</code>),
+        <code>tokenSecret.name</code>/<code>key</code>, <code>images.curl</code>,
+        <code>images.postgres</code>. Documented in
+        <a href="backup.html#the-helm-cronjob">Backup and restore</a>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The chart's deployment uses <code>/health</code> for both the liveness and the readiness probe;
+  the Kustomize deployment uses <code>/ready</code> for readiness. If you want traffic withheld
+  while the database is unreachable, point the chart's readiness probe at <code>/ready</code> with a
+  post-renderer or a fork of the template. <code>tests/helm_render_test.rs</code> renders the chart
+  in CI, so the values above are checked against the templates on every build.
+</p>
+<div class="callout">
+  <p class="eyebrow">Not settable through the chart</p>
+  <p>
+    The ConfigMap template renders only the <code>config.*</code> keys above and the Secret the two
+    <code>secrets.*</code> keys; there is no <code>extraEnv</code>. These variables cannot be set
+    with values today: <code>CACHE_MEMORY_MB</code>, <code>MAX_SPEC_BODY_BYTES</code>,
+    <code>LOG_FORMAT</code>, <code>OTEL_ENABLED</code>, <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>,
+    <code>INSTANCE_ID</code>, <code>SANSHAIN_ROOT_USERS</code>,
+    <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code>, <code>SANSHAIN_DEV_MODE</code>,
+    <code>ALLOW_INSECURE_DEV_MODE</code>, <code>LDAP_OPERATION_TIMEOUT_SECS</code>,
+    <code>MCP_ENABLED</code>, <code>MCP_CALLS_PER_MINUTE</code>, <code>MCP_MAX_RESULT_BYTES</code>,
+    <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
+    <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code>, <code>PUBLIC_BASE_URL</code>. Until the chart gains
+    <code>extraEnv</code>, add them with a Kustomize patch on the rendered Deployment (<code
+      >helm template … | kubectl apply -k</code
+    >
+    with a strategic-merge patch on <code>spec.template.spec.containers[0].env</code>) or a fork of
+    the chart.
+  </p>
+</div>
+<pre><code>helm uninstall sanshain -n sanshain</code></pre>
+
+<h2>SQLite or PostgreSQL</h2>
+<p>
+  The backend is chosen from <code>DATABASE_URL</code>: <code>postgres://</code> or
+  <code>postgresql://</code> selects PostgreSQL, anything else (or the variable unset) is SQLite.
+  Nothing else differs in configuration; both run the same migrations.
+</p>
+<ul>
+  <li>
+    <strong>SQLite</strong> opens the file in WAL mode with <code>synchronous=NORMAL</code>, a pool
+    of <code>MAX_SQLITE_CONNECTIONS</code> (5) and a busy timeout of
+    <code>SQLITE_BUSY_TIMEOUT_MS</code> (5000). Writers queue on the busy timeout. Keep the file on
+    a volume that only one process mounts.
+  </li>
+  <li>
+    <strong>PostgreSQL</strong> uses a pool of <code>MAX_POSTGRES_CONNECTIONS</code> (20) per
+    replica. It is the backend for more than one replica and for backups with the database's own
+    tooling.
+  </li>
+</ul>
+<p>
+  The admin page shows the backend and the connection URL with the password removed (<strong
+    >Database Configuration</strong
+  >); switching means changing the variable and restarting. There is no migration between the two
+  engines.
+</p>
+
+<h2>Scaling</h2>
+<p>
+  The default deployments run one replica because the SQLite file sits on a
+  <code>ReadWriteOnce</code> claim and concurrent writers would corrupt it. To run more, switch to
+  PostgreSQL, disable the data volume and raise <code>replicas</code> (Kustomize) or
+  <code>replicaCount</code> (Helm).
+</p>
+<p>
+  Each replica keeps its own in-memory caches (<code>CACHE_MEMORY_MB</code>). A write invalidates
+  the caches of the replica that handled it at once; every other replica sees it within
+  <strong>10 seconds</strong>, when its entries expire. A build that provides a
+  <a href="../start/glossary.html#version">version</a> on one replica and requires it on another
+  inside that window can be answered with the previous content, "version not found" or the previous
+  report. Two ways to close the window: session affinity on the ingress for the API routes
+  (<code>/provide*</code>, <code>/require*</code>, <code>/require-bundle</code>,
+  <code>/catalog/*</code>, <code>/producers/*</code>), so one build talks to one replica, or a 10 s
+  pause in the pipeline between the provide and the first require.
+</p>
+<p>
+  The <a href="webhooks.html">webhook</a> worker runs in every replica; on PostgreSQL the outbox
+  claim (<code>FOR UPDATE SKIP LOCKED</code>) keeps two replicas from sending one delivery twice.
+</p>
+
+<h2>Health, readiness and version</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Answer</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /health</code></td>
+      <td>
+        <code>200</code> with the text <code>OK</code>, without touching the database. Liveness: a
+        database outage must not restart the pod.
+      </td>
+    </tr>
+    <tr>
+      <td><code>GET /ready</code></td>
+      <td>
+        Pings the database. <code>200 {"status":"ready"}</code>, or
+        <code>503 {"status":"unavailable"}</code> while it is unreachable.
+      </td>
+    </tr>
+    <tr>
+      <td><code>GET /version</code></td>
+      <td>
+        <code>{"version":"2.6.0","instance_id":"…"}</code>; the id is <code>INSTANCE_ID</code>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>All three are unauthenticated. Metrics are in <a href="observability.html">Observability</a>.</p>
+
+<h2>Upgrades and migrations</h2>
+<ol>
+  <li>Take a backup (<a href="backup.html">Backup and restore</a>).</li>
+  <li>
+    Read the
+    <a href="https://github.com/paxel/sanshain-service/blob/summer/CHANGELOG.md">changelog</a> for
+    the release; the "What changed" callout on each chapter of this track names what an operator
+    configures.
+  </li>
+  <li>
+    Change the image tag and roll. Migrations run on the first start of the new version, before the
+    listener binds; on PostgreSQL with several replicas the migrator takes an advisory lock, so the
+    first pod runs them and the others wait.
+  </li>
+</ol>
+<p>
+  Migrations are forward-only: a database touched by a newer version cannot be used by an older
+  binary. Rolling back means restoring the backup from before the upgrade. Since 2.4.0 the start
+  also rewrites, once, every stored spec text whose line endings or BOM predate ADR-0008; like a
+  migration it is fatal on failure (<code>ERROR: Can't normalize stored spec text</code>); success
+  is recorded in a setting, a failed run is repeated on the next start. Environment changes need a
+  restart; certificates under <code>EXTRA_CA_CERTS_DIR</code> are read once at startup.
+</p>
+
+<h2>Security</h2>
+<ul>
+  <li>
+    Both deployments run the container as UID 1000 with <code>runAsNonRoot: true</code> and
+    <code>fsGroup: 1000</code> (Helm: <code>podSecurityContext</code>, <code>securityContext</code>,
+    also applied to the backup job). Neither sets <code>readOnlyRootFilesystem</code> or drops
+    capabilities; add them in your own overlay if your policy requires them, the service writes only
+    under <code>DATABASE_URL</code>'s directory.
+  </li>
+  <li>
+    TLS terminates at the Ingress: the Kustomize <code>ingress.yaml</code> references the
+    <code>sanshain-tls</code> Secret, the chart's <code>ingress.tls</code> list takes yours. The
+    service itself speaks plain HTTP on port 3000, so the session cookie and the API tokens must not
+    cross the cluster boundary unencrypted.
+  </li>
+  <li>
+    <code>/metrics</code>, <code>/health</code>, <code>/ready</code>, <code>/version</code> and the
+    free validator <code>POST /validate</code> are unauthenticated; restrict <code>/metrics</code>
+    at the ingress when the instance is public.
+  </li>
+  <li>
+    The Secret holds the database URL with its password and the initial admin password; the database
+    holds the LDAP bind password, the OIDC client secret and the webhook secrets (<a
+      href="backup.html#what-is-in-the-database"
+      >Backup and restore</a
+    >).
+  </li>
+</ul>
+
+<h2>Outbound TLS trust</h2>
+<p>
+  LDAPS connections verify the directory's certificate against the platform bundle plus, when set,
+  every certificate under <code>EXTRA_CA_CERTS_DIR</code>. Mount the corporate CA
+  (<code>extraVolumes</code>/<code>extraVolumeMounts</code> in Helm, the commented
+  <code>ca-certs</code> volume in Kustomize) and point the variable at the mount path. Details and
+  the startup failures are in
+  <a href="configuration.html#additional-ca-certificates">Configuration</a>.
+</p>
+
+<h2>Verifying a release</h2>
+<p>
+  The release workflow (<code>.github/workflows/release.yml</code>) produces three supply-chain
+  artifacts for every tag:
+</p>
+<ul>
+  <li>
+    The image is signed keyless with <a href="https://docs.sigstore.dev/cosign/">cosign</a> through
+    the workflow's GitHub OIDC identity on the public Sigstore instance; the certificate names the
+    workflow.
+  </li>
+  <li>
+    A CycloneDX SBOM of the image, attached to the image as a cosign attestation and to the GitHub
+    release as <code>sanshain-service-&lt;tag&gt;.cdx.json</code>.
+  </li>
+  <li>
+    A CycloneDX SBOM of the dependencies compiled into the binaries (from
+    <code>Cargo.lock</code> and <code>package-lock.json</code>), on the release as
+    <code>sanshain-service-&lt;tag&gt;-source.cdx.json</code>.
+  </li>
+</ul>
+<p>Verify the signature (the tag or the <code>@sha256:…</code> digest you deploy):</p>
+<pre><code>cosign verify ghcr.io/paxel/sanshain-service:v2.6.0 \
+  --certificate-identity-regexp '^https://github.com/paxel/sanshain-service/.github/workflows/release.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com</code></pre>
+<p>
+  Verify the SBOM attestation the same way; the attested SBOM is the <code>predicate</code> of the
+  printed in-toto statement, so this also extracts it without the GitHub release:
+</p>
+<pre><code>cosign verify-attestation --type cyclonedx ghcr.io/paxel/sanshain-service:v2.6.0 \
+  --certificate-identity-regexp '^https://github.com/paxel/sanshain-service/.github/workflows/release.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  | jq -r .payload | base64 -d | jq .predicate &gt; sanshain-service.cdx.json</code></pre>
+<p>
+  A signature whose certificate names any other identity or issuer fails, so an admission policy can
+  require exactly this one. Only a release built from a pushed tag verifies with the regexp above: a
+  run started by hand through <code>workflow_dispatch</code> is signed with
+  <code>@refs/heads/&lt;branch&gt;</code> instead.
+</p>
+<p>
+  The weekly security workflow (<code>.github/workflows/security.yml</code>, Mondays 05:17 UTC)
+  scans the latest released image with grype. It fails only on high or critical findings that have a
+  fix, and attaches two reports as workflow artifacts: the fixable findings and the full list.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

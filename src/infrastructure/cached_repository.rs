@@ -67,7 +67,7 @@ const SETTINGS_TTL_SECS: u64 = 10;
 /// metadata), same contract as [`EFFECTIVE_ROLES_TTL_SECS`]: a Provide through
 /// this repository invalidates immediately; the TTL bounds how long a write on
 /// *another replica* sharing the database can go unnoticed here. The window is
-/// part of the multi-replica contract in `docs/deployment.md` (Scaling).
+/// part of the multi-replica contract in `site/operator/deployment.html` (Scaling).
 const DATA_TTL_SECS: u64 = 10;
 
 struct RepoCaches {

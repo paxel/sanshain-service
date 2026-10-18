@@ -1,0 +1,452 @@
+<!-- page: title="Authentication" track="operator" order=3 summary="The five authentication modes, local accounts and approval, the root accounts held by configuration, LDAP and Active Directory with its timeouts and CA bundle, OpenID Connect through the API, and the developer-mode gate." -->
+<p class="lede">
+  Humans sign in with a password, through the directory or through an OpenID Connect provider;
+  builds and scripts always use an <a href="../start/glossary.html#api-token">API token</a>. This
+  chapter is the human side: how a login is checked, where the accounts come from, and what keeps an
+  operator from locking themselves out.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      A directory that accepts the connection and never answers fails within 10 s
+      (<code>LDAP_OPERATION_TIMEOUT_SECS</code>) with a message naming the URL and the likely scheme
+      and port mismatch, instead of hanging until the ingress answers
+      <code>502</code>.
+    </li>
+    <li>
+      The image trusts public certificate authorities, so <code>ldaps://</code> against a publicly
+      signed directory needs no certificate mount.
+    </li>
+  </ul>
+</div>
+
+<h2>Authentication modes</h2>
+<p>
+  The mode is a setting (<code>auth_mode</code>), chosen in the
+  <strong>Authentication</strong> section of <code>/admin.html</code> or with
+  <code>PUT /admin/auth-config</code> (<code>manage_auth_config</code>). The first start sets
+  <code>local</code>.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Mode</th>
+      <th>Admin page</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>disabled</code></td>
+      <td>OFF / Maintenance</td>
+      <td>
+        Every Producer and Consumer API call answers <code>503</code>
+        <code>Service is in Maintenance Mode / Disabled</code>, and
+        <code>POST /auth/login</code> answers <code>403</code>. Existing sessions keep working on
+        the admin routes, which is how you switch back.
+      </td>
+    </tr>
+    <tr>
+      <td><code>dev</code></td>
+      <td>Dev Mode</td>
+      <td>
+        Requests <a href="#developer-mode">developer mode</a>; effective only with the environment
+        gate. Password login works as in <code>local</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>local</code></td>
+      <td>Local Users</td>
+      <td>Accounts in Sanshain's own database, Argon2 password hashes.</td>
+    </tr>
+    <tr>
+      <td><code>ldap</code></td>
+      <td>LDAP</td>
+      <td>
+        The password is checked against the directory; local accounts and root still log in when the
+        directory refuses or is down.
+      </td>
+    </tr>
+    <tr>
+      <td><code>oidc</code></td>
+      <td>none; API only</td>
+      <td>
+        Browser login through the provider's redirect flow. The password endpoint stays open for
+        local accounts and root.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <code>PUT /admin/auth-config</code> accepts <code>off</code> and <code>maintenance</code> as
+  spellings of <code>disabled</code>; any other mode answers <code>400</code>
+  <code>Invalid auth mode: …</code>. <code>ldap</code> without an <code>ldap_config</code> in the
+  same request answers <code>LDAP config required for ldap mode</code>; <code>oidc</code> without an
+  <code>oidc_config</code> stored or supplied answers
+  <code>OIDC config required for oidc mode</code>. Every change is an
+  <code>UPDATE_SETTINGS</code> audit entry.
+</p>
+<p>
+  Administrative routes (<code>/admin/*</code>) take a session token from
+  <code>POST /auth/login</code>; an API token on them answers <code>401</code>. The one exception is
+  the backup download, which admits a <code>full</code> API token. A session lasts 7 days.
+</p>
+
+<h2>Local accounts</h2>
+<p>
+  Anyone can register on the <strong>Register</strong> tab of the sign-in page or with
+  <code>POST /auth/register</code> (<code>{"username","password"}</code>); there is no switch that
+  closes registration. A new account is <em>pending</em> until an administrator approves it (<a
+    href="../start/glossary.html#approval"
+    >approval</a
+  >): the <strong>Users</strong> section of the admin page, or
+  <code>POST /admin/users/{id}/approve</code> (<code>manage_users</code>). A pending user's login
+  answers <code>403</code>; a wrong password <code>401</code>. The
+  <strong>Auto Acknowledge New Users</strong> toggle (<code>auto_approve_users</code>) approves new
+  registrations at once; it is off by default and meant for a lab, not for a company. In the
+  <strong>Users</strong> list every account carries its badges: one per role it holds directly
+  (<code>admin</code>, <code>viewer</code>, …), and <code>approved</code> or <code>pending</code>.
+</p>
+<p>
+  Registration refuses a name twice: <code>409 User already exists</code>, and
+  <code>409 This username is reserved</code> for every name in <code>SANSHAIN_ROOT_USERS</code>
+  that has no account yet (startup creates a locked one, see
+  <a href="configuration.html#root-users">Root users</a>). Deleting a user (<code
+    >DELETE /admin/users/{id}</code
+  >) revokes their sessions and API tokens. Users change their own password on
+  <code>/account.html</code>; there is no administrative password reset.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/admin_users.png"
+    alt="The Authentication radio group with Local Users selected, the Users section with the root account carrying the admin and approved badges and a grant-role control, and an empty Groups section"
+    loading="lazy"
+  />
+  <figcaption>
+    The Authentication, Users and Groups sections of the admin page. Roles are granted per user
+    here; root is held by configuration and cannot be granted or revoked.
+  </figcaption>
+</figure>
+
+<h2>The initial admin and root</h2>
+<p>
+  On the first start, with no user in the database, Sanshain creates
+  <code>INITIAL_ADMIN_USERNAME</code> (<code>root</code>) with
+  <code>INITIAL_ADMIN_PASSWORD</code> or a random password, grants it the <code>admin</code> role
+  and prints both lines to stderr:
+</p>
+<pre><code>[INITIAL SETUP] Admin user created. Username: root, Password: &lt;random&gt;
+[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html</code></pre>
+<p>
+  That account is also <a href="../start/glossary.html#root">root</a> by the default of
+  <code>SANSHAIN_ROOT_USERS</code>: every permission, including ones no role grants, from
+  configuration rather than from the database. Name a second account there as the break-glass path;
+  the full rules are in <a href="configuration.html#root-users">Configuration</a>.
+</p>
+
+<h2>LDAP and Active Directory</h2>
+<p>Select <strong>LDAP</strong> in the Authentication section and fill the form:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Meaning</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Server URL (<code>server_url</code>)</td>
+      <td>
+        <code>ldaps://</code> is TLS from the first byte; <code>ldap://</code> is plain, or StartTLS
+        with <code>use_tls</code>. Without a port, 636 for <code>ldaps://</code> and 389 for
+        <code>ldap://</code>.
+      </td>
+      <td><code>ldaps://ldap.example.com:636</code></td>
+    </tr>
+    <tr>
+      <td>Bind DN (<code>bind_dn</code>)</td>
+      <td>The service account that searches for users and reads their groups.</td>
+      <td><code>cn=readonly,dc=example,dc=com</code></td>
+    </tr>
+    <tr>
+      <td>Bind Password (<code>bind_password</code>)</td>
+      <td>
+        Its password. Stored, never shown back: the read endpoint and the form return
+        <code>****</code>, and sending <code>****</code> keeps the stored one.
+      </td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Base DN (<code>base_dn</code>)</td>
+      <td>Subtree searched for users.</td>
+      <td><code>dc=example,dc=com</code></td>
+    </tr>
+    <tr>
+      <td>User Filter (<code>user_filter</code>)</td>
+      <td>
+        <code>{username}</code> is replaced with the login name, escaped for LDAP filter syntax.
+        Default <code>(uid={username})</code>; Active Directory uses
+        <code>(sAMAccountName={username})</code>.
+      </td>
+      <td><code>(uid={username})</code></td>
+    </tr>
+    <tr>
+      <td>Bootstrap Admin Group (<code>admin_group</code>)</td>
+      <td>
+        A directory group whose members get the <code>admin</code> role. Saving it creates (or
+        updates) a directory group of that name in the
+        <a href="roles.html#groups">group mapping</a> with <code>admin</code> attached; from there
+        you can attach other roles or add more groups. Empty disables.
+      </td>
+      <td><code>cn=admins,ou=groups,dc=example,dc=com</code></td>
+    </tr>
+    <tr>
+      <td><code>use_tls</code> (API only)</td>
+      <td>
+        <code>true</code> upgrades a plain <code>ldap://</code> connection with StartTLS before the
+        first bind. Ignored on <code>ldaps://</code>. The form has no control for it; set it with
+        <code>PUT /admin/auth-config</code>.
+      </td>
+      <td><code>false</code></td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <strong>Test Connection</strong> (<code>POST /admin/auth-config/test</code> with the form's
+  fields) connects and binds with the service account;
+  <strong>Save Authentication Settings</strong> applies. The same through the API:
+</p>
+<pre><code>curl -X PUT $SANSHAIN/admin/auth-config \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{
+    "auth_mode": "ldap",
+    "ldap_config": {
+      "server_url": "ldaps://ldap.example.com:636",
+      "bind_dn": "cn=readonly,dc=example,dc=com",
+      "bind_password": "secret",
+      "base_dn": "dc=example,dc=com",
+      "user_filter": "(uid={username})",
+      "admin_group": "cn=admins,ou=groups,dc=example,dc=com",
+      "use_tls": false
+    }
+  }'</code></pre>
+<p>
+  <code>GET /admin/auth-config</code> returns the mode and the configuration with the password
+  redacted.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/admin_auth_ldap.png"
+    alt="The Authentication section with LDAP selected: Server URL, Bind DN, Bind Password, Base DN, User Filter and Bootstrap Admin Group fields, a Test Connection button and Save Authentication Settings"
+    loading="lazy"
+  />
+  <figcaption>
+    The LDAP form. Test Connection binds with the service account and nothing else.
+  </figcaption>
+</figure>
+
+<h3>How a login is checked</h3>
+<ol>
+  <li>
+    A TCP connection to the host and port, with a 5 s limit:
+    <code>Could not connect to LDAP server at …: no answer within 5 s</code> when nothing answers.
+  </li>
+  <li>
+    The TLS or StartTLS handshake and the service-account bind, each under the operation timeout (10
+    s, <code>LDAP_OPERATION_TIMEOUT_SECS</code>).
+  </li>
+  <li>
+    A subtree search under the Base DN with the User Filter, reading <code>dn</code> and
+    <code>memberOf</code>.
+  </li>
+  <li>A second connection binding as the found DN with the given password.</li>
+  <li>
+    On success a <em>shadow account</em> with that username is created in the local database
+    (approved, random local password), so sessions, favourites and API tokens work as for a local
+    user. No group or role is captured at login.
+  </li>
+</ol>
+<p>
+  What the user may do is decided on every authorisation check: their <code>memberOf</code> groups
+  are read through the service account, cached for
+  <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code> (300), and matched against the directory groups in
+  the <a href="roles.html#groups">group mapping</a>; the roles attached to matching groups apply. A
+  promotion or demotion in the directory takes effect within the cache TTL, without a new login.
+  When the directory is unreachable, directory roles are omitted (see
+  <a href="configuration.html#directory-group-caching">Directory group caching</a>). Password login
+  falls back to the local check when the directory refuses or fails, so root and local accounts are
+  never locked out by the directory.
+</p>
+
+<h3>Timeouts, schemes and ports</h3>
+<p>
+  The connect timeout cannot help once the port answers. A scheme and port mismatch, or a firewall
+  that accepts and then drops, used to hang the request until the ingress gave up with
+  <code>502 Bad Gateway</code>. Since 2.6.0 every exchange after the connect runs under the
+  operation timeout. <strong>Test Connection</strong> answers <code>400</code> with:
+</p>
+<pre><code>LDAP connection failed: Connection failed: LDAP server at ldaps://ldap.example.com:389 accepted the connection but did not respond within 10 s. Check that ldaps:// uses the TLS port and StartTLS the plain one.</code></pre>
+<p>
+  Only Test Connection shows the text. A login that hits the same stall is treated like any
+  directory refusal: the local password check runs and the caller gets a bare <code>401</code>.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Server URL</th>
+      <th><code>use_tls</code></th>
+      <th>What happens</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ldaps://host:636</code></td>
+      <td>any</td>
+      <td>Correct: TLS from the first byte on the TLS port.</td>
+    </tr>
+    <tr>
+      <td><code>ldap://host:389</code></td>
+      <td><code>true</code></td>
+      <td>Correct: StartTLS upgrades the plain connection in-band.</td>
+    </tr>
+    <tr>
+      <td><code>ldap://host:389</code></td>
+      <td><code>false</code></td>
+      <td>Correct but unencrypted. A lab, not a directory of people.</td>
+    </tr>
+    <tr>
+      <td><code>ldaps://host:389</code></td>
+      <td>any</td>
+      <td>Stalls: a TLS handshake sent to a port expecting plain LDAP.</td>
+    </tr>
+    <tr>
+      <td><code>ldap://host:636</code></td>
+      <td>any</td>
+      <td>Stalls: a plain LDAP message sent to a port expecting a TLS handshake.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Keep the ingress timeout above the operation timeout so Sanshain's message, not the proxy's,
+  reaches the admin page.
+</p>
+
+<h3>Certificates</h3>
+<p>
+  <code>ldaps://</code> and StartTLS verify the directory's certificate. The image trusts the public
+  authorities; a private or corporate CA is mounted and named by <code>EXTRA_CA_CERTS_DIR</code>,
+  see <a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>.
+  Without it, <strong>Test Connection</strong> fails on certificate verification.
+</p>
+
+<h2>OpenID Connect</h2>
+<p>
+  OIDC is for people. It is configured through the API only; the admin page has no OIDC form in
+  2.6.0.
+</p>
+<pre><code>curl -X PUT $SANSHAIN/admin/auth-config \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{
+    "auth_mode": "oidc",
+    "oidc_config": {
+      "issuer_url": "https://login.example.com/realms/corp",
+      "client_id": "sanshain",
+      "client_secret": "…",
+      "redirect_url": "https://sanshain.corp/auth/oidc/callback",
+      "username_claim": "preferred_username",
+      "groups_claim": "groups",
+      "admin_group": "sanshain-admins"
+    }
+  }'</code></pre>
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>issuer_url</code></td>
+      <td>
+        The provider; discovery reads
+        <code>&lt;issuer_url&gt;/.well-known/openid-configuration</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>client_id</code>, <code>client_secret</code></td>
+      <td>
+        The client registered with the provider. The secret is stored and never returned; sending
+        <code>****</code> keeps the stored one.
+      </td>
+    </tr>
+    <tr>
+      <td><code>redirect_url</code></td>
+      <td>
+        Must be this instance's <code>/auth/oidc/callback</code> under the URL users open, and
+        registered with the provider. Its origin is also the fallback for
+        <code>PUBLIC_BASE_URL</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>scopes</code></td>
+      <td>Default <code>["openid","email","profile"]</code>.</td>
+    </tr>
+    <tr>
+      <td><code>username_claim</code></td>
+      <td>ID-token claim used as the username. Default <code>preferred_username</code>.</td>
+    </tr>
+    <tr>
+      <td><code>groups_claim</code></td>
+      <td>ID-token claim carrying the user's groups. Default <code>groups</code>.</td>
+    </tr>
+    <tr>
+      <td><code>admin_group</code></td>
+      <td>
+        A value of that claim whose bearers get the <code>admin</code> role at login. Grant-only: a
+        later token without the group does not revoke it. Other OIDC groups confer nothing; the
+        group mapping is for LDAP groups.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The sign-in page shows <strong>Sign in with SSO</strong> (<code>GET /auth/oidc/login</code>). The
+  flow is authorization code with PKCE: state, nonce and verifier travel in a 10-minute
+  <code>HttpOnly</code> cookie; the callback (<code>GET /auth/oidc/callback</code>) exchanges the
+  code, verifies the ID token (signature against the provider's JWKS, nonce, issuer, audience,
+  expiry), creates or finds the shadow account (approved) and sets the session cookie, then
+  redirects to <code>/account.html</code>. Without a configuration both routes answer
+  <code>400 OIDC is not configured</code>; a callback without its cookie answers
+  <code>400 no OIDC login in progress</code>; a provider that cannot be reached at discovery answers
+  <code>500 OIDC discovery failed: …</code>.
+</p>
+
+<h2>Developer mode</h2>
+<p>
+  <a href="../start/glossary.html#dev-mode">Developer mode</a> switches authentication off: API and
+  admin routes act as a built-in <code>dev_user</code>. It needs two things at once:
+</p>
+<ol>
+  <li>
+    A request: the <strong>Dev Mode</strong> radio (which stores <code>dev_mode=true</code>) or
+    <code>SANSHAIN_DEV_MODE=true</code> in the environment.
+  </li>
+  <li>The gate: <code>ALLOW_INSECURE_DEV_MODE=true</code> in the environment.</li>
+</ol>
+<p>A request without the gate fails closed: authentication stays enforced and startup logs</p>
+<pre><code>SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced.</code></pre>
+<p>
+  With both, startup logs
+  <code
+    >SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable
+    it in production.</code
+  >
+  The gate belongs on a laptop and nowhere else; a persisted setting left behind by configuration
+  drift cannot open a production instance on its own.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

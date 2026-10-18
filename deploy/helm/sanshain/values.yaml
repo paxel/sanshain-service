@@ -132,7 +132,7 @@ persistence:
 extraVolumes: []
 extraVolumeMounts: []
 
-# Scheduled backups (see docs/deployment.md, "Backup and restore"). Off by
+# Scheduled backups (see https://paxel.github.io/sanshain-service/operator/backup.html). Off by
 # default. Renders one CronJob writing to a backup volume and keeping the
 # newest `retain` files:
 #   sqlite   — fetches GET /admin/backup/sqlite, a consistent snapshot produced

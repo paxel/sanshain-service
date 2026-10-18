@@ -130,4 +130,4 @@ mint one — that is the token an AI assistant uses on the [MCP endpoint](https:
 minute). Expired tokens stop validating and are cleaned up in the background.
 
 ### Admin & Auth
-- **Developer Mode**: Bypasses authentication for local testing. Requires both enabling it (Admin Panel or `SANSHAIN_DEV_MODE=true`) and the `ALLOW_INSECURE_DEV_MODE=true` safety gate; it fails closed otherwise. Never use in production — see [Developer Mode](administration.md#enabling-dev-mode-local-only).
+- **Developer Mode**: Bypasses authentication for local testing. Requires both enabling it (Admin Panel or `SANSHAIN_DEV_MODE=true`) and the `ALLOW_INSECURE_DEV_MODE=true` safety gate; it fails closed otherwise. Never use in production — see [Developer mode](https://paxel.github.io/sanshain-service/operator/authentication.html#developer-mode).

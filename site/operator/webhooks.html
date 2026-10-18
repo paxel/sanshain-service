@@ -1,0 +1,628 @@
+<!-- page: title="Webhooks" track="operator" order=6 summary="Hooks in three scopes, the event catalogue, the JSON envelope and the Slack and Teams bodies, the HMAC signature and how to verify it, the receiver allow-list, the outbox, the retry schedule and the 24-hour cutoff, redelivery, the delivery log, the variables and the metrics." -->
+<p class="lede">
+  A <a href="../start/glossary.html#webhook">webhook</a> is a signed <code>POST</code> Sanshain
+  sends to a URL for every fact it records and every provide it rejects. This chapter is both sides:
+  what an administrator registers and allows, and what a receiver gets and how it checks the
+  signature.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <p>
+    Webhooks are new in 2.6.0 (<a
+      href="https://github.com/paxel/sanshain-service/blob/summer/docs/adr/0009-webhooks-outbox-and-egress-allowlist.md"
+      >ADR-0009</a
+    >). A fresh install sends nothing until an administrator allows a receiver host; an upgraded
+    install is in the same state. Four variables configure the worker:
+    <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
+    <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code>, <code>PUBLIC_BASE_URL</code>. The allow-list binds
+    Producer and Consumer maintainers, not administrators: a hook registered by a
+    <code>manage_settings</code> holder is exempt from it at registration and at every delivery.
+  </p>
+</div>
+
+<h2>Hooks in three scopes</h2>
+<ul>
+  <li>
+    <strong>Global hooks</strong> (admin page, <strong>Webhooks</strong> section;
+    <code>/admin/webhooks…</code>, <code>manage_settings</code>) receive every event, narrowed by an
+    optional event-type set and an optional Producer-name glob (<code>payments-*</code>,
+    <code>*</code> and <code>?</code> only).
+  </li>
+  <li>
+    <strong>A Producer's hooks</strong> (its page, <em>Webhooks</em> card;
+    <code>/admin/producers/{name}/webhooks…</code>) receive that Producer's events.
+  </li>
+  <li>
+    <strong>A Consumer's hooks</strong> (its page; <code>/admin/consumers/{name}/webhooks…</code>)
+    receive the events of every Producer the Consumer currently requires, in the dev or the trunk
+    graph. The hook follows the require graph, so a new dependency needs no hook change.
+  </li>
+</ul>
+<p>
+  System hooks are managed by anyone with <code>manage_producers</code> and by the
+  <a href="../start/glossary.html#maintainer">maintainers</a> of the Producer; for a Consumer, the
+  maintainers of the Producer of the same name (the "same system" rule). The card is only shown to
+  callers who may manage it. A hook on an unknown Producer or Consumer answers <code>404</code>
+  <code>Producer 'x' is unknown</code>.
+</p>
+<p>
+  Registering (<code>POST</code> on the scope's collection) takes the receiver URL, the body
+  <code>format</code> (<code>json</code>, default, <code>slack</code> or <code>teams</code>), the
+  <code>event_types</code> (none means every event) and optionally a <code>producer_glob</code> (at
+  most 200 characters; useful on global hooks). The answer carries the signing secret
+  <strong>once</strong>, with a copy button in the UI; it is stored for signing and never readable
+  again, the listing shows a short hint of it. Per hook:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Action</th>
+      <th>
+        Route (global shown; the Producer and Consumer scopes are the same under their prefix)
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>List, read</td>
+      <td><code>GET /admin/webhooks</code>, <code>GET /admin/webhooks/{id}</code></td>
+    </tr>
+    <tr>
+      <td>Pause, resume, change filters</td>
+      <td>
+        <code>PATCH /admin/webhooks/{id}</code> with <code>paused</code>,
+        <code>event_types</code> and/or <code>producer_glob</code> (<code>null</code> clears it). A
+        paused hook's deliveries stay pending and go out on resume.
+      </td>
+    </tr>
+    <tr>
+      <td>Rotate secret</td>
+      <td>
+        <code>POST /admin/webhooks/{id}/rotate-secret</code>: a new secret, shown once; every later
+        delivery is signed with it.
+      </td>
+    </tr>
+    <tr>
+      <td>Send test</td>
+      <td>
+        <code>POST /admin/webhooks/{id}/test</code> queues a <code>webhook.test</code> event for
+        that hook alone, delivered like any other, so the receiver, the secret and the allow-list
+        are all exercised. Subscribing to <code>webhook.test</code> is refused.
+      </td>
+    </tr>
+    <tr>
+      <td>Delivery log, redeliver</td>
+      <td>
+        <code>GET /admin/webhooks/{id}/deliveries?limit=50</code> (1 to 200),
+        <code>POST /admin/webhooks/{id}/deliveries/{delivery_id}/redeliver</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>Delete</td>
+      <td><code>DELETE /admin/webhooks/{id}</code>: the hook and its delivery log.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Creation, deletion, pause, resume, rotation and redelivery are audit entries
+  (<code>WEBHOOK_CREATED</code>, <code>WEBHOOK_DELETED</code>, <code>WEBHOOK_PAUSED</code>,
+  <code>WEBHOOK_RESUMED</code>, <code>WEBHOOK_SECRET_ROTATED</code>,
+  <code>WEBHOOK_REDELIVERED</code>, type <code>ADMIN</code>, with the system's name in
+  <code>service</code> for system hooks).
+</p>
+
+<h2 id="the-allow-list">The allow-list</h2>
+<p>
+  Sanshain runs inside the cluster, and a hook URL is caller-supplied: a <code>POST</code> from
+  inside reaches the Kubernetes API, the metadata service and every internal endpoint a maintainer
+  could not otherwise touch. So a hook can only point at a host the administrator approved:
+  <strong>Allowed receiver hosts</strong> on the admin page, one per line, setting
+  <code>webhook_allowed_hosts</code> (<code>GET</code>/<code
+    >POST /admin/settings/webhook-allowed-hosts</code
+  >, <code>manage_settings</code>, audited as <code>SET_WEBHOOK_ALLOWED_HOSTS</code>).
+</p>
+<ul>
+  <li>
+    A pattern is a host name with <code>*</code> and <code>?</code> wildcards
+    (<code>hooks.slack.com</code>, <code>*.webhook.office.com</code>) and admits
+    <code>https://</code> to matching hosts. Prefixed with
+    <code>http://</code> (<code>http://n8n.corp.internal</code>) it also admits plain HTTP to that
+    host, for in-cluster receivers. Ports are not part of the match; patterns are lower-cased.
+    Anything else is refused:
+    <code
+      >'…' is not a host pattern: use a host name with optional `*`/`?` wildcards, prefixed
+      `http://` only to allow plain HTTP to it</code
+    >.
+  </li>
+  <li>
+    A URL outside the list is refused at registration with <code>403</code>
+    <code
+      >the host 'x' is not in the webhook allow-list — ask an administrator to allow it, or use one
+      of: hooks.slack.com, …</code
+    >
+    (with <code>(plain http:// needs a pattern that says http:// itself)</code> for an
+    <code>http://</code> URL).
+  </li>
+  <li>
+    With an <strong>empty</strong> list only administrators may register: a maintainer gets
+    <code>403</code>
+    <code
+      >no hosts are allowed for webhooks yet — an administrator has to add the receiver's host to
+      the allow-list (admin page, Webhooks) first</code
+    >. A fresh install is therefore safe before anyone has thought about it.
+  </li>
+  <li>
+    Hooks registered by a caller with <code>manage_settings</code> are exempt, at registration and
+    at every delivery, for as long as they exist; the listing marks them <em>exempt</em>. The list
+    therefore binds maintainers, not administrators, who could change it anyway.
+  </li>
+  <li>
+    The list is evaluated again at every delivery: removing a host stops deliveries to it with a
+    failed attempt and the reason
+    <code>the hook's host is not in the allow-list (webhook_allowed_hosts) any more</code>; the
+    attempts continue on the backoff schedule until the host is allowed again or the 24-hour window
+    closes.
+  </li>
+</ul>
+<p>Redirects are never followed, so a receiver cannot walk the signed body to another host.</p>
+
+<h2>Events</h2>
+<p>
+  Every event is a graph fact or a rejection; there are no admin or audit events, the audit log is
+  their record. Dry runs emit nothing. A global hook narrowed to a Producer glob never receives
+  <code>branch.cut</code>, which is about no Producer.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>When</th>
+      <th><code>data</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>version.published</code></td>
+      <td>
+        A provide succeeded: a new version, an overwritten snapshot or a promotion. The
+        <a href="../start/glossary.html#idempotent-no-op">idempotent no-op</a> emits nothing.
+      </td>
+      <td>
+        <code>producer</code>, <code>api_type</code> (<code>openapi</code>, <code>asyncapi</code>,
+        <code>proto</code>), <code>version</code>, <code>stability</code> (<code>snapshot</code>,
+        <code>ga</code>), <code>promoted</code> (bool), <code>stream</code> (<code>dev</code>,
+        <code>trunk</code> or a branch name), <code>actor</code> (username or <code>null</code>),
+        <code>compatibility</code> (<code>null</code>, or
+        <code>{"against": "&lt;previous GA&gt;", "impact": "none|patch|minor|major"}</code> on a GA
+        provide with a previous GA).
+      </td>
+    </tr>
+    <tr>
+      <td><code>provide.rejected</code></td>
+      <td>A provide was refused by a version rule.</td>
+      <td>
+        <code>producer</code>, <code>api_type</code>, <code>version</code> (the attempted one),
+        <code>rule</code> (<code>immutable_ga</code>, <code>snapshot_on_ga</code>,
+        <code>breaking_without_major</code>, <code>message_contract_conflict</code>,
+        <code>ga_requires_releaser</code>), <code>message</code>, <code>proposed_version</code> (or
+        <code>null</code>), <code>actor</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>version.deprecated</code></td>
+      <td>
+        A provide marked an element deprecated that was not deprecated in the previous GA (every
+        deprecated element when there is no previous GA).
+      </td>
+      <td>
+        <code>producer</code>, <code>api_type</code>, <code>version</code>, <code>stability</code>,
+        <code>elements</code> (list of <code>{"path","method"}</code>),
+        <code>document_deprecated</code> (true when every element is deprecated).
+      </td>
+    </tr>
+    <tr>
+      <td><code>dependency.recorded</code></td>
+      <td>
+        A require recorded an edge the Consumer did not hold yet: Consumer, Producer, endpoint,
+        pinned version, stream. Re-recording an existing edge emits nothing.
+      </td>
+      <td>
+        <code>consumer</code>, <code>producer</code>, <code>api_type</code>, <code>version</code>,
+        <code>stability</code>, <code>snapshot_pinned</code> (bool), <code>stream</code>,
+        <code>endpoints</code> (the endpoints new to the edge, <code>{"path","method"}</code>).
+      </td>
+    </tr>
+    <tr>
+      <td><code>branch.cut</code></td>
+      <td>
+        A <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> was created. Global
+        hooks only.
+      </td>
+      <td>
+        <code>name</code>, <code>source</code> (<code>trunk</code> or the source branch),
+        <code>as_of</code>, <code>cut_at</code>, <code>actor</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>catalog.recorded</code></td>
+      <td>
+        A catalog push ran, whether or not Sanshain could read the file. Delivered to the system's
+        hooks (as a Producer and as a Consumer) and to global hooks.
+      </td>
+      <td>
+        <code>system</code>, <code>trunk</code> (bool), <code>recorded</code> (bool),
+        <code>warning</code> (the reason when <code>recorded</code> is false, else
+        <code>null</code>), <code>resources</code> (peripheral resources recorded).
+      </td>
+    </tr>
+    <tr>
+      <td><code>webhook.test</code></td>
+      <td>The hook's Send test. Sent to that hook alone; cannot be subscribed to.</td>
+      <td><code>hook_id</code>, <code>message</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>The envelope</h2>
+<p>Every delivery carries the same envelope; the <code>json</code> format sends it as the body:</p>
+<pre><code>{
+  "id": "6f1c0c7e-8d3a-4b86-9e8e-2f3c0a1d5b77",
+  "type": "version.published",
+  "occurred_at": "2026-10-17T09:12:44Z",
+  "sanshain_version": "2.6.0",
+  "data": {
+    "producer": "orders",
+    "api_type": "openapi",
+    "version": "2.0.0",
+    "stability": "ga",
+    "promoted": false,
+    "stream": "trunk",
+    "actor": "alice",
+    "compatibility": { "against": "1.4.0", "impact": "major" }
+  },
+  "links": {
+    "producer": "https://sanshain.corp/producers.html?service=orders",
+    "version": "https://sanshain.corp/producers.html?service=orders&amp;api_type=openapi&amp;version=2.0.0",
+    "graph": "https://sanshain.corp/graph.html"
+  }
+}</code></pre>
+<ul>
+  <li>
+    <code>id</code> is a UUID, unique per event; a redelivery carries the same <code>id</code>, so
+    receivers can de-duplicate on it.
+  </li>
+  <li><code>occurred_at</code> is RFC 3339, UTC, second precision.</li>
+  <li>
+    <code>links</code> holds deep links into the UI and is <strong>omitted</strong> when Sanshain
+    does not know its public base URL: <code>PUBLIC_BASE_URL</code>, else the origin of the OIDC
+    redirect URL. Per type: <code>producer</code>, <code>version</code> and <code>graph</code> for
+    <code>version.published</code> and <code>version.deprecated</code>; <code>producer</code> and
+    <code>audit</code> for <code>provide.rejected</code>; <code>consumer</code>,
+    <code>producer</code>, <code>version</code> and <code>graph</code> for
+    <code>dependency.recorded</code>; <code>graph</code> for <code>branch.cut</code>;
+    <code>producer</code>, <code>consumer</code> and <code>graph</code> for
+    <code>catalog.recorded</code>; <code>admin</code> for <code>webhook.test</code>.
+  </li>
+</ul>
+<p>Three headers accompany every delivery, in every format:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Header</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Sanshain-Event</code></td>
+      <td>The event type.</td>
+    </tr>
+    <tr>
+      <td><code>X-Sanshain-Delivery</code></td>
+      <td>The delivery id, one per hook per event; a redelivery reuses it.</td>
+    </tr>
+    <tr>
+      <td><code>Sanshain-Signature</code></td>
+      <td>
+        <code>t=&lt;unix seconds&gt;,v1=&lt;hex HMAC-SHA256 of "&lt;t&gt;.&lt;body&gt;"&gt;</code>
+        under the hook's secret.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <code>Content-Type</code> is <code>application/json</code>, <code>User-Agent</code> is
+  <code>Sanshain/2.6.0</code>. There are no custom headers and no bearer tokens: the signature is
+  the authentication.
+</p>
+
+<h2>Verifying the signature</h2>
+<p>
+  The secret (<code>whsec_</code> and 64 hex characters) is shown once at creation or rotation.
+  Compute HMAC-SHA256 over the timestamp, a dot and the <strong>raw</strong> body, compare in
+  constant time, and reject timestamps older than five minutes to defeat replays:
+</p>
+<p class="example-caption">Node.js (Express with the raw body kept)</p>
+<pre><code>const crypto = require("node:crypto");
+
+function verify(req, secret) {
+  const header = req.get("Sanshain-Signature") || "";
+  const parts = Object.fromEntries(header.split(",").map((p) =&gt; p.split("=")));
+  const t = Number(parts.t);
+  if (!t || Math.abs(Date.now() / 1000 - t) &gt; 300) return false;
+  const expected = crypto.createHmac("sha256", secret).update(`${t}.${req.rawBody}`).digest("hex");
+  const given = Buffer.from(parts.v1 || "", "hex");
+  return given.length === 32 &amp;&amp; crypto.timingSafeEqual(given, Buffer.from(expected, "hex"));
+}</code></pre>
+<p class="example-caption">Python</p>
+<pre><code>import hmac, hashlib, time
+
+def verify(headers, raw_body: bytes, secret: str) -&gt; bool:
+    parts = dict(p.split("=", 1) for p in headers["Sanshain-Signature"].split(","))
+    t = int(parts["t"])
+    if abs(time.time() - t) &gt; 300:
+        return False
+    expected = hmac.new(secret.encode(), f"{t}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, parts.get("v1", ""))</code></pre>
+<p>Sign the body bytes exactly as received; do not re-serialise the JSON first.</p>
+
+<h2>Formats</h2>
+<p>
+  A hook's <code>format</code> picks the body shape; headers and signature are the same for all
+  three. Formats are body shapes, not connectors: every one is a signed <code>POST</code> to the URL
+  you give. The text is one line per event (for the example above:
+  <code
+    >Producer orders published as GA: openapi 2.0.0 on trunk (major change against 1.4.0), by
+    alice</code
+  >), and the link is the most specific one Sanshain knows.
+</p>
+<p class="example-caption">
+  <code>slack</code>: what a Slack incoming webhook accepts, mrkdwn with <code>&amp;</code>,
+  <code>&lt;</code>, <code>&gt;</code> escaped in the text
+</p>
+<pre><code>{
+  "text": "*version.published* — Producer orders published as GA: openapi 2.0.0 on trunk (major change against 1.4.0), by alice &lt;https://sanshain.corp/producers.html?service=orders&amp;api_type=openapi&amp;version=2.0.0|Open in Sanshain&gt;"
+}</code></pre>
+<p class="example-caption">
+  <code>teams</code>: the Adaptive Card message a Teams incoming webhook (Workflows) accepts, with
+  <code>\</code> <code>*</code> <code>_</code> <code>[</code> <code>]</code> escaped in the text
+</p>
+<pre><code>{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "contentUrl": null,
+      "content": {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.4",
+        "body": [
+          { "type": "TextBlock", "text": "version.published", "weight": "Bolder", "size": "Medium" },
+          {
+            "type": "TextBlock",
+            "text": "Producer orders published as GA: openapi 2.0.0 on trunk (major change against 1.4.0), by alice",
+            "wrap": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "Open in Sanshain",
+            "url": "https://sanshain.corp/producers.html?service=orders&amp;api_type=openapi&amp;version=2.0.0"
+          }
+        ]
+      }
+    }
+  ]
+}</code></pre>
+<p>Without a known base URL the Slack link and the Teams <code>actions</code> are left out.</p>
+
+<h2>The outbox and the worker</h2>
+<figure class="diagram" style="--diagram-min-width: 680px">
+  <svg viewBox="0 0 720 310" role="img" aria-labelledby="fig-outbox-title fig-outbox-desc">
+    <title id="fig-outbox-title">From a fact to a delivery</title>
+    <desc id="fig-outbox-desc">
+      A request handler writes the fact and the event's outbox rows in one transaction; fan-out is
+      decided then. A worker in every replica claims due deliveries with a lease every 5 seconds and
+      POSTs each to its receiver. A 2xx answer is delivered. Anything else is a failed attempt,
+      retried after 30 seconds, doubling, at most one hour apart, until 24 hours after the event,
+      then dead. Redeliver resets a delivery, a dead one included, for one more attempt.
+    </desc>
+    <defs>
+      <marker
+        id="arr-ob"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow" />
+      </marker>
+      <marker
+        id="arr-ob-accent"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow-accent" />
+      </marker>
+      <marker
+        id="arr-ob-muted"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0L10 5L0 10z" class="d-arrow-muted" />
+      </marker>
+    </defs>
+
+    <text x="8" y="22" class="d-muted">request handler</text>
+    <rect x="8" y="34" width="200" height="92" rx="6" class="d-box" />
+    <text x="20" y="56" class="d-text d-strong">one transaction</text>
+    <text x="20" y="76" class="d-text d-mono">the fact (provide…)</text>
+    <text x="20" y="94" class="d-text d-mono">+ one outbox row/hook</text>
+    <text x="20" y="114" class="d-muted">fan-out decided here</text>
+
+    <path d="M208 80H250" class="d-line" marker-end="url(#arr-ob)" />
+    <text x="229" y="70" text-anchor="middle" class="d-muted">commit</text>
+
+    <text x="254" y="22" class="d-muted">database</text>
+    <rect x="254" y="34" width="200" height="92" rx="6" class="d-box" />
+    <text x="266" y="56" class="d-text d-strong">outbox</text>
+    <text x="266" y="76" class="d-text d-mono">status, next attempt</text>
+    <text x="266" y="94" class="d-text d-mono">attempts, lease</text>
+    <text x="266" y="114" class="d-muted">one row per hook per event</text>
+
+    <path d="M454 80H496" class="d-line-accent" marker-end="url(#arr-ob-accent)" />
+    <text x="475" y="70" text-anchor="middle" class="d-accent">claim</text>
+
+    <text x="500" y="22" class="d-muted">every replica</text>
+    <rect x="500" y="34" width="212" height="92" rx="6" class="d-box" />
+    <text x="512" y="56" class="d-text d-strong">worker</text>
+    <text x="512" y="76" class="d-text d-mono">every 5 s, batch of 50</text>
+    <text x="512" y="94" class="d-text d-mono">POST, 10 s timeout</text>
+    <text x="512" y="114" class="d-muted">allow-list checked again</text>
+
+    <path d="M606 126V176" class="d-line" marker-end="url(#arr-ob)" />
+    <text x="616" y="156" class="d-muted">answer</text>
+
+    <rect x="500" y="180" width="212" height="40" rx="6" class="d-ga" />
+    <text x="606" y="205" text-anchor="middle" class="d-ga-text">2xx → delivered</text>
+
+    <rect x="254" y="180" width="200" height="40" rx="6" class="d-snap" />
+    <text x="354" y="205" text-anchor="middle" class="d-text d-strong">else → failed</text>
+    <path d="M500 200H456" class="d-line-muted" marker-end="url(#arr-ob-muted)" />
+
+    <path d="M354 180V130" class="d-line-muted" marker-end="url(#arr-ob-muted)" />
+    <text x="362" y="150" class="d-muted">retry: 30 s, ×2, ≤ 1 h</text>
+
+    <rect x="8" y="180" width="200" height="40" rx="6" class="d-faint" />
+    <text x="108" y="205" text-anchor="middle" class="d-text d-strong">dead</text>
+    <path d="M254 200H210" class="d-line-muted" marker-end="url(#arr-ob-muted)" />
+    <text x="116" y="240" class="d-muted">24 h after the event</text>
+
+    <path d="M108 220V270H354V224" class="d-line-accent" marker-end="url(#arr-ob-accent)" />
+    <text x="231" y="262" text-anchor="middle" class="d-accent">
+      redeliver: one more attempt, same id
+    </text>
+
+    <text x="8" y="300" class="d-muted">delivered and dead rows are removed after 30 days</text>
+  </svg>
+  <figcaption>
+    The outbox pattern: the event commits with the fact or not at all; delivery is a separate
+    concern with its own retries.
+  </figcaption>
+</figure>
+<p>
+  Every event is written to the outbox in the same database transaction as the fact it describes,
+  with its fan-out already decided, so a receiver outage loses nothing and a hook registered later
+  does not receive history. Two events have no fact to join and go to the outbox on their own:
+  <code>provide.rejected</code> and a <code>catalog.recorded</code> for a file Sanshain could not
+  read. <code>WEBHOOKS_ENABLED=false</code> turns the outbox off at the source: nothing is written,
+  so enabling it later does not replay a backlog.
+</p>
+<p>
+  A worker in each replica runs one pass every <code>WEBHOOK_WORKER_INTERVAL_SECS</code> (5): it
+  claims up to 50 due deliveries with a lease sized for the worst-case pass (50 × the delivery
+  timeout + 60 s), so a pass that dies mid-send loses nothing for good and a slow one is never
+  overtaken, and an outcome is recorded only while the row still carries that pass's lease. On
+  PostgreSQL the claim is <code>FOR UPDATE SKIP LOCKED</code>, which is what makes two replicas
+  safe; SQLite has one writer. The log says <code>Webhook pass: 3 delivered, 1 failed, 0 dead</code>
+  after a pass that did something.
+</p>
+
+<h2>Retries, the cutoff and redelivery</h2>
+<ul>
+  <li>
+    A <code>2xx</code> answer is a delivery; the body of the answer is never read. Any other status
+    (<code>the receiver answered HTTP 500</code>), a connection error or the
+    <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code> (10) timeout is a failed attempt.
+  </li>
+  <li>
+    Failed attempts are retried with exponential backoff: 30 s after the first failure, 1 min, 2
+    min, 4 min, 8 min, 16 min, 32 min, then every hour,
+    <strong>until 24 hours after the event occurred</strong>; a retry that would fall past that
+    point is not scheduled and the delivery is <code>dead</code>. The window is measured from the
+    event, not from the first attempt, so a hook paused for a day finds its deliveries dead on
+    resume, with the reason <code>given up: 24 hours have passed since the event</code>.
+  </li>
+  <li>
+    <strong>Redeliver</strong> resets one delivery, a dead one included, for one more attempt with
+    the same <code>id</code> and delivery id; it keeps the attempt count and is attempted even past
+    the cutoff, once. A delivery a worker holds at that moment answers <code>409</code>
+    <code
+      >delivery 12 is in flight — a worker is attempting it right now; try again after that
+      attempt</code
+    >.
+  </li>
+  <li>
+    The delivery log (<strong>Deliveries</strong> on a hook) shows the newest deliveries with the
+    event type, when it occurred, the status (<code>pending</code>, <code>delivered</code>,
+    <code>failed</code>, <code>dead</code>), the attempt count, the next attempt, the last response
+    code and the last error. Delivered and dead rows older than 30 days are removed by the cleanup
+    pass.
+  </li>
+</ul>
+
+<h2>Variables and metrics</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Variable</th>
+      <th>Default</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>WEBHOOKS_ENABLED</code></td>
+      <td><code>true</code></td>
+      <td>
+        Write events and run the worker. <code>false</code>: nothing is written or sent, hooks can
+        still be managed, Send test answers <code>409</code>
+        <code
+          >webhooks are disabled on this instance (WEBHOOKS_ENABLED=false): a test event would never
+          be delivered</code
+        >.
+      </td>
+    </tr>
+    <tr>
+      <td><code>WEBHOOK_WORKER_INTERVAL_SECS</code></td>
+      <td><code>5</code></td>
+      <td>Seconds between worker passes, per replica.</td>
+    </tr>
+    <tr>
+      <td><code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code></td>
+      <td><code>10</code></td>
+      <td>Seconds one <code>POST</code> may take; also sizes the lease.</td>
+    </tr>
+    <tr>
+      <td><code>PUBLIC_BASE_URL</code></td>
+      <td>unset</td>
+      <td>Base of the deep links; falls back to the OIDC redirect URL's origin.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The Prometheus exposition carries
+  <code>sanshain_webhook_deliveries_total{outcome}</code> (<code>delivered</code>,
+  <code>failed</code>, <code>dead</code>) and the gauge
+  <code>sanshain_webhook_outbox_pending</code>, refreshed after every pass. A pending gauge that
+  climbs while <code>failed</code> climbs is a receiver that is down or a host that left the
+  allow-list; one that climbs without attempts is a worker that is not running (<code
+    >WEBHOOKS_ENABLED=false</code
+  >
+  leaves the outbox empty instead).
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

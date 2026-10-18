@@ -4,11 +4,7 @@
   and their <a href="../start/glossary.html#version-line">version lines</a>, the spec viewer,
   Consumers and their <a href="../start/glossary.html#pin">pins</a>, the
   <a href="../start/glossary.html#dependency-graph">dependency graph</a> and the reports. The admin
-  page is
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/administration.md"
-    >docs/administration.md</a
-  >
-  on GitHub (Operator chapter coming).
+  page is <a href="../operator/administration.html">Administration</a> in the Operator track.
 </p>
 
 <div class="callout">
@@ -118,8 +114,16 @@
   The viewer shows one document, or one endpoint of it, with its <strong>Version History</strong>
   down the side: every version of the line, its stability and provider, marked
   <strong>changed</strong> where the text differs from the version before. Pick two versions in
-  <strong>Compare / Diff</strong> for a unified diff; switch <strong>Blame</strong> on to see, for
-  every line, the version that last changed it. Copy and Download act on what is shown.
+  <strong>Compare / Diff</strong>; switch <strong>Blame</strong> on to see, for every line, the
+  version that last changed it. Copy and Download act on what is shown.
+</p>
+<p>
+  A diff has two switches. <strong>Ignore whitespace</strong> (off by default, per view) drops
+  indentation and trailing-space changes; it exists for whole documents only, because endpoint
+  snippets are re-serialised when a spec is split, so the endpoint view has no such switch.
+  <strong>Unified</strong> / <strong>Side by side</strong>: side by side is the default on wide
+  screens, the choice is remembered per browser, and screens narrower than 768 px always show
+  unified. The same diff appears on the Producers page and in the admin dashboard.
 </p>
 <figure class="screenshot">
   <img

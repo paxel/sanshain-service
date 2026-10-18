@@ -1,4 +1,4 @@
-# Example: nightly SQLite backup (docs/deployment.md, "Backup and restore").
+# Example: nightly SQLite backup (https://paxel.github.io/sanshain-service/operator/backup.html).
 #
 # Fetches GET /admin/backup/sqlite — a consistent snapshot produced by the
 # engine itself while Sanshain runs — onto a backup volume and keeps the newest

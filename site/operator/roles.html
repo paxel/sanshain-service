@@ -1,0 +1,345 @@
+<!-- page: title="Roles and permissions" track="operator" order=4 summary="The ten permissions and the five roles that bundle them, how routes are guarded, the admin-guarded roles, maintainers as a scope over Producers, groups mirrored from the directory, and what token scopes mean to an operator." -->
+<p class="lede">
+  Authorisation is expressed in <a href="../start/glossary.html#permission">permissions</a>, the
+  unit every check tests. <a href="../start/glossary.html#role">Roles</a> are fixed bundles of
+  permissions defined in the service, not composed by an operator, so what a role confers cannot
+  drift from what the code enforces. This chapter is the complete table of both, and the two things
+  that sit beside them: <a href="../start/glossary.html#root">root</a> and
+  <a href="../start/glossary.html#maintainer">maintainers</a>.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <p>
+    Maintainers also manage the <a href="webhooks.html">webhooks</a> of their Producers and of the
+    Consumers of the same name.
+  </p>
+</div>
+
+<h2>Permissions</h2>
+<table id="permissions">
+  <thead>
+    <tr>
+      <th>Permission</th>
+      <th>What it allows</th>
+      <th>Held by</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>manage_users</code></td>
+      <td>List, approve and delete user accounts.</td>
+      <td><code>admin</code>, <code>user_manager</code></td>
+    </tr>
+    <tr>
+      <td><code>manage_roles</code></td>
+      <td>
+        Grant and revoke roles, manage groups and their roles and members, assign maintainers.
+      </td>
+      <td><code>admin</code>, <code>user_manager</code></td>
+    </tr>
+    <tr>
+      <td><code>manage_producers</code></td>
+      <td>
+        Administer Producers and their version lines: delete a version (the escape hatch from GA
+        immutability), delete a Producer, edit its metadata, manage its webhooks, rename and delete
+        sanshain-branches.
+      </td>
+      <td><code>admin</code>; <code>maintainer</code> within its Producers</td>
+    </tr>
+    <tr>
+      <td><code>manage_consumers</code></td>
+      <td>Delete a Consumer and its recorded dependencies.</td>
+      <td><code>admin</code></td>
+    </tr>
+    <tr>
+      <td><code>view_audit</code></td>
+      <td>Read the audit log and timeline, export it as CSV.</td>
+      <td><code>admin</code>, <code>viewer</code></td>
+    </tr>
+    <tr>
+      <td><code>manage_settings</code></td>
+      <td>
+        Cleanup ages, the cache, auto-approve, the webhook allow-list and global webhooks, the debug
+        flags.
+      </td>
+      <td><code>admin</code></td>
+    </tr>
+    <tr>
+      <td><code>manage_auth_config</code></td>
+      <td>Read and change the authentication mode and the LDAP and OIDC configuration.</td>
+      <td><code>admin</code></td>
+    </tr>
+    <tr>
+      <td><code>view_observability</code></td>
+      <td>
+        Read logs, stats and the debug configuration. Defined and reported in a user's effective
+        permissions; in 2.6.0 no route checks it, the observability routes admit every signed-in
+        user.
+      </td>
+      <td><code>admin</code>, <code>viewer</code></td>
+    </tr>
+    <tr>
+      <td><code>run_destructive_operations</code></td>
+      <td>The bulk deletions of the Danger Zone and the whole-database snapshot download.</td>
+      <td><code>admin</code></td>
+    </tr>
+    <tr>
+      <td><code>release_ga</code></td>
+      <td>
+        Publish with <code>stability: ga</code> (a fresh GA, a promotion, an idempotent GA
+        re-provide), cut a sanshain-branch.
+      </td>
+      <td><code>admin</code>, <code>releaser</code></td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Root holds all ten and any permission a later release adds. <code>GET /admin/roles</code> returns
+  this catalogue; <code>GET /auth/me</code> returns the caller's effective permissions, which is
+  what the web UI gates on.
+</p>
+
+<h2>Roles</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Role</th>
+      <th>Confers</th>
+      <th>Granted how</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>admin</code></td>
+      <td>Every permission.</td>
+      <td>Instance-wide; admin-guarded.</td>
+    </tr>
+    <tr>
+      <td><code>user_manager</code></td>
+      <td><code>manage_users</code>, <code>manage_roles</code>.</td>
+      <td>Instance-wide.</td>
+    </tr>
+    <tr>
+      <td><code>viewer</code></td>
+      <td><code>view_audit</code>, <code>view_observability</code>.</td>
+      <td>Instance-wide.</td>
+    </tr>
+    <tr>
+      <td><code>maintainer</code></td>
+      <td><code>manage_producers</code>, within a set of Producers.</td>
+      <td>
+        Never instance-wide: assigned to a Producer. Granting it as a role answers <code>400</code>
+        <code
+          >Role 'maintainer' is scoped to specific Producers and cannot be granted
+          instance-wide.</code
+        >
+      </td>
+    </tr>
+    <tr>
+      <td><code>releaser</code></td>
+      <td><code>release_ga</code>.</td>
+      <td>Instance-wide; admin-guarded.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  <code>admin</code> and <a href="../start/glossary.html#releaser"><code>releaser</code></a> are
+  <strong>admin-guarded</strong>: only an admin or root may grant or revoke them, or put them on or
+  take them off a group; a <code>user_manager</code> who tries gets a bare <code>403</code>. For
+  <code>admin</code> that closes self-escalation; for <code>releaser</code> it keeps
+  <code>manage_roles</code> from being a side door to release rights.
+</p>
+<p>
+  Publishing GA without the permission answers <code>403</code> with the remedy (<code
+    >publishing GA for 'orders' requires the 'releaser' role — publish as a snapshot, or ask an
+    administrator to grant the role</code
+  >) and writes a <code>VERSION_REJECTED</code> audit entry with reason
+  <code>ga_requires_releaser</code>. Grant <code>releaser</code> to whatever performs releases,
+  typically the CI user whose token sets the ga switch. Holders also get a
+  <strong>Promote to GA</strong> button on snapshot entries; the promoting account is named in the
+  <code>VERSION_PROMOTED</code> entry while the original provider stays credited.
+</p>
+
+<h2>How routes are guarded</h2>
+<p>
+  Every <code>/admin/*</code> route declares one of three guards, and a build-time test keeps the
+  router and <code>maintenance.yaml</code> in step (the generated
+  <a href="../reference/maintenance.html">Maintenance API</a> shows the guard of every route):
+</p>
+<ul>
+  <li>
+    <strong>Any signed-in caller</strong>: the read-only listings the dashboard needs before it
+    knows who is looking.
+  </li>
+  <li>
+    <strong>A global permission</strong>: the caller must hold it; otherwise a bare
+    <code>403</code>.
+  </li>
+  <li>
+    <strong>A Producer-scoped permission</strong>: the caller holds it globally, or maintains the
+    Producer named in the path.
+  </li>
+</ul>
+<p>
+  Admin routes take a session token only. An API token answers <code>401</code>, a
+  <code>read_only</code> one on the backup route (the only admin route that admits API tokens)
+  answers <code>403</code> with
+  <code
+    >this API token has scope 'read_only' and may not call administrative routes; use a token with
+    scope 'full' of an account holding the permission</code
+  >.
+</p>
+
+<h2>Maintainers</h2>
+<p>
+  A maintainer is responsible for a set of Producers. It is an assignment, not a role, because it
+  means nothing without the Producers it is over. A user or a group can be assigned; group
+  assignment is what scales, so responsibility follows membership. A Producer-scoped action admits
+  either the global permission or maintainership of that Producer, so an administrator acts on any
+  Producer and a maintainer on theirs, and is refused on everybody else's.
+</p>
+<p>What maintaining a Producer covers in 2.6.0:</p>
+<ul>
+  <li>Deleting one of its versions, and the Producer itself.</li>
+  <li>Reading its maintainers.</li>
+  <li>
+    Managing its <a href="webhooks.html">webhooks</a>, and the webhooks of the Consumer of the same
+    name (the "same system" rule).
+  </li>
+  <li>
+    Retiring one of its API families, which otherwise needs <code>releaser</code>: a refusal reads
+    <code
+      >retiring an API family of 'orders' requires the 'releaser' role or a maintainer grant on that
+      Producer — ask an administrator for either</code
+    >.
+  </li>
+</ul>
+<p>Maintainers do not release: a GA provide stays the pipeline's job.</p>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Guard</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /admin/maintainers</code></td>
+      <td><code>manage_roles</code></td>
+      <td>Every Producer with its maintainers.</td>
+    </tr>
+    <tr>
+      <td><code>GET /admin/producers/{name}/maintainers</code></td>
+      <td><code>manage_producers</code>, Producer-scoped</td>
+      <td>Users and groups maintaining it; a maintainer may read their own.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/producers/{name}/maintainers</code></td>
+      <td><code>manage_roles</code></td>
+      <td>Body <code>{"user_id": 3}</code> or <code>{"group_id": 1}</code>, exactly one.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>DELETE /admin/producers/{name}/maintainers/users/{user_id}</code>,
+        <code>…/groups/{group_id}</code>
+      </td>
+      <td><code>manage_roles</code></td>
+      <td>Unassign.</td>
+    </tr>
+    <tr>
+      <td><code>GET /admin/users/{id}/maintains</code></td>
+      <td><code>manage_roles</code></td>
+      <td>The Producers a user is responsible for.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Groups</h2>
+<p>A group is a set of users that roles attach to. Groups carry a source:</p>
+<ul>
+  <li>
+    <strong>native</strong>: Sanshain's own. Membership is yours to edit (<code>POST</code>/<code
+      >DELETE /admin/groups/{id}/members…</code
+    >).
+  </li>
+  <li>
+    <strong>ldap</strong>: mirrors a directory group by name. Membership belongs to the directory
+    and is not stored; only the roles you attach are. It is re-read through the service account on
+    every check and cached (<a href="configuration.html#directory-group-caching"
+      >Directory group caching</a
+    >), so a change in the directory takes effect without a new login. Renaming one or editing its
+    members answers <code>400</code> (<code
+      >Only Sanshain's own groups can be renamed; a directory group's name is the directory's.</code
+    >,
+    <code>Group '…' comes from the directory, so its membership is the directory's to change.</code
+    >).
+  </li>
+</ul>
+<p>
+  A native and a directory group may share a name; the UI shows the origin. The LDAP form's
+  <strong>Bootstrap Admin Group</strong> is the usual first directory group: saving it creates the
+  group with <code>admin</code> attached. OIDC groups are not mapped here; only the OIDC
+  <code>admin_group</code> grants a role, see
+  <a href="authentication.html#openid-connect">Authentication</a>.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /admin/roles</code></td>
+      <td>The role catalogue and what each confers.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>GET</code>/<code>POST /admin/users/{id}/roles</code>,
+        <code>DELETE …/roles/{role}</code>
+      </td>
+      <td>Roles granted directly to a user; grant with <code>{"role": "user_manager"}</code>.</td>
+    </tr>
+    <tr>
+      <td><code>GET</code>/<code>POST /admin/groups</code></td>
+      <td>
+        All groups with origin, roles and members; create a native one with
+        <code>{"name": "…"}</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>PUT</code>/<code>DELETE /admin/groups/{id}</code></td>
+      <td>Rename, replace its roles, or both; delete a group and its grants.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/groups/{id}/members</code>, <code>DELETE …/members/{user_id}</code></td>
+      <td>Membership of a native group; body <code>{"user_id": 3}</code>.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  All of them need <code>manage_roles</code> and are audited (<code>GRANT_ROLE</code>,
+  <code>REVOKE_ROLE</code>, <code>CREATE_GROUP</code>, <code>UPDATE_GROUP</code>,
+  <code>DELETE_GROUP</code>, <code>ASSIGN_MAINTAINER</code>, <code>UNASSIGN_MAINTAINER</code>).
+</p>
+
+<h2>Token scopes, from the operator's side</h2>
+<p>
+  Users mint their own API tokens on <code>/account.html</code>; an operator cannot mint one for
+  someone else. A token's <a href="../start/glossary.html#scope">scope</a> is fixed at creation:
+  <code>full</code> does everything its owner may, <code>read_only</code> reads reports, versions,
+  the update streams and the MCP endpoint and is refused on every route that changes the catalog
+  with <code>403</code>
+  <code
+    >this API token has scope 'read_only' and may not change the catalog; create a token with scope
+    'full' for provide, require and catalog pushes</code
+  >. A token never exceeds its owner: a <code>full</code> token of a user without
+  <code>releaser</code> cannot publish GA. Expired tokens stop validating at once and are removed by
+  the cleanup pass. Deleting a user revokes their tokens. The 2.6.0 UI has no administrative view of
+  other users' tokens.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

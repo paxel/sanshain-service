@@ -8,4 +8,4 @@ resources:
   - service.yaml
   - ingress.yaml
   # Scheduled backups are opt-in: see backup-cronjob-sqlite.yaml and
-  # backup-cronjob-postgres.yaml (commented examples, docs/deployment.md).
+  # backup-cronjob-postgres.yaml (commented examples, https://paxel.github.io/sanshain-service/operator/backup.html).

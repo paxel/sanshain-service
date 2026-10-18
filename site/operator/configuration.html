@@ -1,0 +1,485 @@
+<!-- page: title="Configuration" track="operator" order=2 summary="Every environment variable the service reads, with its default and effect; what an invalid value does; root users, directory group caching, the data cache, additional CA certificates, logging, and the settings that live in the database instead." -->
+<p class="lede">
+  Everything the service takes from its environment is in one table below, one row per variable.
+  What an administrator changes at runtime (cleanup ages, the cache size, the authentication mode,
+  the webhook allow-list) lives in the database instead and is listed at the end.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      New: <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
+      <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code> and <code>PUBLIC_BASE_URL</code> for
+      <a href="webhooks.html">webhooks</a>; <code>LDAP_OPERATION_TIMEOUT_SECS</code> for the
+      <a href="authentication.html#ldap-and-active-directory">LDAP</a> stall timeout.
+    </li>
+    <li>The data cache's 10 s entry lifetime is fixed, not a setting.</li>
+  </ul>
+</div>
+
+<h2>Environment variables</h2>
+<p>
+  A variable that is unset takes its default. A variable set to something the service cannot use
+  stops the start (<a href="#invalid-values">below</a>); the service never falls back silently.
+</p>
+<table id="env-vars">
+  <thead>
+    <tr>
+      <th>Variable</th>
+      <th>Default</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>DATABASE_URL</code></td>
+      <td><code>sqlite:sanshain.db?mode=rwc</code></td>
+      <td>
+        The database. <code>postgres://user:pass@host:5432/db</code> (or <code>postgresql://</code>)
+        selects PostgreSQL, anything else SQLite. The image sets
+        <code>sqlite:/data/sanshain.db?mode=rwc</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>BIND_ADDRESS</code></td>
+      <td><code>0.0.0.0:3000</code></td>
+      <td>
+        Address and port to listen on. Binding all interfaces logs
+        <code>SECURITY WARNING: binding to all interfaces</code>; <code>127.0.0.1:3000</code>
+        restricts to localhost.
+      </td>
+    </tr>
+    <tr>
+      <td><code>MAX_POSTGRES_CONNECTIONS</code></td>
+      <td><code>20</code></td>
+      <td>Pool size per replica on PostgreSQL.</td>
+    </tr>
+    <tr>
+      <td><code>MAX_SQLITE_CONNECTIONS</code></td>
+      <td><code>5</code></td>
+      <td>Pool size on SQLite (WAL mode: readers beside one writer).</td>
+    </tr>
+    <tr>
+      <td><code>SQLITE_BUSY_TIMEOUT_MS</code></td>
+      <td><code>5000</code></td>
+      <td>How long a SQLite writer waits for the lock before failing.</td>
+    </tr>
+    <tr>
+      <td><code>CACHE_MEMORY_MB</code></td>
+      <td><code>256</code></td>
+      <td>
+        Memory bound of the in-memory data cache; <code>0</code> disables it. The admin page can
+        change it at runtime (<a href="#the-data-cache">below</a>).
+      </td>
+    </tr>
+    <tr>
+      <td><code>CLEANUP_INTERVAL_SECS</code></td>
+      <td><code>3600</code></td>
+      <td>
+        Period of the background pass that expires snapshots, prunes stale dependencies, closes
+        stale trunk data, removes expired sessions and tokens, settled webhook deliveries and old
+        CSRF tokens. See <a href="administration.html#retention-and-cleanup">Administration</a>.
+        Must be at least 1: <code>0</code> is accepted and crashes the service at startup.
+      </td>
+    </tr>
+    <tr>
+      <td><code>CSRF_MAX_AGE_HOURS</code></td>
+      <td><code>24</code></td>
+      <td>Age after which an unused CSRF token is pruned by that pass.</td>
+    </tr>
+    <tr>
+      <td><code>LOG_BUFFER_SIZE</code></td>
+      <td><code>100</code></td>
+      <td>
+        Lines kept per level (error, warn, info, debug) in the in-memory log buffer the
+        observability page shows.
+      </td>
+    </tr>
+    <tr>
+      <td><code>SPEC_UPDATED_CHANNEL_SIZE</code></td>
+      <td><code>100</code></td>
+      <td>
+        Capacity of the broadcast channel behind the SSE and WebSocket update streams; a slow
+        subscriber lags past it.
+      </td>
+    </tr>
+    <tr>
+      <td><code>MAX_SPEC_BODY_BYTES</code></td>
+      <td><code>4194304</code></td>
+      <td>
+        Largest request body (4 MiB); a larger one is refused with <code>413</code> before parsing.
+        <code>0</code> is refused at startup.
+      </td>
+    </tr>
+    <tr>
+      <td><code>RUST_LOG</code></td>
+      <td><code>sanshain_service=info,tower_http=warn</code></td>
+      <td>
+        The filter for the log written to stdout, in
+        <code>tracing_subscriber::EnvFilter</code> syntax.
+      </td>
+    </tr>
+    <tr>
+      <td><code>CAPTURE_LOG_FILTER</code></td>
+      <td><code>sanshain_service=debug,tower_http=debug</code></td>
+      <td>The filter for the in-memory buffer, independent of stdout.</td>
+    </tr>
+    <tr>
+      <td><code>LOG_FORMAT</code></td>
+      <td><code>text</code></td>
+      <td><code>json</code> writes one JSON object per line to stdout.</td>
+    </tr>
+    <tr>
+      <td><code>OTEL_ENABLED</code></td>
+      <td><code>false</code></td>
+      <td>
+        <code>true</code> exports traces over OTLP/gRPC; a failure to build the exporter stops the
+        start. See <a href="observability.html#traces-over-otlp">Observability</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>OTEL_EXPORTER_OTLP_ENDPOINT</code></td>
+      <td><code>http://localhost:4317</code></td>
+      <td>The collector the traces go to.</td>
+    </tr>
+    <tr>
+      <td><code>STATIC_DIR</code></td>
+      <td><code>static</code></td>
+      <td>Directory of the web UI's files, served as the fallback route.</td>
+    </tr>
+    <tr>
+      <td><code>INSTANCE_ID</code></td>
+      <td>a random UUID</td>
+      <td>Identifies this process in the log and in <code>GET /version</code>.</td>
+    </tr>
+    <tr>
+      <td><code>INITIAL_ADMIN_USERNAME</code></td>
+      <td><code>root</code></td>
+      <td>
+        Name of the account created on the first start, when no user exists. Also the fallback for
+        <code>SANSHAIN_ROOT_USERS</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>INITIAL_ADMIN_PASSWORD</code></td>
+      <td>random, printed to stderr</td>
+      <td>
+        Password of that account, read on the first start only. Set it; a variable that is set but
+        empty is used as the password, which is what the shipped Helm and Kustomize Secrets do (<a
+          href="deployment.html#the-helm-chart"
+          >Deployment</a
+        >).
+      </td>
+    </tr>
+    <tr>
+      <td><code>SANSHAIN_ROOT_USERS</code></td>
+      <td><code>INITIAL_ADMIN_USERNAME</code>, else <code>root</code></td>
+      <td>
+        Comma-separated usernames that hold every permission by configuration. See
+        <a href="#root-users">Root users</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code></td>
+      <td><code>300</code></td>
+      <td>
+        How long a user's directory group membership is cached; <code>0</code> re-reads it on every
+        check. See <a href="#directory-group-caching">Directory group caching</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>SANSHAIN_DEV_MODE</code></td>
+      <td><code>false</code></td>
+      <td>
+        <code>true</code> requests <a href="../start/glossary.html#dev-mode">developer mode</a>, the
+        same as the persisted <code>dev_mode</code> setting.
+      </td>
+    </tr>
+    <tr>
+      <td><code>ALLOW_INSECURE_DEV_MODE</code></td>
+      <td><code>false</code></td>
+      <td>
+        The safety gate: developer mode only takes effect when this is <code>true</code>; without it
+        a requested dev mode is refused and logged. Never set in production.
+      </td>
+    </tr>
+    <tr>
+      <td><code>EXTRA_CA_CERTS_DIR</code></td>
+      <td>unset</td>
+      <td>
+        Directory of PEM certificates added to the trust store for LDAPS. See
+        <a href="#additional-ca-certificates">Additional CA certificates</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>LDAP_OPERATION_TIMEOUT_SECS</code></td>
+      <td><code>10</code></td>
+      <td>
+        How long one LDAP exchange (TLS or StartTLS handshake, bind, search, unbind) may take once
+        the TCP connection is up. A value that is not a positive whole number is ignored and the
+        default used.
+      </td>
+    </tr>
+    <tr>
+      <td><code>MCP_ENABLED</code></td>
+      <td><code>true</code></td>
+      <td>
+        Mounts the <a href="../developer/mcp.html">MCP endpoint</a> at <code>/mcp</code>;
+        <code>false</code> leaves it unmounted (<code>404</code>).
+      </td>
+    </tr>
+    <tr>
+      <td><code>MCP_CALLS_PER_MINUTE</code></td>
+      <td><code>60</code></td>
+      <td>
+        Tool calls one API token may make per minute: a token bucket of that size, refilled
+        continuously, so a burst of 60 is allowed. <code>0</code> is refused at startup.
+      </td>
+    </tr>
+    <tr>
+      <td><code>MCP_MAX_RESULT_BYTES</code></td>
+      <td><code>65536</code></td>
+      <td>
+        A tool answer above this size is replaced by a summary. <code>0</code> is refused at
+        startup.
+      </td>
+    </tr>
+    <tr>
+      <td><code>WEBHOOKS_ENABLED</code></td>
+      <td><code>true</code></td>
+      <td>
+        Writes webhook events to the outbox and runs the delivery worker. <code>false</code> writes
+        and sends nothing; hooks can still be managed, and a test event is refused with
+        <code>409</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>WEBHOOK_WORKER_INTERVAL_SECS</code></td>
+      <td><code>5</code></td>
+      <td>How often each replica's worker looks for due deliveries. Must be greater than 0.</td>
+    </tr>
+    <tr>
+      <td><code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code></td>
+      <td><code>10</code></td>
+      <td>
+        How long one webhook <code>POST</code> may take before it counts as a failed attempt. Must
+        be greater than 0.
+      </td>
+    </tr>
+    <tr>
+      <td><code>PUBLIC_BASE_URL</code></td>
+      <td>unset</td>
+      <td>
+        The URL people open Sanshain at (<code>https://sanshain.corp</code>), for the deep links in
+        webhook messages; a trailing slash is dropped and it must start with <code>http://</code> or
+        <code>https://</code>. Unset, the origin of the OIDC redirect URL is used; with neither, the
+        links are omitted.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The Helm chart and the Kustomize ConfigMap also set <code>PROMETHEUS_ENDPOINT</code> and
+  <code>LOGIN_SESSION_DURATION_HOURS</code>; the service does not read them. Metrics are always at
+  <code>/metrics</code>, a session always lasts 7 days.
+</p>
+
+<h2>Invalid values</h2>
+<p>
+  A numeric variable that is not a number, or a fixed-vocabulary variable (<code>LOG_FORMAT</code>,
+  <code>OTEL_ENABLED</code>, <code>MCP_ENABLED</code>, <code>WEBHOOKS_ENABLED</code>) with an
+  unrecognised value, makes the service exit before it binds, with the variable named on stderr:
+</p>
+<pre><code>CONFIGURATION ERROR: LOG_BUFFER_SIZE="1OO" is not a valid number. Correct it or unset it to use the default (100).
+CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, text. Unset it to use the default (text).</code></pre>
+<p>
+  The same for values that would make the service useless: <code>MAX_SPEC_BODY_BYTES=0</code>,
+  <code>MCP_CALLS_PER_MINUTE=0</code>, <code>MCP_MAX_RESULT_BYTES=0</code>,
+  <code>WEBHOOK_WORKER_INTERVAL_SECS=0</code>, <code>WEBHOOK_DELIVERY_TIMEOUT_SECS=0</code>, a
+  <code>PUBLIC_BASE_URL</code> without a scheme, and an unparsable <code>BIND_ADDRESS</code> or
+  <code>DATABASE_URL</code>. One zero is not caught: <code>CLEANUP_INTERVAL_SECS=0</code> passes the
+  number check and panics when the cleanup timer is created, so the process dies right after it logs
+  its start. Two variables are the exception and fall back quietly:
+  <code>LDAP_OPERATION_TIMEOUT_SECS</code> and <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code> use
+  their default when the value is not a whole number (and, for the LDAP timeout, when it is zero).
+  Boolean-like variables read with a plain comparison (<code>SANSHAIN_DEV_MODE</code>,
+  <code>ALLOW_INSECURE_DEV_MODE</code>) are true only for the exact string <code>true</code>.
+</p>
+
+<h2>Root users</h2>
+<p>
+  <code>SANSHAIN_ROOT_USERS</code> names the accounts that hold every
+  <a href="../start/glossary.html#permission">permission</a>, including ones a later release adds.
+  <a href="../start/glossary.html#root">Root</a> is deliberately not stored: its authority comes
+  from configuration, so no UI action, role change, migration or SQL update can revoke it. That
+  makes it the recovery path when an administrator locks themselves out.
+</p>
+<p>
+  The list is read once at startup; changing it means a restart. Unset or empty, it falls back to
+  <code>INITIAL_ADMIN_USERNAME</code>, then to <code>root</code>, so an existing deployment keeps a
+  root account without being reconfigured. The resolved set is logged:
+  <code>Root users (configuration-held, cannot be revoked in-app): root</code>.
+</p>
+<p>
+  Naming an account grants full authority whether or not it exists, is approved or holds a role, so
+  keep the list short. Because the grant is a pure username match, an unclaimed root name would be a
+  standing invitation: startup therefore creates a locked account (random password) for every
+  configured name that has none, and registration refuses reserved names with <code>409</code>
+  <code>This username is reserved</code>.
+</p>
+<pre><code>SANSHAIN_ROOT_USERS=root,breakglass</code></pre>
+
+<h2>Directory group caching</h2>
+<p>
+  With <a href="authentication.html#ldap-and-active-directory">LDAP</a>, a user's group membership
+  is read from the directory through the configured service account on every authorisation check and
+  cached for <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code>. Sanshain stores which
+  <a href="../start/glossary.html#role">roles</a> a directory group confers, never who is in it. The
+  TTL is the dial between load on the directory and how long a revocation takes to bite;
+  <code>0</code> disables caching, so every check reads the directory.
+</p>
+<p>
+  <strong>When the directory is unreachable, directory-derived roles are omitted</strong>, and the
+  empty answer is cached for the TTL too, so an outage does not cost a directory timeout per
+  request. Directory roles are purely additive, so leaving them out can only remove privilege. An
+  outage degrades a directory-backed administrator to whatever Sanshain itself granted them;
+  <code>SANSHAIN_ROOT_USERS</code>, held in configuration, still works. The alternative, a stale
+  answer for the duration of the outage, would keep a revoked administrator in exactly that long.
+</p>
+
+<h2>The data cache</h2>
+<p>
+  Every data cache (resolved endpoints, endpoint lists per version, spec content, reports, Producer
+  and Consumer lists, version metadata) holds an entry for at most 10 seconds. The value is fixed. A
+  write through one process invalidates that process's caches immediately, so a single replica never
+  notices the limit; it exists for several replicas sharing one PostgreSQL database, where it bounds
+  how long one can serve what another has replaced. See
+  <a href="deployment.html#scaling">Scaling</a>.
+</p>
+<p>
+  <code>CACHE_MEMORY_MB</code> is the initial memory bound. The admin page's
+  <strong>In-Memory Cache</strong> section shows hit rate, entries and memory used, changes the
+  bound at runtime (<code>POST /admin/settings/cache</code>, which rebuilds the caches) and clears
+  them (<code>POST /admin/cache/clear</code>). The runtime value is not persisted; a restart returns
+  to the variable.
+</p>
+
+<h2>Additional CA certificates</h2>
+<p>
+  Set <code>EXTRA_CA_CERTS_DIR</code> to a directory of PEM files when Sanshain must trust a private
+  or corporate certificate authority, typically for LDAPS against an internal directory. Every
+  <code>*.pem</code>, <code>*.crt</code> and <code>*.cer</code> file in the directory is read at
+  startup and <strong>added</strong> to the platform trust store, never substituted for it. A file
+  may hold one certificate or a chain; <code>.crt</code> is accepted because a Kubernetes Secret is
+  conventionally keyed <code>ca.crt</code>. Files with any other name are ignored, so the entries a
+  projected volume creates (<code>..data</code> and friends) do not interfere.
+</p>
+<p>Startup fails rather than continuing with an incomplete store when:</p>
+<ul>
+  <li><code>CA certificate directory '…' does not exist</code></li>
+  <li><code>Could not read CA certificate directory '…': …</code></li>
+  <li>
+    <code>Could not read CA certificate file '…': …</code>: the file cannot be parsed, or holds no
+    certificate at all, which means something other than a bundle was mounted.
+  </li>
+</ul>
+<p>
+  On success the log says <code>Trusting N additional CA certificate(s) from M file(s) in …</code>;
+  certificate contents are never logged. Certificates are read once, so rotating them means a
+  restart. Unset, nothing changes: the platform bundle, which the image ships, is used.
+</p>
+<p>
+  This applies to LDAP connections. The database and the OTLP exporter have their own TLS
+  configuration and do not consult this directory. Sanshain builds the LDAP trust store itself in
+  every case, configured or not: left to its own, the LDAP library substitutes an empty root store
+  when reading the platform certificates fails, which rejects every certificate and reports nothing.
+</p>
+
+<h2>Logging</h2>
+<p>
+  Two filters, two sinks. <code>RUST_LOG</code> governs stdout (<code>LOG_FORMAT=json</code> for
+  machine-readable lines); <code>CAPTURE_LOG_FILTER</code> governs the in-memory buffer of
+  <code>LOG_BUFFER_SIZE</code> lines per level that the
+  <a href="observability.html#the-observability-page">observability page</a> shows, so the buffer
+  can hold debug lines while stdout stays at info. Two debug flags (business logic, admin/user
+  activity) widen the buffer further at runtime without a restart. Secrets, tokens and passwords are
+  never logged.
+</p>
+
+<h2>Settings in the database</h2>
+<p>
+  These are changed on the admin page or through <code>/admin/settings/*</code>, survive a restart
+  and are the same for every replica. Each route needs a signed-in session; API tokens are not
+  accepted on administrative routes.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Default</th>
+      <th>Route and permission</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>auth_mode</code></td>
+      <td><code>local</code> (set on the first start)</td>
+      <td>
+        <code>GET</code>/<code>PUT /admin/auth-config</code>, <code>manage_auth_config</code>. With
+        the LDAP and OIDC configurations. See <a href="authentication.html">Authentication</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>dev_mode</code></td>
+      <td>off</td>
+      <td>The <strong>Dev Mode</strong> radio of the same form; gated by the environment.</td>
+    </tr>
+    <tr>
+      <td><code>auto_approve_users</code></td>
+      <td><code>false</code></td>
+      <td>
+        <code>GET</code>/<code>POST /admin/settings/auto-approve</code>,
+        <code>manage_settings</code>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>snapshot_max_age_days</code></td>
+      <td><code>30</code></td>
+      <td>
+        <code>GET</code>/<code>POST /admin/settings/snapshot-max-age</code>,
+        <code>manage_settings</code>. <code>0</code> disables.
+      </td>
+    </tr>
+    <tr>
+      <td><code>dependency_max_age_days</code></td>
+      <td><code>30</code></td>
+      <td>
+        <code>GET</code>/<code>POST /admin/settings/dependency-max-age</code>,
+        <code>manage_settings</code>. Must be greater than 0.
+      </td>
+    </tr>
+    <tr>
+      <td><code>trunk_max_age_days</code></td>
+      <td><code>90</code></td>
+      <td>
+        <code>GET</code>/<code>POST /admin/settings/trunk-max-age</code>,
+        <code>manage_settings</code>. <code>0</code> disables.
+      </td>
+    </tr>
+    <tr>
+      <td><code>webhook_allowed_hosts</code></td>
+      <td><code>[]</code></td>
+      <td>
+        <code>GET</code>/<code>POST /admin/settings/webhook-allowed-hosts</code>,
+        <code>manage_settings</code>. See <a href="webhooks.html#the-allow-list">Webhooks</a>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Every <code>*_max_age_days</code> accepts at most <code>36500</code> days; a larger value answers
+  <code>400</code> <code>days must be at most 36500</code>.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

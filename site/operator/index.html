@@ -1,23 +1,102 @@
-<!-- page: title="Deployment" track="operator" order=1 summary="Running Sanshain in production: Helm, configuration, authentication, backup and administration." -->
+<!-- page: title="Operator track" track="operator" order=0 summary="For the administrator running Sanshain: deployment, configuration, authentication, roles, administration, webhooks, backup and restore, observability, troubleshooting." -->
 <p class="lede">
-  This chapter is not written yet. It arrives with issue
-  <a href="https://github.com/paxel/sanshain-service/issues/56">#56</a>; the operator walkthrough
-  follows in <a href="https://github.com/paxel/sanshain-service/issues/57">#57</a>.
+  Nine chapters for the person who runs the instance: how to deploy it, every variable it reads, who
+  may log in and what they may do, what expires on its own, what it sends out, how to back it up and
+  watch it, and what every error message means. They assume
+  <a href="../start/concepts.html">Concepts</a>.
 </p>
 
-<h2>What this track will cover</h2>
-<ul>
-  <li>Deployment with the Helm chart, Docker and Compose; scaling and session affinity.</li>
-  <li>Configuration: every environment variable and admin setting.</li>
-  <li>Authentication: local accounts, LDAP/Active Directory and OpenID Connect.</li>
-  <li>Backup and restore, release verification, troubleshooting.</li>
+<ul class="cards">
+  <li>
+    <a class="card" href="deployment.html">
+      <p class="eyebrow">Chapter 1</p>
+      <p class="card-title">Deployment</p>
+      <p>
+        The image, Docker and Compose, Kustomize, the Helm chart, SQLite or PostgreSQL, scaling,
+        upgrades, verifying a release.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="configuration.html">
+      <p class="eyebrow">Chapter 2</p>
+      <p class="card-title">Configuration</p>
+      <p>
+        Every environment variable with its default, root users, caches, CA certificates, the
+        settings in the database.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="authentication.html">
+      <p class="eyebrow">Chapter 3</p>
+      <p class="card-title">Authentication</p>
+      <p>
+        The modes, local accounts and approval, LDAP and Active Directory, OpenID Connect, developer
+        mode.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="roles.html">
+      <p class="eyebrow">Chapter 4</p>
+      <p class="card-title">Roles and permissions</p>
+      <p>
+        The ten permissions, the five roles, maintainers, groups from the directory, token scopes.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="administration.html">
+      <p class="eyebrow">Chapter 5</p>
+      <p class="card-title">Administration</p>
+      <p>
+        Producers, versions and Consumers, sanshain-branches, retention and cleanup, settings, the
+        audit log, the Danger Zone.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="webhooks.html">
+      <p class="eyebrow">Chapter 6</p>
+      <p class="card-title">Webhooks</p>
+      <p>
+        Hooks in three scopes, the events and their bodies, the signature, the allow-list, the
+        outbox and its retries.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="backup.html">
+      <p class="eyebrow">Chapter 7</p>
+      <p class="card-title">Backup and restore</p>
+      <p>The SQLite snapshot and its CronJob, pg_dump, retention, restoring either engine.</p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="observability.html">
+      <p class="eyebrow">Chapter 8</p>
+      <p class="card-title">Observability</p>
+      <p>
+        Every metric by name, traces over OTLP, the log filters, the observability page, the probes.
+      </p>
+    </a>
+  </li>
+  <li>
+    <a class="card" href="troubleshooting.html">
+      <p class="eyebrow">Chapter 9</p>
+      <p class="card-title">Troubleshooting</p>
+      <p>Every message the service answers or logs, quoted, with cause and fix.</p>
+    </a>
+  </li>
 </ul>
 
-<h2>Until then</h2>
 <p>
-  Read
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/deployment.md">docs/deployment.md</a>
-  and
-  <a href="https://github.com/paxel/sanshain-service/blob/summer/docs/administration.md">docs/administration.md</a>
-  on GitHub.
+  The complete administrative surface with the permission of every route is the generated
+  <a href="../reference/maintenance.html">Maintenance API</a>; the architecture is in the
+  <a href="../reference/architecture.html">Reference</a>. The operator walkthrough with a fresh
+  2.6.0 screenshot set follows in
+  <a href="https://github.com/paxel/sanshain-service/issues/57">#57</a>.
 </p>
+
+<p class="checked">Checked against v2.6.0.</p>

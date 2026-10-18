@@ -1256,7 +1256,7 @@ impl WebhookFormat {
 }
 
 /// The event catalogue: graph facts and rejections only (ADR-0009). The
-/// wire names are a public contract (`docs/ci-integration.md`).
+/// wire names are a public contract (`site/operator/webhooks.html`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WebhookEventType {
     #[serde(rename = "version.published")]

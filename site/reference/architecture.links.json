@@ -1,30 +1,36 @@
 {
   "_comment": "Box name in docs/arc42 → URL relative to reference/architecture.html. A box with a whitebox gets { doc, whitebox }: the diagram links to the whitebox section, its table row to doc. A box in neither links nor unlinked fails the build.",
-  "_todo": "TODO #56: re-point these once the Operator chapters exist. Placeholders ../operator/ (LDAP / Active Directory, OIDC Provider, Database Server, Observability Stack, Telemetry, Auth Providers, Persistence, Webhooks); the GitHub doc docs/ci-integration.md#webhooks (Webhook Receivers) moves to the Operator track.",
   "links": {
-    "Sanshain Service": { "doc": "../index.html", "whitebox": "#sanshain-service" },
+    "Sanshain Service": {
+      "doc": "../index.html",
+      "whitebox": "#sanshain-service"
+    },
     "Build Tooling": "../developer/clients.html",
-    "LDAP / Active Directory": "../operator/",
-    "OIDC Provider": "../operator/",
-    "Database Server": "../operator/",
-    "Observability Stack": "../operator/",
-    "Webhook Receivers": "https://github.com/paxel/sanshain-service/blob/summer/docs/ci-integration.md#webhooks",
+    "LDAP / Active Directory": "../operator/authentication.html#ldap-and-active-directory",
+    "OIDC Provider": "../operator/authentication.html#openid-connect",
+    "Database Server": "../operator/deployment.html#sqlite-or-postgresql",
+    "Observability Stack": "../operator/observability.html",
+    "Webhook Receivers": "../operator/webhooks.html#verifying-the-signature",
     "AI Client": "../developer/mcp.html",
     "Backup Job": "maintenance.html#admin-backup-sqlite",
-
-    "HTTP API": { "doc": "api.html", "whitebox": "#http-api" },
+    "HTTP API": {
+      "doc": "api.html",
+      "whitebox": "#http-api"
+    },
     "Web UI": "../developer/web-ui.html",
     "Application Services": {
       "doc": "https://github.com/paxel/sanshain-service/tree/summer/src/application",
       "whitebox": "#application-services"
     },
-    "Telemetry": "../operator/",
+    "Telemetry": "../operator/observability.html#traces-over-otlp",
     "Spec Parsers": "https://github.com/paxel/sanshain-service/tree/summer/src",
-    "Auth Providers": "../operator/",
-    "Persistence": { "doc": "../operator/", "whitebox": "#persistence" },
-    "Webhooks": "../operator/",
+    "Auth Providers": "../operator/authentication.html",
+    "Persistence": {
+      "doc": "../operator/deployment.html#sqlite-or-postgresql",
+      "whitebox": "#persistence"
+    },
+    "Webhooks": "../operator/webhooks.html#the-outbox-and-the-worker",
     "MCP Server": "../developer/mcp.html",
-
     "Provide Endpoints": "api.html#provide",
     "Require Endpoints": "api.html#require",
     "Report & Validate Endpoints": "api-usage.html#reports-and-graph-scopes",
@@ -32,7 +38,6 @@
     "Admin Endpoints": "maintenance.html",
     "Auth Endpoints": "api-usage.html#sessions-and-api-tokens",
     "Request Guards": "api-usage.html#scopes-full-and-read-only",
-
     "Provide": "https://github.com/paxel/sanshain-service/blob/summer/src/application/provide_service.rs",
     "Require": "https://github.com/paxel/sanshain-service/blob/summer/src/application/require_service.rs",
     "Spec Query": "https://github.com/paxel/sanshain-service/blob/summer/src/application/spec_service.rs",
@@ -41,7 +46,6 @@
     "Access Control": "https://github.com/paxel/sanshain-service/blob/summer/src/application/auth_service.rs",
     "Administration": "https://github.com/paxel/sanshain-service/blob/summer/src/application/admin_service.rs",
     "Catalog": "https://github.com/paxel/sanshain-service/blob/summer/src/application/catalog_service.rs",
-
     "Repository Cache": "https://github.com/paxel/sanshain-service/blob/summer/src/infrastructure/cached_repository.rs",
     "SQL Repositories": "https://github.com/paxel/sanshain-service/tree/summer/src/infrastructure",
     "SQLite Snapshot": "maintenance.html#admin-backup-sqlite"

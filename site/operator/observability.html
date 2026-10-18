@@ -1,0 +1,213 @@
+<!-- page: title="Observability" track="operator" order=8 summary="The Prometheus exposition with every sanshain_* metric, traces over OTLP, the two log filters and the in-memory buffer, the observability page with its debug flags, and the health, readiness and version routes." -->
+<p class="lede">
+  Four things to watch: the metrics at <code>/metrics</code>, traces over OTLP when enabled, the log
+  on stdout and in the in-memory buffer, and the probes. This chapter names every metric the code
+  emits and what each flag does.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <p>
+    Two webhook metrics: <code>sanshain_webhook_deliveries_total{outcome}</code> and
+    <code>sanshain_webhook_outbox_pending</code>.
+  </p>
+</div>
+
+<h2>Prometheus metrics</h2>
+<p>
+  <code>GET /metrics</code> answers the text exposition (<code>text/plain; version=0.0.4</code>).
+  The route is unauthenticated; restrict it at the ingress if the instance is reachable from
+  outside. The HTTP layer (<code>axum-prometheus</code>) records every request with
+  <code>method</code>, <code>endpoint</code> and <code>status</code> labels:
+</p>
+<ul>
+  <li><code>axum_http_requests_total</code></li>
+  <li><code>axum_http_requests_duration_seconds</code> (a histogram)</li>
+  <li><code>axum_http_requests_pending</code></li>
+</ul>
+<p>The service's own metrics, as the code names them:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Metric</th>
+      <th>Type, labels</th>
+      <th>Counts</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>sanshain_version_rejected_total</code></td>
+      <td>counter; <code>reason</code>, <code>producer</code></td>
+      <td>
+        Provides refused by a version rule (<code>immutable_ga</code>,
+        <code>breaking_without_major</code>, <code>ga_requires_releaser</code>, …).
+      </td>
+    </tr>
+    <tr>
+      <td><code>sanshain_catalog_pushes_total</code></td>
+      <td>counter</td>
+      <td>Catalog pushes handled.</td>
+    </tr>
+    <tr>
+      <td><code>sanshain_branch_updates_total</code></td>
+      <td>counter; <code>branch</code></td>
+      <td>
+        Tagged provides and requires recorded against a
+        <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a>.
+      </td>
+    </tr>
+    <tr>
+      <td><code>sanshain_branches</code></td>
+      <td>gauge</td>
+      <td>Sanshain-branches that exist, refreshed on create and delete.</td>
+    </tr>
+    <tr>
+      <td><code>sanshain_webhook_deliveries_total</code></td>
+      <td>
+        counter; <code>outcome</code> = <code>delivered</code>, <code>failed</code>,
+        <code>dead</code>
+      </td>
+      <td>Webhook attempts by outcome.</td>
+    </tr>
+    <tr>
+      <td><code>sanshain_webhook_outbox_pending</code></td>
+      <td>gauge</td>
+      <td>Deliveries waiting in the outbox, refreshed after every worker pass.</td>
+    </tr>
+    <tr>
+      <td><code>sanshain_mcp_tool_calls_total</code></td>
+      <td>counter; <code>tool</code>, <code>outcome</code></td>
+      <td>MCP tool calls.</td>
+    </tr>
+    <tr>
+      <td><code>sanshain_mcp_result_bytes_total</code></td>
+      <td>counter; <code>tool</code></td>
+      <td>Bytes answered by MCP tools.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Counters appear once they have been incremented, so a fresh instance does not expose
+  <code>sanshain_webhook_deliveries_total</code> until the first attempt. The observability page's
+  request and failure counters (<a href="#the-observability-page">below</a>) are separate in-process
+  numbers, not Prometheus series.
+</p>
+
+<h2>Traces over OTLP</h2>
+<p>
+  <code>OTEL_ENABLED=true</code> exports spans over OTLP/gRPC to
+  <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> (<code>http://localhost:4317</code>), batched, with the
+  resource attributes <code>service.name=sanshain_service</code> and
+  <code>service.version=2.6.0</code>, the always-on sampler and W3C trace-context propagation, so a
+  <code>traceparent</code> header from a client continues its trace. Spans come from the
+  instrumented handlers and services (the HTTP layer, provide, require, webhook passes, LDAP calls).
+  An exporter that cannot be built stops the start with
+  <code>ERROR: Failed to initialize OpenTelemetry tracing: …</code>; a collector that is merely
+  unreachable at runtime is logged by the exporter and does not affect requests. The exporter's TLS
+  does not use <code>EXTRA_CA_CERTS_DIR</code>. Spans are flushed on shutdown.
+</p>
+
+<h2>Logs</h2>
+<p>
+  stdout is filtered by <code>RUST_LOG</code> (<code>sanshain_service=info,tower_http=warn</code>),
+  as text or, with <code>LOG_FORMAT=json</code>, one JSON object per line. Independently, an
+  in-memory buffer keeps the last <code>LOG_BUFFER_SIZE</code> (100) lines per level that pass
+  <code>CAPTURE_LOG_FILTER</code> (<code>sanshain_service=debug,tower_http=debug</code>), so debug
+  lines are available on the observability page without restarting or flooding stdout. Lines carry
+  the <code>service</code> and <code>version</code> fields when the code logged them, which the
+  viewer shows. Secrets, tokens and passwords are never logged; startup prints
+  <code>SECURITY WARNING</code> lines for developer mode and for binding all interfaces, and the
+  initial admin password once.
+</p>
+
+<h2>The observability page</h2>
+<p>
+  <code>/observability.html</code> (<strong>System Observability</strong>) needs a signed-in
+  session; everything on it but the debug toggles and the audit tab is open to any signed-in user
+  (the <code>view_observability</code> permission exists but no route checks it in 2.6.0).
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Section</th>
+      <th>Route</th>
+      <th>Shows</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>System stats</td>
+      <td><code>GET /admin/observability/stats</code></td>
+      <td>
+        <code>cpu_usage</code>, <code>memory_used</code>, <code>memory_total</code>,
+        <code>system_uptime</code>, <code>process_uptime</code>, <code>requests_total</code>,
+        <code>failures_total</code> (failed requests), counted since the process started.
+      </td>
+    </tr>
+    <tr>
+      <td>Log viewer</td>
+      <td><code>GET /admin/observability/logs</code></td>
+      <td>The in-memory buffer by level, with copy and download.</td>
+    </tr>
+    <tr>
+      <td>Debug Tracing</td>
+      <td>
+        <code>GET /admin/observability/debug-config</code>,
+        <code>POST /admin/observability/debug-config-update</code> (<code>manage_settings</code>)
+      </td>
+      <td>
+        Two runtime flags: detailed logs for the service layer and OpenAPI processing (business
+        logic), and for the presentation and auth layer (admin and user activity). Not persisted.
+      </td>
+    </tr>
+    <tr>
+      <td>Audit logs</td>
+      <td>
+        <code>GET /admin/observability/audit-logs</code>,
+        <code>GET /admin/observability/audit-logs/export</code> (<code>view_audit</code>)
+      </td>
+      <td>The newest audit entries, and <strong>Export CSV</strong> of the newest 1000.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The <a href="administration.html#the-audit-log">audit log</a> itself, with filters and the diff
+  viewer, is <code>/audit.html</code>.
+</p>
+
+<h2>Health, readiness and version</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Answer</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /health</code></td>
+      <td><code>200</code> <code>OK</code>, without the database. Liveness.</td>
+    </tr>
+    <tr>
+      <td><code>GET /ready</code></td>
+      <td>
+        <code>200 {"status":"ready"}</code> when a trivial query succeeds,
+        <code>503 {"status":"unavailable"}</code> otherwise. Readiness.
+      </td>
+    </tr>
+    <tr>
+      <td><code>GET /version</code></td>
+      <td><code>{"version":"2.6.0","instance_id":"…"}</code>.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  What to alert on: <code>/ready</code> answering <code>503</code>;
+  <code>axum_http_requests_total</code> with <code>status</code> <code>5xx</code> rising;
+  <code>sanshain_webhook_outbox_pending</code> climbing while
+  <code>sanshain_webhook_deliveries_total{outcome="failed"}</code> climbs (a receiver down or a host
+  removed from the allow-list); and <code>sanshain_version_rejected_total</code> by
+  <code>reason</code>, which is the pipelines' health rather than the service's.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

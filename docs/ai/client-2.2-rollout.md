@@ -34,7 +34,7 @@ or answers `403`, including a byte-identical re-provide that would change nothin
    verbatim and the service remains the only normalizer, so the two cannot disagree about what
    `v2.1` means.
 4. `trunk` and `tag` are supplied by the pipeline — a CLI flag plus an environment variable, never
-   `sanshain.yaml`. This matches `docs/ci-integration.md` and the existing `--ga` precedent: stream
+   `sanshain.yaml`. This matches [CI integration](https://paxel.github.io/sanshain-service/developer/ci-integration.html) and the existing `--ga` precedent: stream
    identity is a property of the invocation, not of the repository.
 5. `retired` moves onto the provide DTO. The spec body becomes optional when `retired: true`, and
    the flag is gated in-handler on `ManageProducers` for that producer **or** `ReleaseGa`, so both a
@@ -94,7 +94,7 @@ bundle stream on the query string, which the server silently ignored.
 | C | Add `trunk` and `tag` as flag plus environment variable on provide and require. They are mutually exclusive; let the server answer `400` and `404`. |
 | D | Print `harvested_subscriptions` entries as build warnings. Never fail the build on them — the server already answers `409` for a GA provide whose expectation is unsatisfiable, so failing locally would double-punish. |
 | E | Implement `retired: true` in `sanshain.yaml` against the new provide DTO. |
-| F | Normalize CRLF to LF immediately before upload. `docs/ci-integration.md` already promises the clients do this and none of them do; content comparison is byte-for-byte, so a Windows checkout generates spurious `409`s. |
+| F | Normalize CRLF to LF immediately before upload. [CI integration](https://paxel.github.io/sanshain-service/developer/ci-integration.html) already promises the clients do this and none of them do; content comparison is byte-for-byte, so a Windows checkout generates spurious `409`s. |
 | G | Copy the AsyncAPI 2.x perspective warning into each client's AsyncAPI documentation. Users read client docs, and getting this wrong harvests every subscription backwards. |
 
 Per-client repairs on top of the shared list:

@@ -1,0 +1,565 @@
+<!-- page: title="Troubleshooting" track="operator" order=9 summary="Every message the service can answer or log, quoted as it appears, with its cause and fix: startup and configuration, the database, logins and tokens, LDAP and OIDC, provides and requires, webhooks, backup, settings and the web pages." -->
+<p class="lede">
+  The messages below are quoted as the service writes them, so a search for the text you see lands
+  here. Each one has its cause and its fix. Messages that a developer meets in a pipeline (<code
+    >409</code
+  >
+  with a proposed version, <code>404</code> <a href="../start/glossary.html#unknown">unknown</a>,
+  <code>410</code> <a href="../start/glossary.html#absent">absent</a>) are explained at the end and
+  in depth in <a href="../developer/ci-integration.html">CI integration</a>.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>The <a href="#webhooks">Webhooks</a> section is new, as is the feature.</li>
+    <li>
+      The LDAP stall message (<code>accepted the connection but did not respond within 10 s</code>)
+      replaces the ingress's <code>502 Bad Gateway</code>; see <a href="#ldap">LDAP</a>.
+    </li>
+  </ul>
+</div>
+
+<h2>Startup</h2>
+<dl>
+  <dt>
+    <code>ERROR: Address 0.0.0.0:3000 already in use. Another instance might be running.</code>
+  </dt>
+  <dd>
+    The port is taken. Stop the other process, or set
+    <code>BIND_ADDRESS</code> (<code>BIND_ADDRESS=0.0.0.0:3080</code>). There is no
+    <code>PORT</code> variable.
+  </dd>
+  <dt>
+    <code
+      >CONFIGURATION ERROR: LOG_BUFFER_SIZE="1OO" is not a valid number. Correct it or unset it to
+      use the default (100).</code
+    >
+  </dt>
+  <dd>
+    A numeric variable holds something that is not a number. The service refuses to run with a
+    setting it did not apply; fix or unset it. The same shape names any numeric variable.
+  </dd>
+  <dt>
+    <code
+      >CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, text. Unset it
+      to use the default (text).</code
+    >
+  </dt>
+  <dd>
+    A fixed-vocabulary variable (<code>LOG_FORMAT</code>, <code>OTEL_ENABLED</code>,
+    <code>MCP_ENABLED</code>, <code>WEBHOOKS_ENABLED</code>) holds another value. Values are
+    case-insensitive and trimmed.
+  </dd>
+  <dt>
+    <code>CONFIGURATION ERROR: MAX_SPEC_BODY_BYTES=0 would reject every request.</code>,
+    <code>… MCP_CALLS_PER_MINUTE=0 would refuse every MCP call.</code>,
+    <code>… MCP_MAX_RESULT_BYTES=0 would summarise every MCP answer.</code>,
+    <code
+      >… WEBHOOK_WORKER_INTERVAL_SECS and WEBHOOK_DELIVERY_TIMEOUT_SECS must be greater than
+      0.</code
+    >
+  </dt>
+  <dd>A zero that would make a feature useless. Unset the variable or give it a positive value.</dd>
+  <dt>
+    <code
+      >CONFIGURATION ERROR: PUBLIC_BASE_URL="sanshain.corp" must start with http:// or
+      https://.</code
+    >
+  </dt>
+  <dd>Give the full origin: <code>https://sanshain.corp</code>.</dd>
+  <dt><code>ERROR: Invalid bind address '…': …</code></dt>
+  <dd>
+    <code>BIND_ADDRESS</code> must be <code>host:port</code> with a numeric port; IPv6 in brackets.
+  </dd>
+  <dt>
+    <code
+      >ERROR: Can't build the TLS trust store: CA certificate directory '/certs' does not
+      exist</code
+    >
+  </dt>
+  <dd>
+    <code>EXTRA_CA_CERTS_DIR</code> points at a path that is not mounted. Mount it or unset the
+    variable. Variants: <code>Could not read CA certificate directory '…': …</code> (permissions)
+    and <code>Could not read CA certificate file '…': …</code> (a file with the right extension that
+    is not a PEM bundle, or holds no certificate). See
+    <a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>.
+  </dd>
+  <dt><code>ERROR: Failed to initialize OpenTelemetry tracing: …</code></dt>
+  <dd>
+    <code>OTEL_ENABLED=true</code> and the exporter could not be built, usually a malformed
+    <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>. The collector being down is not this error.
+  </dd>
+  <dt>
+    <code
+      >SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to
+      'true'. Refusing to enable dev mode - authentication stays enforced.</code
+    >
+    (stderr), and in the log
+    <code
+      >SECURITY: dev_mode is requested (SANSHAIN_DEV_MODE or persisted dev_mode setting) but the
+      ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode -
+      authentication stays enforced. Set ALLOW_INSECURE_DEV_MODE=true only on a trusted local
+      machine to enable it.</code
+    >
+  </dt>
+  <dd>
+    Developer mode is wanted (<code>SANSHAIN_DEV_MODE=true</code> or the Dev Mode radio) without the
+    gate. Expected in production; on a laptop set <code>ALLOW_INSECURE_DEV_MODE=true</code>. See
+    <a href="authentication.html#developer-mode">Developer mode</a>.
+  </dd>
+  <dt>
+    <code
+      >SECURITY WARNING: binding to all interfaces (0.0.0.0:3000). Set BIND_ADDRESS=127.0.0.1:3000
+      to restrict access to localhost.</code
+    >
+  </dt>
+  <dd>Informational. In a container this is what you want.</dd>
+</dl>
+
+<h2>Database</h2>
+<dl>
+  <dt><code>ERROR: Can't connect to SQLite database: …</code></dt>
+  <dd>
+    The directory of the file in <code>DATABASE_URL</code> does not exist or is not writable by the
+    service's user (UID 1000 in the manifests). <code>mode=rwc</code> creates the file, not the
+    directory.
+  </dd>
+  <dt><code>ERROR: Can't connect to PostgreSQL database: …</code></dt>
+  <dd>
+    Host, port, credentials or network. Check the URL and that the pod can reach the server;
+    <code>/ready</code> answers <code>503</code> for the same reason at runtime.
+  </dd>
+  <dt><code>ERROR: Invalid database URL: …</code></dt>
+  <dd>
+    A SQLite URL the driver cannot parse. The shape is
+    <code>sqlite:/data/sanshain.db?mode=rwc</code>.
+  </dd>
+  <dt>
+    <code>ERROR: Can't run SQLite migrations: …</code> / <code>… PostgreSQL migrations: …</code>
+  </dt>
+  <dd>
+    A migration failed, or the database was touched by a newer version (migrations are
+    forward-only). Restore the backup from before the upgrade, see
+    <a href="backup.html">Backup and restore</a>.
+  </dd>
+  <dt><code>ERROR: Can't normalize stored spec text: …</code></dt>
+  <dd>
+    The one-time rewrite of stored spec text (2.4.0, ADR-0008) failed (a database error mid-way).
+    The next start repeats it; every step is idempotent.
+  </dd>
+  <dt><code>ERROR: Can't claim root usernames: …</code></dt>
+  <dd>
+    Creating the locked accounts for unclaimed <code>SANSHAIN_ROOT_USERS</code> names failed; a
+    database error.
+  </dd>
+</dl>
+
+<h2>Logins, sessions and tokens</h2>
+<dl>
+  <dt>Lost the initial root password</dt>
+  <dd>
+    There is no password reset, and <code>SANSHAIN_ROOT_USERS</code> does not help: a name added
+    there is claimed at startup as a locked account with a random, unknown password, and registering
+    it is refused. The initial admin is created only while the <code>users</code> table is empty, so
+    the options are: restore a <a href="backup.html">backup</a> taken while the password was known;
+    or delete every row of <code>users</code> (<code>DELETE FROM users;</code> with
+    <code>sqlite3</code> on the stopped service's file, or <code>psql</code>), which removes
+    <strong>every</strong> account, session and API token, so the next start creates the initial
+    admin again with <code>INITIAL_ADMIN_PASSWORD</code> or a new random password on stderr. The
+    Danger Zone's <strong>Nuke Users</strong> is not a way out: it spares every effective
+    administrator, root included, and needs a working admin session anyway.
+  </dd>
+  <dt><code>POST /auth/login</code> answers <code>401</code></dt>
+  <dd>
+    Wrong username or password; with LDAP, the directory refused and the local check refused too.
+  </dd>
+  <dt><code>POST /auth/login</code> answers <code>403</code></dt>
+  <dd>
+    The account is pending approval (approve it under <strong>Users</strong>), or the mode is
+    <code>disabled</code>. Existing sessions still work on the admin routes.
+  </dd>
+  <dt><code>503 Service is in Maintenance Mode / Disabled</code></dt>
+  <dd>
+    Every API call while the authentication mode is OFF / Maintenance. Select another mode in the
+    Authentication section or with <code>PUT /admin/auth-config</code>.
+  </dd>
+  <dt><code>409 This username is reserved</code></dt>
+  <dd>
+    Registration of a name in <code>SANSHAIN_ROOT_USERS</code>. See
+    <a href="configuration.html#root-users">Root users</a>.
+  </dd>
+  <dt><code>409 User already exists</code></dt>
+  <dd>
+    Registration of a taken name, also one that only exists as an LDAP or OIDC shadow account.
+  </dd>
+  <dt>An API call answers a bare <code>403</code> or <code>401</code></dt>
+  <dd>
+    <code>403</code> without a body: no <code>Authorization: Bearer</code> header at all.
+    <code>401</code>: the token is invalid, expired or revoked. Mint one on
+    <code>/account.html</code>.
+  </dd>
+  <dt>
+    <code
+      >403 this API token has scope 'read_only' and may not change the catalog; create a token with
+      scope 'full' for provide, require and catalog pushes</code
+    >
+  </dt>
+  <dd>
+    A read-only token on a write route. The scope is fixed at creation; mint a
+    <code>full</code> one.
+  </dd>
+  <dt>
+    <code
+      >403 this API token has scope 'read_only' and may not call administrative routes; use a token
+      with scope 'full' of an account holding the permission</code
+    >
+  </dt>
+  <dd>
+    A read-only token on the backup download. Every other admin route answers <code>401</code> to
+    any API token: they take sessions.
+  </dd>
+  <dt>
+    <code
+      >403 publishing GA for 'orders' requires the 'releaser' role — publish as a snapshot, or ask
+      an administrator to grant the role</code
+    >
+  </dt>
+  <dd>
+    Grant <code>releaser</code> to the CI user (<a href="roles.html">Roles and permissions</a>).
+  </dd>
+  <dt>
+    A <code>user_manager</code> granting <code>admin</code> or <code>releaser</code> gets
+    <code>403</code>
+  </dt>
+  <dd>Both roles are admin-guarded; an admin or root grants them.</dd>
+  <dt>
+    <code
+      >400 Role 'maintainer' is scoped to specific Producers and cannot be granted
+      instance-wide.</code
+    >
+  </dt>
+  <dd>Assign the user or group as a maintainer of a Producer instead.</dd>
+</dl>
+
+<h2>LDAP</h2>
+<dl>
+  <dt>
+    <code
+      >400 LDAP connection failed: Connection failed: LDAP server at ldaps://ldap.example.com:389
+      accepted the connection but did not respond within 10 s. Check that ldaps:// uses the TLS port
+      and StartTLS the plain one.</code
+    >
+  </dt>
+  <dd>
+    Shown by <strong>Test Connection</strong>; a login that stalls the same way answers a bare
+    <code>401</code> after the local password check. The directory took the TCP connection and never
+    answered: almost always a scheme and port mismatch (<code>ldaps://</code> on 389, StartTLS on
+    636), otherwise a firewall that accepts and drops. The table in
+    <a href="authentication.html#timeouts-schemes-and-ports">Authentication</a> lists the
+    combinations. Test the port from inside the pod, not from a laptop.
+  </dd>
+  <dt><strong>Test Connection</strong> shows <code>502 Bad Gateway</code></dt>
+  <dd>
+    Sanshain never answers 502; the ingress gave up before Sanshain's 10 s did. Raise the ingress
+    timeout above <code>LDAP_OPERATION_TIMEOUT_SECS</code>, or lower the variable.
+  </dd>
+  <dt>
+    <code
+      >400 LDAP connection failed: Connection failed: Could not connect to LDAP server at ldap://…:
+      no answer within 5 s</code
+    >
+  </dt>
+  <dd>Nothing accepted the TCP connection: wrong host or port, or the port is filtered.</dd>
+  <dt>
+    <code
+      >400 LDAP connection failed: Connection failed: Could not connect to LDAP server at ldaps://…:
+      …</code
+    >
+    with a certificate error
+  </dt>
+  <dd>
+    The directory's certificate is not trusted: a private CA without
+    <code>EXTRA_CA_CERTS_DIR</code>, or a name that does not match the URL's host.
+  </dd>
+  <dt>
+    <code
+      >400 LDAP connection failed: Connection failed: LDAP bind failed (check DN/Password): …</code
+    >
+  </dt>
+  <dd>
+    The service account's DN or password. <code>LDAP bind request failed for cn=…: …</code> is the
+    same step failing at the protocol level.
+  </dd>
+  <dt>A directory user logs in but has no admin rights</dt>
+  <dd>
+    Roles come from the group mapping on every check: the user's <code>memberOf</code> values must
+    equal the name of a directory group that has a role attached (the Bootstrap Admin Group is such
+    a group). A change takes up to <code>SANSHAIN_DIRECTORY_GROUP_TTL_SECS</code> (300) to show. The
+    log line
+    <code
+      >Could not read directory groups for 'alice'; continuing without directory-derived roles:
+      …</code
+    >
+    means the directory was unreachable at the check; root and local grants still work.
+  </dd>
+</dl>
+
+<h2>OpenID Connect</h2>
+<dl>
+  <dt><code>400 OIDC is not configured</code></dt>
+  <dd>
+    The mode is <code>oidc</code> or the SSO button was used without an <code>oidc_config</code>.
+    Store one with <code>PUT /admin/auth-config</code>.
+  </dd>
+  <dt><code>500 OIDC discovery failed: …</code></dt>
+  <dd>
+    <code>&lt;issuer_url&gt;/.well-known/openid-configuration</code> could not be fetched or parsed
+    from inside the pod. The OIDC client does not use <code>EXTRA_CA_CERTS_DIR</code>.
+  </dd>
+  <dt><code>400 OIDC issuer URL: …</code>, <code>400 OIDC redirect URL: …</code></dt>
+  <dd>One of the two is not a valid URL.</dd>
+  <dt>
+    <code>400 no OIDC login in progress</code>, <code>400 missing code</code>,
+    <code>400 missing state</code>
+  </dt>
+  <dd>
+    The callback arrived without the flow cookie (older than 10 minutes, another browser, or a
+    cookie blocked because the site is not served over HTTPS; the cookie is <code>Secure</code>) or
+    without the provider's parameters. Start again from the SSO button.
+  </dd>
+  <dt>The callback answers <code>401</code></dt>
+  <dd>
+    The state did not match, the code exchange failed, or the ID token did not verify (nonce,
+    issuer, audience, signature, expiry). Check the client secret and that the redirect URL
+    registered with the provider is exactly the configured one.
+  </dd>
+  <dt>
+    <code>400 OIDC config required for oidc mode</code>,
+    <code>400 LDAP config required for ldap mode</code>, <code>400 Invalid auth mode: …</code>
+  </dt>
+  <dd>
+    <code>PUT /admin/auth-config</code> switching to a mode without its configuration, or with a
+    mode name outside <code>disabled</code>, <code>dev</code>, <code>local</code>,
+    <code>ldap</code>, <code>oidc</code>.
+  </dd>
+</dl>
+
+<h2>Webhooks</h2>
+<dl>
+  <dt>
+    <code
+      >403 no hosts are allowed for webhooks yet — an administrator has to add the receiver's host
+      to the allow-list (admin page, Webhooks) first</code
+    >
+  </dt>
+  <dd>
+    A maintainer registering a hook on an instance whose allow-list is empty. An administrator adds
+    the host, see <a href="webhooks.html#the-allow-list">The allow-list</a>.
+  </dd>
+  <dt>
+    <code
+      >403 the host 'hooks.example.com' is not in the webhook allow-list — ask an administrator to
+      allow it, or use one of: hooks.slack.com</code
+    >
+  </dt>
+  <dd>
+    The URL's host matches no pattern. For plain <code>http://</code> the message adds
+    <code>(plain http:// needs a pattern that says http:// itself)</code>.
+  </dd>
+  <dt>
+    <code
+      >400 '…' is not a host pattern: use a host name with optional `*`/`?` wildcards, prefixed
+      `http://` only to allow plain HTTP to it</code
+    >
+  </dt>
+  <dd>
+    A line of the allow-list with a path, a port, a scheme other than <code>http://</code> or
+    another character.
+  </dd>
+  <dt>
+    <code>400 the hook URL must be an http:// or https:// URL with a host</code>,
+    <code>400 the hook URL is not a valid URL: …</code>
+  </dt>
+  <dd>The receiver URL itself.</dd>
+  <dt><code>400 webhook.test is sent by the test button only and cannot be subscribed to</code></dt>
+  <dd>
+    <code>webhook.test</code> in <code>event_types</code>. Leave the set empty for every event.
+  </dd>
+  <dt>
+    <code
+      >409 webhooks are disabled on this instance (WEBHOOKS_ENABLED=false): a test event would never
+      be delivered</code
+    >
+  </dt>
+  <dd>
+    Send test with the worker off. Set <code>WEBHOOKS_ENABLED=true</code> (the default) and restart.
+  </dd>
+  <dt>
+    Delivery log:
+    <code>the hook's host is not in the allow-list (webhook_allowed_hosts) any more</code>
+  </dt>
+  <dd>
+    The host was removed after registration. Re-add it; the retries continue until the 24-hour
+    window closes.
+  </dd>
+  <dt>Delivery log: <code>the receiver answered HTTP 404</code>, or a connection error</dt>
+  <dd>
+    The receiver's answer or the network; the body of a non-2xx answer is not read. Fix the receiver
+    and redeliver, or wait for the next retry.
+  </dd>
+  <dt>Delivery log: <code>given up: 24 hours have passed since the event</code></dt>
+  <dd>
+    Dead. A hook paused for a day finds its deliveries dead on resume. Redeliver sends one more
+    attempt with the same id.
+  </dd>
+  <dt>
+    <code
+      >409 delivery 12 is in flight — a worker is attempting it right now; try again after that
+      attempt</code
+    >
+  </dt>
+  <dd>Redeliver while a worker holds the row. Wait for the attempt.</dd>
+  <dt>Nothing arrives and the delivery log stays <code>pending</code></dt>
+  <dd>
+    No worker pass is running (<code>WEBHOOKS_ENABLED=false</code> writes nothing, so pending rows
+    with no attempts mean the worker cannot reach the database or the process is wedged), or the
+    hook is paused. The log line
+    <code>Webhook worker enabled: every 5 s, 10 s delivery timeout, deep links on https://…</code>
+    confirms the worker started.
+  </dd>
+  <dt>The Slack message shows no link, the Teams card no button</dt>
+  <dd>
+    <code>PUBLIC_BASE_URL</code> is unset and there is no OIDC redirect URL to borrow the origin
+    from.
+  </dd>
+</dl>
+
+<h2>Backup</h2>
+<dl>
+  <dt>
+    <code
+      >409 This instance runs PostgreSQL, which has no snapshot download; take backups with pg_dump
+      (see the deployment guide, Backup and restore)</code
+    >
+  </dt>
+  <dd>
+    Use <code>pg_dump</code>; the Helm chart switches the CronJob for you. See
+    <a href="backup.html#postgresql">PostgreSQL</a>.
+  </dd>
+  <dt>
+    <code>409 A database snapshot is already being produced; retry when it has finished</code>
+  </dt>
+  <dd>Two downloads at once. Retry.</dd>
+  <dt>The backup CronJob fails with <code>401</code> or <code>403</code></dt>
+  <dd>
+    The token in <code>backup.tokenSecret</code> expired or was revoked (<code>401</code>), is
+    <code>read_only</code> or belongs to an account without
+    <code>run_destructive_operations</code> (<code>403</code>). Mint a <code>full</code> token of an
+    admin and replace the Secret.
+  </dd>
+  <dt><code>500 VACUUM INTO failed: …</code> or <code>snapshot file: …</code></dt>
+  <dd>
+    The data volume has no room for a second copy, or the directory of the database is not writable.
+  </dd>
+</dl>
+
+<h2>Settings and administration</h2>
+<dl>
+  <dt><code>400 days must be at most 36500</code></dt>
+  <dd>Every <code>*_max_age_days</code> setting caps at a hundred years.</dd>
+  <dt><code>400 days must be greater than 0</code></dt>
+  <dd>
+    <code>dependency_max_age_days</code> cannot be disabled; the snapshot and trunk ages accept
+    <code>0</code>.
+  </dd>
+  <dt><code>400 Invalid confirmation</code></dt>
+  <dd>
+    A Danger Zone route without its exact phrase, see
+    <a href="administration.html#the-danger-zone">The Danger Zone</a>.
+  </dd>
+  <dt>
+    <code
+      >409 'orders' is part of the recorded graph of sanshain-branch(es) release-2026-10 — deleting
+      it would remove those edges from release cuts that already happened. Delete the branch(es)
+      first if the record is no longer needed.</code
+    >
+  </dt>
+  <dd>
+    Deleting a Producer or Consumer a branch still references. Delete the named branches first, if
+    their record is no longer needed.
+  </dd>
+  <dt>
+    <code
+      >400 Only Sanshain's own groups can be renamed; a directory group's name is the
+      directory's.</code
+    >,
+    <code
+      >400 Group '…' comes from the directory, so its membership is the directory's to change.</code
+    >
+  </dt>
+  <dd>A directory group is edited in the directory; only its roles are Sanshain's.</dd>
+  <dt><code>400 Supply exactly one of user_id or group_id.</code></dt>
+  <dd>A maintainer assignment with both or neither.</dd>
+</dl>
+
+<h2>Provides and requires</h2>
+<dl>
+  <dt><code>409</code> with <code>proposed_version</code></dt>
+  <dd>
+    Refused by the version rules: the number is GA with different content, the change is breaking
+    without a major bump, a snapshot for a number that went GA. Set the spec's version to the
+    proposal and republish. If nothing changed, the difference is whitespace or a comment: content
+    is compared byte-for-byte after line endings and a leading BOM are normalised. See
+    <a href="../developer/api-lifecycle.html">API lifecycle</a>.
+  </dd>
+  <dt>
+    <code
+      >404 Producer 'orders' has no openapi version 2.1.0 (in either stability) — a missing pinned
+      version is a configuration error, nothing waits for it to appear</code
+    >
+  </dt>
+  <dd>
+    <a href="../start/glossary.html#unknown">Unknown</a>: the pin names a version that does not
+    exist, expired unused (snapshot) or was deleted. <code>GET /producers/{name}/versions</code>
+    lists what exists.
+  </dd>
+  <dt><code>410 openapi version 2.1.0 of 'orders' does not include GET /orders</code></dt>
+  <dd>
+    <a href="../start/glossary.html#absent">Absent</a>: the version exists and lacks the endpoint.
+    Check path and method, or pin a version that has it.
+  </dd>
+  <dt><code>400</code> on a provide</dt>
+  <dd>
+    Invalid YAML, a version that is not <code>MAJOR[.MINOR[.PATCH]]</code> (optionally
+    <code>v</code>-prefixed, no suffix such as <code>-SNAPSHOT</code>), OpenAPI outside 3.0 and 3.1,
+    AsyncAPI outside 2.x and 3.x, a proto file without exactly one
+    <code>// sanshain-version:</code> comment.
+  </dd>
+  <dt><code>413</code> on a provide</dt>
+  <dd>The body exceeds <code>MAX_SPEC_BODY_BYTES</code> (4 MiB). Raise it.</dd>
+  <dt>A provide on one replica, a require on another answers the old content</dt>
+  <dd>
+    The 10 s cache window on multi-replica PostgreSQL. See
+    <a href="deployment.html#scaling">Scaling</a>.
+  </dd>
+</dl>
+
+<h2>Web pages</h2>
+<dl>
+  <dt>The dependency graph is empty</dt>
+  <dd>
+    Dependencies are recorded only by a successful <code>/require</code> or
+    <code>/require-bundle</code> without <code>dry_run</code>. <code>scripts/demo.sh</code>
+    populates an instance.
+  </dd>
+  <dt>Download PNG of the graph does nothing</dt>
+  <dd>
+    The export renders in the browser; a reverse proxy that adds a Content-Security-Policy must
+    allow <code>blob:</code> URLs. Sanshain's own headers do.
+  </dd>
+  <dt>The audit page shows <code>Error loading timeline: Session expired</code></dt>
+  <dd>The session is older than 7 days or was revoked. Sign in again.</dd>
+</dl>
+
+<p class="checked">Checked against v2.6.0.</p>

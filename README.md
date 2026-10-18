@@ -26,10 +26,10 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **AsyncAPI payloads as OpenAPI**: An AsyncAPI requirement can ask for `format: openapi` and receive just its message payload schemas as an OpenAPI 3.0.3 document, ready for OpenAPI code generators. See [sanshain.yaml](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html#payload-schemas-as-openapi-format-openapi).
 - **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
 - **Auditing**: Full history of provides and administrative actions.
-- **Backup**: On SQLite, a consistent database snapshot is one authenticated `GET` away — and a Helm CronJob fetches it nightly; PostgreSQL gets a `pg_dump` CronJob. Restore is documented for both. See [Deployment — Backup and restore](docs/deployment.md#backup-and-restore).
+- **Backup**: On SQLite, a consistent database snapshot is one authenticated `GET` away — and a Helm CronJob fetches it nightly; PostgreSQL gets a `pg_dump` CronJob. Restore is documented for both. See [Backup and restore](https://paxel.github.io/sanshain-service/operator/backup.html).
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
 - **API Tokens with a Scope**: Each user mints their own tokens on the account page. A token is `full` (everything its owner may do) or `read_only` — for AI / MCP clients, it answers reports and versions but is refused on every route that changes the catalog. See [API Usage](docs/api-usage.md#api-tokens).
-- **Webhooks**: Signed outbound events — a Version published or deprecated, a Provide rejected, a new Consumer, a Sanshain-branch cut, a catalog push — to any URL on the admin's allow-list, as a JSON envelope or a ready-made Slack/Teams message; written with the fact in an outbox and retried for 24 hours. See [CI Integration — Webhooks](docs/ci-integration.md#webhooks).
+- **Webhooks**: Signed outbound events — a Version published or deprecated, a Provide rejected, a new Consumer, a Sanshain-branch cut, a catalog push — to any URL on the admin's allow-list, as a JSON envelope or a ready-made Slack/Teams message; written with the fact in an outbox and retried for 24 hours. See [Webhooks](https://paxel.github.io/sanshain-service/operator/webhooks.html).
 - **MCP for AI Assistants**: `/mcp` serves the catalog over the Model Context Protocol — list and describe services, find an endpoint, read a spec, walk the graph, diff and blame versions — behind a read-only API token, rate-limited and size-budgeted. See [MCP](https://paxel.github.io/sanshain-service/developer/mcp.html).
 
 ![Dependency Graph](site/assets/images/graph.png)
@@ -47,8 +47,8 @@ Detailed instructions: [**Getting Started**](https://paxel.github.io/sanshain-se
 - [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — How to handle breaking changes and versioning.
 - [**API Usage**](docs/api-usage.md) — Authentication and detailed endpoint reference.
 - [**MCP**](https://paxel.github.io/sanshain-service/developer/mcp.html) — Connecting AI assistants (Claude Code, Cursor, VS Code) to the catalog: token setup, the tools, limits.
-- [**Administration**](docs/administration.md) — LDAP and OIDC (SSO) setup, version administration, and user management.
-- [**Troubleshooting**](docs/troubleshooting.md) — Common issues and how to solve them.
+- [**Operator track**](https://paxel.github.io/sanshain-service/operator/index.html) — Deployment, configuration, authentication (LDAP, OIDC), roles, administration, webhooks, backup, observability.
+- [**Troubleshooting**](https://paxel.github.io/sanshain-service/operator/troubleshooting.html) — Every error message, with cause and fix.
 - [**AI Migration**](docs/ai-migration.md) — Guide for using AI to migrate your services to Sanshain.
 - [**Corporate Best Practices**](docs/corporate-best-practices.md) — Recommendations for enterprise usage.
 

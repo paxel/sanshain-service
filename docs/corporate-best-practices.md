@@ -56,12 +56,12 @@ For production usage, ensure your Sanshain instance is robust.
 - **Database**: Use a managed PostgreSQL instance instead of the default SQLite for better concurrency and backups.
 - **Monitoring**: Enable the built-in Prometheus/OpenTelemetry metrics to track service health and API usage.
 - **High Availability**: Run Sanshain in a container orchestrator (Kubernetes/Nomad) with at least two replicas and a load balancer.
-- **Supply Chain**: Verify the image signature and SBOM before rolling out a release; see [Verifying a release](deployment.md#verifying-a-release).
+- **Supply Chain**: Verify the image signature and SBOM before rolling out a release; see [Verifying a release](https://paxel.github.io/sanshain-service/operator/deployment.html#verifying-a-release).
 
 ---
 
 ## Related Guides
 - [**`sanshain.yaml` Reference**](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html) — Configuration details.
-- [**CI Integration**](ci-integration.md) — Setting up pipelines.
+- [**CI Integration**](https://paxel.github.io/sanshain-service/developer/ci-integration.html) — Setting up pipelines.
 - [**API Lifecycle**](https://paxel.github.io/sanshain-service/developer/api-lifecycle.html) — Handling versioning.
-- [**Administration**](administration.md) — LDAP setup and version administration.
+- [**Authentication**](https://paxel.github.io/sanshain-service/operator/authentication.html) and [**Administration**](https://paxel.github.io/sanshain-service/operator/administration.html) — LDAP setup and version administration.

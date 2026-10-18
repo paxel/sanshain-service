@@ -1,0 +1,397 @@
+<!-- page: title="Administration" track="operator" order=5 summary="The admin page and its routes: Producers, versions and their dependents, Consumers, sanshain-branches, retention and cleanup of snapshots, dependencies, trunk data and credentials, the settings, the audit log, and the destructive resets of the Danger Zone." -->
+<p class="lede">
+  The day-to-day of running an instance: what an administrator sees on <code>/admin.html</code>, the
+  exceptions that need a hand (deleting a version, a Producer, a branch), what expires on its own
+  and when, and the resets that wipe things. Users, roles and authentication have their own
+  chapters.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">What changed in 2.6.0</p>
+  <ul>
+    <li>
+      The admin page gained a <strong>Webhooks</strong> section with the receiver allow-list, and
+      <strong>Download database snapshot</strong> under Database Configuration on SQLite. Both have
+      their own chapters: <a href="webhooks.html">Webhooks</a>,
+      <a href="backup.html">Backup and restore</a>.
+    </li>
+    <li>The cleanup pass also removes settled webhook deliveries older than 30 days.</li>
+  </ul>
+</div>
+
+<h2>The admin page</h2>
+<p>
+  <code>/admin.html</code> needs a signed-in session; every section and button is shown or hidden by
+  the caller's effective permissions (<a href="roles.html">Roles and permissions</a>), and every
+  route behind it is in the generated
+  <a href="../reference/maintenance.html">Maintenance API</a> with its guard. Top to bottom:
+  In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL, Snapshot
+  Cleanup, Dependency Cleanup, Auto Acknowledge New Users, Authentication, Users, Groups,
+  Maintainers, Provide a Spec for a Producer, Producers, Consumers, Danger Zone. Administrative
+  routes accept session tokens only, so a script that administers logs in first (<code
+    >POST /auth/login</code
+  >); the one exception is the backup download, which takes a <code>full</code> API token.
+</p>
+<p>
+  Everything an administrator changes lands in the audit log with the acting user, see
+  <a href="#the-audit-log">below</a>.
+</p>
+
+<h2>Producers and versions</h2>
+<p>
+  The unit of administration is the <a href="../start/glossary.html#version-line">version line</a>.
+  Versions manage themselves for the most part (GA is immutable and never age-culled,
+  <a href="../start/glossary.html#snapshot">snapshots</a> expire when unused), so administration is
+  the exceptions. The <strong>Producers</strong> section lists every Producer that has provided at
+  least once with its version lines; <code>/producers.html</code> is the richer view for browsing.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Guard</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /admin/producers</code>, <code>GET /admin/producers/{name}</code></td>
+      <td>any signed-in caller</td>
+      <td>The list, and one Producer with its catalog context.</td>
+    </tr>
+    <tr>
+      <td><code>GET /admin/producers/{name}/versions</code></td>
+      <td>any signed-in caller</td>
+      <td>Its version lines, optionally filtered by <code>api_type</code>.</td>
+    </tr>
+    <tr>
+      <td><code>GET /admin/producers/{name}/versions/{api_type}/{version}/dependents</code></td>
+      <td>any signed-in caller</td>
+      <td>The Consumers pinned to the version: what a delete would break.</td>
+    </tr>
+    <tr>
+      <td><code>DELETE /admin/producers/{name}/versions/{api_type}/{version}</code></td>
+      <td><code>manage_producers</code>, Producer-scoped</td>
+      <td>Delete the version; frees the number. Audited as <code>DELETE_VERSION</code>.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/producers/{name}/versions/{api_type}/{version}/promote</code></td>
+      <td><code>release_ga</code>, checked by the version rules</td>
+      <td>Promote a snapshot to GA in place. Audited as <code>VERSION_PROMOTED</code>.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/producers/metadata</code></td>
+      <td><code>manage_producers</code></td>
+      <td>
+        Icon and domain of a Producer (<code>{"name","icon","domain"}</code>), audited as
+        <code>UPDATE_SERVICE_METADATA</code>. Owner, description and links come from the catalog
+        push, not from here.
+      </td>
+    </tr>
+    <tr>
+      <td><code>DELETE /admin/producers/{name}</code></td>
+      <td><code>manage_producers</code>, Producer-scoped</td>
+      <td>
+        Delete the Producer with every version line, endpoint and recorded dependency on it. Audited
+        as <code>DELETE_SERVICE</code>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<h3>Deleting a version</h3>
+<p>
+  The sole escape hatch from GA immutability (<a
+    href="https://github.com/paxel/sanshain-service/blob/summer/docs/adr/0003-versions-replace-branches.md"
+    >ADR-0003</a
+  >). Consumers <a href="../start/glossary.html#pin">pinned</a> to the deleted version fail with
+  <code>404</code> on their next require; the UI shows the dependents and the
+  <a href="../start/glossary.html#sanshain-branch">sanshain-branches</a> whose recorded graph
+  references the version before you confirm. Move the Consumers first where you can. A branch's pin
+  is left visibly dangling rather than dropped, and a later re-provide of the number heals it. The
+  audit entry names the Consumers that were still pinned.
+</p>
+<h3>Deleting a Producer or a Consumer</h3>
+<p>
+  Refused with <code>409</code> while any sanshain-branch's recorded graph references the
+  participant, because its rows would cascade out of release cuts that already happened:
+</p>
+<pre><code>'orders' is part of the recorded graph of sanshain-branch(es) release-2026-10 — deleting it would remove those edges from release cuts that already happened. Delete the branch(es) first if the record is no longer needed.</code></pre>
+<p>
+  Trunk presence does not block a delete; trunk is the living stream and ages out on its own TTL. A
+  confirmation dialog precedes every deletion in the UI.
+</p>
+
+<h2>Consumers</h2>
+<p>
+  The <strong>Consumers</strong> section lists every Consumer that has recorded a dependency.
+  <code>GET /admin/consumers</code>, <code>GET /admin/consumers/{name}</code> and
+  <code>GET /admin/consumers/{name}/endpoints</code> are readable by any signed-in caller;
+  <code>DELETE /admin/consumers/{name}</code> (<code>manage_consumers</code>) removes it with its
+  dependencies, audited as <code>DELETE_CLIENT</code>, with the same <code>409</code> as above while
+  a branch references it.
+</p>
+
+<h2>Sanshain-branches</h2>
+<p>
+  Release cuts (<a href="../developer/release-graphs.html">Release graphs</a>). The
+  <strong>Sanshain-Branches</strong> section creates, renames and deletes them:
+</p>
+<ul>
+  <li>
+    <strong>Create</strong> (<code>POST /admin/branches</code>, <code>release_ga</code>): a named
+    copy of the main graph, or of another branch, at a chosen instant; a past
+    <code>as_of</code> repairs a forgotten cut. <code>main</code>, <code>dev</code> and
+    <code>trunk</code> are reserved. Emits <code>branch.cut</code> to global webhooks.
+  </li>
+  <li>
+    <strong>Rename</strong> (<code>PUT /admin/branches/{name}</code>,
+    <code>manage_producers</code>): membership, timeline and audit stamps survive, because all key
+    on the branch's id. Pipelines still sending the old tag get a
+    <code>Sanshain-Warning</code> until reconfigured.
+  </li>
+  <li>
+    <strong>Delete</strong> (<code>DELETE /admin/branches/{name}</code>,
+    <code>manage_producers</code>): the end-of-life act; frees the name.
+  </li>
+</ul>
+<p>
+  <code>GET /admin/branches</code>, <code>…/{name}/graph</code>, <code>…/{name}/timeline</code>,
+  <code>/admin/trunk/graph</code>, <code>/admin/trunk/timeline</code>,
+  <code>/admin/graph/diff</code>, <code>/admin/graph/scope</code> and <code>/admin/periphery</code>
+  are the read side the graph page uses, open to any signed-in caller. Audited as
+  <code>BRANCH_CREATED</code>, <code>BRANCH_RENAMED</code>, <code>BRANCH_DELETED</code>. There are
+  no "protected branches" in 2.6.0; that older concept was replaced by sanshain-branches.
+</p>
+
+<h2>Retention and cleanup</h2>
+<p>
+  One background pass every <code>CLEANUP_INTERVAL_SECS</code> (3600) does all of the following;
+  each ran-now button triggers one step immediately. The ages are settings (<a
+    href="configuration.html#settings-in-the-database"
+    >Configuration</a
+  >), at most 36500 days.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Setting, default</th>
+      <th>What goes</th>
+      <th>Run now</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Snapshot expiry</td>
+      <td><code>snapshot_max_age_days</code>, 30; <code>0</code> disables</td>
+      <td>
+        A <a href="../start/glossary.html#snapshot">snapshot</a> neither provided nor required for
+        that long (<a href="../start/glossary.html#snapshot-expiry">snapshot expiry</a>). A require
+        keeps it alive; GA never expires. The remaining lifetime is shown on the version line as
+        <code>expires_at</code>.
+      </td>
+      <td><code>POST /admin/cleanup/snapshots</code></td>
+    </tr>
+    <tr>
+      <td>Dependency cleanup</td>
+      <td><code>dependency_max_age_days</code>, 30; must be greater than 0</td>
+      <td>Recorded dependencies a Consumer has stopped refreshing.</td>
+      <td><code>POST /admin/cleanup/dependencies</code></td>
+    </tr>
+    <tr>
+      <td>Trunk cleanup</td>
+      <td><code>trunk_max_age_days</code>, 90; <code>0</code> disables</td>
+      <td>
+        Trunk pins and markers not refreshed within the window are <em>closed</em>: they leave the
+        <a href="../start/glossary.html#main-graph">main graph</a> but stay as history for the
+        timeline (<a href="../start/glossary.html#trunk-ttl">trunk TTL</a>). The main graph marks
+        entries stale once they pass half the window.
+      </td>
+      <td><code>POST /admin/cleanup/trunk</code></td>
+    </tr>
+    <tr>
+      <td>Credential cleanup</td>
+      <td>fixed</td>
+      <td>
+        Expired sessions and API tokens. Validation refuses them already; this reclaims the rows.
+      </td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Webhook cleanup</td>
+      <td>fixed, 30 days</td>
+      <td>Delivered and dead deliveries older than 30 days.</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>CSRF tokens</td>
+      <td><code>CSRF_MAX_AGE_HOURS</code>, 24</td>
+      <td>Unused CSRF tokens from the in-memory map.</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The settings and the run-now routes need <code>manage_settings</code>. The background pass logs a
+  line when a step removed something (<code>Snapshot cleanup: deleted 3 unused snapshots</code>);
+  the run-now routes write <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code> and
+  <code>TRUNK_CLEANUP</code> audit entries.
+</p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/admin_snapshot_cleanup.png"
+    alt="The Sanshain-Branches, Trunk Data TTL, Snapshot Cleanup, Dependency Cleanup and Auto Acknowledge New Users sections, each age with a days field, Save and Run Cleanup"
+    loading="lazy"
+  />
+  <figcaption>The retention sections. Each age has a Save and a Run Cleanup button.</figcaption>
+</figure>
+
+<h2>Settings</h2>
+<ul>
+  <li>
+    <strong>In-Memory Cache</strong>: the memory bound at runtime, hit rate, entries and memory
+    used, and <strong>Clear Cache</strong> (<code>POST /admin/cache/clear</code>, audited as
+    <code>CLEAR_CACHE</code>). See <a href="configuration.html#the-data-cache">The data cache</a>.
+  </li>
+  <li>
+    <strong>Database Configuration</strong>: the backend and the connection URL with the password
+    and any <code>password</code> query parameter removed (<code>GET /admin/settings/database</code
+    >), read-only; and on SQLite the snapshot download.
+  </li>
+  <li>
+    <strong>Auto Acknowledge New Users</strong>: approves registrations automatically, see
+    <a href="authentication.html#local-accounts">Authentication</a>.
+  </li>
+  <li>
+    <strong>Authentication</strong>: the mode and the LDAP form, see
+    <a href="authentication.html">Authentication</a>.
+  </li>
+  <li>
+    <strong>Webhooks</strong>: global hooks and the <strong>Allowed receiver hosts</strong> list,
+    see <a href="webhooks.html">Webhooks</a>.
+  </li>
+  <li>
+    <strong>Provide a Spec for a Producer</strong>: a provide from the browser, for a one-off upload
+    by an administrator, with the same rules as the API.
+  </li>
+</ul>
+
+<h2>The audit log</h2>
+<p>
+  Every provide, require, catalog push and administrative action writes an audit entry with the
+  acting user, the service and version it concerns and, for stream-bound facts, the stream.
+  <code>/audit.html</code> shows the <a href="../start/glossary.html#audit">audit timeline</a> with
+  filters by date, type, Producer and version (SQL wildcards, <code>auth-%</code>) and stream, and a
+  diff viewer on provides; it reads <code>GET /api/audit/timeline</code>
+  (<code>view_audit</code>). The observability page has an audit tab with
+  <strong>Export CSV</strong>: <code>GET /admin/observability/audit-logs/export</code> returns the
+  newest 1000 entries with the header
+</p>
+<pre><code>id,timestamp,username,action,details,service,version,action_type,stream</code></pre>
+<p>The action names, grouped:</p>
+<table>
+  <thead>
+    <tr>
+      <th>Area</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Catalog</td>
+      <td>
+        <code>PROVIDE_SPEC</code>, <code>SNAPSHOT_OVERWRITTEN</code>, <code>VERSION_PROMOTED</code>,
+        <code>VERSION_REJECTED</code>, <code>REQUIRE_SPEC</code>, <code>REPORT</code>,
+        <code>CATALOG_PUSHED</code>, <code>RETIRE_PROTOCOL</code>, <code>DELETE_VERSION</code>,
+        <code>DELETE_SERVICE</code>, <code>DELETE_CLIENT</code>,
+        <code>UPDATE_SERVICE_METADATA</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Branches</td>
+      <td>
+        <code>BRANCH_CREATED</code>, <code>BRANCH_RENAMED</code>, <code>BRANCH_DELETED</code>,
+        <code>BRANCH_MEMBER_TAGGED</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Users and roles</td>
+      <td>
+        <code>REGISTER_USER</code>, <code>APPROVE_USER</code>, <code>DELETE_USER</code>,
+        <code>CHANGE_PASSWORD</code>, <code>CREATE_TOKEN</code>, <code>REVOKE_TOKEN</code>,
+        <code>GRANT_ROLE</code>, <code>REVOKE_ROLE</code>, <code>CREATE_GROUP</code>,
+        <code>UPDATE_GROUP</code>, <code>DELETE_GROUP</code>, <code>ASSIGN_MAINTAINER</code>,
+        <code>UNASSIGN_MAINTAINER</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Settings and cleanup</td>
+      <td>
+        <code>UPDATE_SETTINGS</code>, <code>SETTINGS_CHANGED</code>, <code>SET_AUTO_APPROVE</code>,
+        <code>SET_SNAPSHOT_MAX_AGE</code>, <code>SET_WEBHOOK_ALLOWED_HOSTS</code>,
+        <code>CLEAR_CACHE</code>, <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code>,
+        <code>TRUNK_CLEANUP</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Webhooks, backup, resets</td>
+      <td>
+        <code>WEBHOOK_CREATED</code>, <code>WEBHOOK_PAUSED</code>, <code>WEBHOOK_RESUMED</code>,
+        <code>WEBHOOK_DELETED</code>, <code>WEBHOOK_SECRET_ROTATED</code>,
+        <code>WEBHOOK_REDELIVERED</code>, <code>DATABASE_SNAPSHOT</code>, <code>NUKE_DATABASE</code>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The audit log is not a webhook source by design (ADR-0009): a hook for admin events would be a
+  second copy with a weaker access check.
+</p>
+
+<h2>The Danger Zone</h2>
+<p>
+  Four resets, all behind <code>run_destructive_operations</code>, each confirmed in the UI by
+  typing the phrase and on the API by sending it as <code>{"confirmation": "…"}</code>; anything
+  else answers <code>400 Invalid confirmation</code>. Every one writes a
+  <code>NUKE_DATABASE</code> audit entry.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Confirmation</th>
+      <th>Removes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>POST /admin/nuke/producers</code></td>
+      <td><code>DELETE ALL SERVICES</code></td>
+      <td>Every Producer with its versions, endpoints and the dependencies on them.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/nuke/consumers</code></td>
+      <td><code>DELETE ALL CLIENTS</code></td>
+      <td>Every Consumer and its recorded dependencies.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/nuke/users</code></td>
+      <td><code>DELETE ALL USERS</code></td>
+      <td>
+        Every user who is not an effective administrator: holders of <code>admin</code>, directly or
+        through a group, and the configured root accounts are spared.
+      </td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/nuke/database</code></td>
+      <td><code>NUKE DATABASE</code></td>
+      <td>Everything; the instance is as after its first start, except for the caller.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Take a <a href="backup.html">backup</a> first. There is no undo, and the audit entry is the only
+  trace.
+</p>
+
+<p class="checked">Checked against v2.6.0.</p>

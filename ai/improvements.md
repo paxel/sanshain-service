@@ -333,7 +333,7 @@ text:
 
 ### 10. Add request-size limits and parser resource limits — DONE (1.5.0)
 
-`create_app` now applies `DefaultBodyLimit::max(state.max_body_bytes)`; the limit is configurable via `MAX_SPEC_BODY_BYTES` (default `DEFAULT_MAX_BODY_BYTES` = 4 MiB, raised from axum's previous implicit 2 MiB; invalid or `0` values fall back to the default) and oversized bodies are rejected with `413 Payload Too Large` at extraction time — the limit counts decompressed bytes, so compressed uploads cannot bypass it. Parser-level protection relies on `serde_yaml_ng`'s built-in recursion limit, which turns pathologically nested YAML into a parse error surfaced as `400 Bad Request`; this is pinned by `split_rejects_excessively_nested_yaml` (tests/openapi_split_tests.rs). Over/under-limit behavior is covered by `test_request_body_over_limit_is_rejected_under_limit_accepted` (tests/integration_test.rs). Documented in `docs/configuration.md`; `api.yaml` lists the `413` response for `/provide*` and `/require-bundle`.
+`create_app` now applies `DefaultBodyLimit::max(state.max_body_bytes)`; the limit is configurable via `MAX_SPEC_BODY_BYTES` (default `DEFAULT_MAX_BODY_BYTES` = 4 MiB, raised from axum's previous implicit 2 MiB; invalid or `0` values fall back to the default) and oversized bodies are rejected with `413 Payload Too Large` at extraction time — the limit counts decompressed bytes, so compressed uploads cannot bypass it. Parser-level protection relies on `serde_yaml_ng`'s built-in recursion limit, which turns pathologically nested YAML into a parse error surfaced as `400 Bad Request`; this is pinned by `split_rejects_excessively_nested_yaml` (tests/openapi_split_tests.rs). Over/under-limit behavior is covered by `test_request_body_over_limit_is_rejected_under_limit_accepted` (tests/integration_test.rs). Documented in [Configuration](https://paxel.github.io/sanshain-service/operator/configuration.html); `api.yaml` lists the `413` response for `/provide*` and `/require-bundle`.
 
 ### 11. Tighten browser security headers and remove inline-script dependency — DONE (2026-08-11)
 
@@ -478,7 +478,7 @@ representation.
   require-bundle, mutually exclusive with `trunk` (both → `400`)
 - `src/presentation/handlers/admin.rs`, `maintenance.yaml` — branch create/delete/list endpoints
 - `static/graph.html`, `static/js/graph.js` — graph selector, timeline slider, diff view
-- `docs/sanshain-yaml.md`, `docs/user-guide.md`, `docs/administration.md`, `CHANGELOG.md`
+- `docs/sanshain-yaml.md`, `docs/user-guide.md`, [Administration](https://paxel.github.io/sanshain-service/operator/administration.html), `CHANGELOG.md`
 
 **Implementation instructions:**
 
@@ -669,7 +669,7 @@ from trivial lag.
 **Relevant areas:**
 
 - `src/main.rs` environment parsing
-- `docs/administration.md`, `docs/troubleshooting.md`
+- [Administration](https://paxel.github.io/sanshain-service/operator/administration.html), [Troubleshooting](https://paxel.github.io/sanshain-service/operator/troubleshooting.html)
 
 **Implementation instructions:**
 
@@ -1016,7 +1016,7 @@ with concurrent request count even for pure reads.
 **Relevant areas:**
 
 - `src/main.rs` (SQLite pool construction, `MAX_SQLITE_CONNECTIONS`)
-- `docs/configuration.md` (document the new default)
+- [Configuration](https://paxel.github.io/sanshain-service/operator/configuration.html) (document the new default)
 
 **Implementation instructions:**
 
@@ -1027,7 +1027,7 @@ with concurrent request count even for pure reads.
 2. Raise the default to a small fixed number (e.g. 5). Keep `MAX_SQLITE_CONNECTIONS` as the
    override knob. Do not build a split read/write pool unless the simple raise proves
    insufficient — KISS.
-3. Update `docs/configuration.md` and `CHANGELOG.md` (user-facing default change).
+3. Update [Configuration](https://paxel.github.io/sanshain-service/operator/configuration.html) and `CHANGELOG.md` (user-facing default change).
 
 **Validation:**
 
