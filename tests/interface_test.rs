@@ -97,7 +97,9 @@ async fn test_admin_settings_interface_consistency() {
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
     }
     let (app, repo) = setup_app().await;
-    services::ensure_initial_admin(&repo).await.unwrap();
+    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
 
     // Login to get token
     let login_req = Request::builder()
@@ -161,7 +163,9 @@ async fn test_admin_list_interface_consistency() {
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
     }
     let (app, repo) = setup_app().await;
-    services::ensure_initial_admin(&repo).await.unwrap();
+    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
 
     let login_req = Request::builder()
         .method("POST")

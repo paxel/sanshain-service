@@ -341,9 +341,10 @@
       <td>unset</td>
       <td>
         The URL people open Sanshain at (<code>https://sanshain.corp</code>), for the deep links in
-        webhook messages; a trailing slash is dropped and it must start with <code>http://</code> or
-        <code>https://</code>. Unset, the origin of the OIDC redirect URL is used; with neither, the
-        links are omitted.
+        webhook messages and for the admin page named in the first-start message; a trailing slash
+        is dropped and it must start with <code>http://</code> or <code>https://</code>. Unset, the
+        deep links use the origin of the OIDC redirect URL (with neither, they are omitted) and the
+        first-start message names the bind address.
       </td>
     </tr>
   </tbody>

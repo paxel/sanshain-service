@@ -138,7 +138,11 @@
   and prints both lines to stderr:
 </p>
 <pre><code>[INITIAL SETUP] Admin user created. Username: root, Password: &lt;random&gt;
-[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html</code></pre>
+[INITIAL SETUP] Change this password immediately at https://sanshain.corp/admin.html</code></pre>
+<p>
+  The second line names the admin page under <code>PUBLIC_BASE_URL</code>; without it, under the
+  bind address (<code>http://0.0.0.0:3000/admin.html</code> by default).
+</p>
 <p>
   That account is also <a href="../start/glossary.html#root">root</a> by the default of
   <code>SANSHAIN_ROOT_USERS</code>: every permission, including ones no role grants, from
@@ -449,4 +453,4 @@
   drift cannot open a production instance on its own.
 </p>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.6.1.</p>

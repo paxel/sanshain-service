@@ -139,7 +139,9 @@ async fn auto_approve_users_toggle() {
 #[tokio::test]
 async fn ensure_initial_admin_creates() {
     let repo = MockRepo::new();
-    auth_service::ensure_initial_admin(&repo).await.unwrap();
+    auth_service::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
     // The guard is dropped before the await: holding a lock across one is a
     // deadlock waiting to happen, and clippy denies it.
     let user_id = {
@@ -157,7 +159,9 @@ async fn ensure_initial_admin_creates() {
 async fn ensure_initial_admin_skips() {
     let repo = MockRepo::new();
     add_user(&repo, "u", &auth_service::hash_password("p").unwrap(), true);
-    auth_service::ensure_initial_admin(&repo).await.unwrap();
+    auth_service::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
     let users = repo.users.lock().unwrap();
     assert_eq!(users.len(), 1);
 }

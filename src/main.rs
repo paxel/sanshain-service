@@ -238,8 +238,25 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Where the first-login message sends the operator (and, later, the base
+    // of webhook deep links): PUBLIC_BASE_URL when set, the bind address else.
+    let public_base_url = std::env::var("PUBLIC_BASE_URL")
+        .ok()
+        .map(|u| u.trim().trim_end_matches('/').to_string())
+        .filter(|u| !u.is_empty());
+    if let Some(url) = &public_base_url
+        && !(url.starts_with("http://") || url.starts_with("https://"))
+    {
+        eprintln!(
+            "CONFIGURATION ERROR: PUBLIC_BASE_URL={url:?} must start with http:// or https://."
+        );
+        std::process::exit(1);
+    }
+    let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
+
     // Ensure initial admin user exists
-    if let Err(e) = services::ensure_initial_admin(&repo).await {
+    let admin_url = services::initial_admin_url(public_base_url.as_deref(), &bind_address);
+    if let Err(e) = services::ensure_initial_admin(&repo, &admin_url).await {
         tracing::error!("Can't create initial admin: {}", e);
         eprintln!("ERROR: Can't create initial admin: {}", e);
         std::process::exit(1);
@@ -367,18 +384,6 @@ pub async fn main() {
     if webhook_worker_interval_secs == 0 || webhook_delivery_timeout_secs == 0 {
         eprintln!(
             "CONFIGURATION ERROR: WEBHOOK_WORKER_INTERVAL_SECS and WEBHOOK_DELIVERY_TIMEOUT_SECS must be greater than 0."
-        );
-        std::process::exit(1);
-    }
-    let public_base_url = std::env::var("PUBLIC_BASE_URL")
-        .ok()
-        .map(|u| u.trim().trim_end_matches('/').to_string())
-        .filter(|u| !u.is_empty());
-    if let Some(url) = &public_base_url
-        && !(url.starts_with("http://") || url.starts_with("https://"))
-    {
-        eprintln!(
-            "CONFIGURATION ERROR: PUBLIC_BASE_URL={url:?} must start with http:// or https://."
         );
         std::process::exit(1);
     }
@@ -543,7 +548,6 @@ pub async fn main() {
 
     let app = create_app(state).layer(prometheus_layer);
 
-    let bind_address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".into());
     if bind_address.starts_with("0.0.0.0") || bind_address.starts_with("[::]") {
         tracing::warn!(
             "SECURITY WARNING: binding to all interfaces ({}). Set BIND_ADDRESS=127.0.0.1:3000 to restrict access to localhost.",

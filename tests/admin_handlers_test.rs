@@ -167,7 +167,9 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
         std::env::set_var("INITIAL_ADMIN_USERNAME", "root");
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
     }
-    services::ensure_initial_admin(&repo).await.unwrap();
+    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
     let (session, _user) = services::login(&repo, "root", "root_password")
         .await
         .unwrap();

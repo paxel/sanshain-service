@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Helm chart gained `extraEnv` for every variable its ConfigMap does not render (`PUBLIC_BASE_URL`, the webhook, MCP, OTEL and LDAP timeout settings and more), as `name`/`value` or `valueFrom` entries.
 - The startup log line for a claimed `SANSHAIN_ROOT_USERS` name no longer tells the operator to reset a password that does not exist; it says the placeholder is taken over by the first LDAP or OIDC login under that name.
 - `maintenance.yaml` documents `201` for granting a role, which is what the route has always answered; the generated reference follows.
+- The first-start message names the admin page under `PUBLIC_BASE_URL` (or the bind address) instead of a hardcoded `http://localhost:3000/admin.html`.
 
 ---
 

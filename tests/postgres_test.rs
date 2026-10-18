@@ -109,7 +109,9 @@ async fn test_postgres_full_flow_with_testcontainers() {
         .expect("Failed to run PostgreSQL migrations");
 
     // 3. Setup app
-    services::ensure_initial_admin(&repo).await.unwrap();
+    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
     services::set_auth_mode(&repo, &AuthMode::Dev)
         .await
         .unwrap();
@@ -195,7 +197,9 @@ async fn snapshot_download_refuses_on_postgres_and_names_pg_dump() {
         .await
         .expect("Failed to run PostgreSQL migrations");
 
-    services::ensure_initial_admin(&repo).await.unwrap();
+    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+        .await
+        .unwrap();
     services::set_auth_mode(&repo, &AuthMode::Dev)
         .await
         .unwrap();

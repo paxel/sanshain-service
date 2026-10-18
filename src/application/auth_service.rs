@@ -72,7 +72,21 @@ pub async fn claim_root_usernames(
     Ok(())
 }
 
-pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppError> {
+/// Where the first-login message sends the operator: the admin page under
+/// `PUBLIC_BASE_URL` when it is set, under the bind address otherwise.
+pub fn initial_admin_url(public_base_url: Option<&str>, bind_address: &str) -> String {
+    match public_base_url {
+        Some(base) => format!("{}/admin.html", base.trim_end_matches('/')),
+        None => format!("http://{bind_address}/admin.html"),
+    }
+}
+
+/// Create the bootstrap administrator when no user exists. `admin_url` is
+/// where the printed message sends the operator, see [`initial_admin_url`].
+pub async fn ensure_initial_admin(
+    repo: &impl SpecRepository,
+    admin_url: &str,
+) -> Result<(), AppError> {
     let count = repo.user_count().await?;
     if count == 0 {
         let username =
@@ -92,9 +106,7 @@ pub async fn ensure_initial_admin(repo: &impl SpecRepository) -> Result<(), AppE
             "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
             username, password
         );
-        eprintln!(
-            "[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html"
-        );
+        eprintln!("[INITIAL SETUP] Change this password immediately at {admin_url}");
     }
     Ok(())
 }
@@ -845,7 +857,9 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_initial_admin_creates_user() {
         let repo = MockRepo::new();
-        ensure_initial_admin(&repo).await.unwrap();
+        ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+            .await
+            .unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "root");
@@ -864,7 +878,9 @@ mod tests {
     async fn test_ensure_initial_admin_skips_when_users_exist() {
         let repo = MockRepo::new();
         repo.create_user("existing", "hash", true).await.unwrap();
-        ensure_initial_admin(&repo).await.unwrap();
+        ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
+            .await
+            .unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "existing");
@@ -1015,6 +1031,21 @@ mod tests {
         assert!(
             matches!(err, AppError::Unauthorized),
             "the directory password is not a local one"
+        );
+    }
+    #[test]
+    fn initial_admin_url_prefers_the_public_base_url() {
+        assert_eq!(
+            initial_admin_url(Some("https://sanshain.corp"), "0.0.0.0:3000"),
+            "https://sanshain.corp/admin.html"
+        );
+        assert_eq!(
+            initial_admin_url(Some("https://sanshain.corp/"), "0.0.0.0:3000"),
+            "https://sanshain.corp/admin.html"
+        );
+        assert_eq!(
+            initial_admin_url(None, "127.0.0.1:3000"),
+            "http://127.0.0.1:3000/admin.html"
         );
     }
 }
