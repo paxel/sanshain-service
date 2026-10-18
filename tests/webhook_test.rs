@@ -1290,13 +1290,16 @@ async fn a_failing_receiver_is_retried_after_the_backoff_and_delivered_on_succes
         Some(json!({"name": "rel2"})),
     )
     .await;
-    pass(&ctx, &config(None), t0).await;
-    pass(&ctx, &config(None), t0 + chrono::Duration::seconds(30)).await;
+    // A fresh clock: the new delivery is due from its real creation time, which
+    // on a slow runner is seconds after `t0` and would make the first pass skip it.
+    let t1 = Utc::now();
+    pass(&ctx, &config(None), t1).await;
+    pass(&ctx, &config(None), t1 + chrono::Duration::seconds(30)).await;
     let row = &deliveries(&ctx, hook).await[0];
     assert_eq!(row.attempts, 2);
     assert_eq!(
         row.next_attempt_at,
-        (t0 + chrono::Duration::seconds(90)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        (t1 + chrono::Duration::seconds(90)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
     );
 }
 
