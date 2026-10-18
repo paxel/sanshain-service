@@ -1094,6 +1094,237 @@ h3:hover .anchor,
   margin: 0;
 }
 
+/* ---------- recorded walkthroughs: stepper, evidence, story graph (#57) ---------- */
+
+/* Without the script every step is visible in order and the controls stay
+   hidden; the script hides all but the current step and shows them. */
+.story:not(.is-enhanced) .stepper-nav {
+  display: none;
+}
+
+.stepper-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0 0 1rem;
+}
+
+.stepper-nav button {
+  font: inherit;
+  font-size: 0.925rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  transition:
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.stepper-nav button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stepper-nav button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.step-counter {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.step-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  counter-reset: step;
+}
+
+.step-list a {
+  display: inline-block;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  text-decoration: none;
+  counter-increment: step;
+}
+
+.step-list a::before {
+  content: counter(step) " ";
+  font-weight: 600;
+}
+
+.step-list a:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.step-list a[aria-current="step"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.step {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.5rem;
+}
+
+.step[hidden] {
+  display: none;
+}
+
+.step > h2:focus {
+  outline: none;
+}
+
+.step .eyebrow {
+  margin-top: 1.25rem;
+}
+
+.evidence {
+  max-height: 32rem;
+  overflow: auto;
+  font-size: 0.8rem;
+}
+
+.evidence-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0 0 0.35rem;
+}
+
+/* The story graph: a catalog drawn once; each step says which parts exist and
+   which changed. Colours are the page tokens, so the figure follows the theme. */
+.story-graph [data-g] {
+  transition: opacity var(--ease);
+}
+
+.story-graph [data-g].is-hidden {
+  opacity: 0.12;
+}
+
+.story-graph .sg-box {
+  fill: var(--surface);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+
+.story-graph .sg-consumer .sg-box {
+  stroke-dasharray: 4 3;
+}
+
+.story-graph .sg-resource .sg-box {
+  fill: var(--code-bg);
+}
+
+.story-graph .sg-chip {
+  fill: var(--code-bg);
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.story-graph .sg-ga .sg-chip {
+  fill: var(--sun);
+  stroke: var(--sun);
+}
+
+.story-graph .sg-ga text {
+  fill: var(--accent-ink);
+}
+
+.story-graph text {
+  fill: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.story-graph .sg-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.story-graph .sg-muted {
+  fill: var(--muted);
+}
+
+.story-graph .sg-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+
+.story-graph .sg-line-muted {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+}
+
+.story-graph .sg-arrow {
+  fill: var(--ink);
+}
+
+.story-graph .sg-branch .sg-box {
+  stroke: var(--accent);
+  stroke-dasharray: 6 3;
+  fill: transparent;
+}
+
+.story-graph [data-g].is-highlight .sg-box,
+.story-graph [data-g].is-highlight .sg-chip {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
+.story-graph [data-g].is-highlight .sg-line,
+.story-graph [data-g].is-highlight .sg-line-muted {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
+
+.story-graph [data-g].is-highlight .sg-arrow {
+  fill: var(--accent);
+}
+
+.story-graph [data-g].is-highlight .sg-label {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+.story-graph .sg-rejected .sg-box,
+.story-graph .sg-rejected .sg-chip {
+  stroke: var(--method-delete);
+}
+
+.story-graph .sg-rejected text {
+  fill: var(--method-delete);
+}
+
+.story-graph figcaption {
+  min-height: 1.2em;
+}
+
+/* A recipe is a short task: its command, the recorded answer, the links. */
+.recipe {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.25rem;
+}
+
 /* ---------- footer ---------- */
 
 .site-footer {

@@ -1,0 +1,10 @@
+POST /admin/users/2/roles HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "role": "releaser"
+}
+
+HTTP/1.1 201 Created
+content-length: 0

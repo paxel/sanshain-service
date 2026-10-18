@@ -1,0 +1,4 @@
+serviceName: payments
+catalogInfo: catalog-info.yaml
+provides:
+  - file: openapi.yaml        # version read from info.version

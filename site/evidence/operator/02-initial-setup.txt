@@ -1,0 +1,2 @@
+[INITIAL SETUP] Admin user created. Username: root, Password: walkthrough-admin
+[INITIAL SETUP] Change this password immediately at http://localhost:3000/admin.html

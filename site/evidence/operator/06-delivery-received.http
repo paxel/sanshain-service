@@ -1,0 +1,12 @@
+POST /sanshain HTTP/1.1
+Content-Type: application/json
+Sanshain-Event: webhook.test
+X-Sanshain-Delivery: 1
+Sanshain-Signature: t=1792336244,v1=af94b4d33cbffb902bfa11b9437ad4089795462e13fed4dd460498cf1d417603
+User-Agent: Sanshain/2.6.0
+
+{
+  "text": "*webhook.test* — Test event from Sanshain for hook 1: This is a test event from Sanshain. If you can read this, the receiver, the signature secret and the allow-list are all in order. <https://sanshain.corp/admin.html|Open in Sanshain>"
+}
+
+HTTP/1.1 200 OK

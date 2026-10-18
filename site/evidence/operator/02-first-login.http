@@ -1,0 +1,15 @@
+POST /auth/login HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "root",
+  "password": "walkthrough-admin"
+}
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 76
+
+{
+  "token": "<session token>"
+}

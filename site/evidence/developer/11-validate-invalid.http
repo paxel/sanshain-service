@@ -1,0 +1,17 @@
+POST /validate HTTP/1.1
+Content-Type: application/json
+
+{
+  "api_type": "openapi",
+  "content": "openapi: 3.0.3\ninfo:\n  title: Payments\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        \"201\":\n          description: Created\n  /payments/{paymentId}:\n    get:\n      summary: One payment\n      parameters:\n        - name: paymentId\n          in: path\n          required: true\n          schema: { type: string }\n      responses:\n        \"200\":\n          description: OK\n  /payments/{id}/capture:\n    post:\n      summary: Capture an authorised payment\n      responses:\n        \"200\":\n          description: OK\n  /payments/{id}/refund:\n    post:\n      summary: Refund a captured payment\n      responses:\n        \"200\":\n          description: OK"
+}
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 146
+
+{
+  "valid": false,
+  "api_type": "openapi",
+  "error": "spec has no info.version — the version is required and lives in the spec file (MAJOR.MINOR.PATCH)"
+}

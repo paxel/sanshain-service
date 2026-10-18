@@ -46,6 +46,22 @@
   callers who may manage it. A hook on an unknown Producer or Consumer answers <code>404</code>
   <code>Producer 'x' is unknown</code>.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/admin_webhooks.png"
+    alt="The Webhooks section of the admin page: the allow-list, the registration form, and one global hook in Slack format marked exempt with Pause, Send test, Rotate secret, Deliveries and Delete"
+    loading="lazy"
+  />
+  <figcaption>Global hooks and the allow-list on the admin page.</figcaption>
+</figure>
+<figure class="screenshot">
+  <img
+    src="../assets/images/producer_webhooks_card.png"
+    alt="The Webhooks card on a Producer page with the registration form and the empty hook list"
+    loading="lazy"
+  />
+  <figcaption>A Producer's own hooks, on its page.</figcaption>
+</figure>
 <p>
   Registering (<code>POST</code> on the scope's collection) takes the receiver URL, the body
   <code>format</code> (<code>json</code>, default, <code>slack</code> or <code>teams</code>), the

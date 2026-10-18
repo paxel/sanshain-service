@@ -1,0 +1,19 @@
+PUT /admin/auth-config HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "auth_mode": "oidc",
+  "oidc_config": {
+    "issuer_url": "https://login.acme.corp/realms/corp",
+    "client_id": "sanshain",
+    "client_secret": "oidc-client-secret-from-the-provider",
+    "redirect_url": "https://sanshain.corp/auth/oidc/callback",
+    "username_claim": "preferred_username",
+    "groups_claim": "groups",
+    "admin_group": "sanshain-admins"
+  }
+}
+
+HTTP/1.1 200 OK
+content-length: 0

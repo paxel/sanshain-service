@@ -1,0 +1,246 @@
+<!-- page: title="Developer recipes" track="developer" order=9 summary="Single tasks, one section each: mint a read-only token, validate before publishing, fix a forgotten bump, publish a major, promote a snapshot, compare versions, see who changed an endpoint, cut a branch, report for a release, push the catalog, ask over MCP. Each with the command, the recorded answer and the links." -->
+<p class="lede">
+  One task per section, each with the command, the answer a 2.6.0 instance gave, and where to read
+  more. The answers are the recordings of <a href="story.html">A team's story</a>; where a task is
+  not in the story, the answer is quoted from the
+  <a href="../reference/api.html">REST API</a> reference. Set <code>SANSHAIN</code> to your instance
+  and <code>SANSHAIN_TOKEN</code> to a token; the recordings show the address as
+  <code>https://sanshain.corp</code>.
+</p>
+
+<h2 id="mint-a-read-only-token">Mint a read-only token for an AI client</h2>
+<div class="recipe">
+  <p>
+    From a session (log in first, or use the account page), with <code>"scope": "read_only"</code>;
+    <code>full</code> is the default for CI.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/auth/tokens \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name":"claude-code","expires_in_days":90,"scope":"read_only"}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-12">story, step 12</a>)</p>
+  <pre class="evidence" data-evidence="developer/12-read-only-token.http"></pre>
+  <p>
+    <a href="mcp.html#the-token">MCP: the token</a> ·
+    <a href="../reference/api.html#post-auth-tokens">POST /auth/tokens</a> ·
+    <a href="../reference/api-usage.html#scopes-full-and-read-only">Scopes</a>
+  </p>
+</div>
+
+<h2 id="validate-a-spec-before-publishing">Validate a spec before publishing</h2>
+<div class="recipe">
+  <p>No token, nothing stored; the answer is always <code>200</code> with a verdict.</p>
+  <pre><code>curl -s -X POST $SANSHAIN/validate -H "Content-Type: application/json" \
+  -d "{\"api_type\":\"openapi\",\"content\":$(jq -Rs . &lt; openapi.yaml)}"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-11">story, step 11</a>)</p>
+  <pre class="evidence" data-evidence="developer/11-validate.http"></pre>
+  <p>
+    <a href="web-ui.html#the-landing-page-and-the-validator">The validator</a> ·
+    <a href="../reference/api.html#post-validate">POST /validate</a>
+  </p>
+</div>
+
+<h2 id="check-a-pull-request-without-storing-anything">
+  Check a pull request without storing anything
+</h2>
+<div class="recipe">
+  <p>
+    A provide with <code>"dry_run": true</code> runs the version rules too (the validator does not)
+    and persists nothing. Expect the same answers as a real provide: <code>202</code>, or
+    <code>409</code> with <code>proposed_version</code>.
+  </p>
+  <pre><code>curl -f -X POST $SANSHAIN/provide \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"producername\":\"payments\",\"stability\":\"ga\",\"openapi_yaml\":$(jq -Rs . &lt; openapi.yaml),\"dry_run\":true}"</code></pre>
+  <p>
+    Not in the story; the answer shapes are the two below.
+    <a href="ci-integration.html#dry-runs-for-pull-requests">CI integration: dry runs</a> ·
+    <a href="../reference/api.html#post-provide">POST /provide</a>
+  </p>
+</div>
+
+<h2 id="fix-a-forgotten-version-bump">Fix a forgotten version bump</h2>
+<div class="recipe">
+  <p>
+    The <code>409</code> names the number; set it in <code>info.version</code> and provide again.
+  </p>
+  <p class="evidence-label">Recorded (<a href="story.html#step-4">story, step 4</a>)</p>
+  <pre class="evidence" data-evidence="developer/04-forgotten-bump.http"></pre>
+  <p>
+    <a href="api-lifecycle.html#3-choosing-the-next-version-the-server-proposes"
+      >The server proposes</a
+    >
+    ·
+    <a href="ci-integration.html#version-conflicts-are-self-service"
+      >Version conflicts are self-service</a
+    >
+  </p>
+</div>
+
+<h2 id="publish-a-breaking-change">Publish a breaking change</h2>
+<div class="recipe">
+  <p>
+    A removed or renamed path behind a minor bump is refused; the major the answer proposes goes
+    through. With a client, the ga switch on the release pipeline does the publish.
+  </p>
+  <pre><code>SANSHAIN_GA=true sanshain-go -trunk provide     # or: cargo sanshain provide --ga --trunk</code></pre>
+  <p class="evidence-label">
+    Recorded (<a href="story.html#step-5">story, steps 5</a> and <a href="story.html#step-6">6</a>)
+  </p>
+  <pre class="evidence" data-evidence="developer/05-breaking-minor.http"></pre>
+  <pre class="evidence" data-evidence="developer/06-major-ga.txt"></pre>
+  <p>
+    <a href="api-lifecycle.html#the-rules-of-a-version-line">The rules of a version line</a> ·
+    <a href="clients.html#go">Clients: Go</a>
+  </p>
+</div>
+
+<h2 id="promote-a-snapshot-to-ga">Promote a snapshot to GA</h2>
+<div class="recipe">
+  <p>
+    Provide the same content with <code>"stability": "ga"</code>; the answer says
+    <code>promoted: true</code>.
+  </p>
+  <p class="evidence-label">Recorded (<a href="story.html#step-7">story, step 7</a>)</p>
+  <pre class="evidence" data-evidence="developer/07-promote.http"></pre>
+  <p>
+    <a href="api-lifecycle.html#2-going-ga">Going GA</a> ·
+    <a href="../start/glossary.html#promotion">Glossary: promotion</a>
+  </p>
+</div>
+
+<h2 id="require-one-endpoint-by-hand">Require one endpoint by hand</h2>
+<div class="recipe">
+  <p>
+    The exact pin and one endpoint; the snippet comes back as YAML with the
+    <code>x-sanshain-*</code> headers.
+  </p>
+  <pre><code>curl -g -s "$SANSHAIN/require?consumername=orders&amp;producername=payments&amp;version=1.0.0&amp;path=/payments&amp;method=POST&amp;trunk=true" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-3">story, step 3</a>)</p>
+  <pre class="evidence" data-evidence="developer/03-require.http"></pre>
+  <p>
+    <a href="../start/concepts.html#pins-and-how-a-require-is-answered">Concepts: pins</a> ·
+    <a href="../reference/api.html#get-require">GET /require</a>
+  </p>
+</div>
+
+<h2 id="compare-two-versions">Compare two versions</h2>
+<div class="recipe">
+  <p>
+    A session call; add <code>path</code> and <code>method</code> to diff one endpoint's snippet.
+  </p>
+  <pre><code>curl -s "$SANSHAIN/admin/producers/payments/diff?api_type=openapi&amp;from=1.0.0&amp;to=2.0.0" \
+  -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-8">story, step 8</a>)</p>
+  <pre class="evidence" data-evidence="developer/08-diff.http"></pre>
+  <p>
+    <a href="web-ui.html#the-spec-viewer-history-diff-and-blame">The spec viewer</a> ·
+    <a href="../reference/maintenance.html#get-admin-producers-name-diff"
+      >GET /admin/producers/{name}/diff</a
+    >
+  </p>
+</div>
+
+<h2 id="see-who-changed-an-endpoint">See who changed an endpoint</h2>
+<div class="recipe">
+  <p>The trail of one endpoint across the version line; an API token suffices.</p>
+  <pre><code>curl -s "$SANSHAIN/endpoint-versions?service=payments&amp;api_type=openapi&amp;path=/payments&amp;method=POST" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-8">story, step 8</a>)</p>
+  <pre class="evidence" data-evidence="developer/08-endpoint-history.http"></pre>
+  <p>
+    <a href="../reference/maintenance.html#get-admin-endpoint-versions"
+      >GET /admin/endpoint-versions</a
+    >
+    (the session twin)
+  </p>
+</div>
+
+<h2 id="cut-a-release-branch">Cut a release branch</h2>
+<div class="recipe">
+  <p>
+    Needs the releaser role and a session; <code>source</code> and <code>as_of</code> are optional
+    (trunk, now).
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/branches \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name":"release-2026.10"}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-9">story, step 9</a>)</p>
+  <pre class="evidence" data-evidence="developer/09-branch-cut.http"></pre>
+  <p>
+    <a href="release-graphs.html#cutting-a-branch">Cutting a branch</a> ·
+    <a href="../reference/maintenance.html#post-admin-branches">POST /admin/branches</a>
+  </p>
+</div>
+
+<h2 id="get-the-report-for-a-release">Get the report for a release</h2>
+<div class="recipe">
+  <p>
+    <code>scope</code> is <code>dev</code>, <code>main</code> or a branch name, the latter two
+    optionally <code>@&lt;RFC 3339 instant&gt;</code>; <code>/report/markdown</code> and
+    <code>/report/isolation</code> take the same parameter.
+  </p>
+  <pre><code>curl -s "$SANSHAIN/report?scope=release-2026.10" -H "Authorization: Bearer $SANSHAIN_TOKEN"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-9">story, step 9</a>)</p>
+  <pre class="evidence" data-evidence="developer/09-scoped-report.http"></pre>
+  <p>
+    <a href="web-ui.html#reports">Reports</a> ·
+    <a href="../reference/api-usage.html#reports-and-graph-scopes"
+      >Using the API: reports and scopes</a
+    >
+  </p>
+</div>
+
+<h2 id="build-on-a-release-branch">Build on a release branch</h2>
+<div class="recipe">
+  <p>
+    A hotfix pipeline tags its provides and requires with the branch; unknown tags do not fail the
+    build but land in the dev graph with a <code>Sanshain-Warning</code>.
+  </p>
+  <pre><code>sanshain-conan --tag release-2026.10 require     # also: --tag on every client, SANSHAIN_TAG in CI</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-9">story, step 9</a>)</p>
+  <pre class="evidence" data-evidence="developer/09-branch-require.txt"></pre>
+  <p>
+    <a href="ci-integration.html#streams-from-the-pipeline">Streams from the pipeline</a> ·
+    <a href="clients.html#conan-c-c">Clients: Conan</a>
+  </p>
+</div>
+
+<h2 id="push-the-catalog">Push the catalog</h2>
+<div class="recipe">
+  <p>
+    With <code>catalogInfo</code> in <code>sanshain.yaml</code> every client pushes on each build;
+    by hand it is one <code>PUT</code>.
+  </p>
+  <pre><code>curl -s -X PUT $SANSHAIN/catalog/payments \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" -H "Content-Type: application/json" \
+  -d "{\"catalog_info_yaml\":$(jq -Rs . &lt; catalog-info.yaml),\"trunk\":true}"</code></pre>
+  <p class="evidence-label">
+    Recorded with the Maven plugin (<a href="story.html#step-10">story, step 10</a>)
+  </p>
+  <pre class="evidence" data-evidence="developer/10-catalog-push.txt"></pre>
+  <p>
+    <a href="ci-integration.html#the-catalog-push">The catalog push</a> ·
+    <a href="../reference/api.html#put-catalog-systemname">PUT /catalog/{systemname}</a>
+  </p>
+</div>
+
+<h2 id="ask-the-catalog-over-mcp">Ask the catalog over MCP</h2>
+<div class="recipe">
+  <p>
+    What a client sends; in practice the assistant does this for you once the endpoint is
+    configured.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/mcp \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"describe_service","arguments":{"name":"payments"}}}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-12">story, step 12</a>)</p>
+  <pre class="evidence" data-evidence="developer/12-mcp-describe.http"></pre>
+  <p>
+    <a href="mcp.html#the-tools">MCP: the tools</a> ·
+    <a href="mcp.html#client-configuration">MCP: client configuration</a>
+  </p>
+</div>
+
+<p class="checked">Recorded against v2.6.0.</p>

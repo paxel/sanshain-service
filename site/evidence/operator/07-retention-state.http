@@ -1,0 +1,10 @@
+GET /admin/settings/snapshot-max-age HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 11
+
+{
+  "days": 30
+}

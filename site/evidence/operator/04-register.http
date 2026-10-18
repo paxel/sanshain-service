@@ -1,0 +1,10 @@
+POST /auth/register HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "maria",
+  "password": "maria-walkthrough"
+}
+
+HTTP/1.1 201 Created
+content-length: 0

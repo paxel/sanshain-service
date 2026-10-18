@@ -1,0 +1,29 @@
+GET /report?scope=release-2026.10 HTTP/1.1
+Authorization: Bearer san_…
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 356
+
+{
+  "unused_endpoints": [],
+  "missing_endpoints": [],
+  "dependency_graph": [
+    {
+      "api_type": "openapi",
+      "client": "orders",
+      "service": "payments",
+      "version": "1.0.0",
+      "stability": "ga",
+      "path": "/payments",
+      "method": "POST",
+      "deprecated": false
+    }
+  ],
+  "service_tags": {},
+  "trunk_graph": [],
+  "harvested_subscriptions": [],
+  "peripheral_dependencies": [],
+  "systems": {},
+  "scope_label": "release-2026.10"
+}

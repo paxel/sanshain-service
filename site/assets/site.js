@@ -206,6 +206,186 @@
     });
   }
 
+  // ---------- recorded walkthroughs: the stepper and the story graph ----------
+  //
+  // A story page holds one `.story` with the steps as `section.step` elements
+  // (ids `step-1`, `step-2`, …) and, optionally, a `.story-graph` figure whose
+  // parts carry `data-g="<name>"`. A step lists the parts that exist at that
+  // point in `data-graph` and the parts that changed in `data-graph-highlight`
+  // (comma-separated). Without the script every step is simply visible.
+
+  const story = document.querySelector(".story");
+  const steps = story ? Array.prototype.slice.call(story.querySelectorAll(".step")) : [];
+  if (steps.length) {
+    const graphParts = Array.prototype.slice.call(story.querySelectorAll(".story-graph [data-g]"));
+    const nav = story.querySelector(".stepper-nav");
+    const prev = nav ? nav.querySelector(".step-prev") : null;
+    const next = nav ? nav.querySelector(".step-next") : null;
+    const counter = nav ? nav.querySelector(".step-counter") : null;
+    const list = document.createElement("ol");
+    list.className = "step-list";
+    const listLinks = steps.map(function (step, i) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = "#step-" + (i + 1);
+      const heading = step.querySelector("h2");
+      a.textContent = heading
+        ? heading.textContent
+            .replace(/^\s*\d+\.\s*/, "")
+            .replace(/#\s*$/, "")
+            .trim()
+        : "Step " + (i + 1);
+      li.appendChild(a);
+      list.appendChild(li);
+      return a;
+    });
+    if (nav) nav.insertAdjacentElement("afterend", list);
+    else story.insertBefore(list, steps[0]);
+
+    let current = -1;
+
+    function names(step, attr) {
+      const value = step.getAttribute(attr);
+      return value
+        ? value.split(",").map(function (n) {
+            return n.trim();
+          })
+        : [];
+    }
+
+    // Below the figure's minimum width it scrolls sideways: bring the first
+    // highlighted part into view so the change is never off-screen.
+    function revealInFigure(part) {
+      const figure = story.querySelector(".story-graph");
+      if (!figure || figure.scrollWidth <= figure.clientWidth + 1) return;
+      const box = part.getBoundingClientRect();
+      const frame = figure.getBoundingClientRect();
+      if (box.left >= frame.left && box.right <= frame.right) return;
+      figure.scrollLeft += box.left - frame.left - (frame.width - box.width) / 2;
+    }
+
+    function applyGraph(step) {
+      const shown = names(step, "data-graph");
+      const marked = names(step, "data-graph-highlight");
+      let first = null;
+      graphParts.forEach(function (part) {
+        const name = part.getAttribute("data-g");
+        part.classList.toggle("is-hidden", shown.indexOf(name) < 0);
+        const highlighted = marked.indexOf(name) >= 0;
+        part.classList.toggle("is-highlight", highlighted);
+        if (highlighted && !first) first = part;
+      });
+      const caption = story.querySelector(".story-graph figcaption");
+      if (caption && step.hasAttribute("data-graph-caption")) {
+        caption.textContent = step.getAttribute("data-graph-caption");
+      }
+      if (first) revealInFigure(first);
+    }
+
+    function show(index, options) {
+      const opts = options || {};
+      if (index < 0 || index >= steps.length || index === current) return;
+      current = index;
+      steps.forEach(function (step, i) {
+        step.hidden = i !== index;
+      });
+      listLinks.forEach(function (a, i) {
+        if (i === index) a.setAttribute("aria-current", "step");
+        else a.removeAttribute("aria-current");
+      });
+      if (prev) prev.disabled = index === 0;
+      if (next) next.disabled = index === steps.length - 1;
+      if (counter) counter.textContent = "Step " + (index + 1) + " of " + steps.length;
+      applyGraph(steps[index]);
+      // Navigation pushes a history entry, so Back returns to the previous
+      // step; the initial step and hash-driven changes only replace it.
+      if (opts.hash !== false && window.history && window.history.pushState) {
+        const url = "#step-" + (index + 1);
+        if (opts.replace) window.history.replaceState(null, "", url);
+        else window.history.pushState(null, "", url);
+      }
+      if (opts.focus) {
+        const heading = steps[index].querySelector("h2");
+        if (heading) {
+          heading.setAttribute("tabindex", "-1");
+          heading.focus({ preventScroll: true });
+        }
+        if (nav) nav.scrollIntoView({ block: "nearest" });
+      }
+    }
+
+    // `#step-N` opens a step; a hash naming an element inside a step opens
+    // that step first, so links from the table of contents and search work.
+    function stepFromHash() {
+      const hash = window.location.hash.slice(1);
+      if (!hash) return -1;
+      const m = /^step-(\d+)$/.exec(hash);
+      if (m) return Math.min(steps.length, Math.max(1, Number(m[1]))) - 1;
+      const target = document.getElementById(hash);
+      if (!target) return -1;
+      return steps.findIndex(function (step) {
+        return step.contains(target);
+      });
+    }
+
+    if (prev)
+      prev.addEventListener("click", function () {
+        show(current - 1, { focus: true });
+      });
+    if (next)
+      next.addEventListener("click", function () {
+        show(current + 1, { focus: true });
+      });
+    list.addEventListener("click", function (event) {
+      const a = event.target.closest && event.target.closest("a[href^='#step-']");
+      if (!a) return;
+      show(Number(a.getAttribute("href").slice(6)) - 1, { focus: true });
+      event.preventDefault();
+    });
+    // The address changed by hand, by a link, or by Back/Forward.
+    function syncFromHash() {
+      const index = stepFromHash();
+      if (index < 0) return;
+      show(index, { hash: false, focus: true });
+      const hash = window.location.hash.slice(1);
+      const target = document.getElementById(hash);
+      if (target && !/^step-\d+$/.test(hash)) target.scrollIntoView({ block: "start" });
+    }
+    window.addEventListener("hashchange", syncFromHash);
+    window.addEventListener("popstate", syncFromHash);
+    // Arrow keys work while the focus is inside the story (a control, a step
+    // heading), and never steal them from a field or a scrollable block.
+    story.addEventListener("keydown", function (event) {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      if (typing) return;
+      const scrollable =
+        target &&
+        target !== story &&
+        (target.scrollWidth > target.clientWidth || target.scrollHeight > target.clientHeight);
+      if (scrollable) return;
+      if (event.key === "ArrowRight") show(current + 1, { focus: true });
+      else if (event.key === "ArrowLeft") show(current - 1, { focus: true });
+      else return;
+      event.preventDefault();
+    });
+
+    story.classList.add("is-enhanced");
+    const initial = stepFromHash();
+    show(initial >= 0 ? initial : 0, { hash: initial >= 0, replace: true });
+    if (initial >= 0) {
+      const hash = window.location.hash.slice(1);
+      const target = document.getElementById(hash);
+      if (target && !/^step-\d+$/.test(hash)) target.scrollIntoView({ block: "start" });
+    }
+  }
+
   // ---------- search ----------
 
   const input = document.getElementById("search");

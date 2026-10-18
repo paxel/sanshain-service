@@ -1,0 +1,2 @@
+# recorded with curl; the cargo-sanshain invocation is:
+$ cargo sanshain provide            # twice, as the draft grows; then: cargo sanshain provide --ga --trunk

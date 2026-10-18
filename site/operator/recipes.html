@@ -1,0 +1,291 @@
+<!-- page: title="Operator recipes" track="operator" order=11 summary="Single tasks, one section each: change the admin password, approve a user, grant a role, make a maintainer, set the webhook allow-list, register and test a hook, rotate a secret, redeliver, pause or delete a hook, set retention, delete a version, download a snapshot, read the audit log. Each with the command, the recorded or documented answer and the links." -->
+<p class="lede">
+  One task per section, each with the command, the answer a 2.6.0 instance gave, and where to read
+  more. The answers are the recordings of <a href="story.html">An operator's story</a>; where a task
+  is not in the story, the expected answer is quoted from the
+  <a href="../reference/maintenance.html">Maintenance API</a> reference. Administrative routes take
+  a session token (<code>SESSION</code> from <code>POST /auth/login</code>), never an API token,
+  with one exception noted below.
+</p>
+
+<h2 id="log-in-for-a-session">Log in for a session</h2>
+<div class="recipe">
+  <pre><code>SESSION=$(curl -s -X POST $SANSHAIN/auth/login -H "Content-Type: application/json" \
+  -d '{"username":"root","password":"…"}' | jq -r .token)</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-2">story, step 2</a>)</p>
+  <pre class="evidence" data-evidence="operator/02-first-login.http"></pre>
+  <p>
+    <a href="../reference/api-usage.html#sessions-and-api-tokens"
+      >Using the API: sessions and API tokens</a
+    >
+  </p>
+</div>
+
+<h2 id="change-the-admin-password">Change the admin password</h2>
+<div class="recipe">
+  <p>The answer is a new session; every other session of the account ends.</p>
+  <pre><code>curl -s -X POST $SANSHAIN/auth/change-password \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"old_password":"…","new_password":"…"}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-2">story, step 2</a>)</p>
+  <pre class="evidence" data-evidence="operator/02-change-password.http"></pre>
+  <p>
+    <a href="authentication.html#the-initial-admin-and-root"
+      >Authentication: the initial admin and root</a
+    >
+  </p>
+</div>
+
+<h2 id="approve-a-user">Approve a user</h2>
+<div class="recipe">
+  <p>
+    Find the id in <code>GET /admin/users</code>, then approve. The
+    <strong>Auto-approve users</strong> switch skips this for new registrations.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/users/2/approve -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-4">story, step 4</a>)</p>
+  <pre class="evidence" data-evidence="operator/04-approve.http"></pre>
+  <p>
+    <a href="../start/getting-started.html#approving-users">Getting started: approving users</a> ·
+    <a href="../reference/maintenance.html#post-admin-users-id-approve"
+      >POST /admin/users/{id}/approve</a
+    >
+  </p>
+</div>
+
+<h2 id="grant-or-revoke-a-role">Grant or revoke a role</h2>
+<div class="recipe">
+  <p>
+    Roles: <code>admin</code>, <code>releaser</code>, <code>user_manager</code>,
+    <code>viewer</code>. Revoking is <code>DELETE /admin/users/{id}/roles/{role}</code>, answered
+    <code>200</code>.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/users/2/roles \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" -d '{"role":"releaser"}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-4">story, step 4</a>)</p>
+  <pre class="evidence" data-evidence="operator/04-grant-role.http"></pre>
+  <p>
+    <a href="roles.html#roles">Roles and permissions: roles</a> ·
+    <a href="../reference/maintenance.html#post-admin-users-id-roles"
+      >POST /admin/users/{id}/roles</a
+    >
+  </p>
+</div>
+
+<h2 id="make-someone-a-maintainer">Make someone a maintainer of a Producer</h2>
+<div class="recipe">
+  <p>
+    Exactly one of <code>user_id</code> or <code>group_id</code>. The effect shows in that user's
+    <code>GET /auth/me</code> as <code>maintains</code>.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/producers/payments/maintainers \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" -d '{"user_id":2}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-4">story, step 4</a>)</p>
+  <pre class="evidence" data-evidence="operator/04-grant-maintainer.http"></pre>
+  <pre class="evidence" data-evidence="operator/04-effect.http"></pre>
+  <p>
+    <a href="roles.html#maintainers">Roles and permissions: maintainers</a> ·
+    <a href="../reference/maintenance.html#post-admin-producers-name-maintainers"
+      >POST /admin/producers/{name}/maintainers</a
+    >
+  </p>
+</div>
+
+<h2 id="set-the-webhook-allow-list">Set the webhook allow-list</h2>
+<div class="recipe">
+  <p>
+    Replaces the list. <code>http://</code> in front of a pattern admits plain HTTP to that host.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/settings/webhook-allowed-hosts \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"hosts":["hooks.slack.com","http://n8n.corp.internal"]}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-5">story, step 5</a>)</p>
+  <pre class="evidence" data-evidence="operator/05-allow-list.http"></pre>
+  <p>
+    <a href="webhooks.html#the-allow-list">Webhooks: the allow-list</a> ·
+    <a href="../reference/maintenance.html#post-admin-settings-webhook-allowed-hosts"
+      >POST /admin/settings/webhook-allowed-hosts</a
+    >
+  </p>
+</div>
+
+<h2 id="register-and-test-a-hook">Register and test a hook</h2>
+<div class="recipe">
+  <p>
+    The secret is in the registration answer only. For a Producer's or Consumer's own hook use
+    <code>/admin/producers/{name}/webhooks</code> or
+    <code>/admin/consumers/{name}/webhooks</code> with the same body.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/webhooks \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"url":"https://hooks.slack.com/services/…","format":"slack","event_types":["version.published","provide.rejected"]}'
+curl -s -X POST $SANSHAIN/admin/webhooks/1/test -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-6">story, step 6</a>)</p>
+  <pre class="evidence" data-evidence="operator/06-create-hook.http"></pre>
+  <pre class="evidence" data-evidence="operator/06-test-hook.http"></pre>
+  <p>
+    <a href="webhooks.html#hooks-in-three-scopes">Webhooks: hooks in three scopes</a> ·
+    <a href="../reference/maintenance.html#post-admin-webhooks">POST /admin/webhooks</a>
+  </p>
+</div>
+
+<h2 id="verify-a-delivery">Verify a delivery's signature</h2>
+<div class="recipe">
+  <p>
+    HMAC-SHA256 over <code>&lt;t&gt;.&lt;raw body&gt;</code> with the hook's secret, compared in
+    constant time; reject <code>t</code> older than five minutes.
+  </p>
+  <p class="evidence-label">Recorded (<a href="story.html#step-6">story, step 6</a>)</p>
+  <pre class="evidence" data-evidence="operator/06-delivery-received.http"></pre>
+  <pre class="evidence" data-evidence="operator/06-verify-signature.txt"></pre>
+  <p><a href="webhooks.html#verifying-the-signature">Webhooks: verifying the signature</a></p>
+</div>
+
+<h2 id="rotate-a-webhook-secret">Rotate a webhook secret</h2>
+<div class="recipe">
+  <p>
+    Not in the story. A new secret, answered once, signs every later delivery; audited as
+    <code>WEBHOOK_SECRET_ROTATED</code>.
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/webhooks/1/rotate-secret -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="example-caption">Expected answer</p>
+  <pre><code>HTTP/1.1 200 OK
+{ "webhook": { "id": 1, "secret_hint": "…", … }, "secret": "whsec_…" }</code></pre>
+  <p>
+    <a href="../reference/maintenance.html#post-admin-webhooks-id-rotate-secret"
+      >POST /admin/webhooks/{id}/rotate-secret</a
+    >
+  </p>
+</div>
+
+<h2 id="redeliver-a-delivery">Redeliver a delivery</h2>
+<div class="recipe">
+  <p>
+    Not in the story. Find the delivery in the log; redeliver resets it, a dead one included, for
+    one more attempt with the same event <code>id</code>.
+  </p>
+  <pre><code>curl -s "$SANSHAIN/admin/webhooks/1/deliveries?limit=50" -H "Authorization: Bearer $SESSION"
+curl -s -X POST $SANSHAIN/admin/webhooks/1/deliveries/1/redeliver -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="evidence-label">The log, recorded (<a href="story.html#step-6">story, step 6</a>)</p>
+  <pre class="evidence" data-evidence="operator/06-deliveries.http"></pre>
+  <p class="example-caption">Expected answer of the redeliver</p>
+  <pre><code>HTTP/1.1 202 Accepted
+{ "id": 1, "hook_id": 1, "event_id": "…", "status": "pending", "attempts": 0, "redelivered_at": "…", … }</code></pre>
+  <p>
+    <a href="webhooks.html#retries-the-cutoff-and-redelivery">Webhooks: retries and redelivery</a> ·
+    <a href="../reference/maintenance.html#post-admin-webhooks-id-deliveries-delivery-id-redeliver"
+      >POST …/deliveries/{delivery_id}/redeliver</a
+    >
+  </p>
+</div>
+
+<h2 id="pause-resume-or-delete-a-hook">Pause, resume or delete a hook</h2>
+<div class="recipe">
+  <p>
+    Not in the story. A paused hook's deliveries stay pending and go out on resume; deleting removes
+    the hook and its delivery log.
+  </p>
+  <pre><code>curl -s -X PATCH $SANSHAIN/admin/webhooks/1 \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" -d '{"paused":true}'
+curl -s -X DELETE $SANSHAIN/admin/webhooks/1 -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="example-caption">Expected answers</p>
+  <pre><code>HTTP/1.1 200 OK            (PATCH: the hook, with "paused": true)
+HTTP/1.1 204 No Content     (DELETE)</code></pre>
+  <p>
+    <a href="../reference/maintenance.html#patch-admin-webhooks-id">PATCH /admin/webhooks/{id}</a> ·
+    <a href="../reference/maintenance.html#delete-admin-webhooks-id">DELETE /admin/webhooks/{id}</a>
+  </p>
+</div>
+
+<h2 id="set-retention-and-run-the-cleanup">Set retention and run the cleanup</h2>
+<div class="recipe">
+  <pre><code>curl -s -X POST $SANSHAIN/admin/settings/snapshot-max-age \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" -d '{"days":30}'
+curl -s -X POST $SANSHAIN/admin/cleanup/snapshots \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" -d '{}'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-7">story, step 7</a>)</p>
+  <pre class="evidence" data-evidence="operator/07-cleanup.http"></pre>
+  <p>
+    <a href="administration.html#retention-and-cleanup">Administration: retention and cleanup</a> ·
+    <a href="../reference/maintenance.html#post-admin-settings-snapshot-max-age"
+      >POST /admin/settings/snapshot-max-age</a
+    >
+  </p>
+</div>
+
+<h2 id="delete-a-version">Delete a version</h2>
+<div class="recipe">
+  <p>
+    Not in the story. The audited escape hatch for administrators and the Producer's maintainers;
+    the answer lists the Consumers that pinned it, whose pins now dangle until the number is
+    re-provided. Check them first with <code>…/dependents</code>.
+  </p>
+  <pre><code>curl -s "$SANSHAIN/admin/producers/payments/versions/openapi/2.1.0/dependents" -H "Authorization: Bearer $SESSION"
+curl -s -X DELETE $SANSHAIN/admin/producers/payments/versions/openapi/2.1.0 -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="example-caption">Expected answer of the delete</p>
+  <pre><code>HTTP/1.1 200 OK
+{ "deleted": "2.1.0", "dependents": [] }</code></pre>
+  <p>
+    <a href="administration.html#deleting-a-version">Administration: deleting a version</a> ·
+    <a href="../reference/maintenance.html#delete-admin-producers-name-versions-api-type-version"
+      >DELETE /admin/producers/{name}/versions/{api_type}/{version}</a
+    >
+  </p>
+</div>
+
+<h2 id="download-a-database-snapshot">Download a database snapshot (SQLite)</h2>
+<div class="recipe">
+  <p>
+    The one administrative route that takes a <code>full</code> API token, so a CronJob can call it.
+  </p>
+  <pre><code>curl -fsS -H "Authorization: Bearer $SANSHAIN_TOKEN" -o sanshain-backup.db "$SANSHAIN/admin/backup/sqlite"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-8">story, step 8</a>)</p>
+  <pre class="evidence" data-evidence="operator/08-snapshot.http"></pre>
+  <p>
+    <a href="backup.html#sqlite">Backup: SQLite</a> ·
+    <a href="backup.html#restore">Backup: restore</a> ·
+    <a href="../reference/maintenance.html#get-admin-backup-sqlite">GET /admin/backup/sqlite</a>
+  </p>
+</div>
+
+<h2 id="configure-openid-connect">Configure OpenID Connect</h2>
+<div class="recipe">
+  <p>
+    API only in 2.6.0. Send <code>"client_secret": "****"</code> to keep the stored secret on a
+    later edit.
+  </p>
+  <p class="evidence-label">Recorded (<a href="story.html#step-3">story, step 3</a>)</p>
+  <pre class="evidence" data-evidence="operator/03-oidc-configure.http"></pre>
+  <p>
+    <a href="authentication.html#openid-connect">Authentication: OpenID Connect</a> ·
+    <a href="../reference/maintenance.html#put-admin-auth-config">PUT /admin/auth-config</a>
+  </p>
+</div>
+
+<h2 id="read-the-audit-log">Read the audit log</h2>
+<div class="recipe">
+  <p>
+    The newest entries (<code>limit</code> up to 200);
+    <code>/admin/observability/audit-logs/export</code> is the whole log.
+  </p>
+  <pre><code>curl -s "$SANSHAIN/admin/observability/audit-logs?limit=12" -H "Authorization: Bearer $SESSION"</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-9">story, step 9</a>)</p>
+  <pre class="evidence" data-evidence="operator/09-audit-log.http"></pre>
+  <p>
+    <a href="administration.html#the-audit-log">Administration: the audit log</a> ·
+    <a href="../reference/maintenance.html#get-admin-observability-audit-logs"
+      >GET /admin/observability/audit-logs</a
+    >
+  </p>
+</div>
+
+<h2 id="scrape-the-metrics">Scrape the metrics</h2>
+<div class="recipe">
+  <p>Unauthenticated by default; <code>PROMETHEUS_ENDPOINT</code> moves the path.</p>
+  <pre><code>curl -s $SANSHAIN/metrics | grep '^sanshain_'</code></pre>
+  <p class="evidence-label">Recorded (<a href="story.html#step-10">story, step 10</a>)</p>
+  <pre class="evidence" data-evidence="operator/10-metrics.txt"></pre>
+  <p><a href="observability.html#prometheus-metrics">Observability: Prometheus metrics</a></p>
+</div>
+
+<p class="checked">Recorded against v2.6.0.</p>

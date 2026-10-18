@@ -1,0 +1,702 @@
+<!-- page: title="An operator's story" track="operator" order=10 summary="From the Helm install to a restored snapshot: first login, OIDC, a user with a role and a maintainer scope, the webhook allow-list, a tested hook with its signature, retention, backup and restore, the audit log and the metrics, every step recorded against a 2.6.0 instance." -->
+<p class="lede">
+  The first day of running an instance, in order. Install, log in, change the password, configure
+  OpenID Connect, give a colleague a role and a Producer to maintain, allow a webhook receiver and
+  test a hook, set retention, take a backup and know how to restore it, read the audit log and point
+  Prometheus at the metrics. Every exchange was recorded against a fresh 2.6.0 instance by
+  <code>scripts/record-walkthroughs.sh</code>, after the
+  <a href="../developer/story.html">payments team's story</a> had filled its catalog; the Helm
+  render and the restore are command transcripts, labelled as such, because no cluster was involved.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">How to read this page</p>
+  <p>
+    <strong>Previous</strong>, <strong>Next</strong>, the step chips or the arrow keys move through
+    the steps; <code>#step-N</code> in the address opens one directly. Session tokens are redacted
+    and the instance's address is shown as <code>https://sanshain.corp</code>; everything else is as
+    the service answered it. The recording instance runs SQLite (the snapshot step needs it); the
+    chart is rendered for PostgreSQL, the install the deployment chapter recommends.
+  </p>
+</div>
+
+<div class="story" data-story="operator">
+  <figure class="diagram story-graph" style="--diagram-min-width: 640px">
+    <svg viewBox="0 0 720 262" role="img" aria-labelledby="fig-ops-title fig-ops-desc">
+      <title id="fig-ops-title">
+        The instance and what the operator attaches to it, step by step
+      </title>
+      <desc id="fig-ops-desc">
+        The Sanshain deployment with its database and backup CronJob in the middle; on the left the
+        root administrator, the OpenID Connect provider and the user maria; on the right the
+        payments and orders catalog, the webhook receiver, the snapshot file, the audit log and the
+        metrics endpoint. The parts that exist at the current step are drawn; the ones that changed
+        are highlighted.
+      </desc>
+      <defs>
+        <marker
+          id="sg-arr-ops"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0 0L10 5L0 10z" class="sg-arrow" />
+        </marker>
+      </defs>
+
+      <g data-g="sanshain" class="sg-node">
+        <rect x="250" y="96" width="170" height="44" rx="6" class="sg-box" />
+        <text x="335" y="114" text-anchor="middle" class="sg-label">sanshain</text>
+        <text x="335" y="130" text-anchor="middle" class="sg-muted">Deployment, sanshain.corp</text>
+      </g>
+      <g data-g="db" class="sg-node sg-resource">
+        <path d="M300 140 V172" class="sg-line" />
+        <rect x="250" y="172" width="100" height="30" rx="6" class="sg-box" />
+        <text x="300" y="191" text-anchor="middle" class="sg-mono sg-label">PostgreSQL</text>
+      </g>
+      <g data-g="cronjob" class="sg-node sg-resource">
+        <path d="M400 140 V172" class="sg-line" />
+        <rect x="360" y="172" width="110" height="30" rx="6" class="sg-box" />
+        <text x="415" y="191" text-anchor="middle" class="sg-mono sg-label">CronJob backup</text>
+      </g>
+
+      <g data-g="root" class="sg-node">
+        <rect x="30" y="26" width="120" height="36" rx="6" class="sg-box" />
+        <text x="90" y="42" text-anchor="middle" class="sg-label">root</text>
+        <text x="90" y="56" text-anchor="middle" class="sg-muted">initial admin</text>
+      </g>
+      <g data-g="root-login">
+        <path d="M150 44 C200 44 220 100 248 104" class="sg-line" marker-end="url(#sg-arr-ops)" />
+        <text x="190" y="40" text-anchor="middle" class="sg-muted">login, new password</text>
+      </g>
+
+      <g data-g="idp" class="sg-node">
+        <rect x="30" y="96" width="120" height="36" rx="6" class="sg-box" />
+        <text x="90" y="112" text-anchor="middle" class="sg-label">login.acme.corp</text>
+        <text x="90" y="126" text-anchor="middle" class="sg-muted">OpenID Connect</text>
+      </g>
+      <g data-g="idp-edge">
+        <path d="M150 114 H248" class="sg-line-muted" marker-end="url(#sg-arr-ops)" />
+        <text x="199" y="108" text-anchor="middle" class="sg-muted">configured, not live</text>
+      </g>
+
+      <g data-g="maria" class="sg-node">
+        <rect x="30" y="176" width="120" height="36" rx="6" class="sg-box" />
+        <text x="90" y="192" text-anchor="middle" class="sg-label">maria</text>
+        <text x="90" y="206" text-anchor="middle" class="sg-muted">local account</text>
+      </g>
+      <g data-g="maria-role" class="sg-ga">
+        <rect x="118" y="166" width="52" height="16" rx="8" class="sg-chip" />
+        <text x="144" y="178" text-anchor="middle" class="sg-label">releaser</text>
+      </g>
+      <g data-g="maintains">
+        <path
+          d="M150 194 C300 240 520 220 535 66"
+          class="sg-line-muted"
+          marker-end="url(#sg-arr-ops)"
+        />
+        <text x="330" y="236" text-anchor="middle" class="sg-muted">maintains payments</text>
+      </g>
+
+      <g data-g="payments" class="sg-node">
+        <rect x="480" y="26" width="110" height="36" rx="6" class="sg-box" />
+        <text x="535" y="42" text-anchor="middle" class="sg-label">payments</text>
+        <text x="535" y="56" text-anchor="middle" class="sg-muted">Producer</text>
+      </g>
+      <g data-g="orders" class="sg-node sg-consumer">
+        <rect x="620" y="26" width="80" height="36" rx="6" class="sg-box" />
+        <text x="660" y="42" text-anchor="middle" class="sg-label">orders</text>
+        <text x="660" y="56" text-anchor="middle" class="sg-muted">Consumer</text>
+      </g>
+      <g data-g="pin">
+        <path d="M620 44 H592" class="sg-line" marker-end="url(#sg-arr-ops)" />
+      </g>
+      <g data-g="retention">
+        <text x="535" y="78" text-anchor="middle" class="sg-muted">
+          snapshots expire after 30 d
+        </text>
+      </g>
+
+      <g data-g="hook" class="sg-node">
+        <rect x="480" y="96" width="120" height="36" rx="6" class="sg-box" />
+        <text x="540" y="112" text-anchor="middle" class="sg-label">receiver</text>
+        <text x="540" y="126" text-anchor="middle" class="sg-muted">on the allow-list</text>
+      </g>
+      <g data-g="hook-edge">
+        <path d="M420 114 H478" class="sg-line" marker-end="url(#sg-arr-ops)" />
+        <text x="449" y="108" text-anchor="middle" class="sg-muted">signed POST</text>
+      </g>
+
+      <g data-g="audit" class="sg-node sg-resource">
+        <rect x="620" y="96" width="80" height="36" rx="6" class="sg-box" />
+        <text x="660" y="118" text-anchor="middle" class="sg-label">audit log</text>
+      </g>
+
+      <g data-g="snapshot" class="sg-node sg-resource">
+        <path d="M470 187 H500" class="sg-line" marker-end="url(#sg-arr-ops)" />
+        <rect x="502" y="172" width="198" height="30" rx="6" class="sg-box" />
+        <text x="601" y="191" text-anchor="middle" class="sg-mono sg-label">
+          sanshain-2.6.0-&lt;stamp&gt;.db
+        </text>
+      </g>
+
+      <g data-g="metrics" class="sg-node">
+        <path
+          d="M335 140 C335 200 420 228 478 236"
+          class="sg-line-muted"
+          marker-end="url(#sg-arr-ops)"
+        />
+        <rect x="480" y="222" width="120" height="30" rx="6" class="sg-box" />
+        <text x="540" y="241" text-anchor="middle" class="sg-mono sg-label">/metrics</text>
+        <text x="650" y="241" text-anchor="middle" class="sg-muted">Prometheus</text>
+      </g>
+    </svg>
+    <figcaption>The instance at this step.</figcaption>
+  </figure>
+
+  <nav class="stepper-nav" aria-label="Steps">
+    <button type="button" class="step-prev">← Previous</button>
+    <span class="step-counter" aria-live="polite"></span>
+    <button type="button" class="step-next">Next →</button>
+  </nav>
+
+  <section
+    class="step"
+    id="step-1"
+    data-graph="sanshain,db,cronjob"
+    data-graph-highlight="sanshain,db,cronjob"
+    data-graph-caption="Step 1: the chart renders the Deployment, its Secret and ConfigMap, the Ingress and a backup CronJob."
+  >
+    <h2>1. The Helm install</h2>
+    <p>
+      The operator installs the chart from the repository with PostgreSQL, an ingress and the backup
+      CronJob switched on. Below is
+      <code>helm template</code> with those values: the objects <code>helm install</code> would
+      create. It was not applied to a cluster.
+    </p>
+    <pre class="evidence" data-evidence="operator/01-helm-template.txt"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        <code>DATABASE_URL</code> and the initial admin password live in the Secret, everything else
+        in the ConfigMap.
+      </li>
+      <li>
+        Two PersistentVolumeClaims: <code>sanshain-data</code> (the chart's default
+        <code>persistence</code>, which an external PostgreSQL does not need:
+        <code>persistence.createPvc=false</code> drops it) and <code>sanshain-backup</code> for the
+        CronJob. With the <code>postgres://</code> URL the CronJob runs <code>pg_dump</code>; with
+        SQLite it would download the snapshot of step 8.
+      </li>
+      <li>Both probes, liveness and readiness, are <code>GET /health</code>.</li>
+      <li>
+        <code>secrets.initialAdminPassword</code> is <code>walkthrough-admin</code> here, the
+        throwaway value the recording instance was started with, so step 2 logs in with it.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="deployment.html#the-helm-chart">Deployment: the Helm chart</a> ·
+      <a href="deployment.html#sqlite-or-postgresql">Deployment: SQLite or PostgreSQL</a> ·
+      <a href="backup.html#the-helm-cronjob">Backup: the Helm CronJob</a> ·
+      <a href="configuration.html#environment-variables">Configuration: environment variables</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-2"
+    data-graph="sanshain,db,cronjob,root,root-login"
+    data-graph-highlight="root,root-login"
+    data-graph-caption="Step 2: root logs in and changes the password; the old session ends."
+  >
+    <h2>2. The first login and the admin password</h2>
+    <p>
+      On its first start the service creates the initial admin and prints the password to the log;
+      here it is the throwaway value the Secret of step 1 carries, the one the recording instance
+      was started with. The operator logs in, changes it, and finds that the session from before the
+      change is gone.
+    </p>
+    <p class="evidence-label">The service log at first start</p>
+    <pre class="evidence" data-evidence="operator/02-initial-setup.txt"></pre>
+    <p>
+      The second line names <code>http://localhost:3000/admin.html</code> whatever the instance's
+      public address is: it is written for the laptop case, not from <code>PUBLIC_BASE_URL</code>.
+    </p>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/02-login.png"
+        alt="The sign-in form with username and password fields, a Sign In button and a Sign in with SSO button"
+        loading="lazy"
+      />
+      <figcaption>
+        The sign-in form; the SSO button shows because step 3 was recorded on the same instance.
+      </figcaption>
+    </figure>
+    <p class="evidence-label">Login</p>
+    <pre class="evidence" data-evidence="operator/02-first-login.http"></pre>
+    <p class="evidence-label">Change the password</p>
+    <pre class="evidence" data-evidence="operator/02-change-password.http"></pre>
+    <p class="evidence-label">The old session afterwards</p>
+    <pre class="evidence" data-evidence="operator/02-old-session-gone.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The password change answers a fresh session token and ends every other session of the
+        account: a script that administers logs in again.
+      </li>
+      <li>
+        <code>root</code> is held by configuration (<code>SANSHAIN_ROOT_USERS</code>, or the initial
+        admin's name); its authority cannot be revoked from inside the application.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="authentication.html#the-initial-admin-and-root"
+        >Authentication: the initial admin and root</a
+      >
+      · <a href="../start/getting-started.html#first-login">Getting started: first login</a> ·
+      <a href="../reference/api-usage.html#sessions-and-api-tokens"
+        >Using the API: sessions and API tokens</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-3"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge"
+    data-graph-highlight="idp,idp-edge"
+    data-graph-caption="Step 3: OpenID Connect configured; the secret is stored and never read back."
+  >
+    <h2>3. OpenID Connect, configured</h2>
+    <p>
+      People sign in through the company's identity provider. OIDC is configured through the API
+      (the admin page has no OIDC form in 2.6.0): one <code>PUT</code> with the provider's values,
+      then a <code>GET</code> to see what is stored. No provider was reachable during the recording,
+      so this is the configuration only; the login itself is described in the chapter.
+    </p>
+    <p class="evidence-label">Configure</p>
+    <pre class="evidence" data-evidence="operator/03-oidc-configure.http"></pre>
+    <p class="evidence-label">The stored state</p>
+    <pre class="evidence" data-evidence="operator/03-oidc-state.http"></pre>
+    <p class="evidence-label">Back to local accounts, for the rest of this story</p>
+    <pre class="evidence" data-evidence="operator/03-oidc-back-to-local.http"></pre>
+    <p>
+      In <code>oidc</code> mode nobody can register a local account, and step 4 registers one. The
+      mode goes back to <code>local</code>; the OIDC values stay stored, which is why the sign-in
+      form of step 2 still offers <strong>Sign in with SSO</strong>, and the audit log of step 9
+      shows both changes.
+    </p>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The client secret is answered as <code>****</code>; sending <code>****</code> back keeps the
+        stored one, so a later edit cannot lose it.
+      </li>
+      <li>
+        <code>scopes</code> got its default; <code>admin_group</code> grants the
+        <code>admin</code> role to bearers of that claim value at login, and only grants.
+      </li>
+      <li>
+        The redirect URL's origin is also the fallback for <code>PUBLIC_BASE_URL</code>, the base of
+        the webhook deep links in step 6.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="authentication.html#openid-connect">Authentication: OpenID Connect</a> ·
+      <a href="authentication.html#authentication-modes">Authentication: modes</a> ·
+      <a href="../reference/maintenance.html#put-admin-auth-config">PUT /admin/auth-config</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-4"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin"
+    data-graph-highlight="maria,maria-role,maintains"
+    data-graph-caption="Step 4: maria is approved, a releaser, and maintains payments."
+  >
+    <h2>4. A user, a role, a maintainer scope, and the effect</h2>
+    <p>
+      Maria registers herself, which an administrator has to approve. She gets the
+      <code>releaser</code> role (she may publish GA and cut branches) and becomes a maintainer of
+      <code>payments</code> (she may delete its versions and manage its hooks). Then she logs in and
+      asks what she may do.
+    </p>
+    <p class="evidence-label">Registration</p>
+    <pre class="evidence" data-evidence="operator/04-register.http"></pre>
+    <p class="evidence-label">The user list, before approval</p>
+    <pre class="evidence" data-evidence="operator/04-users.http"></pre>
+    <p class="evidence-label">Approve</p>
+    <pre class="evidence" data-evidence="operator/04-approve.http"></pre>
+    <p class="evidence-label">Grant the role</p>
+    <pre class="evidence" data-evidence="operator/04-grant-role.http"></pre>
+    <p class="evidence-label">Make her a maintainer of payments</p>
+    <pre class="evidence" data-evidence="operator/04-grant-maintainer.http"></pre>
+    <p class="evidence-label">The effect: what maria's session may do</p>
+    <pre class="evidence" data-evidence="operator/04-effect.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/04-users.png"
+        alt="The Users section of the admin page: maria with the releaser badge and approved, root with the admin badge"
+        loading="lazy"
+      />
+      <figcaption>The Users section after the grant.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        A role is a fixed bundle of permissions: <code>releaser</code> is exactly
+        <code>release_ga</code>. Nothing else of the admin page opens for maria.
+      </li>
+      <li>
+        <code>maintains: ["payments"]</code> is the scoped permission: the Producer's routes admit
+        her, every other Producer's refuse her.
+      </li>
+      <li>
+        Granting <code>admin</code> or <code>releaser</code> needs an administrator;
+        <code>manage_roles</code> alone grants the other roles.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="roles.html#roles">Roles and permissions: roles</a> ·
+      <a href="roles.html#maintainers">Roles and permissions: maintainers</a> ·
+      <a href="../start/getting-started.html#approving-users">Getting started: approving users</a> ·
+      <a href="../reference/maintenance.html#post-admin-users-id-roles"
+        >POST /admin/users/{id}/roles</a
+      >
+      ·
+      <a href="../reference/maintenance.html#post-admin-producers-name-maintainers"
+        >POST /admin/producers/{name}/maintainers</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-5"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook"
+    data-graph-highlight="hook"
+    data-graph-caption="Step 5: two receiver hosts are allowed; nothing is sent yet."
+  >
+    <h2>5. The webhook allow-list</h2>
+    <p>
+      A fresh install sends nothing: hooks may only point at hosts the administrator approved. The
+      operator allows Slack and, with the <code>http://</code> prefix, a plain-HTTP receiver inside
+      the cluster. The recording's receiver was a small local server; the text shows it as
+      <code>receiver.sanshain.svc</code>, the screenshots show its real address,
+      <code>http://127.0.0.1:18080</code>.
+    </p>
+    <pre class="evidence" data-evidence="operator/05-allow-list.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        A pattern is a host name with <code>*</code> and <code>?</code>; ports are not matched; the
+        list comes back trimmed and lower-cased.
+      </li>
+      <li>
+        The list binds maintainers. A hook registered by an administrator is exempt from it, for
+        good, and the listing marks it so.
+      </li>
+      <li>It is checked again at every delivery: removing a host stops deliveries to it.</li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="webhooks.html#the-allow-list">Webhooks: the allow-list</a> ·
+      <a href="../reference/maintenance.html#post-admin-settings-webhook-allowed-hosts"
+        >POST /admin/settings/webhook-allowed-hosts</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-6"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook,hook-edge"
+    data-graph-highlight="hook,hook-edge"
+    data-graph-caption="Step 6: a global hook in Slack format, tested, delivered and verified."
+  >
+    <h2>6. A hook, a test delivery, and the signature checked</h2>
+    <p>
+      First the allow-list at work: maria, a maintainer of <code>payments</code>, tries to register
+      a hook for it at a host nobody allowed. Then root registers a global hook in Slack format at
+      the receiver; because root holds <code>manage_settings</code> the hook is marked
+      <code>allow_list_exempt</code>, whatever the list says. The operator sends a test event; the
+      worker delivers it within its interval; the receiver verifies the signature with the secret it
+      was given once.
+    </p>
+    <p class="evidence-label">A maintainer's hook at a host that is not allowed</p>
+    <pre class="evidence" data-evidence="operator/06-maintainer-refused.http"></pre>
+    <p class="evidence-label">Register, as root</p>
+    <pre class="evidence" data-evidence="operator/06-create-hook.http"></pre>
+    <p class="evidence-label">Send a test event</p>
+    <pre class="evidence" data-evidence="operator/06-test-hook.http"></pre>
+    <p class="evidence-label">What the receiver got</p>
+    <pre class="evidence" data-evidence="operator/06-delivery-received.http"></pre>
+    <p class="evidence-label">The receiver's check</p>
+    <pre class="evidence" data-evidence="operator/06-verify-signature.txt"></pre>
+    <p class="evidence-label">The delivery log</p>
+    <pre class="evidence" data-evidence="operator/06-deliveries.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/06-webhooks.png"
+        alt="The Webhooks section of the admin page: the allow-list, the registration form and the hook with its SLACK and EXEMPT badges and the Pause, Send test, Rotate secret, Deliveries and Delete actions"
+        loading="lazy"
+      />
+      <figcaption>
+        The Webhooks section after the test; the hook's address is the recording's real receiver,
+        <code>http://127.0.0.1:18080</code>, named <code>receiver.sanshain.svc</code> in the text
+        above.
+      </figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The <code>403</code> names the allowed hosts; a maintainer's hook at
+        <code>receiver.sanshain.svc</code> or <code>hooks.slack.com</code> would have gone through.
+        An administrator's hook is exempt, so <code>exempt</code> on the badge means "registered by
+        someone the list does not bind".
+      </li>
+      <li>
+        The secret (<code>whsec_…</code>) is in the registration answer and nowhere else afterwards;
+        the listing shows <code>secret_hint</code>.
+      </li>
+      <li>
+        Three headers accompany every delivery: <code>Sanshain-Event</code>,
+        <code>X-Sanshain-Delivery</code> and <code>Sanshain-Signature</code>,
+        <code>t=…,v1=HMAC-SHA256("t.body")</code>.
+      </li>
+      <li>
+        The Slack format is a ready-made message; the link in it uses <code>PUBLIC_BASE_URL</code>.
+      </li>
+      <li>
+        <code>status: delivered</code> after one attempt; a failed one would retry on the backoff
+        schedule for 24 hours and can be redelivered by hand.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="webhooks.html#hooks-in-three-scopes">Webhooks: hooks in three scopes</a> ·
+      <a href="webhooks.html#verifying-the-signature">Webhooks: verifying the signature</a> ·
+      <a href="webhooks.html#retries-the-cutoff-and-redelivery">Webhooks: retries and redelivery</a>
+      · <a href="../reference/maintenance.html#post-admin-webhooks">POST /admin/webhooks</a> ·
+      <a href="../reference/maintenance.html#post-admin-webhooks-id-test"
+        >POST /admin/webhooks/{id}/test</a
+      >
+      ·
+      <a href="../reference/maintenance.html#get-admin-webhooks-id-deliveries"
+        >GET /admin/webhooks/{id}/deliveries</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-7"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook,hook-edge,retention"
+    data-graph-highlight="retention"
+    data-graph-caption="Step 7: snapshots unused for 30 days will be removed; GA never."
+  >
+    <h2>7. Retention, and a cleanup run</h2>
+    <p>
+      Snapshots that nobody provides or requires any more should disappear. The operator sets the
+      age and runs the cleanup once by hand to see what it does; from then on the scheduled pass
+      does it.
+    </p>
+    <p class="evidence-label">Set the age</p>
+    <pre class="evidence" data-evidence="operator/07-retention.http"></pre>
+    <p class="evidence-label">Run the cleanup now</p>
+    <pre class="evidence" data-evidence="operator/07-cleanup.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/07-snapshot-cleanup.png"
+        alt="The Snapshot Cleanup section of the admin page with the max age field set to 30 days and the Run cleanup button"
+        loading="lazy"
+      />
+      <figcaption>The Snapshot Cleanup section.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        <code>deleted: 0</code>: this instance is minutes old and every snapshot was promoted; the
+        pass only removes snapshots unused for the configured days.
+      </li>
+      <li>GA versions are never age-culled; <code>0</code> days switches the cleanup off.</li>
+      <li>Both calls are audit entries (step 9).</li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="administration.html#retention-and-cleanup">Administration: retention and cleanup</a>
+      · <a href="../start/glossary.html#snapshot-expiry">Glossary: snapshot expiry</a> ·
+      <a href="../reference/maintenance.html#post-admin-settings-snapshot-max-age"
+        >POST /admin/settings/snapshot-max-age</a
+      >
+      ·
+      <a href="../reference/maintenance.html#post-admin-cleanup-snapshots"
+        >POST /admin/cleanup/snapshots</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-8"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook,hook-edge,retention,snapshot"
+    data-graph-highlight="cronjob,snapshot"
+    data-graph-caption="Step 8: a consistent snapshot, produced by the engine while the service runs."
+  >
+    <h2>8. The snapshot the CronJob fetches, and the restore</h2>
+    <p>
+      On SQLite the backup is one download, made by the engine (<code>VACUUM INTO</code>) so it is
+      consistent while the service runs. This is the call the Helm CronJob makes with a
+      <code>full</code> API token of an administrator. The restore below is the documented
+      procedure, written out for this snapshot; it was not performed on a cluster.
+    </p>
+    <p class="evidence-label">The download</p>
+    <pre class="evidence" data-evidence="operator/08-snapshot.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/08-database.png"
+        alt="The Database Configuration section of the admin page with the SQLite backend, the database URL and the Download database snapshot button"
+        loading="lazy"
+      />
+      <figcaption>The same snapshot as a button under Database Configuration.</figcaption>
+    </figure>
+    <p class="evidence-label">The restore, as documented</p>
+    <pre class="evidence" data-evidence="operator/08-restore.txt"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The file name carries the instance version and a UTC stamp; the migration runner brings an
+        older snapshot's schema up on the next start, a newer one does not restore.
+      </li>
+      <li>
+        This is the only administrative route that takes an API token (the job's one credential); a
+        <code>read_only</code> token is refused.
+      </li>
+      <li>
+        On PostgreSQL the route answers <code>409</code> and the chart renders a
+        <code>pg_dump</code> CronJob instead.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="backup.html#sqlite">Backup: SQLite</a> ·
+      <a href="backup.html#restore">Backup: restore</a> ·
+      <a href="backup.html#postgresql">Backup: PostgreSQL</a> ·
+      <a href="../reference/maintenance.html#get-admin-backup-sqlite">GET /admin/backup/sqlite</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-9"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook,hook-edge,retention,snapshot,audit"
+    data-graph-highlight="audit"
+    data-graph-caption="Step 9: every step above is an audit entry with the acting user."
+  >
+    <h2>9. The audit log after all of this</h2>
+    <p>
+      Everything the operator did landed in the audit log with the acting user. The observability
+      panel's call lists the newest entries; the audit page shows the same with filters and diffs.
+    </p>
+    <pre class="evidence" data-evidence="operator/09-audit-log.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/09-audit.png"
+        alt="The audit timeline: database snapshot, snapshot cleanup, retention, webhook created, allow-list, maintainer, role, approval and registration entries"
+        loading="lazy"
+      />
+      <figcaption>The audit timeline, newest first.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Administrative entries have <code>action_type: ADMIN</code> and a <code>details</code> line
+        meant to be read as it is; spec updates carry <code>service</code>, <code>version</code>,
+        <code>stream</code> and a diff.
+      </li>
+      <li>
+        A self-registration has no signed-in actor, so it is recorded under
+        <code>DevMode/Anonymous</code>; the approval names the administrator.
+      </li>
+      <li>
+        Reading it needs <code>view_audit</code> (admin and viewer roles);
+        <code>/admin/observability/audit-logs/export</code> gives the whole log.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="administration.html#the-audit-log">Administration: the audit log</a> ·
+      <a href="../developer/web-ui.html#the-audit-timeline">The web UI: the audit timeline</a> ·
+      <a href="../reference/maintenance.html#get-admin-observability-audit-logs"
+        >GET /admin/observability/audit-logs</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-10"
+    data-graph="sanshain,db,cronjob,root,root-login,idp,idp-edge,maria,maria-role,maintains,payments,orders,pin,hook,hook-edge,retention,snapshot,audit,metrics"
+    data-graph-highlight="metrics"
+    data-graph-caption="Step 10: the metrics tell the story in numbers."
+  >
+    <h2>10. The observability page and <code>/metrics</code></h2>
+    <p>
+      The observability page shows resources, throughput, the live log buffer and the debug
+      switches; Prometheus scrapes
+      <code>/metrics</code>. The excerpt below is every <code>sanshain_*</code> line after both
+      stories: two rejected provides, one catalog push, one branch, one delivery, one MCP call.
+    </p>
+    <figure class="screenshot">
+      <img
+        src="../evidence/operator/10-observability.png"
+        alt="The System Observability page: CPU and memory, requests and failures, uptime, the debug tracing switches and the live log buffer"
+        loading="lazy"
+      />
+      <figcaption>
+        The observability page with the log buffer showing the two rejections of the developer
+        story.
+      </figcaption>
+    </figure>
+    <pre class="evidence" data-evidence="operator/10-metrics.txt"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        <code>sanshain_version_rejected_total</code> by reason and Producer is the first thing to
+        alert on: a pipeline keeps failing somewhere.
+      </li>
+      <li>
+        <code>sanshain_webhook_outbox_pending</code> climbing while
+        <code>sanshain_webhook_deliveries_total{outcome="failed"}</code> climbs means a receiver is
+        down or left the allow-list.
+      </li>
+      <li>The HTTP metrics of the Axum layer are there too; the chapter lists every family.</li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="observability.html#prometheus-metrics">Observability: Prometheus metrics</a> ·
+      <a href="observability.html#the-observability-page">Observability: the page</a> ·
+      <a href="observability.html#logs">Observability: logs</a>
+    </p>
+  </section>
+</div>
+
+<h2>Behind the story</h2>
+<p>
+  The single tasks of this story, and the ones it leaves out (rotate a secret, redeliver, pause a
+  hook, delete a version), are the
+  <a href="recipes.html">Operator recipes</a>. To re-record both stories against a newer release,
+  run <code>just record-walkthroughs</code> in the repository: it builds the service, starts a fresh
+  instance on a free port with a temporary database, replays every step, compares every answer with
+  what the step expects, and overwrites <code>site/evidence/</code>.
+</p>
+
+<p class="checked">Recorded against v2.6.0.</p>

@@ -1,0 +1,21 @@
+POST /admin/settings/webhook-allowed-hosts HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "hosts": [
+    "hooks.slack.com",
+    "http://receiver.sanshain.svc"
+  ]
+}
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 48
+
+{
+  "hosts": [
+    "hooks.slack.com",
+    "http://receiver.sanshain.svc"
+  ]
+}

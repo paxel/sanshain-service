@@ -1,0 +1,25 @@
+GET /admin/auth-config HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 342
+
+{
+  "auth_mode": "oidc",
+  "ldap_config": null,
+  "oidc_config": {
+    "admin_group": "sanshain-admins",
+    "client_id": "sanshain",
+    "client_secret": "****",
+    "groups_claim": "groups",
+    "issuer_url": "https://login.acme.corp/realms/corp",
+    "redirect_url": "https://sanshain.corp/auth/oidc/callback",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ],
+    "username_claim": "preferred_username"
+  }
+}

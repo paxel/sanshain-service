@@ -1,0 +1,267 @@
+# Not recorded against a cluster: this is what the chart renders for these values
+$ helm template sanshain deploy/helm/sanshain --set secrets.databaseUrl=postgres://sanshain:secret@postgres.sanshain.svc:5432/sanshain --set secrets.initialAdminPassword=walkthrough-admin --set ingress.enabled=true --set 'ingress.hosts[0].host=sanshain.corp' --set 'ingress.hosts[0].paths[0].path=/' --set 'ingress.hosts[0].paths[0].pathType=Prefix' --set backup.enabled=true --set backup.engine=postgres
+---
+# Source: sanshain/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sanshain
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: sanshain/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sanshain-secrets
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  DATABASE_URL: "cG9zdGdyZXM6Ly9zYW5zaGFpbjpzZWNyZXRAcG9zdGdyZXMuc2Fuc2hhaW4uc3ZjOjU0MzIvc2Fuc2hhaW4="
+  INITIAL_ADMIN_PASSWORD: "d2Fsa3Rocm91Z2gtYWRtaW4="
+---
+# Source: sanshain/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sanshain-config
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  BIND_ADDRESS: "0.0.0.0:3000"
+  RUST_LOG: "info,sanshain_service=debug"
+  MAX_POSTGRES_CONNECTIONS: "20"
+  MAX_SQLITE_CONNECTIONS: "5"
+  SQLITE_BUSY_TIMEOUT_MS: "5000"
+  CLEANUP_INTERVAL_SECS: "3600"
+  CSRF_MAX_AGE_HOURS: "24"
+  LOG_BUFFER_SIZE: "100"
+  SPEC_UPDATED_CHANNEL_SIZE: "100"
+  CAPTURE_LOG_FILTER: "sanshain_service=debug,tower_http=debug"
+  PROMETHEUS_ENDPOINT: "/metrics"
+  STATIC_DIR: "static"
+  LOGIN_SESSION_DURATION_HOURS: "24"
+  INITIAL_ADMIN_USERNAME: "root"
+---
+# Source: sanshain/templates/backup-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sanshain-backup
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "5Gi"
+---
+# Source: sanshain/templates/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sanshain-data
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "1Gi"
+---
+# Source: sanshain/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sanshain
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+---
+# Source: sanshain/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sanshain
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sanshain
+      app.kubernetes.io/instance: sanshain
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sanshain
+        app.kubernetes.io/instance: sanshain
+    spec:
+      serviceAccountName: sanshain
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: sanshain
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          image: "ghcr.io/paxel/sanshain-service:v2.6.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: sanshain-config
+            - secretRef:
+                name: sanshain-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sanshain-data
+---
+# Source: sanshain/templates/backup-cronjob.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sanshain-backup
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: sanshain
+            app.kubernetes.io/instance: sanshain
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            fsGroup: 1000
+          containers:
+            - name: backup
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+              env:
+                - name: RETAIN
+                  value: "7"
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: sanshain-secrets
+                      key: DATABASE_URL
+              image: "postgres:17-alpine"
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  rm -f /backup/*.part
+                  out="/backup/sanshain-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  pg_dump --format=custom --file="$out.part" "$DATABASE_URL"
+                  mv "$out.part" "$out"
+                  ls -1t /backup/*.dump | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+                  ls -l /backup
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: sanshain-backup
+---
+# Source: sanshain/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sanshain
+  labels:
+    helm.sh/chart: sanshain-2.6.0
+    app.kubernetes.io/name: sanshain
+    app.kubernetes.io/instance: sanshain
+    app.kubernetes.io/version: "2.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: "sanshain.corp"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sanshain
+                port:
+                  number: 80

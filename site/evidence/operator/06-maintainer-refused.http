@@ -1,0 +1,16 @@
+POST /admin/producers/payments/webhooks HTTP/1.1
+Authorization: Bearer <maria's session token>
+Content-Type: application/json
+
+{
+  "url": "https://example.com/sanshain",
+  "format": "json"
+}
+
+HTTP/1.1 403 Forbidden
+content-type: application/json
+content-length: 154
+
+{
+  "error": "the host 'example.com' is not in the webhook allow-list — ask an administrator to allow it, or use one of: hooks.slack.com, http://receiver.sanshain.svc"
+}

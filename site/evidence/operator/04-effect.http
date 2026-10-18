@@ -1,0 +1,22 @@
+GET /auth/me HTTP/1.1
+Authorization: Bearer <maria's session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 134
+
+{
+  "approved": true,
+  "id": 2,
+  "is_root": false,
+  "maintains": [
+    "payments"
+  ],
+  "permissions": [
+    "release_ga"
+  ],
+  "roles": [
+    "releaser"
+  ],
+  "username": "maria"
+}

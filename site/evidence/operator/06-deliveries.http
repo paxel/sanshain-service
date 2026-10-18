@@ -1,0 +1,24 @@
+GET /admin/webhooks/1/deliveries?limit=5 HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 351
+
+[
+  {
+    "id": 1,
+    "hook_id": 1,
+    "event_id": "283e88b4-d4a3-43a5-b178-95fb723d6d05",
+    "event_type": "webhook.test",
+    "occurred_at": "2026-10-18T15:10:44Z",
+    "status": "delivered",
+    "attempts": 1,
+    "next_attempt_at": "2026-10-18T15:20:04Z",
+    "last_response_code": 200,
+    "last_error": null,
+    "delivered_at": "2026-10-18T15:10:44Z",
+    "redelivered_at": null,
+    "updated_at": "2026-10-18T15:10:44Z"
+  }
+]

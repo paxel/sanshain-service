@@ -1,0 +1,10 @@
+POST /admin/webhooks/1/test HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 202 Accepted
+content-type: application/json
+content-length: 51
+
+{
+  "event_id": "283e88b4-d4a3-43a5-b178-95fb723d6d05"
+}

@@ -1,0 +1,19 @@
+POST /provide HTTP/1.1
+Authorization: Bearer san_…
+Content-Type: application/json
+
+{
+  "producername": "payments",
+  "stability": "ga",
+  "openapi_yaml": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        \"201\":\n          description: Created\n  /payments/{id}:\n    get:\n      summary: One payment\n      parameters:\n        - name: id\n          in: path\n          required: true\n          schema: { type: string }\n      responses:\n        \"200\":\n          description: OK\n  /payments/{id}/capture:\n    post:\n      summary: Capture an authorised payment\n      responses:\n        \"200\":\n          description: OK",
+  "trunk": true
+}
+
+HTTP/1.1 409 Conflict
+content-type: application/json
+content-length: 202
+
+{
+  "error": "version 1.0.0 of openapi 'payments' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as 1.1.0 instead",
+  "proposed_version": "1.1.0"
+}

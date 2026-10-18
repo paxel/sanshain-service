@@ -55,6 +55,16 @@
   its scope, its expiry and when it last authenticated a request, to the minute, and lets you revoke
   it. The star next to a Producer on the Producers page marks it as one of your favourites.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/account_tokens.png"
+    alt="The account page: the password form, the API token form with the Read-only box, and the token list with a read-only claude-code token and a full payments-ci token"
+    loading="lazy"
+  />
+  <figcaption>
+    The account page: the read-only box and the token list with scope and last use.
+  </figcaption>
+</figure>
 
 <h2>Producers</h2>
 <p>
@@ -108,6 +118,24 @@
   signed POSTs for this Producer's events (new versions, rejected provides, deprecations, new
   Consumers, catalog pushes) with a delivery log per hook.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/producer_context.png"
+    alt="The context card under a Producer's title: owner team-payments (group), the description, and chips for github.com, Runbook and Dashboard"
+    loading="lazy"
+  />
+  <figcaption>The catalog context on the Producer page.</figcaption>
+</figure>
+<figure class="screenshot">
+  <img
+    src="../assets/images/producer_webhooks_card.png"
+    alt="The Webhooks card on a Producer page: the registration form with receiver URL, format, Producer glob and event types, and the empty hook list"
+    loading="lazy"
+  />
+  <figcaption>
+    The Webhooks card, shown to the Producer's maintainers and administrators.
+  </figcaption>
+</figure>
 
 <h2>The spec viewer: history, diff and blame</h2>
 <p>
@@ -142,6 +170,14 @@
   Producer the Consumer currently requires, and are managed by a maintainer of the Producer of the
   same name or by an administrator.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/consumers_list.png"
+    alt="The Consumers page listing the orders Consumer with a favourite star"
+    loading="lazy"
+  />
+  <figcaption>The Consumers page; a Consumer opens to its pins.</figcaption>
+</figure>
 
 <h2>The dependency graph</h2>
 <p>
@@ -191,6 +227,14 @@
   requires, and, below that, its catalog context with the owner, the description and the link chips,
   each opening in a new tab. A system without a catalog-info shows no such block.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/graph_node_panel.png"
+    alt="The dependency graph with the node panel of payments open: Producer node, provides REST, owner team-payments, the description and the link chips"
+    loading="lazy"
+  />
+  <figcaption>The node panel with the catalog context.</figcaption>
+</figure>
 
 <h3>The main view</h3>
 <figure class="screenshot">
@@ -261,6 +305,14 @@
   <code>/report/isolation</code> with <code>?scope=main[@instant]</code> or
   <code>?scope=&lt;branch&gt;[@instant]</code>; a read-only token may read them.
 </p>
+<figure class="screenshot">
+  <img
+    src="../assets/images/reports.png"
+    alt="The reports page: the graph scope selector, the Producer isolation report and the full dependency report cards"
+    loading="lazy"
+  />
+  <figcaption>The reports page.</figcaption>
+</figure>
 <figure class="screenshot">
   <img
     src="../assets/images/report_scope_crop.png"

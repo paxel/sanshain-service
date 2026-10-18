@@ -1,0 +1,20 @@
+POST /admin/branches HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "name": "release-2026.10"
+}
+
+HTTP/1.1 201 Created
+content-type: application/json
+content-length: 137
+
+{
+  "id": 1,
+  "name": "release-2026.10",
+  "created_at": "2026-10-18T15:10:41Z",
+  "created_by": "root",
+  "source": "trunk",
+  "as_of": "2026-10-18T15:10:41Z"
+}

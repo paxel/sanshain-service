@@ -1,0 +1,16 @@
+# orders/, trunk CI of the orders repository
+$ sanshain --trunk require
+Requiring payments 1.0.0 from https://sanshain.corp...
+Saved payments.yaml to generated/payments
+$ cat generated/payments/payments.yaml
+openapi: 3.0.3
+info:
+  title: Payments
+  version: 1.0.0
+paths:
+  /payments:
+    post:
+      summary: Create a payment
+      responses:
+        '201':
+          description: Created

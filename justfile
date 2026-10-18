@@ -33,6 +33,13 @@ ui-test:
 screenshots:
     ./scripts/update_screenshots.sh
 
+# Re-record the documentation walkthroughs (site/evidence/**, the chapter screenshots they
+# share). Builds a release binary, starts a fresh instance on a free port with a temporary
+# SQLite file, replays the Developer and the Operator story with the real clients and curl,
+# fails on any answer that differs from what a step expects, and overwrites the evidence.
+record-walkthroughs:
+    ./scripts/record-walkthroughs.sh
+
 # Build the documentation site (site/ -> site-dist/)
 site:
     node scripts/build-site.js

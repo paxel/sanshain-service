@@ -1,0 +1,41 @@
+GET /admin/producers/payments/diff?api_type=openapi&from=1.0.0&to=2.0.0 HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: text/plain; charset=utf-8
+content-length: 686
+
+--- payments 1.0.0
++++ payments 2.0.0
+@@ -1,7 +1,7 @@
+ openapi: 3.0.3
+ info:
+   title: Payments
+-  version: 1.0.0
++  version: 2.0.0
+ paths:
+   /payments:
+     post:
+@@ -9,14 +9,20 @@
+       responses:
+         "201":
+           description: Created
+-  /payments/{id}:
++  /payments/{paymentId}:
+     get:
+       summary: One payment
+       parameters:
+-        - name: id
++        - name: paymentId
+           in: path
+           required: true
+           schema: { type: string }
+       responses:
+         "200":
+           description: OK
++  /payments/{id}/capture:
++    post:
++      summary: Capture an authorised payment
++      responses:
++        "200":
++          description: OK

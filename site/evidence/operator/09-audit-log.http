@@ -1,0 +1,153 @@
+GET /admin/observability/audit-logs?limit=12 HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 2921
+
+[
+  {
+    "id": 27,
+    "timestamp": "2026-10-18T15:10:46.024237494+00:00",
+    "username": "root",
+    "action": "DATABASE_SNAPSHOT",
+    "details": "Produced database snapshot sanshain-2.6.0-20261018T151046Z.db (385024 bytes)",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 26,
+    "timestamp": "2026-10-18T15:10:45.976338558+00:00",
+    "username": "root",
+    "action": "SNAPSHOT_CLEANUP",
+    "details": "Manually triggered snapshot cleanup, removed 0 snapshots",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 25,
+    "timestamp": "2026-10-18T15:10:45.903067371+00:00",
+    "username": "root",
+    "action": "SET_SNAPSHOT_MAX_AGE",
+    "details": "Set snapshot max age to 30 days",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 24,
+    "timestamp": "2026-10-18T15:10:44.712809053+00:00",
+    "username": "root",
+    "action": "WEBHOOK_CREATED",
+    "details": "Registered webhook 1 (global instance-wide, slack format, host receiver.sanshain.svc)",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 23,
+    "timestamp": "2026-10-18T15:10:44.629590931+00:00",
+    "username": "root",
+    "action": "SET_WEBHOOK_ALLOWED_HOSTS",
+    "details": "Set the webhook allow-list to: hooks.slack.com, http://receiver.sanshain.svc",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 22,
+    "timestamp": "2026-10-18T15:10:44.510150478+00:00",
+    "username": "root",
+    "action": "ASSIGN_MAINTAINER",
+    "details": "User 2 now maintains 'payments'",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 21,
+    "timestamp": "2026-10-18T15:10:44.474911022+00:00",
+    "username": "root",
+    "action": "GRANT_ROLE",
+    "details": "Granted role 'releaser' to user 2",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 20,
+    "timestamp": "2026-10-18T15:10:44.433924150+00:00",
+    "username": "root",
+    "action": "APPROVE_USER",
+    "details": "Approved user 'maria'",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 19,
+    "timestamp": "2026-10-18T15:10:44.357276791+00:00",
+    "username": "DevMode/Anonymous",
+    "action": "REGISTER_USER",
+    "details": "Registered user 'maria'",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 18,
+    "timestamp": "2026-10-18T15:10:44.284054727+00:00",
+    "username": "root",
+    "action": "UPDATE_SETTINGS",
+    "details": "Updated auth mode to 'local' and LDAP configurations",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 17,
+    "timestamp": "2026-10-18T15:10:44.211379119+00:00",
+    "username": "root",
+    "action": "UPDATE_SETTINGS",
+    "details": "Updated auth mode to 'oidc' and LDAP configurations",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  },
+  {
+    "id": 16,
+    "timestamp": "2026-10-18T15:10:44.104609126+00:00",
+    "username": "root",
+    "action": "CHANGE_PASSWORD",
+    "details": "Successfully changed user password",
+    "service": null,
+    "version": null,
+    "action_type": "ADMIN",
+    "diff": null,
+    "stream": null
+  }
+]

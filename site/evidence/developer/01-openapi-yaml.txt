@@ -1,0 +1,22 @@
+openapi: 3.0.3
+info:
+  title: Payments
+  version: 1.0.0
+paths:
+  /payments:
+    post:
+      summary: Create a payment
+      responses:
+        "201":
+          description: Created
+  /payments/{id}:
+    get:
+      summary: One payment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK

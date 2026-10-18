@@ -1,0 +1,10 @@
+PUT /admin/auth-config HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "auth_mode": "local"
+}
+
+HTTP/1.1 200 OK
+content-length: 0

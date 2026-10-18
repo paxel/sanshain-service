@@ -218,6 +218,33 @@ export function processHeadings(body) {
 }
 
 // ---------------------------------------------------------------------------
+// Evidence: recorded walkthrough files (issue #57). A page writes
+// `<pre data-evidence="developer/03-provide.http"></pre>` and the build fills
+// the block with the file's text, escaped, from site/evidence/. A missing file
+// fails the build, so a story can never show an empty block.
+
+const EVIDENCE_BLOCK = /<pre(\s[^>]*?)?\sdata-evidence\s*=\s*"([^"]+)"([^>]*)>([\s\S]*?)<\/pre>/g;
+
+/** Fills every evidence block of a page body from evidenceDir; throws, naming page and file, when one is missing. */
+export function inlineEvidence(body, evidenceDir, pageUrl = "page") {
+  return body.replace(EVIDENCE_BLOCK, (whole, before = "", name, after) => {
+    if (name.split("/").some((part) => part === "" || part === "." || part === "..")) {
+      throw new Error(`${pageUrl}: evidence name "${name}" must be a plain relative path`);
+    }
+    const file = path.join(evidenceDir, ...name.split("/"));
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      throw new Error(
+        `${pageUrl}: evidence file "${name}" is missing (expected ${file}); run ` +
+          `scripts/record-walkthroughs.sh to record it`,
+      );
+    }
+    const text = fs.readFileSync(file, "utf8").replace(/\s+$/, "");
+    if (!text) throw new Error(`${pageUrl}: evidence file "${name}" is empty (${file})`);
+    return `<pre${before} data-evidence="${name}"${after}><code>${escapeHtml(text)}</code></pre>`;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Pages, nav and search index
 
 export function loadPages(srcDir) {
@@ -226,7 +253,7 @@ export function loadPages(srcDir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name !== "assets") walk(full);
+        if (entry.name !== "assets" && entry.name !== "evidence") walk(full);
       } else if (entry.name.endsWith(".html")) {
         const url = path.relative(srcDir, full).split(path.sep).join("/");
         const { meta, body } = parseFrontMatter(fs.readFileSync(full, "utf8"), url);
@@ -261,12 +288,17 @@ export function buildNav(pages) {
 export const GENERATED_EXAMPLE = /<pre class="example">[\s\S]*?<\/pre>/g;
 /** Inline diagrams carry box names and legend labels, which the tables below them repeat. */
 export const GENERATED_DIAGRAM = /<figure class="arc42-diagram"[^>]*>[\s\S]*?<\/figure>/g;
+/** Recorded evidence is an HTTP dump or a transcript: the step's prose says what it shows. */
+export const GENERATED_EVIDENCE = /<pre[^>]*\sdata-evidence=[^>]*>[\s\S]*?<\/pre>/g;
 
 export function buildIndex(pages) {
   const trackLabel = (id) => TRACKS.find((t) => t.id === id)?.label || "";
   return pages.map((page) => {
     const { headings, intro, sections } = processHeadings(
-      page.body.replace(GENERATED_EXAMPLE, "").replace(GENERATED_DIAGRAM, ""),
+      page.body
+        .replace(GENERATED_EXAMPLE, "")
+        .replace(GENERATED_DIAGRAM, "")
+        .replace(GENERATED_EVIDENCE, ""),
     );
     return {
       title: page.title,
@@ -530,6 +562,7 @@ export function buildSite({
   base = "/",
   contracts = DEFAULT_CONTRACTS,
   arc42 = DEFAULT_ARC42,
+  evidenceDir = path.join(srcDir, "evidence"),
 } = {}) {
   if (!base.startsWith("/") || !base.endsWith("/")) {
     throw new Error(`--base must start and end with "/": got "${base}"`);
@@ -537,6 +570,7 @@ export function buildSite({
   guardOutDir(outDir, srcDir);
   const pages = loadPages(srcDir);
   if (!pages.some((p) => p.url === "index.html")) throw new Error(`${srcDir}: no index.html`);
+  for (const page of pages) page.body = inlineEvidence(page.body, evidenceDir, page.url);
   for (const generated of contractPages(contracts, {
     repoUrl: REPO_URL,
     usageUrl: "api-usage.html",
@@ -571,6 +605,14 @@ export function buildSite({
   for (const file of copied) {
     const rel = path.relative(outDir, file).split(path.sep).join("/");
     if (!files.has(rel)) files.set(rel, fs.readFileSync(file, "utf8"));
+  }
+  // The screenshots of the recorded walkthroughs are linked as images; the
+  // text files are inlined above and copied too, so a reader can open them raw.
+  const evidenceOut = [];
+  if (fs.existsSync(evidenceDir)) copyDir(evidenceDir, path.join(outDir, "evidence"), evidenceOut);
+  for (const file of evidenceOut) {
+    const rel = path.relative(outDir, file).split(path.sep).join("/");
+    if (!files.has(rel)) files.set(rel, "");
   }
 
   checkLinks(files, { base });

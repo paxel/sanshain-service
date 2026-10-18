@@ -1,0 +1,5 @@
+POST /admin/users/2/approve HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-length: 0

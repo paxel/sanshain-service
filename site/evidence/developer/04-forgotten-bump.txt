@@ -1,0 +1,2 @@
+# recorded with curl; the cargo-sanshain invocation is:
+$ cargo sanshain provide --ga --trunk

@@ -1,0 +1,33 @@
+GET /endpoint-versions?service=payments&api_type=openapi&path=/payments&method=POST HTTP/1.1
+Authorization: Bearer san_…
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 958
+
+[
+  {
+    "version": "1.0.0",
+    "stability": "ga",
+    "provided_by": "root",
+    "updated_at": "2026-10-18T15:10:32Z",
+    "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
+    "changed": true
+  },
+  {
+    "version": "2.0.0",
+    "stability": "ga",
+    "provided_by": "root",
+    "updated_at": "2026-10-18T15:10:40Z",
+    "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
+    "changed": true
+  },
+  {
+    "version": "2.1.0",
+    "stability": "ga",
+    "provided_by": "root",
+    "updated_at": "2026-10-18T15:10:41Z",
+    "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.1.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
+    "changed": true
+  }
+]

@@ -1,0 +1,20 @@
+POST /auth/tokens HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "name": "claude-code",
+  "expires_in_days": 90,
+  "scope": "read_only"
+}
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 165
+
+{
+  "id": "a8a2589c-7333-4bac-bd18-43fe66b956d0",
+  "name": "claude-code",
+  "scope": "read_only",
+  "token": "san_…"
+}

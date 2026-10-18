@@ -14,7 +14,8 @@ playwright-report/
 # Documentation site build output (deployed to Pages as an artifact)
 site-dist/
 
-# SQLite
+# SQLite (and the data link scripts/record-walkthroughs.sh makes while it runs)
+/data
 *.db
 *.db-shm
 *.db-wal

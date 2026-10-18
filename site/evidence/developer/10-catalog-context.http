@@ -1,0 +1,32 @@
+GET /admin/producers/payments HTTP/1.1
+Authorization: Bearer <session token>
+
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 402
+
+{
+  "name": "payments",
+  "context": {
+    "owner": {
+      "kind": "group",
+      "name": "team-payments"
+    },
+    "description": "Takes payments for the shop and hands them to the bank.",
+    "source_location": "https://github.com/acme/payments/tree/main/",
+    "links": [
+      {
+        "url": "https://wiki.acme.corp/payments",
+        "title": "Runbook",
+        "type": "docs",
+        "icon": null
+      },
+      {
+        "url": "https://grafana.acme.corp/d/payments",
+        "title": "Dashboard",
+        "type": null,
+        "icon": null
+      }
+    ]
+  }
+}

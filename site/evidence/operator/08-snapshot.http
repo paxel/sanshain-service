@@ -1,0 +1,9 @@
+GET /admin/backup/sqlite HTTP/1.1
+Authorization: Bearer san_…
+
+HTTP/1.1 200 OK
+content-type: application/vnd.sqlite3
+content-length: 385024
+content-disposition: attachment; filename="sanshain-2.6.0-20261018T151046Z.db"
+
+<385024 bytes of SQLite database, saved as sanshain-backup.db>

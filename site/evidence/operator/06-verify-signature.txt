@@ -1,0 +1,6 @@
+# The receiver's check, with the secret shown once at creation
+$ python3 verify.py delivery.json whsec_7b9bbf639e0ca427a65d10c6c5ee1b9e8f242aeb017cac9907cd30388ada143c
+signature header: t=1792336244,v1=af94b4d33cbffb902bfa11b9437ad4089795462e13fed4dd460498cf1d417603
+secret from the create answer: whsec_7b9bbf639e0ca427a65d10c6c5ee1b9e8f242aeb017cac9907cd30388ada143c
+HMAC-SHA256 of '<t>.<raw body>': af94b4d33cbffb902bfa11b9437ad4089795462e13fed4dd460498cf1d417603
+valid: True

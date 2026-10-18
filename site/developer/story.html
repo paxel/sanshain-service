@@ -1,0 +1,724 @@
+<!-- page: title="A team's story" track="developer" order=8 summary="The payments team from a first sanshain.yaml to a released 2.1.0, with the orders Consumer pinning it: every step recorded against a 2.6.0 instance, with the real answers, the real rejections, the branch, the catalog push, the validator and an AI client over MCP." -->
+<p class="lede">
+  One team, start to finish. The <code>payments</code>
+  <a href="../start/glossary.html#producer">Producer</a> publishes its first spec, the
+  <code>orders</code> <a href="../start/glossary.html#consumer">Consumer</a> pins it, a forgotten
+  version bump and a breaking change are refused, a snapshot is iterated and promoted, a release is
+  cut, the catalog is pushed, and an AI assistant asks about the result. Every exchange below was
+  recorded against a fresh 2.6.0 instance by <code>scripts/record-walkthroughs.sh</code>; the graph
+  on the right of each step is the catalog as it stands at that point.
+</p>
+
+<div class="callout">
+  <p class="eyebrow">How to read this page</p>
+  <p>
+    Use <strong>Previous</strong> and <strong>Next</strong>, the step chips, or the arrow keys;
+    <code>#step-N</code> in the address opens a step directly. Each step says what the team does,
+    shows the recorded answer (an HTTP exchange, a client transcript or a screenshot), and links to
+    the chapter and the reference entry it uses. Tokens are redacted and the instance's address is
+    shown as <code>https://sanshain.corp</code>; everything else is as the service answered it.
+  </p>
+</div>
+
+<div class="story" data-story="developer">
+  <figure class="diagram story-graph" style="--diagram-min-width: 640px">
+    <svg viewBox="0 0 720 282" role="img" aria-labelledby="fig-dev-title fig-dev-desc">
+      <title id="fig-dev-title">The payments team's catalog, step by step</title>
+      <desc id="fig-dev-desc">
+        The payments Producer with its versions 1.0.0, 2.0.0 and 2.1.0, the orders Consumer pinning
+        POST /payments at 1.0.0, the two rejected provides, the release branch around them, the two
+        peripheral resources from the catalog push, the draft checked by the validator and the AI
+        client asking over MCP. The parts that exist at the current step are drawn; the ones that
+        changed are highlighted.
+      </desc>
+      <defs>
+        <marker
+          id="sg-arr"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0 0L10 5L0 10z" class="sg-arrow" />
+        </marker>
+      </defs>
+
+      <g data-g="branch" class="sg-branch">
+        <rect x="18" y="8" width="514" height="150" rx="10" class="sg-box" />
+        <text x="30" y="26" class="sg-label">sanshain-branch release-2026.10</text>
+      </g>
+
+      <g data-g="orders" class="sg-node sg-consumer">
+        <rect x="28" y="40" width="110" height="40" rx="6" class="sg-box" />
+        <text x="83" y="58" text-anchor="middle" class="sg-label">orders</text>
+        <text x="83" y="72" text-anchor="middle" class="sg-muted">Consumer</text>
+      </g>
+
+      <g data-g="pin">
+        <path d="M138 60 H298" class="sg-line" marker-end="url(#sg-arr)" />
+        <text x="218" y="50" text-anchor="middle" class="sg-mono sg-label">POST /payments</text>
+        <text x="218" y="76" text-anchor="middle" class="sg-muted">pinned at 1.0.0</text>
+      </g>
+
+      <g data-g="payments" class="sg-node">
+        <rect x="300" y="40" width="140" height="40" rx="6" class="sg-box" />
+        <text x="370" y="58" text-anchor="middle" class="sg-label">payments</text>
+        <text x="370" y="72" text-anchor="middle" class="sg-muted">Producer</text>
+      </g>
+
+      <g data-g="v100">
+        <rect x="292" y="96" width="66" height="22" rx="11" class="sg-chip" />
+        <text x="325" y="111" text-anchor="middle" class="sg-mono sg-label">1.0.0</text>
+      </g>
+      <g data-g="v100-snap">
+        <text x="325" y="134" text-anchor="middle" class="sg-muted">snapshot</text>
+      </g>
+      <g data-g="v100-ga" class="sg-ga">
+        <rect x="310" y="122" width="30" height="16" rx="8" class="sg-chip" />
+        <text x="325" y="134" text-anchor="middle" class="sg-label">GA</text>
+      </g>
+
+      <g data-g="v200">
+        <rect x="372" y="96" width="66" height="22" rx="11" class="sg-chip" />
+        <text x="405" y="111" text-anchor="middle" class="sg-mono sg-label">2.0.0</text>
+      </g>
+      <g data-g="v200-ga" class="sg-ga">
+        <rect x="390" y="122" width="30" height="16" rx="8" class="sg-chip" />
+        <text x="405" y="134" text-anchor="middle" class="sg-label">GA</text>
+      </g>
+
+      <g data-g="v210">
+        <rect x="452" y="96" width="66" height="22" rx="11" class="sg-chip" />
+        <text x="485" y="111" text-anchor="middle" class="sg-mono sg-label">2.1.0</text>
+      </g>
+      <g data-g="v210-ga" class="sg-ga">
+        <rect x="470" y="122" width="30" height="16" rx="8" class="sg-chip" />
+        <text x="485" y="134" text-anchor="middle" class="sg-label">GA</text>
+      </g>
+
+      <g data-g="diff">
+        <path d="M325 146 V152 H405 V146" class="sg-line-muted" />
+        <text x="365" y="166" text-anchor="middle" class="sg-muted">diff and history</text>
+      </g>
+
+      <g data-g="rej-bump" class="sg-rejected">
+        <rect x="292" y="178" width="156" height="22" rx="11" class="sg-chip" />
+        <text x="370" y="193" text-anchor="middle" class="sg-mono">1.0.0 changed → 409</text>
+      </g>
+      <g data-g="rej-breaking" class="sg-rejected">
+        <rect x="292" y="208" width="156" height="22" rx="11" class="sg-chip" />
+        <text x="370" y="223" text-anchor="middle" class="sg-mono">1.1.0 breaking → 409</text>
+      </g>
+
+      <g data-g="periphery" class="sg-node sg-resource">
+        <path d="M440 56 C500 56 520 48 568 48" class="sg-line-muted" marker-end="url(#sg-arr)" />
+        <path d="M440 64 C500 64 520 98 568 98" class="sg-line-muted" marker-end="url(#sg-arr)" />
+        <rect x="570" y="34" width="120" height="28" rx="6" class="sg-box" />
+        <text x="630" y="52" text-anchor="middle" class="sg-mono sg-label">payments-db</text>
+        <rect x="570" y="84" width="120" height="28" rx="6" class="sg-box" />
+        <text x="630" y="102" text-anchor="middle" class="sg-mono sg-label">bank-gateway</text>
+        <text x="630" y="128" text-anchor="middle" class="sg-muted">from catalog-info.yaml</text>
+      </g>
+
+      <g data-g="draft" class="sg-node">
+        <rect x="40" y="196" width="150" height="24" rx="12" class="sg-chip" />
+        <text x="115" y="212" text-anchor="middle" class="sg-mono sg-label">2.2.0 draft</text>
+        <text x="115" y="238" text-anchor="middle" class="sg-muted">
+          validated locally, not published
+        </text>
+      </g>
+
+      <g data-g="mcp" class="sg-node">
+        <path
+          d="M570 220 C520 220 470 200 448 82"
+          class="sg-line-muted"
+          marker-end="url(#sg-arr)"
+        />
+        <rect x="570" y="200" width="120" height="40" rx="6" class="sg-box" />
+        <text x="630" y="218" text-anchor="middle" class="sg-label">Claude Code</text>
+        <text x="630" y="232" text-anchor="middle" class="sg-muted">read-only token</text>
+        <text x="505" y="250" text-anchor="middle" class="sg-mono sg-muted">
+          describe_service over MCP
+        </text>
+      </g>
+    </svg>
+    <figcaption>The catalog at this step.</figcaption>
+  </figure>
+
+  <nav class="stepper-nav" aria-label="Steps">
+    <button type="button" class="step-prev">← Previous</button>
+    <span class="step-counter" aria-live="polite"></span>
+    <button type="button" class="step-next">Next →</button>
+  </nav>
+
+  <section
+    class="step"
+    id="step-1"
+    data-graph="payments,v100,v100-snap"
+    data-graph-highlight="payments,v100"
+    data-graph-caption="Step 1: payments exists, with one snapshot version."
+  >
+    <h2>1. A first <code>sanshain.yaml</code> and a snapshot</h2>
+    <p>
+      The payments team writes the one file every client reads and keeps the version where it
+      belongs: in the spec. Their trunk pipeline runs <code>cargo sanshain provide --trunk</code>.
+      Nothing says <em>snapshot</em>; that is the default.
+    </p>
+    <p class="evidence-label">payments/sanshain.yaml</p>
+    <pre class="evidence" data-evidence="developer/01-sanshain-yaml.txt"></pre>
+    <p class="evidence-label">payments/openapi.yaml</p>
+    <pre class="evidence" data-evidence="developer/01-openapi-yaml.txt"></pre>
+    <p class="evidence-label">The client, in the pipeline</p>
+    <pre class="evidence" data-evidence="developer/01-first-provide.txt"></pre>
+    <p class="evidence-label">What the catalog holds now</p>
+    <pre class="evidence" data-evidence="developer/01-versions.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The version <code>1.0.0</code> came from <code>info.version</code>; the client sent only the
+        stability.
+      </li>
+      <li>Two endpoints were split out of the document (<code>endpoint_count: 2</code>).</li>
+      <li>
+        A snapshot has an <code>expires_at</code>: it ages out when nobody provides or requires it
+        (the operator sets the days). <code>trunk_provided_at</code> says trunk CI was here.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="sanshain-yaml.html#provides">sanshain.yaml: provides</a> ·
+      <a href="clients.html#rust-cargo">Clients: cargo-sanshain</a> ·
+      <a href="../start/getting-started.html#the-first-provide-by-hand"
+        >Getting started: the first provide</a
+      >
+      · <a href="../reference/api.html#post-provide">POST /provide</a> ·
+      <a href="../reference/api.html#get-producers-producername-versions"
+        >GET /producers/{producername}/versions</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-2"
+    data-graph="payments,v100,v100-ga"
+    data-graph-highlight="v100-ga"
+    data-graph-caption="Step 2: 1.0.0 is GA, promoted in place."
+  >
+    <h2>2. The same number as GA</h2>
+    <p>
+      The team is happy with 1.0.0 and releases it. Same document, same number,
+      <code>"stability": "ga"</code>; recorded by hand, to show the exchange the clients make with
+      <code>--ga</code>.
+    </p>
+    <pre class="evidence" data-evidence="developer/02-publish-ga.txt"></pre>
+    <pre class="evidence" data-evidence="developer/02-publish-ga.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        <code>"promoted": true</code>: the snapshot became the GA version in place, nothing was
+        stored twice.
+      </li>
+      <li>
+        <code>changes</code> are all zero because the bytes are identical; the number is now claimed
+        for good.
+      </li>
+      <li>
+        Publishing GA needs the <a href="../start/glossary.html#releaser">releaser</a> role; the
+        token's owner has it.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#2-going-ga">API lifecycle: going GA</a> ·
+      <a href="ci-integration.html#stability-from-the-pipeline"
+        >CI integration: stability from the pipeline</a
+      >
+      · <a href="../start/glossary.html#promotion">Glossary: promotion</a> ·
+      <a href="../reference/api.html#post-provide">POST /provide</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-3"
+    data-graph="payments,v100,v100-ga,orders,pin"
+    data-graph-highlight="orders,pin"
+    data-graph-caption="Step 3: orders pins POST /payments at 1.0.0."
+  >
+    <h2>3. <code>orders</code> pins an endpoint and fetches its snippet</h2>
+    <p>
+      The orders team needs one operation. Their <code>sanshain.yaml</code> names the Producer, the
+      exact version and the endpoint; the JavaScript client fetches the snippet and writes it where
+      the code generator expects it. Then the same require by hand, to see the headers.
+    </p>
+    <p class="evidence-label">The client, in the orders pipeline</p>
+    <pre class="evidence" data-evidence="developer/03-orders-requires.txt"></pre>
+    <p class="evidence-label">The same require by hand</p>
+    <pre class="evidence" data-evidence="developer/03-require.http"></pre>
+    <figure class="screenshot">
+      <picture>
+        <source
+          srcset="../evidence/developer/03-graph-dark.png"
+          media="(prefers-color-scheme: dark)"
+        />
+        <img
+          src="../evidence/developer/03-graph.png"
+          alt="The dependency graph: the orders Consumer with an edge to the payments Producer"
+          loading="lazy"
+        />
+      </picture>
+      <figcaption>
+        The graph right after the require, taken at this step: orders depends on payments.
+      </figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The snippet is a complete OpenAPI document that holds only <code>POST /payments</code>.
+      </li>
+      <li>
+        <code>x-sanshain-stability: ga</code> says what answered;
+        <code>x-sanshain-resolution: served</code> that the pin resolved. A pin to a version that
+        does not exist is <code>404</code>, a version that exists but lacks the endpoint is
+        <code>410</code>; there is no fallback.
+      </li>
+      <li>
+        The <code>etag</code> lets the next build skip generation when nothing changed; the clients
+        send it for you.
+      </li>
+      <li>
+        <code>trunk=true</code> records the pin in the main graph, the one a release will be cut
+        from.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="sanshain-yaml.html#requires">sanshain.yaml: requires</a> ·
+      <a href="clients.html#javascript-and-typescript-and-the-github-action">Clients: JavaScript</a>
+      · <a href="../start/concepts.html#pins-and-how-a-require-is-answered">Concepts: pins</a> ·
+      <a href="../reference/api.html#get-require">GET /require</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-4"
+    data-graph="payments,v100,v100-ga,orders,pin,rej-bump"
+    data-graph-highlight="rej-bump"
+    data-graph-caption="Step 4: new content under the GA number is refused."
+  >
+    <h2>4. A forgotten bump is refused, with the number to use</h2>
+    <p>
+      Payments adds a capture endpoint and forgets to touch <code>info.version</code>. The release
+      pipeline provides the changed document as GA under <code>1.0.0</code>; the exchange is
+      recorded by hand.
+    </p>
+    <pre class="evidence" data-evidence="developer/04-forgotten-bump.txt"></pre>
+    <pre class="evidence" data-evidence="developer/04-forgotten-bump.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        <code>409 Conflict</code>, and <code>proposed_version</code> names the next number: a new
+        endpoint is a minor change, so <code>1.1.0</code>.
+      </li>
+      <li>
+        Nothing was stored. The fix is a one-line edit in the spec file, not a pull-merge-retry
+        loop.
+      </li>
+      <li>
+        A pull-request pipeline catches this before the merge with <code>"dry_run": true</code>.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#3-choosing-the-next-version-the-server-proposes"
+        >API lifecycle: the server proposes</a
+      >
+      · <a href="ci-integration.html#dry-runs-for-pull-requests">CI integration: dry runs</a> ·
+      <a href="../start/glossary.html#proposed-version">Glossary: proposed version</a> ·
+      <a href="../reference/api.html#post-provide">POST /provide</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-5"
+    data-graph="payments,v100,v100-ga,orders,pin,rej-bump,rej-breaking"
+    data-graph-highlight="rej-breaking"
+    data-graph-caption="Step 5: a breaking change behind a minor bump is refused."
+  >
+    <h2>5. A breaking change behind a minor bump is refused</h2>
+    <p>
+      The team takes the hint, sets <code>1.1.0</code>, and in the same change renames the path
+      parameter of <code>GET /payments/{id}</code>. That removes a path every Consumer may pin. The
+      release pipeline's exchange, recorded by hand:
+    </p>
+    <pre class="evidence" data-evidence="developer/05-breaking-minor.txt"></pre>
+    <pre class="evidence" data-evidence="developer/05-breaking-minor.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Sanshain compared against the latest GA, <code>1.0.0</code>, found a removed path, and asks
+        for <code>2.0.0</code>.
+      </li>
+      <li>
+        The message names the path, so the decision (rename, or keep the old one deprecated) is an
+        informed one.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#the-rules-of-a-version-line"
+        >API lifecycle: the rules of a version line</a
+      >
+      ·
+      <a href="ci-integration.html#what-an-error-says">CI integration: what an error says</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-6"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga"
+    data-graph-highlight="v200,v200-ga"
+    data-graph-caption="Step 6: 2.0.0 GA joins the line; orders still pins 1.0.0."
+  >
+    <h2>6. <code>2.0.0</code> is accepted</h2>
+    <p>
+      With <code>info.version: 2.0.0</code> the same document goes through. This time the Go client
+      publishes it, with the ga switch the release pipeline sets.
+    </p>
+    <p class="evidence-label">The client, in the release pipeline</p>
+    <pre class="evidence" data-evidence="developer/06-major-ga.txt"></pre>
+    <p class="evidence-label">The version line now</p>
+    <pre class="evidence" data-evidence="developer/06-versions.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/developer/06-producer-versions.png"
+        alt="The payments Producer page: the catalog context card, the Webhooks card and the OpenAPI version line with GA and trunk badges"
+        loading="lazy"
+      />
+      <figcaption>
+        The Producer page, as the story ends: every version GA, trunk badges, the context from step
+        10.
+      </figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Nothing happened to <code>orders</code>: it pins <code>1.0.0</code>, which stays served
+        unchanged. Pins never move on their own.
+      </li>
+      <li>
+        The main graph will flag the pin as a major behind trunk; that is information, not a
+        failure.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="clients.html#go">Clients: Go</a> ·
+      <a href="release-graphs.html#the-three-streams">Release graphs: the three streams</a> ·
+      <a href="web-ui.html#producers">The web UI: Producers</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-7"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga"
+    data-graph-highlight="v210,v210-ga"
+    data-graph-caption="Step 7: 2.1.0 iterated as a snapshot, then promoted."
+  >
+    <h2>7. A snapshot is overwritten, then promoted</h2>
+    <p>
+      Work on 2.1.0 starts. The first provide stores a snapshot; a second provide with more content
+      overwrites it under the same number; when the team is done, the ga switch promotes exactly
+      that content. The three exchanges are recorded by hand:
+    </p>
+    <pre class="evidence" data-evidence="developer/07-snapshot.txt"></pre>
+    <p class="evidence-label">First snapshot</p>
+    <pre class="evidence" data-evidence="developer/07-snapshot.http"></pre>
+    <p class="evidence-label">The snapshot overwritten (a refund endpoint added)</p>
+    <pre class="evidence" data-evidence="developer/07-snapshot-overwrite.http"></pre>
+    <p class="evidence-label">Promoted to GA</p>
+    <pre class="evidence" data-evidence="developer/07-promote.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        A snapshot takes new content under the same number without a <code>409</code>:
+        <code>inserts: 1</code> on the overwrite.
+      </li>
+      <li>
+        GA of the same bytes is a promotion (<code>promoted: true</code>, zero changes); GA of
+        different bytes would be a <code>409</code> like step 4.
+      </li>
+      <li>
+        Consumers that pinned the snapshot saw it change under them; the ETag told their builds.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#1-iterating-on-snapshots"
+        >API lifecycle: iterating on snapshots</a
+      >
+      ·
+      <a href="../start/concepts.html#version-lines-snapshot-and-ga">Concepts: snapshot and GA</a> ·
+      <a href="ci-integration.html#etags-on-requires">CI integration: ETags</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-8"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,diff"
+    data-graph-highlight="diff"
+    data-graph-caption="Step 8: what changed between 1.0.0 and 2.0.0, and one endpoint's trail."
+  >
+    <h2>8. The diff between two versions, and one endpoint's history</h2>
+    <p>
+      Someone in orders asks what 2.0.0 changed. The diff is one call with a session; the history of
+      a single endpoint is another, and the spec viewer shows both.
+    </p>
+    <p class="evidence-label">The diff</p>
+    <pre class="evidence" data-evidence="developer/08-diff.http"></pre>
+    <p class="evidence-label">The trail of POST /payments</p>
+    <pre class="evidence" data-evidence="developer/08-endpoint-history.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/developer/08-history.png"
+        alt="The spec viewer for POST /payments: version history on the left with 1.0.0, 2.0.0 and 2.1.0, the YAML on the right, blame and compare controls"
+        loading="lazy"
+      />
+      <figcaption>The spec viewer: one endpoint across the version line.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The diff is a unified patch of the stored documents; <code>path</code> and
+        <code>method</code> narrow it to one snippet.
+      </li>
+      <li>
+        The trail answers the snippet as stored in each version and marks the ones that changed it.
+      </li>
+      <li>
+        The diff route is administrative and takes a session; the trail route takes an API token, so
+        a script can ask.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="web-ui.html#the-spec-viewer-history-diff-and-blame">The web UI: the spec viewer</a> ·
+      <a href="../reference/maintenance.html#get-admin-producers-name-diff"
+        >GET /admin/producers/{name}/diff</a
+      >
+      ·
+      <a href="../reference/maintenance.html#get-admin-endpoint-versions"
+        >GET /admin/endpoint-versions</a
+      >
+      (the session twin of the call above)
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-9"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch"
+    data-graph-highlight="branch"
+    data-graph-caption="Step 9: release-2026.10 is a named copy of the main graph."
+  >
+    <h2>9. A release branch is cut, and a report scoped to it</h2>
+    <p>
+      Release day. A releaser cuts a
+      <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a>: a named copy of the main
+      graph as it is now. The report scoped to it describes what production will be; a hotfix
+      pipeline on that release requires with the branch's tag, here with the Conan client.
+    </p>
+    <p class="evidence-label">The cut</p>
+    <pre class="evidence" data-evidence="developer/09-branch-cut.http"></pre>
+    <p class="evidence-label">The report for the release</p>
+    <pre class="evidence" data-evidence="developer/09-scoped-report.http"></pre>
+    <p class="evidence-label">A hotfix build of orders on the branch</p>
+    <pre class="evidence" data-evidence="developer/09-branch-require.txt"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/developer/09-report.png"
+        alt="The reports page with the graph scope selector"
+        loading="lazy"
+      />
+      <figcaption>The reports page; the scope selector offers dev, main and the branch.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The branch records <code>source: trunk</code> and the instant it was born from; the pin set
+        is <code>orders → payments 1.0.0</code>, the trunk pin.
+      </li>
+      <li>
+        <code>scope_label</code> stamps the report; <code>?scope=main</code> or
+        <code>?scope=release-2026.10@&lt;instant&gt;</code> work the same way.
+      </li>
+      <li>
+        The tagged require updates the branch's graph and nothing else; the version rules are
+        untouched.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="release-graphs.html#cutting-a-branch">Release graphs: cutting a branch</a> ·
+      <a href="ci-integration.html#streams-from-the-pipeline">CI integration: streams</a> ·
+      <a href="clients.html#conan-c-c">Clients: Conan</a> ·
+      <a href="../reference/maintenance.html#post-admin-branches">POST /admin/branches</a> ·
+      <a href="../reference/api-usage.html#reports-and-graph-scopes"
+        >Using the API: reports and scopes</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-10"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery"
+    data-graph-highlight="periphery"
+    data-graph-caption="Step 10: the catalog push adds the periphery and the context."
+  >
+    <h2>10. The catalog push: periphery and context</h2>
+    <p>
+      <code>catalogInfo: catalog-info.yaml</code> in step 1's file makes every build push the
+      Backstage descriptor too. The Maven plugin does it here; Sanshain reads the owner, the
+      description, the source location, the links and the <code>dependsOn</code> resources, and the
+      node gets a context.
+    </p>
+    <p class="evidence-label">The push, in the pipeline</p>
+    <pre class="evidence" data-evidence="developer/10-catalog-push.txt"></pre>
+    <p class="evidence-label">What the Producer page reads</p>
+    <pre class="evidence" data-evidence="developer/10-catalog-context.http"></pre>
+    <figure class="screenshot">
+      <img
+        src="../evidence/developer/10-catalog-context.png"
+        alt="The context card on the Producer page: owner team-payments (group), the description, and chips for github.com, Runbook and Dashboard"
+        loading="lazy"
+      />
+      <figcaption>The context card on the Producer page.</figcaption>
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Only <code>resource:</code> refs become peripheral nodes; edges between systems stay
+        Sanshain's own.
+      </li>
+      <li>A repeat push of an unchanged file changes nothing and emits no event.</li>
+      <li>
+        A file Sanshain cannot read as the project's Component is still <code>200</code>, with
+        <code>recorded: false</code> and a <code>Sanshain-Warning</code>.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="ci-integration.html#the-catalog-push">CI integration: the catalog push</a> ·
+      <a href="sanshain-yaml.html#the-catalog-phase">sanshain.yaml: the catalog phase</a> ·
+      <a href="clients.html#maven-java-kotlin">Clients: Maven</a> ·
+      <a href="../reference/api.html#put-catalog-systemname">PUT /catalog/{systemname}</a> ·
+      <a href="../reference/maintenance.html#get-admin-producers-name"
+        >GET /admin/producers/{name}</a
+      >
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-11"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft"
+    data-graph-highlight="draft"
+    data-graph-caption="Step 11: a 2.2.0 draft checked by the validator, nothing stored."
+  >
+    <h2>11. The free validator, before publishing</h2>
+    <p>
+      For the next version the team checks the draft locally first.
+      <code>POST /validate</code> needs no token and stores nothing; it runs the same parsing,
+      version extraction and splitting a provide would.
+    </p>
+    <p class="evidence-label">A valid draft</p>
+    <pre class="evidence" data-evidence="developer/11-validate.http"></pre>
+    <p class="evidence-label">The same draft without a version</p>
+    <pre class="evidence" data-evidence="developer/11-validate-invalid.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Always <code>200</code> with a verdict, so a script parses one shape;
+        <code>valid: false</code> carries the reason.
+      </li>
+      <li>
+        The version-line rules (steps 4 and 5) are not part of it: those need the Producer's history
+        and run on a real provide or a dry run.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="web-ui.html#the-landing-page-and-the-validator">The web UI: the validator</a> ·
+      <a href="../reference/api.html#post-validate">POST /validate</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-12"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft,mcp"
+    data-graph-highlight="mcp"
+    data-graph-caption="Step 12: an AI client reads the catalog with a read-only token."
+  >
+    <h2>12. An AI assistant asks the catalog over MCP</h2>
+    <p>
+      A developer configures Claude Code with a read-only token. The token is minted with the
+      account page's call; the assistant's question travels as a JSON-RPC <code>tools/call</code>;
+      and the same token is refused the moment it tries to publish.
+    </p>
+    <p class="evidence-label">A read-only token</p>
+    <pre class="evidence" data-evidence="developer/12-read-only-token.http"></pre>
+    <p class="evidence-label">"Who owns payments, and where is its code?"</p>
+    <pre class="evidence" data-evidence="developer/12-mcp-describe.http"></pre>
+    <p class="evidence-label">The same token on a provide</p>
+    <pre class="evidence" data-evidence="developer/12-read-only-refused.http"></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The tool answers the version lines, the consumers and their pins, and the context from step
+        10, in one compact document.
+      </li>
+      <li>
+        A read-only token cannot provide, require or push, whoever owns it: the scope is fixed at
+        creation.
+      </li>
+      <li>
+        In Claude Code the configuration is one line:
+        <code
+          >claude mcp add --transport http sanshain https://sanshain.corp/mcp --header
+          "Authorization: Bearer san_…"</code
+        >.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="mcp.html#the-token">MCP: the token</a> ·
+      <a href="mcp.html#client-configuration">MCP: client configuration</a> ·
+      <a href="mcp.html#the-tools">MCP: the tools</a> ·
+      <a href="../reference/api.html#post-auth-tokens">POST /auth/tokens</a> ·
+      <a href="../reference/api-usage.html#scopes-full-and-read-only">Using the API: scopes</a>
+    </p>
+  </section>
+</div>
+
+<h2>Behind the story</h2>
+<p>
+  The single tasks of this story, and a few the story does not tell, are the
+  <a href="recipes.html">Developer recipes</a>. The operator who installed this instance has
+  <a href="../operator/story.html">a story of their own</a>. To re-record both against a newer
+  release, run <code>just record-walkthroughs</code> in the repository: it builds the service,
+  starts a fresh instance, replays every step with the real clients (cargo-sanshain, the JavaScript
+  client, the Go client, the Conan client, the Maven plugin) and <code>curl</code>, compares every
+  answer with what the step expects, and overwrites <code>site/evidence/</code>.
+</p>
+
+<p class="checked">Recorded against v2.6.0.</p>

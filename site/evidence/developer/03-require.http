@@ -1,0 +1,22 @@
+GET /require?consumername=orders&producername=payments&version=1.0.0&path=/payments&method=POST&trunk=true HTTP/1.1
+Authorization: Bearer san_…
+
+HTTP/1.1 200 OK
+content-type: text/plain; charset=utf-8
+etag: "3251ba1a99d001bd0ce58d03f79fcd014c43e49557c45c13005d6cf3d9d117b9"
+x-sanshain-resolution: served
+x-sanshain-version: 1.0.0
+x-sanshain-stability: ga
+content-length: 181
+
+openapi: 3.0.3
+info:
+  title: Payments
+  version: 1.0.0
+paths:
+  /payments:
+    post:
+      summary: Create a payment
+      responses:
+        '201':
+          description: Created
