@@ -80,10 +80,26 @@ paths:
       x-permission: manage_auth_config
       x-scope: global
       description: |
-        Requires the `manage_auth_config` permission.
+        Requires the `manage_auth_config` permission. Connects to the
+        directory named by the submitted LDAP configuration and binds with
+        its service account; nothing is saved.
       responses:
         "200":
-          description: Success.
+          description: Connected and bound.
+        "400":
+          description: |
+            The connection or the bind failed; `error` says why in plain
+            words. When the directory could not be reached at all (name did
+            not resolve, no route, port refused, connect timeout),
+            `diagnostics` carries the container's own network diagnosis, one
+            line each: the addresses the name resolves to, the resolvers in
+            use, and per address the result of an ICMP echo, the kernel's
+            route lookup and a TCP connect to the port. Absent for a failure
+            after the connection was up (TLS, stall, bind).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestFailure"
         "401":
           description: Not signed in.
           content:
@@ -3675,3 +3691,23 @@ components:
           type: string
         proposed_version:
           type: string
+    ConnectionTestFailure:
+      type: object
+      description: |
+        The `400` of `POST /admin/auth-config/test`: an `ErrorBody` whose
+        `diagnostics` is present only when the directory was unreachable.
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: "LDAP connection failed: Could not connect to LDAP server at ldaps://ldap.example.com:636: this container has no route to 10.1.2.3: check the network, VPN or Docker network of the pod"
+        diagnostics:
+          type: array
+          description: One line per finding, in reading order.
+          items:
+            type: string
+          example:
+            - "DNS: ldap.example.com resolves to 10.1.2.3 (1.2 ms)"
+            - "Resolvers: 10.96.0.10 (search default.svc.cluster.local, svc.cluster.local, cluster.local)"
+            - "10.1.2.3: ping no route; route no route from this container; tcp/636 no route"

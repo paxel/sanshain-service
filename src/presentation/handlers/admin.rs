@@ -582,13 +582,40 @@ pub async fn set_auth_config(
     Ok(StatusCode::OK)
 }
 
+/// Connect and bind with the service account of the submitted configuration.
+///
+/// A directory that could not be reached at all gets the network diagnosis
+/// appended to the `400`, one line each, so the admin sees the container's
+/// own view of DNS, routes and the port. Any failure the directory itself
+/// answered or stalled on is reported as it is: the network was proven then.
 pub async fn test_auth_config(
     State(_state): State<AppState>,
     Json(config): Json<LdapConfig>,
 ) -> Result<impl IntoResponse, AppError> {
-    let provider = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
-    services::test_ldap_connection(&provider).await?;
-    Ok(StatusCode::OK)
+    use crate::domain::ports::{AuthProvider, AuthProviderError};
+    use crate::infrastructure::ldap_provider::{LdapAuthProvider, directory_host_and_port};
+    use crate::infrastructure::net_diag;
+
+    let server_url = config.server_url.clone();
+    let provider = LdapAuthProvider::new(config);
+    match provider.test_connection().await {
+        Ok(()) => Ok(StatusCode::OK.into_response()),
+        Err(AuthProviderError::Unreachable(message)) => {
+            let diagnostics = match directory_host_and_port(&server_url) {
+                Some((host, port)) => net_diag::diagnose(&host, port).await,
+                None => Vec::new(),
+            };
+            Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!("LDAP connection failed: {message}"),
+                    "diagnostics": diagnostics,
+                })),
+            )
+                .into_response())
+        }
+        Err(e) => Err(AppError::BadRequest(format!("LDAP connection failed: {e}"))),
+    }
 }
 
 pub async fn get_snapshot_max_age(

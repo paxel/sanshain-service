@@ -356,9 +356,35 @@ async fn auth_config_test_reports_unreachable_server() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let error = body["error"].as_str().unwrap();
+    assert_eq!(
+        error,
+        "LDAP connection failed: Could not connect to LDAP server at ldap://127.0.0.1:9: \
+         nothing listens on 127.0.0.1:9: the host is up but the port is closed; \
+         check the port and that the directory is running"
+    );
+    // The directory was never reached, so the body carries the network
+    // diagnosis: DNS, resolvers, one probe line per address.
+    let diagnostics: Vec<&str> = body["diagnostics"]
+        .as_array()
+        .expect("diagnostics for an unreachable directory")
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        diagnostics[0],
+        "DNS: 127.0.0.1 is a literal address, no lookup"
+    );
     assert!(
-        error.starts_with("LDAP connection failed"),
-        "unexpected error: {error}"
+        diagnostics[1].starts_with("Resolvers: "),
+        "{}",
+        diagnostics[1]
+    );
+    assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+    assert!(
+        diagnostics[2].starts_with("127.0.0.1: ping ")
+            && diagnostics[2].ends_with("; route via local address 127.0.0.1; tcp/9 refused"),
+        "{}",
+        diagnostics[2]
     );
 }
 
@@ -411,6 +437,11 @@ async fn auth_config_test_reports_a_directory_that_accepts_and_never_answers() {
              Check that ldaps:// uses the TLS port and StartTLS the plain one."
         )),
         "unexpected error: {error}"
+    );
+    // The connection came up, so the network is proven: no diagnosis.
+    assert!(
+        body.get("diagnostics").is_none(),
+        "no network diagnosis after an accepted connection: {body}"
     );
 }
 

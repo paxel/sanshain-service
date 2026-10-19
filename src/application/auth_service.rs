@@ -379,13 +379,6 @@ pub async fn migrate_stored_admin_group(repo: &impl SpecRepository) -> Result<()
     Ok(())
 }
 
-pub async fn test_ldap_connection(provider: &impl AuthProvider) -> Result<(), AppError> {
-    provider
-        .test_connection()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("LDAP connection failed: {}", e)))
-}
-
 pub async fn login_with_provider(
     repo: &impl SpecRepository,
     provider: &impl AuthProvider,

@@ -60,15 +60,27 @@ fn escape_ldap_filter(val: &str) -> String {
     escaped
 }
 
-/// The `host:port` a TCP connect needs, with the scheme's default port when
-/// the URL names none — the same defaults ldap3 applies.
-fn host_port(url: &url::Url) -> String {
+/// The host and port a TCP connect needs, with the scheme's default port
+/// when the URL names none — the same defaults ldap3 applies.
+fn host_and_port(url: &url::Url) -> (String, u16) {
     let default_port = if url.scheme() == "ldaps" { 636 } else { 389 };
     let host = match url.host_str() {
         Some("") | None => "localhost",
         Some(host) => host,
     };
-    format!("{}:{}", host, url.port().unwrap_or(default_port))
+    (host.to_string(), url.port().unwrap_or(default_port))
+}
+
+/// `host:port` for the resolver, from [`host_and_port`].
+fn host_port(url: &url::Url) -> String {
+    let (host, port) = host_and_port(url);
+    format!("{host}:{port}")
+}
+
+/// The host and port a server URL points at, for the network diagnosis of an
+/// unreachable directory; `None` when the URL does not parse.
+pub fn directory_host_and_port(server_url: &str) -> Option<(String, u16)> {
+    url::Url::parse(server_url).ok().map(|u| host_and_port(&u))
 }
 
 /// The plain-language reason a TLS or StartTLS handshake failed, with where to
