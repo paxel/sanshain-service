@@ -48,6 +48,8 @@ The documentation is the site at **https://paxel.github.io/sanshain-service/**, 
 - [**Operator**](https://paxel.github.io/sanshain-service/operator/index.html) — deployment, configuration, authentication, roles, administration, webhooks, backup, observability, troubleshooting.
 - [**Reference**](https://paxel.github.io/sanshain-service/reference/index.html) — the REST and Maintenance contracts, the architecture, benchmarks, corporate best practices.
 
+The root describes the latest release; every release since 2.6.1 stays under `/vX.Y.Z/` (for example [v2.7.0](https://paxel.github.io/sanshain-service/v2.7.0/)), and the version chip in the header switches between them.
+
 Architecture decision records stay in the repository: [docs/adr](docs/adr/).
 
 ## Clients & Plugins

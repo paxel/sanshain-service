@@ -1,7 +1,8 @@
 # Sanshain Service — Documentation
 
 The user documentation is the site: **https://paxel.github.io/sanshain-service/** (Start,
-Developer, Operator and Reference tracks; source under `site/`, built with `just site`).
+Developer, Operator and Reference tracks; source under `site/`, built with `just site`; `just site-all`
+builds it the way Pages publishes it, with every release since 2.6.1 under `vX.Y.Z/`).
 
 What remains in `docs/` is not for the site:
 
