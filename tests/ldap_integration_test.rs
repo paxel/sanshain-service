@@ -242,8 +242,8 @@ async fn ldap_unreachable_server_fails_fast() {
     let started = std::time::Instant::now();
     let result = provider.authenticate("alice", "alicepw").await;
     assert!(
-        matches!(result, Err(AuthProviderError::ConnectionFailed(_))),
-        "unreachable server is a connection failure, got: {result:?}"
+        matches!(result, Err(AuthProviderError::Unreachable(_))),
+        "a closed port means the directory was never reached, got: {result:?}"
     );
     assert!(
         started.elapsed() < std::time::Duration::from_secs(10),

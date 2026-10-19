@@ -10,6 +10,12 @@ pub enum AuthProviderError {
     InvalidCredentials,
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
+    /// The directory could not be reached at all: the hostname did not
+    /// resolve, or no TCP connection came up. Distinct from
+    /// [`Self::ConnectionFailed`], which covers everything the directory
+    /// itself answered or stalled on; the message already explains itself.
+    #[error("{0}")]
+    Unreachable(String),
     #[error("Internal error: {0}")]
     Internal(String),
 }

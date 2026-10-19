@@ -205,16 +205,16 @@ async fn authenticate_gives_up_when_the_search_is_never_answered() {
     assert_stalled(result.map(|_| ()), &url);
 }
 
-/// A directory that is simply not listening keeps producing the connect
-/// error, not the stalled message: the TCP connect never succeeded.
+/// A directory that is simply not listening is unreachable, not stalled:
+/// the TCP connect never succeeded.
 #[tokio::test]
-async fn a_refused_connection_is_still_reported_as_a_connect_failure() {
+async fn a_refused_connection_is_reported_as_unreachable() {
     let url = "ldap://127.0.0.1:1";
 
     let result = provider(url, false).test_connection().await;
 
-    let Err(AuthProviderError::ConnectionFailed(message)) = result else {
-        panic!("a refused connection is a connection failure, got: {result:?}");
+    let Err(AuthProviderError::Unreachable(message)) = result else {
+        panic!("a refused connection means the directory was never reached, got: {result:?}");
     };
     assert!(
         message.starts_with("Could not connect to LDAP server at ldap://127.0.0.1:1"),

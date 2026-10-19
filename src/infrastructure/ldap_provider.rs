@@ -1,6 +1,8 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
 use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use ldap3::{LdapConnAsync, LdapConnSettings, LdapError, Scope, SearchEntry, StdStream};
+use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
@@ -67,6 +69,88 @@ fn host_port(url: &url::Url) -> String {
         Some(host) => host,
     };
     format!("{}:{}", host, url.port().unwrap_or(default_port))
+}
+
+/// The plain-language reason a TCP connect to `addr` failed, with where to
+/// look next. The OS text alone (`No route to host (os error 113)`) tells an
+/// admin nothing about which side of the network to check.
+fn explain_connect_error(addr: SocketAddr, error: &io::Error) -> String {
+    let host = addr.ip();
+    match error.kind() {
+        io::ErrorKind::ConnectionRefused => format!(
+            "nothing listens on {addr}: the host is up but the port is closed; \
+             check the port and that the directory is running"
+        ),
+        io::ErrorKind::HostUnreachable => format!(
+            "this container has no route to {host}: \
+             check the network, VPN or Docker network of the pod"
+        ),
+        io::ErrorKind::NetworkUnreachable => format!(
+            "the network of {host} is unreachable from this container: \
+             check its routes and, for an IPv6 address, whether the pod has IPv6 at all"
+        ),
+        io::ErrorKind::TimedOut => format!(
+            "no answer from {addr} within {} s: the host is down or a firewall drops the \
+             connection; check host, port and firewall",
+            CONNECT_TIMEOUT.as_secs_f64()
+        ),
+        io::ErrorKind::PermissionDenied => format!(
+            "the container may not connect to {addr}: a policy or firewall on this host refuses it"
+        ),
+        _ => format!("connecting to {addr} failed: {error}"),
+    }
+}
+
+/// Resolve `host_port` and bring up a TCP connection to the first address
+/// that accepts one, all within [`CONNECT_TIMEOUT`].
+///
+/// Every failure here is [`AuthProviderError::Unreachable`]: the directory
+/// never got a say. The addresses are tried in resolver order, as ldap3 would,
+/// and the message names the last address that failed.
+async fn connect_tcp(url: &str, host_port: &str) -> Result<TcpStream, AuthProviderError> {
+    let unreachable = |reason: String| {
+        AuthProviderError::Unreachable(format!(
+            "Could not connect to LDAP server at {}: {}",
+            url, reason
+        ))
+    };
+    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+
+    let addrs: Vec<SocketAddr> =
+        match tokio::time::timeout_at(deadline, tokio::net::lookup_host(host_port)).await {
+            Ok(Ok(addrs)) => addrs.collect(),
+            Ok(Err(e)) => {
+                return Err(unreachable(format!(
+                    "the hostname could not be resolved ({e}); \
+                     check the name and the DNS resolvers of this container"
+                )));
+            }
+            Err(_) => {
+                return Err(unreachable(format!(
+                    "resolving the hostname took longer than {} s; \
+                     check the DNS resolvers of this container",
+                    CONNECT_TIMEOUT.as_secs_f64()
+                )));
+            }
+        };
+    let Some(first) = addrs.first() else {
+        return Err(unreachable(
+            "the hostname resolved to no address; check the name".to_string(),
+        ));
+    };
+
+    let mut last = (*first, io::Error::from(io::ErrorKind::TimedOut));
+    for addr in &addrs {
+        match tokio::time::timeout_at(deadline, TcpStream::connect(addr)).await {
+            Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(e)) => last = (*addr, e),
+            Err(_) => {
+                last = (*addr, io::Error::from(io::ErrorKind::TimedOut));
+                break;
+            }
+        }
+    }
+    Err(unreachable(explain_connect_error(last.0, &last.1)))
 }
 
 impl LdapAuthProvider {
@@ -138,15 +222,7 @@ impl LdapAuthProvider {
         };
 
         let parsed = url::Url::parse(url).map_err(|e| could_not_connect(e.to_string()))?;
-        let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(host_port(&parsed)))
-            .await
-            .map_err(|_| {
-                could_not_connect(format!(
-                    "no answer within {} s",
-                    CONNECT_TIMEOUT.as_secs_f64()
-                ))
-            })?
-            .map_err(|e| could_not_connect(e.to_string()))?;
+        let stream = connect_tcp(url, &host_port(&parsed)).await?;
         let stream = stream
             .into_std()
             .map_err(|e| could_not_connect(e.to_string()))?;
@@ -367,5 +443,110 @@ mod tests {
     #[test]
     fn host_port_falls_back_to_localhost_for_an_empty_host() {
         assert_eq!(host_port(&parsed("ldap:///")), "localhost:389");
+    }
+
+    fn addr() -> SocketAddr {
+        "10.1.2.3:636".parse().expect("literal address")
+    }
+
+    #[test]
+    fn connect_errors_are_explained_in_plain_words() {
+        let cases = [
+            (
+                io::ErrorKind::ConnectionRefused,
+                "nothing listens on 10.1.2.3:636: the host is up but the port is closed; \
+                 check the port and that the directory is running",
+            ),
+            (
+                io::ErrorKind::HostUnreachable,
+                "this container has no route to 10.1.2.3: \
+                 check the network, VPN or Docker network of the pod",
+            ),
+            (
+                io::ErrorKind::NetworkUnreachable,
+                "the network of 10.1.2.3 is unreachable from this container: \
+                 check its routes and, for an IPv6 address, whether the pod has IPv6 at all",
+            ),
+            (
+                io::ErrorKind::TimedOut,
+                "no answer from 10.1.2.3:636 within 5 s: the host is down or a firewall drops \
+                 the connection; check host, port and firewall",
+            ),
+            (
+                io::ErrorKind::PermissionDenied,
+                "the container may not connect to 10.1.2.3:636: \
+                 a policy or firewall on this host refuses it",
+            ),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(
+                explain_connect_error(addr(), &io::Error::from(kind)),
+                expected,
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// The kernel's own numbers are what a real connect hands back; they must
+    /// land on the same explanations as the abstract kinds.
+    #[test]
+    fn os_error_numbers_map_to_their_explanations() {
+        let ehostunreach = io::Error::from_raw_os_error(113);
+        assert!(
+            explain_connect_error(addr(), &ehostunreach).starts_with("this container has no route"),
+            "{ehostunreach}"
+        );
+        let enetunreach = io::Error::from_raw_os_error(101);
+        assert!(
+            explain_connect_error(addr(), &enetunreach).starts_with("the network of 10.1.2.3"),
+            "{enetunreach}"
+        );
+        let econnrefused = io::Error::from_raw_os_error(111);
+        assert!(
+            explain_connect_error(addr(), &econnrefused).starts_with("nothing listens on"),
+            "{econnrefused}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_connect_error_keeps_the_os_text() {
+        let error = io::Error::other("something odd");
+        assert_eq!(
+            explain_connect_error(addr(), &error),
+            "connecting to 10.1.2.3:636 failed: something odd"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_name_that_does_not_resolve_is_unreachable_with_a_dns_hint() {
+        let result = connect_tcp("ldap://no-such-host.invalid", "no-such-host.invalid:389").await;
+        let Err(AuthProviderError::Unreachable(message)) = result else {
+            panic!("expected Unreachable, got {result:?}");
+        };
+        assert!(
+            message.starts_with(
+                "Could not connect to LDAP server at ldap://no-such-host.invalid: \
+                 the hostname could not be resolved ("
+            ),
+            "{message}"
+        );
+        assert!(
+            message.ends_with("check the name and the DNS resolvers of this container"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_closed_port_is_unreachable_and_names_the_address() {
+        let result = connect_tcp("ldap://127.0.0.1:1", "127.0.0.1:1").await;
+        let Err(AuthProviderError::Unreachable(message)) = result else {
+            panic!("expected Unreachable, got {result:?}");
+        };
+        assert_eq!(
+            message,
+            "Could not connect to LDAP server at ldap://127.0.0.1:1: nothing listens on \
+             127.0.0.1:1: the host is up but the port is closed; check the port and that the \
+             directory is running"
+        );
     }
 }
