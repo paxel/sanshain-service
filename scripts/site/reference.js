@@ -309,11 +309,29 @@ export function schemaExample(contract, schema, seen = []) {
 }
 
 /** Generated examples carry class="example" so the search index can leave them out. */
+const RECORDED = "recorded from a live instance";
+
 function exampleBlock(contract, schema, caption, seen) {
   const json = JSON.stringify(schemaExample(contract, schema, seen), null, 2);
   return (
     `<p class="example-caption">${caption} (${PLACEHOLDER})</p>\n` +
     `<pre class="example"><code class="language-json">${escapeHtml(json)}</code></pre>`
+  );
+}
+
+/**
+ * The example a media-type object carries in the contract (`example`), as
+ * recorded from a live instance: an object or array is shown as JSON, a
+ * string as it is. Preferred over the derived placeholder.
+ */
+function recordedExampleBlock(media, content, caption) {
+  const { example } = content;
+  if (example === undefined) return null;
+  const text = typeof example === "string" ? example : JSON.stringify(example, null, 2);
+  const lang = /json/.test(media) || typeof example !== "string" ? "json" : "yaml";
+  return (
+    `<p class="example-caption">${caption} (${RECORDED})</p>\n` +
+    `<pre class="example"><code class="language-${lang}">${escapeHtml(text)}</code></pre>`
   );
 }
 
@@ -437,7 +455,9 @@ function renderRequestBody(contract, body) {
     parts.push(`<p><code>${escapeHtml(media)}</code></p>`);
     if (!content.schema) continue;
     parts.push(renderBodySchema(contract, content.schema));
-    if (/json/.test(media)) {
+    const recorded = recordedExampleBlock(media, content, "Example request body");
+    if (recorded) parts.push(recorded);
+    else if (/json/.test(media)) {
       parts.push(exampleBlock(contract, content.schema, "Example request body"));
     }
   }
@@ -461,8 +481,11 @@ function renderResponses(contract, responses) {
     for (const [media, content] of Object.entries(r.content || {})) {
       let cell = content.schema ? typeLabel(contract, content.schema) : "—";
       if (!/json/.test(media)) cell += ` <small>(${escapeHtml(media)})</small>`;
-      if (content.schema && /json/.test(media) && /^2/.test(status)) {
-        cell += `\n${exampleBlock(contract, content.schema, `Example ${escapeHtml(status)} response`)}`;
+      const caption = `Example ${escapeHtml(status)} response`;
+      const recorded = recordedExampleBlock(media, content, caption);
+      if (recorded) cell += `\n${recorded}`;
+      else if (content.schema && /json/.test(media) && /^2/.test(status)) {
+        cell += `\n${exampleBlock(contract, content.schema, caption)}`;
       }
       bodies.push(cell);
     }

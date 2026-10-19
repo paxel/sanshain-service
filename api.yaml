@@ -82,6 +82,11 @@ paths:
         required: true
         content:
           application/json:
+            example:
+              "producername": "payments"
+              "stability": "snapshot"
+              "openapi_yaml": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n"
+              "trunk": true
             schema:
               $ref: "#/components/schemas/ProvidePayload"
       responses:
@@ -95,6 +100,15 @@ paths:
             which it sent.
           content:
             application/json:
+              example:
+                "version": "1.0.0"
+                "stability": "snapshot"
+                "content_hash": "sha256:c79fec9c98fc8f883b24e080ef5f3a19644c5200c82362f06122186585d4574b"
+                "changes":
+                  "inserts": 2
+                  "updates": 0
+                  "deletes": 0
+                "promoted": false
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/ProvideResponse"
@@ -137,6 +151,9 @@ paths:
             self-service — fix the version and republish.
           content:
             application/json:
+              example:
+                "error": "version 1.0.0 of openapi 'payments' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as 1.1.0 instead"
+                "proposed_version": "1.1.0"
               schema:
                 $ref: "#/components/schemas/ErrorBody"
         "413":
@@ -348,6 +365,7 @@ paths:
           description: The endpoint snippet as YAML.
           content:
             application/yaml:
+              example: "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n"
               schema: { type: string }
         "304":
           headers:
@@ -692,6 +710,9 @@ paths:
         required: true
         content:
           application/json:
+            example:
+              "catalog_info_yaml": "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: payments\n  description: Takes payments for the shop and hands them to the bank.\n  annotations:\n    backstage.io/source-location: url:https://github.com/example/payments\nspec:\n  type: service\n  owner: group:default/checkout\n  dependsOn:\n    - resource:default/payments-db\n    - resource:default/bank-gateway\n"
+              "trunk": true
             schema:
               $ref: "#/components/schemas/CatalogPushPayload"
       responses:
@@ -713,6 +734,13 @@ paths:
             `Sanshain-Warning` header names the reason.
           content:
             application/json:
+              example:
+                "system": "payments"
+                "trunk": true
+                "resources":
+                  - "resource:default/bank-gateway"
+                  - "resource:default/payments-db"
+                "recorded": true
               schema:
                 $ref: "#/components/schemas/CatalogPushResponse"
         "422":
@@ -749,6 +777,18 @@ paths:
           description: The version-line entries, API types grouped, newest first.
           content:
             application/json:
+              example:
+                - "api_type": "openapi"
+                  "version": "1.0.0"
+                  "stability": "snapshot"
+                  "content_hash": "sha256:c79fec9c98fc8f883b24e080ef5f3a19644c5200c82362f06122186585d4574b"
+                  "provided_by": "root"
+                  "created_at": "2026-10-18T16:07:53Z"
+                  "updated_at": "2026-10-18T16:07:53Z"
+                  "last_required_at": null
+                  "endpoint_count": 2
+                  "expires_at": "2026-11-17T16:07:53Z"
+                  "trunk_provided_at": "2026-10-18T16:07:53Z"
               schema:
                 type: array
                 items:
@@ -783,6 +823,24 @@ paths:
           description: The report; `scope_label` names the selected scope.
           content:
             application/json:
+              example:
+                "unused_endpoints": []
+                "missing_endpoints": []
+                "dependency_graph":
+                  - "api_type": "openapi"
+                    "client": "orders"
+                    "service": "payments"
+                    "version": "1.0.0"
+                    "stability": "ga"
+                    "path": "/payments"
+                    "method": "POST"
+                    "deprecated": false
+                "service_tags": {}
+                "trunk_graph": []
+                "harvested_subscriptions": []
+                "peripheral_dependencies": []
+                "systems": {}
+                "scope_label": "release-2026.10"
               schema:
                 $ref: "#/components/schemas/DependencyReport"
         "400":
@@ -893,6 +951,19 @@ paths:
           description: Oldest version first.
           content:
             application/json:
+              example:
+                - "version": "1.0.0"
+                  "stability": "ga"
+                  "provided_by": "root"
+                  "updated_at": "2026-10-18T16:07:54Z"
+                  "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n"
+                  "changed": true
+                - "version": "2.0.0"
+                  "stability": "ga"
+                  "provided_by": "root"
+                  "updated_at": "2026-10-18T16:08:02Z"
+                  "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n"
+                  "changed": true
               schema:
                 type: array
                 items:
@@ -957,6 +1028,17 @@ paths:
           description: Newest first, at most `limit` entries.
           content:
             application/json:
+              example:
+                - "id": 25
+                  "timestamp": "2026-10-18T16:08:05.620855031+00:00"
+                  "username": "root"
+                  "action": "DATABASE_SNAPSHOT"
+                  "details": "Produced database snapshot sanshain-2.6.1-20261018T160805Z.db (385024 bytes)"
+                  "service": null
+                  "version": null
+                  "action_type": "ADMIN"
+                  "diff": null
+                  "stream": null
               schema:
                 type: array
                 items:
@@ -1025,6 +1107,9 @@ paths:
         required: true
         content:
           application/json:
+            example:
+              "api_type": "openapi"
+              "content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n"
             schema:
               type: object
               required: [api_type, content]
@@ -1040,6 +1125,13 @@ paths:
           description: The verdict.
           content:
             application/json:
+              example:
+                "valid": true
+                "api_type": "openapi"
+                "version": "1.0.0"
+                "endpoint_count": 1
+                "endpoints":
+                  - "POST /payments"
               schema:
                 $ref: "#/components/schemas/ValidationReport"
         "413":
@@ -1059,6 +1151,8 @@ paths:
           description: Instance version and id.
           content:
             application/json:
+              example:
+                "version": "2.7.0"
               schema:
                 type: object
                 properties:
@@ -1104,6 +1198,10 @@ paths:
         required: true
         content:
           application/json:
+            example:
+              "name": "claude-code"
+              "expires_in_days": 90
+              "scope": "read_only"
             schema:
               $ref: "#/components/schemas/CreateApiTokenPayload"
       responses:
@@ -1111,6 +1209,11 @@ paths:
           description: The new token. Copy `token` now; it is not stored and not shown again.
           content:
             application/json:
+              example:
+                "id": "376e96e4-3808-4c5f-a6c4-0e4c9deacd14"
+                "name": "claude-code"
+                "scope": "read_only"
+                "token": "san_…"
               schema:
                 $ref: "#/components/schemas/CreateApiTokenResponse"
         "401":
@@ -1181,6 +1284,8 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorBody"
+          example:
+            "error": "this API token has scope 'read_only' and may not change the catalog; create a token with scope 'full' for provide, require and catalog pushes"
   headers:
     SanshainWarning:
       description: |

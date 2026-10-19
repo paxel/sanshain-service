@@ -130,6 +130,15 @@ paths:
                 $ref: "#/components/schemas/Thing"
         "401":
           description: No valid session.
+        "404":
+          description: Gone.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thing"
+              example:
+                name: "recorded-thing"
+                kind: small
     delete:
       summary: 42
       x-permission: manage_things
@@ -651,6 +660,22 @@ test("every /admin operation shows the permission and scope its router guard enf
       `authentication of ${key}`,
     );
   }
+});
+
+test("a recorded example in the contract is shown verbatim instead of the derived placeholder", () => {
+  const { body } = render(fixtureFile);
+  assert.match(
+    body,
+    /Example 404 response \(recorded from a live instance\)<\/p>\n<pre class="example"><code class="language-json">\{\n  &quot;name&quot;: &quot;recorded-thing&quot;,\n  &quot;kind&quot;: &quot;small&quot;\n\}<\/code><\/pre>/,
+  );
+  assert.match(body, /Example 200 response \(placeholder values derived from the schema\)/);
+  const api = built("reference/api.html");
+  assert.match(api, /Example 202 response \(recorded from a live instance\)/);
+  assert.match(api, /&quot;proposed_version&quot;: &quot;1\.1\.0&quot;/);
+  assert.match(
+    api,
+    /Example 200 response \(recorded from a live instance\)<\/p>\n<pre class="example"><code class="language-yaml">openapi: 3\.0\.3/,
+  );
 });
 
 test("anchors are derived from method and path and stay stable; TOC groups by two segments", () => {
