@@ -28,34 +28,48 @@ const FRONT_MATTER_KEYS = ["title", "track", "order", "summary"];
 
 // The REST reference pages generated from the contracts (issue #54). They are
 // written to the output only; the framing prose is the authored
-// site/reference/api-usage.html.
-export const DEFAULT_CONTRACTS = [
-  {
-    file: path.join(REPO_ROOT, "api.yaml"),
-    url: "reference/api.html",
-    title: "REST API",
-    order: 3,
-    summary:
-      "Every Producer and Consumer endpoint of api.yaml: parameters, bodies, responses, authentication.",
-  },
-  {
-    file: path.join(REPO_ROOT, "maintenance.yaml"),
-    url: "reference/maintenance.html",
-    title: "Maintenance API",
-    order: 4,
-    summary: "Every /admin/* route of maintenance.yaml with the permission and scope it requires.",
-  },
-];
+// site/reference/api-usage.html. `repoRoot` is the tree the contracts are read
+// from: the working tree, or an extracted release tag (build-site-all.js).
+export function defaultContracts(repoRoot = REPO_ROOT) {
+  return [
+    {
+      file: path.join(repoRoot, "api.yaml"),
+      url: "reference/api.html",
+      title: "REST API",
+      order: 3,
+      summary:
+        "Every Producer and Consumer endpoint of api.yaml: parameters, bodies, responses, authentication.",
+    },
+    {
+      file: path.join(repoRoot, "maintenance.yaml"),
+      url: "reference/maintenance.html",
+      title: "Maintenance API",
+      order: 4,
+      summary:
+        "Every /admin/* route of maintenance.yaml with the permission and scope it requires.",
+    },
+  ];
+}
 
 // The arc42 Architecture page (issue #55), built from the whiteboxed export
 // and the link map; written to the output only.
-export const DEFAULT_ARC42 = {
-  dir: path.join(REPO_ROOT, "docs/arc42"),
-  linksFile: path.join(REPO_ROOT, "site/reference/architecture.links.json"),
-  adrDir: path.join(REPO_ROOT, "docs/adr"),
-  url: "reference/architecture.html",
-  order: 5,
-};
+export function defaultArc42(repoRoot = REPO_ROOT) {
+  return {
+    dir: path.join(repoRoot, "docs/arc42"),
+    linksFile: path.join(repoRoot, "site/reference/architecture.links.json"),
+    adrDir: path.join(repoRoot, "docs/adr"),
+    url: "reference/architecture.html",
+    order: 5,
+  };
+}
+
+export const DEFAULT_CONTRACTS = defaultContracts();
+export const DEFAULT_ARC42 = defaultArc42();
+
+/** The changelog of the sources a build was made from: the release tag's, or summer's for an untagged working tree. */
+export function changelogUrl(tag) {
+  return `${REPO_URL}/blob/${tag || "summer"}/CHANGELOG.md`;
+}
 
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400&display=swap";
@@ -344,8 +358,63 @@ function renderToc(headings) {
   return `<aside class="toc" aria-label="Table of contents">\n<p class="eyebrow">On this page</p><ol>${items}</ol>\n</aside>\n`;
 }
 
-function shell({ title, summary, rel, root, nav, currentUrl, eyebrow, main, toc, version }) {
+// ---------------------------------------------------------------------------
+// Versions: the site is published once per release, every release under
+// /vX.Y.Z/ and the latest one also at the root (build-site-all.js). Each entry
+// is { version, base, pages, latest }; `pages` lists the URLs that version has,
+// so the menu can send a reader to the same chapter where it exists and to the
+// start page where it does not, decided here and not by a 404 at read time.
+
+/** The URL of `pageUrl` in another version of the site, or of its start page when that version lacks the chapter. */
+export function versionHref(entry, pageUrl) {
+  const target = pageUrl && entry.pages.includes(pageUrl) ? pageUrl : "index.html";
+  return `${entry.base}${target}`;
+}
+
+function renderVersionMenu(version, versions, currentUrl) {
+  const chip = `<span class="chip" title="Sanshain Service version">v${escapeHtml(version)}</span>`;
+  if (!versions.length) return chip;
+  const items = versions
+    .map((entry) => {
+      const label = `v${escapeHtml(entry.version)}${entry.latest ? " (latest)" : ""}`;
+      return entry.version === version
+        ? `<li><span aria-current="true">${label}</span></li>`
+        : `<li><a href="${versionHref(entry, currentUrl)}">${label}</a></li>`;
+    })
+    .join("");
+  return (
+    `<details class="version-menu"><summary class="chip" title="Documentation version">v${escapeHtml(version)}</summary>` +
+    `<ul aria-label="Documentation versions">${items}</ul></details>`
+  );
+}
+
+/** A one-line pointer to the latest release on every page of an older one. */
+function renderVersionNotice(version, versions, currentUrl) {
+  const latest = versions.find((entry) => entry.latest);
+  if (!latest || latest.version === version) return "";
+  return (
+    `<p class="version-notice">Documentation for v${escapeHtml(version)}. ` +
+    `<a href="${versionHref(latest, currentUrl)}">Read the latest, v${escapeHtml(latest.version)}</a>.</p>\n`
+  );
+}
+
+function shell({
+  title,
+  summary,
+  rel,
+  root,
+  nav,
+  currentUrl,
+  eyebrow,
+  main,
+  toc,
+  version,
+  versions = [],
+  tag = null,
+}) {
   const versionChip = `<span class="chip" title="Sanshain Service version">v${escapeHtml(version)}</span>`;
+  const versionMenu = renderVersionMenu(version, versions, currentUrl);
+  const versionNotice = renderVersionNotice(version, versions, currentUrl);
   return `<!doctype html>
 <html lang="en" data-root="${root}">
 <head>
@@ -365,7 +434,7 @@ ${summary ? `<meta name="description" content="${escapeHtml(summary)}">\n` : ""}
 <header class="site-header">
 <button class="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation"><span class="nav-toggle-bars" aria-hidden="true"></span></button>
 <a class="brand" href="${rel}index.html">${SUN_MARK}<span class="brand-name">Sanshain</span></a>
-${versionChip}
+${versionMenu}
 <div class="search" role="search">
 <input class="search-input" id="search" type="search" placeholder="Search docs" aria-label="Search documentation" role="combobox" aria-autocomplete="list" aria-controls="search-results" aria-expanded="false" autocomplete="off" spellcheck="false">
 <kbd class="search-kbd" aria-hidden="true">/</kbd>
@@ -381,12 +450,12 @@ ${versionChip}
 ${renderNav(nav, currentUrl, rel)}
 </nav>
 <main class="content" id="content" tabindex="-1">
-${eyebrow ? `<p class="eyebrow track-eyebrow">${escapeHtml(eyebrow)}</p>\n` : ""}${main}
+${versionNotice}${eyebrow ? `<p class="eyebrow track-eyebrow">${escapeHtml(eyebrow)}</p>\n` : ""}${main}
 </main>
 ${toc}</div>
 <footer class="site-footer">
 <span>Sanshain Service ${versionChip}</span>
-<nav aria-label="Project links"><a href="${REPO_URL}">GitHub</a><a href="${REPO_URL}/blob/summer/CHANGELOG.md">Changelog</a></nav>
+<nav aria-label="Project links"><a href="${REPO_URL}">GitHub</a><a href="${changelogUrl(tag)}">Changelog</a></nav>
 </footer>
 <script src="${rel}assets/site.js" defer></script>
 </body>
@@ -394,13 +463,13 @@ ${toc}</div>
 `;
 }
 
-export function renderPage(page, { nav, version }) {
+export function renderPage(page, { nav, version, versions = [], tag = null }) {
   const rel = relPrefix(page.url);
   const { html, headings } = processHeadings(page.body);
-  const body = html.replace(
-    /<table(\s[^>]*)?>[\s\S]*?<\/table>/g,
-    (t) => `<div class="table-wrap">${t}</div>`,
-  );
+  const body = html
+    .replace(/<table(\s[^>]*)?>[\s\S]*?<\/table>/g, (t) => `<div class="table-wrap">${t}</div>`)
+    // Prose links the changelog of summer; a release's pages point at its own.
+    .replaceAll(changelogUrl(null), changelogUrl(tag));
   const track = TRACKS.find((t) => t.id === page.track);
   const main = `<h1>${escapeHtml(page.title)}</h1>\n${body}`;
   return shell({
@@ -414,10 +483,12 @@ export function renderPage(page, { nav, version }) {
     main,
     toc: page.toc !== undefined ? page.toc : renderToc(headings),
     version,
+    versions,
+    tag,
   });
 }
 
-export function render404({ nav, version, base = "/" }) {
+export function render404({ nav, version, versions = [], tag = null, base = "/" }) {
   const main = `<h1>Page not found</h1>
 <p class="lede">There is nothing at this address. The chapter may have moved, or the link was older than the site.</p>
 <p>Try the search box above (press <kbd>/</kbd>) or start from the <a href="${base}index.html">overview</a>.</p>`;
@@ -432,6 +503,8 @@ export function render404({ nav, version, base = "/" }) {
     main,
     toc: "",
     version,
+    versions,
+    tag,
   });
 }
 
@@ -465,10 +538,11 @@ const EXTERNAL = /^(https?:|mailto:|data:|tel:)/i;
 /**
  * files: Map<relativePath, content> of every output file. HTML and CSS files
  * are scanned; every file is a valid target. Root-relative links must start
- * with the base. Throws on the first broken link or anchor, naming the file
- * and the link.
+ * with the base, or name a file of another version of the site listed in
+ * `knownTargets` (root-relative paths). Throws on the first broken link or
+ * anchor, naming the file and the link.
  */
-export function checkLinks(files, { base = "/" } = {}) {
+export function checkLinks(files, { base = "/", knownTargets = new Set() } = {}) {
   const ids = new Map();
   for (const [file, html] of files) if (file.endsWith(".html")) ids.set(file, collectIds(html));
   const asIndex = (target) => `${target.replace(/\/$/, "")}/index.html`;
@@ -480,6 +554,7 @@ export function checkLinks(files, { base = "/" } = {}) {
       const fragment = hashAt >= 0 ? link.slice(hashAt + 1) : "";
       let target = (hashAt >= 0 ? link.slice(0, hashAt) : link).replace(/\?.*$/, "");
       if (target.startsWith("/")) {
+        if (knownTargets.has(target)) continue; // a file of another version
         if (!target.startsWith(base)) {
           throw new Error(`Broken link in ${file}: "${link}" is outside the site base ${base}`);
         }
@@ -555,19 +630,17 @@ function guardOutDir(outDir, srcDir) {
   }
 }
 
-export function buildSite({
+/**
+ * Every page of one version of the site, authored and generated, in nav order
+ * and checked: the list a build renders, and what build-site-all.js reads
+ * ahead of rendering so the version menu knows which chapters exist where.
+ */
+export function collectPages({
   srcDir = path.join(REPO_ROOT, "site"),
-  outDir = path.join(REPO_ROOT, "site-dist"),
-  version = readVersion(fs.readFileSync(path.join(REPO_ROOT, "Cargo.toml"), "utf8")),
-  base = "/",
   contracts = DEFAULT_CONTRACTS,
   arc42 = DEFAULT_ARC42,
   evidenceDir = path.join(srcDir, "evidence"),
 } = {}) {
-  if (!base.startsWith("/") || !base.endsWith("/")) {
-    throw new Error(`--base must start and end with "/": got "${base}"`);
-  }
-  guardOutDir(outDir, srcDir);
   const pages = loadPages(srcDir);
   if (!pages.some((p) => p.url === "index.html")) throw new Error(`${srcDir}: no index.html`);
   for (const page of pages) page.body = inlineEvidence(page.body, evidenceDir, page.url);
@@ -589,8 +662,38 @@ export function buildSite({
   }
   sortPages(pages);
   for (const page of pages) rejectRootRelativeLinks(page);
+  return pages;
+}
+
+/**
+ * Builds one version of the site. `pages` skips collecting them again when the
+ * caller already did; `tag` is the release the sources came from (changelog
+ * links point at it); `versions` fills the version menu and `knownTargets`
+ * lists the root-relative paths of the other versions the menu links to.
+ * Assets (CSS, JS, icons) come from `assetsDir`, which may belong to a newer
+ * tree than the pages: the menu and notice need today's styles.
+ */
+export function buildSite({
+  srcDir = path.join(REPO_ROOT, "site"),
+  outDir = path.join(REPO_ROOT, "site-dist"),
+  version = readVersion(fs.readFileSync(path.join(REPO_ROOT, "Cargo.toml"), "utf8")),
+  base = "/",
+  contracts = DEFAULT_CONTRACTS,
+  arc42 = DEFAULT_ARC42,
+  evidenceDir = path.join(srcDir, "evidence"),
+  assetsDir = path.join(srcDir, "assets"),
+  pages = null,
+  tag = null,
+  versions = [],
+  knownTargets = new Set(),
+} = {}) {
+  if (!base.startsWith("/") || !base.endsWith("/")) {
+    throw new Error(`--base must start and end with "/": got "${base}"`);
+  }
+  guardOutDir(outDir, srcDir);
+  if (!pages) pages = collectPages({ srcDir, contracts, arc42, evidenceDir });
   const nav = buildNav(pages);
-  const ctx = { nav, version, base };
+  const ctx = { nav, version, base, versions, tag };
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
@@ -600,8 +703,7 @@ export function buildSite({
   files.set("404.html", render404(ctx));
 
   const copied = [];
-  const assets = path.join(srcDir, "assets");
-  if (fs.existsSync(assets)) copyDir(assets, path.join(outDir, "assets"), copied);
+  if (fs.existsSync(assetsDir)) copyDir(assetsDir, path.join(outDir, "assets"), copied);
   for (const file of copied) {
     const rel = path.relative(outDir, file).split(path.sep).join("/");
     if (!files.has(rel)) files.set(rel, fs.readFileSync(file, "utf8"));
@@ -615,7 +717,7 @@ export function buildSite({
     if (!files.has(rel)) files.set(rel, "");
   }
 
-  checkLinks(files, { base });
+  checkLinks(files, { base, knownTargets });
 
   for (const [rel, html] of files) {
     if (!rel.endsWith(".html")) continue;

@@ -538,8 +538,75 @@ h3 code,
   letter-spacing: -0.01em;
 }
 
-.site-header .chip {
+.site-header .chip,
+.site-header .version-menu {
   margin-right: auto;
+}
+
+/* The version menu: a <details> so it needs no script; the summary is the chip. */
+.version-menu {
+  position: relative;
+}
+
+.version-menu summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.version-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.version-menu[open] summary {
+  color: var(--ink);
+}
+
+.version-menu ul {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 30;
+  min-width: 10rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+
+.version-menu li a,
+.version-menu li span {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  border-radius: calc(var(--radius) - 3px);
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.version-menu li a:hover,
+.version-menu li a:focus-visible {
+  background: var(--bg);
+}
+
+.version-menu li span[aria-current] {
+  color: var(--muted);
+}
+
+/* Pages of an older release point at the latest one. */
+.version-notice {
+  margin: 0 0 1.25rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--sun);
+  border-radius: var(--radius);
 }
 
 .search {
@@ -1407,7 +1474,8 @@ h3:hover .anchor,
     display: inline-flex;
   }
 
-  .site-header .chip {
+  .site-header .chip,
+  .site-header .version-menu {
     display: none;
   }
 

@@ -9,6 +9,7 @@ import {
   buildSite,
   buildNav,
   buildIndex,
+  changelogUrl,
   checkLinks,
   decodeEntities,
   extractLinks,
@@ -297,6 +298,125 @@ test("a base path makes the 404 page absolute while nested pages stay relative",
   assert.match(nested, /<a class="nav-home" href="\.\.\/index\.html">Overview<\/a>/);
   assert.match(nested, /<a href="\.\.\/operator\/helm\.html">Helm chart<\/a>/);
   assert.match(fs.readFileSync(path.join(out, "index.html"), "utf8"), /href="assets\/site\.css"/);
+});
+
+test("a release tag points the changelog links, footer and prose, at that tag", () => {
+  const out = path.join(tmp, "tagged");
+  buildSite({
+    srcDir,
+    outDir: out,
+    version: "2.7.0",
+    tag: "v2.7.0",
+    contracts: [],
+    arc42: null,
+  });
+  const html = fs.readFileSync(path.join(out, "index.html"), "utf8");
+  assert.match(
+    html,
+    /href="https:\/\/github\.com\/paxel\/sanshain-service\/blob\/v2\.7\.0\/CHANGELOG\.md">Changelog<\/a>/,
+  );
+  assert.doesNotMatch(html, /blob\/summer\/CHANGELOG\.md/);
+  assert.equal(
+    changelogUrl(null),
+    "https://github.com/paxel/sanshain-service/blob/summer/CHANGELOG.md",
+  );
+  const prose = renderPage(
+    {
+      title: "Deploy",
+      url: "operator/deploy.html",
+      body: `<p>See the <a href="${changelogUrl(null)}">changelog</a>.</p>`,
+    },
+    { nav: buildNav([]), version: "2.7.0", tag: "v2.7.0" },
+  );
+  assert.match(
+    prose,
+    /<a href="https:\/\/github\.com\/paxel\/sanshain-service\/blob\/v2\.7\.0\/CHANGELOG\.md">changelog<\/a>/,
+  );
+});
+
+test("the version menu links the same chapter in other versions, the start page where it is missing", () => {
+  const versions = [
+    { version: "2.0.0", base: "/docs/", pages: ["index.html", "start/install.html"], latest: true },
+    {
+      version: "1.0.0",
+      base: "/docs/v1.0.0/",
+      pages: ["index.html", "start/install.html", "operator/helm.html"],
+      latest: false,
+    },
+    { version: "0.9.0", base: "/docs/v0.9.0/", pages: ["index.html"], latest: false },
+  ];
+  // What build-site-all.js passes: every page of every version, root-relative.
+  const targetsOf = (entries) =>
+    new Set(entries.flatMap((entry) => entry.pages.map((page) => `${entry.base}${page}`)));
+  const out = path.join(tmp, "versioned");
+  buildSite({
+    srcDir,
+    outDir: out,
+    version: "1.0.0",
+    tag: "v1.0.0",
+    base: "/docs/v1.0.0/",
+    versions,
+    knownTargets: targetsOf(versions),
+    contracts: [],
+    arc42: null,
+  });
+  const helm = fs.readFileSync(path.join(out, "operator/helm.html"), "utf8");
+  assert.match(
+    helm,
+    /<details class="version-menu"><summary class="chip"[^>]*>v1\.0\.0<\/summary>/,
+  );
+  assert.match(
+    helm,
+    /<li><a href="\/docs\/index\.html">v2\.0\.0 \(latest\)<\/a><\/li><li><span aria-current="true">v1\.0\.0<\/span><\/li><li><a href="\/docs\/v0\.9\.0\/index\.html">v0\.9\.0<\/a><\/li>/,
+    "latest lacks the chapter: its start page; the current version is text; 0.9.0 lacks it too",
+  );
+  assert.match(
+    helm,
+    /<p class="version-notice">Documentation for v1\.0\.0\. <a href="\/docs\/index\.html">Read the latest, v2\.0\.0<\/a>\.<\/p>/,
+  );
+  const install = fs.readFileSync(path.join(out, "start/install.html"), "utf8");
+  assert.match(
+    install,
+    /<a href="\/docs\/start\/install\.html">v2\.0\.0 \(latest\)<\/a>/,
+    "same chapter",
+  );
+  assert.match(install, /Read the latest, v2\.0\.0<\/a>/);
+  assert.match(
+    fs.readFileSync(path.join(out, "404.html"), "utf8"),
+    /<a href="\/docs\/index\.html">v2\.0\.0/,
+  );
+  assert.equal((install.match(/class="chip"/g) || []).length, 2, "menu summary and footer chip");
+
+  // The latest version itself carries the menu but no notice.
+  const latestOut = path.join(tmp, "versioned-latest");
+  buildSite({
+    srcDir,
+    outDir: latestOut,
+    version: "2.0.0",
+    base: "/docs/",
+    versions,
+    knownTargets: targetsOf(versions),
+    contracts: [],
+    arc42: null,
+  });
+  const latestIndex = fs.readFileSync(path.join(latestOut, "index.html"), "utf8");
+  assert.doesNotMatch(latestIndex, /version-notice/);
+  assert.match(latestIndex, /<li><span aria-current="true">v2\.0\.0 \(latest\)<\/span><\/li>/);
+
+  // A menu link to a version that is not in the published set is a broken link.
+  assert.throws(
+    () =>
+      buildSite({
+        srcDir,
+        outDir: path.join(tmp, "versioned-broken"),
+        version: "1.0.0",
+        base: "/docs/v1.0.0/",
+        versions,
+        contracts: [],
+        arc42: null,
+      }),
+    /Broken link in index\.html: "\/docs\/index\.html" is outside the site base/,
+  );
 });
 
 test("a broken link fails the build naming the file and the link", () => {
