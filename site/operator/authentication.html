@@ -258,8 +258,11 @@
 <h3>How a login is checked</h3>
 <ol>
   <li>
-    A TCP connection to the host and port, with a 5 s limit:
-    <code>Could not connect to LDAP server at …: no answer within 5 s</code> when nothing answers.
+    Name resolution and a TCP connection to the host and port, with a 5 s limit. A failure here
+    means the directory was never reached; the message says which step failed and where to look,
+    for example <code>Could not connect to LDAP server at …: this container has no route to
+    10.1.2.3: check the network, VPN or Docker network of the pod</code>. See
+    <a href="#when-the-directory-is-unreachable">When the directory is unreachable</a>.
   </li>
   <li>
     The TLS or StartTLS handshake and the service-account bind, each under the operation timeout (10
@@ -299,6 +302,45 @@
 <p>
   Only Test Connection shows the text. A login that hits the same stall is treated like any
   directory refusal: the local password check runs and the caller gets a bare <code>401</code>.
+</p>
+
+<h3>When the directory is unreachable</h3>
+<p>
+  Since 2.8.0 a failure before the connection is up is explained in plain words, with the kernel's
+  own text in brackets where it adds something: the name did not resolve, there is no route from
+  this container, the network is unreachable, the port refused, or nothing answered within 5 s.
+  <strong>Test Connection</strong> then appends a network diagnosis gathered inside the container,
+  one line each, under the message and in the <code>diagnostics</code> array of the
+  <code>400</code> body:
+</p>
+<pre><code>LDAP connection failed: Could not connect to LDAP server at ldaps://ldap.example.com:636: this container has no route to 10.1.2.3: check the network, VPN or Docker network of the pod
+
+DNS: ldap.example.com resolves to 10.1.2.3, fd00::1 (1.2 ms)
+Resolvers: 10.96.0.10 (search default.svc.cluster.local, svc.cluster.local, cluster.local)
+10.1.2.3: ping no route; route no route from this container; tcp/636 no route
+fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refused</code></pre>
+<ul>
+  <li>
+    <strong>DNS</strong>: every address the name resolves to, with the lookup time. A dual-stack
+    directory shows two addresses; a stray IPv6 record shows up here.
+  </li>
+  <li><strong>Resolvers</strong>: the <code>nameserver</code> and <code>search</code> entries of the container's <code>/etc/resolv.conf</code>.</li>
+  <li>
+    <strong>One line per address</strong>: an ICMP echo (<code>ping</code>), the kernel's route
+    lookup (<code>route</code>, the local address it would send from, or <code>no route from this
+    container</code>), and a TCP connect to the port (<code>tcp/636</code>: <code>accepted</code>,
+    <code>refused</code>, <code>no route</code>, or <code>no answer within 2 s</code>). The three
+    together tell "host down" from "host up, port closed" from "no way there at all".
+  </li>
+</ul>
+<p>
+  The echo uses an unprivileged ICMP socket. Docker allows those by default; on Kubernetes the line
+  reads <code>ping not permitted in this container (net.ipv4.ping_group_range)</code> unless the
+  pod sets that sysctl, and the route and TCP lines still answer. Each probe is bounded by 2 s and
+  the whole diagnosis by 5 s. Failures after the connection is up (TLS, a stall, the bind) carry
+  no diagnosis: the network was proven at that point. TLS failures are explained the same way,
+  for example <code>the server certificate is not trusted: its CA is not in the trust store; mount
+  the CA with EXTRA_CA_CERTS_DIR (…)</code>.
 </p>
 <table>
   <thead>

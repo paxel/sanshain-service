@@ -267,22 +267,30 @@
     timeout above <code>LDAP_OPERATION_TIMEOUT_SECS</code>, or lower the variable.
   </dd>
   <dt>
-    <code
-      >400 LDAP connection failed: Connection failed: Could not connect to LDAP server at ldap://…:
-      no answer within 5 s</code
-    >
-  </dt>
-  <dd>Nothing accepted the TCP connection: wrong host or port, or the port is filtered.</dd>
-  <dt>
-    <code
-      >400 LDAP connection failed: Connection failed: Could not connect to LDAP server at ldaps://…:
-      …</code
-    >
-    with a certificate error
+    <code>400 LDAP connection failed: Could not connect to LDAP server at ldap://…: …</code>
+    followed by <code>DNS:</code>, <code>Resolvers:</code> and one line per address
   </dt>
   <dd>
-    The directory's certificate is not trusted: a private CA without
-    <code>EXTRA_CA_CERTS_DIR</code>, or a name that does not match the URL's host.
+    The directory was never reached. The message names the step: <code>the hostname could not be
+    resolved</code>, <code>this container has no route to …</code>, <code>the network of … is
+    unreachable from this container</code>, <code>nothing listens on …</code> (host up, port
+    closed) or <code>no answer from … within 5 s</code> (host down or a firewall that drops). The
+    lines under it are the container's own diagnosis; read them as described in
+    <a href="authentication.html#when-the-directory-is-unreachable">When the directory is
+    unreachable</a>. <code>No route to host (os error 113)</code> in the brackets is the kernel
+    saying the same as the first line: the pod has no route to that address today, which is a
+    network change, not a directory one.
+  </dd>
+  <dt>
+    <code>400 LDAP connection failed: Connection failed: Could not connect to LDAP server at
+    ldaps://…: the server certificate is not trusted: …</code>
+  </dt>
+  <dd>
+    A private CA without <code>EXTRA_CA_CERTS_DIR</code>. The sibling messages name a certificate
+    that is not valid for the URL's host, one that has expired or is not valid yet (check the
+    clocks), a plain LDAP port answering an <code>ldaps://</code> URL, a refused handshake, or a
+    connection closed during StartTLS (a TLS port; use <code>ldaps://</code>). The rustls text
+    follows in brackets.
   </dd>
   <dt>
     <code
