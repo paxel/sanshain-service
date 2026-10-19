@@ -18,7 +18,9 @@ FROM alpine:3.21
 # ca-certificates: the platform trust store, so ldaps:// against a publicly
 # signed directory works without a certificate mount. Private CAs still go
 # through EXTRA_CA_CERTS_DIR.
-RUN apk add --no-cache sqlite-libs tini ca-certificates
+# Upgrade the base packages first: Alpine ships OpenSSL and zlib fixes between its
+# point releases, and the weekly grype scan fails on a released image that misses one.
+RUN apk upgrade --no-cache && apk add --no-cache sqlite-libs tini ca-certificates
 
 COPY --from=builder /app/target/release/sanshain_service /usr/local/bin/sanshain
 COPY static/ /app/static/
