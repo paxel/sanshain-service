@@ -151,10 +151,10 @@
   Independently of the scope, publishing a GA version (<code>stability: ga</code>) needs the
   <code>release_ga</code> permission of the token's owner, the <code>releaser</code> role; admins
   and root hold it implicitly. Retiring a family needs the same permission or maintainership of the
-  Producer. On the maintenance side the reference shows, per route, the permission its contract
-  description names and whether a Producer's maintainers are admitted too; a route whose description
-  names none is marked <code class="gap">not stated</code> there, and the router is the authority
-  for it.
+  Producer. On the maintenance side the contract declares, per operation, the permission it needs
+  (<code>x-permission</code>) and whether a Producer's maintainers are admitted too
+  (<code>x-scope</code>); the reference shows both, and a build-time test keeps the fields equal to
+  the router's guards.
 </p>
 
 <h2>Error shapes</h2>

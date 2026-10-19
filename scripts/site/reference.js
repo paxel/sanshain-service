@@ -328,77 +328,55 @@ const AUTH = {
   eitherAny: "session or API token (full or read-only)",
 };
 
-function mentions(value, pattern) {
-  return pattern.test(JSON.stringify(value ?? ""));
-}
+const X_AUTH = {
+  none: [AUTH.none],
+  session: [AUTH.session],
+  "session-or-api-token": [AUTH.eitherAny],
+  "session-or-api-token-full": [AUTH.eitherFull],
+};
 
 /**
- * What a call must carry. A contract that declares security schemes is read
- * literally (bearer → session token; an operation whose description admits an
- * API token also lists it). api.yaml declares none, so its operations are
- * classified by what they document: "Unauthenticated", "Session-authenticated",
- * a reference to the ReadOnlyToken response (read-only tokens refused), no
- * refusal response at all (open), or else any token. The API routes accept a
- * session beside an API token (`authenticate_api` in the middleware), so
- * those labels name both.
+ * What a call must carry, read from the contract's `x-auth` field (api.yaml:
+ * none, session, session-or-api-token, session-or-api-token-full). The
+ * maintenance contract is session-only unless the operation carries
+ * `x-api-tokens: full`, which admits a full API token beside the session. A
+ * build-time test in src/lib.rs keeps both fields equal to the router guards.
  */
 export function authLabel(contract, op) {
-  const { doc } = contract;
-  const schemes = doc.components?.securitySchemes;
-  const requirements = op.security ?? doc.security;
-  if (schemes && requirements) {
-    if (!requirements.length) return [AUTH.none];
-    const labels = new Set();
-    for (const requirement of requirements) {
-      for (const name of Object.keys(requirement)) {
-        const scheme = schemes[name];
-        if (!scheme) throw new Error(`${contract.name}: security scheme "${name}" is not declared`);
-        if (scheme.type === "http" && scheme.scheme === "bearer") labels.add(AUTH.session);
-        else labels.add(`${name} (${scheme.type})`);
-      }
-    }
-    if (/\bAPI token\b/.test(op.description || "")) labels.add(AUTH.apiFull);
-    return [...labels];
+  const auth = op["x-auth"];
+  if (auth !== undefined) {
+    const labels = X_AUTH[auth];
+    if (!labels) throw new Error(`${contract.name}: unknown x-auth "${auth}"`);
+    return labels;
   }
-  const description = op.description || "";
-  if (/\bUnauthenticated\b/.test(description)) return [AUTH.none];
-  if (/Session-authenticated/.test(description) || mentions(op.responses, /No valid session/)) {
-    return [AUTH.session];
-  }
-  if (/ReadOnlyToken/.test(description) || mentions(op.responses, /ReadOnlyToken/))
-    return [AUTH.eitherFull];
-  const statuses = Object.keys(op.responses || {});
-  if (!statuses.some((s) => ["401", "403", "404"].includes(s))) return [AUTH.none];
-  return [AUTH.eitherAny];
+  if (op["x-api-tokens"] === "full") return [AUTH.session, AUTH.apiFull];
+  if (op["x-permission"] !== undefined) return [AUTH.session];
+  return [NOT_STATED];
 }
 
 export const NOT_STATED = "not stated";
 
+const X_SCOPE = {
+  global: "global",
+  producer: "per Producer: also its maintainers",
+  consumer: "per Consumer: also maintainers of the Producer of the same name",
+};
+
 /**
- * The permission an administrative operation needs and its scope, read from
- * the sentence every maintenance.yaml operation opens with ("Requires the
- * `x` permission", optionally "or maintainership of the Producer …", or
- * "Any signed-in caller"). A listing with no 403 documented is open to any
- * signed-in caller. Anything else is "not stated" and shown as a gap.
+ * The permission an administrative operation needs and its scope, from the
+ * contract's `x-permission` (a permission's wire name, or `any-signed-in`)
+ * and `x-scope` (global, producer, consumer). An operation without the
+ * fields is shown as a gap.
  */
 export function permissionOf(op) {
-  const description = op.description || "";
-  const m = /Requires the `([a-z_]+)` permission/.exec(description);
-  if (m) {
-    let scope = "global";
-    if (/maintainership of the Producer named in the path/.test(description)) {
-      scope = "per Producer: also its maintainers";
-    } else if (
-      /maintainership of the Producer of the same name as the Consumer/.test(description)
-    ) {
-      scope = "per Consumer: also maintainers of the Producer of the same name";
-    }
-    return { permission: m[1], scope };
-  }
-  if (/Any signed-in caller/.test(description) || !("403" in (op.responses || {}))) {
-    return { permission: "any signed-in caller", scope: "global" };
-  }
-  return { permission: NOT_STATED, scope: NOT_STATED };
+  const permission = op["x-permission"];
+  if (permission === undefined) return { permission: NOT_STATED, scope: NOT_STATED };
+  const scope = X_SCOPE[op["x-scope"] ?? "global"];
+  if (!scope) throw new Error(`unknown x-scope "${op["x-scope"]}"`);
+  return {
+    permission: permission === "any-signed-in" ? "any signed-in caller" : permission,
+    scope,
+  };
 }
 
 const permissionCell = (text) =>

@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.7.0]
 
+### Changed
+- `maintenance.yaml` declares the permission and scope of every administrative operation (`x-permission`, `x-scope`, `x-api-tokens`) and `api.yaml` the token rule of every operation (`x-auth`, with a declared bearer security scheme); a build-time test keeps them equal to the router's guards, and the documentation site reads them instead of the prose.
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).

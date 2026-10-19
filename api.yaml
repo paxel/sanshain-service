@@ -44,6 +44,9 @@ paths:
     post:
       operationId: provideSpec
       summary: Provide an OpenAPI specification under its declared version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Parses the provided OpenAPI YAML, reads the version from `info.version`,
         splits the document into individual endpoint snippets, and stores the
@@ -143,6 +146,9 @@ paths:
     post:
       operationId: provideAsyncApi
       summary: Provide an AsyncAPI specification under its declared version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Same rules as `/provide`, for AsyncAPI 2.x/3.x documents (version
         auto-detected). The version is read from `info.version`. Only PUB
@@ -203,6 +209,9 @@ paths:
     post:
       operationId: provideGrpc
       summary: Provide a .proto file under its declared version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Same rules as `/provide`, for proto files. Proto has no standard
         version slot, so the file must carry exactly one
@@ -259,6 +268,9 @@ paths:
     get:
       operationId: requireEndpoint
       summary: Retrieve an endpoint snippet at a pinned version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Resolves one endpoint of the Producer's line at exactly the pinned
         version: GA preferred, else the same-numbered snapshot, else an
@@ -365,6 +377,9 @@ paths:
     get:
       operationId: requireAsyncApi
       summary: Retrieve an AsyncAPI channel snippet at a pinned version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Same resolution rules as `/require`. `path` is the channel name
         (AsyncAPI 2.x channel key / 3.x channel address); `method` is `PUB`
@@ -473,6 +488,9 @@ paths:
     get:
       operationId: requireGrpc
       summary: Retrieve a gRPC method snippet at a pinned version
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Same resolution rules as `/require`. `path` is the fully qualified
         service name; `method` is the exact (case-sensitive) RPC name.
@@ -544,6 +562,9 @@ paths:
     post:
       operationId: requireBundle
       summary: Retrieve multiple endpoint snippets as a single merged spec
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Resolves several endpoints of one Producer at one pinned version and
         returns a single merged document (one copy of each shared schema, so
@@ -618,6 +639,9 @@ paths:
     put:
       operationId: pushCatalog
       summary: Record a system's periphery and context from its Backstage catalog-info.yaml
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
       description: |
         Optional. A Producer's or Consumer's build pushes its Backstage
         `catalog-info.yaml` so the network graph can show the **Peripheral
@@ -700,6 +724,9 @@ paths:
     get:
       operationId: listProducerVersions
       summary: List a Producer's version lines
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
       description: |
         Every version-line entry of one Producer — version, stability, content
         hash, timestamps, last provider, endpoint count, and (for snapshots,
@@ -737,6 +764,8 @@ paths:
     post:
       operationId: validateSpec
       summary: Validate a specification without publishing anything
+      x-auth: none
+      security: []
       description: |
         The free validator: runs exactly the provide-side pipeline — version
         extraction (`MAJOR[.MINOR[.PATCH]]`, optional `v` prefix) and endpoint
@@ -775,6 +804,8 @@ paths:
     get:
       operationId: getVersion
       summary: Report the running Sanshain instance version
+      x-auth: none
+      security: []
       description: |
         The **instance version** — Sanshain's own build — never to be confused
         with spec versions.
@@ -793,6 +824,9 @@ paths:
     get:
       operationId: listApiTokens
       summary: List the caller's API tokens
+      x-auth: session
+      security:
+        - bearerToken: []
       description: |
         Every token the signed-in user owns, newest first, with its scope and
         when it was last used. The raw token is never answered again after
@@ -812,6 +846,9 @@ paths:
     post:
       operationId: createApiToken
       summary: Create an API token
+      x-auth: session
+      security:
+        - bearerToken: []
       description: |
         Mints a token for the signed-in user and answers it **once**. The
         `scope` is decided here and is immutable afterwards: `full` (the
@@ -844,6 +881,9 @@ paths:
     delete:
       operationId: revokeApiToken
       summary: Revoke an API token
+      x-auth: session
+      security:
+        - bearerToken: []
       description: Deletes one of the caller's tokens; it stops validating immediately. Session-authenticated.
       parameters:
         - name: id
@@ -864,6 +904,17 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
 
 components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: |
+        `Authorization: Bearer <token>`: a browser session token or an API
+        token (`san_…`). Which of the two an operation accepts, and whether a
+        `read_only` API token is refused, is stated per operation in `x-auth`:
+        `none` (open), `session` (session token only), `session-or-api-token`
+        (either, any scope) or `session-or-api-token-full` (either, but a
+        read-only API token is refused with 403).
   responses:
     ReadOnlyToken:
       description: |

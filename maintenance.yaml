@@ -34,6 +34,8 @@ paths:
   /admin/auth-config:
     get:
       summary: "Read: auth-config"
+      x-permission: manage_auth_config
+      x-scope: global
       description: |
         Requires the `manage_auth_config` permission.
       responses:
@@ -53,6 +55,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     put:
       summary: "Replace: auth-config"
+      x-permission: manage_auth_config
+      x-scope: global
       description: |
         Requires the `manage_auth_config` permission.
       responses:
@@ -73,6 +77,8 @@ paths:
   /admin/auth-config/test:
     post:
       summary: "Create or run: auth-config/test"
+      x-permission: manage_auth_config
+      x-scope: global
       description: |
         Requires the `manage_auth_config` permission.
       responses:
@@ -93,6 +99,9 @@ paths:
   /admin/backup/sqlite:
     get:
       summary: "Read: backup/sqlite"
+      x-permission: run_destructive_operations
+      x-scope: global
+      x-api-tokens: full
       description: |
         Requires the `run_destructive_operations` permission. A consistent
         snapshot of the SQLite database, produced by `VACUUM INTO` while
@@ -133,6 +142,8 @@ paths:
   /admin/branches/{name}/timeline:
     get:
       summary: "Read: branches/name/timeline"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         The instants this branch's graph changed (every open/close event of
         its append-only pin store), distinct and ascending — the timeline
@@ -161,6 +172,8 @@ paths:
   /admin/trunk/graph:
     get:
       summary: "Read: trunk/graph"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         The main graph's pin set — current, or as it was at the optional `at`
         instant, reconstructed from the append-only trunk history (ADR-0005).
@@ -184,6 +197,8 @@ paths:
   /admin/trunk/timeline:
     get:
       summary: "Read: trunk/timeline"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         The instants the main graph changed, distinct and ascending — the
         timeline slider's markers (ADR-0005).
@@ -199,6 +214,8 @@ paths:
   /admin/cache/clear:
     post:
       summary: "Create or run: cache/clear"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -219,6 +236,8 @@ paths:
   /admin/cleanup/dependencies:
     post:
       summary: "Create or run: cleanup/dependencies"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -239,6 +258,8 @@ paths:
   /admin/cleanup/trunk:
     post:
       summary: "Create or run: cleanup/trunk"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -264,6 +285,8 @@ paths:
   /admin/cleanup/snapshots:
     post:
       summary: "Create or run: cleanup/snapshots"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -286,6 +309,8 @@ paths:
   /admin/consumers:
     get:
       summary: "Read: consumers"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
       responses:
@@ -306,6 +331,8 @@ paths:
   /admin/consumers/{name}:
     get:
       summary: "Read: consumers/name"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -339,6 +366,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: consumers/name"
+      x-permission: manage_consumers
+      x-scope: global
       description: |
         Requires the `manage_consumers` permission.
 
@@ -371,6 +400,8 @@ paths:
   /admin/consumers/{name}/endpoints:
     get:
       summary: "Read: consumers/name/endpoints"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -399,6 +430,8 @@ paths:
   /admin/endpoint-versions:
     get:
       summary: "Read: endpoint-versions"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -421,6 +454,8 @@ paths:
   /admin/endpoint-yaml:
     get:
       summary: "Read: endpoint-yaml"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
       responses:
@@ -441,6 +476,8 @@ paths:
   /admin/groups:
     get:
       summary: "Read: groups"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       responses:
@@ -460,6 +497,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: groups"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       responses:
@@ -480,6 +519,8 @@ paths:
   /admin/groups/{id}:
     put:
       summary: "Replace: groups/id"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Adding an admin-guarded role
         (`admin`, `releaser`) to the group's role set — or removing one it
@@ -507,6 +548,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: groups/id"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Deleting a group that holds an
         admin-guarded role (`admin`, `releaser`) strips that role from every
@@ -535,6 +578,8 @@ paths:
   /admin/groups/{id}/members:
     post:
       summary: "Create or run: groups/id/members"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Membership of a group that
         holds an admin-guarded role (`admin`, `releaser`) IS a grant of that
@@ -564,6 +609,8 @@ paths:
   /admin/groups/{id}/members/{user_id}:
     delete:
       summary: "Delete: groups/id/members/user_id"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Removing a member from a group
         that holds an admin-guarded role (`admin`, `releaser`) strips that
@@ -597,6 +644,8 @@ paths:
   /admin/maintainers:
     get:
       summary: "Read: maintainers"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
 
@@ -619,6 +668,8 @@ paths:
   /admin/nuke/consumers:
     post:
       summary: "Create or run: nuke/consumers"
+      x-permission: run_destructive_operations
+      x-scope: global
       description: |
         Requires the `run_destructive_operations` permission.
       responses:
@@ -639,6 +690,8 @@ paths:
   /admin/nuke/database:
     post:
       summary: "Create or run: nuke/database"
+      x-permission: run_destructive_operations
+      x-scope: global
       description: |
         Requires the `run_destructive_operations` permission.
       responses:
@@ -659,6 +712,8 @@ paths:
   /admin/nuke/producers:
     post:
       summary: "Create or run: nuke/producers"
+      x-permission: run_destructive_operations
+      x-scope: global
       description: |
         Requires the `run_destructive_operations` permission.
       responses:
@@ -679,6 +734,8 @@ paths:
   /admin/nuke/users:
     post:
       summary: "Create or run: nuke/users"
+      x-permission: run_destructive_operations
+      x-scope: global
       description: |
         Deletes every user who is not an effective administrator — users with a
         direct `admin` role, `admin` via group membership, or a configured root
@@ -701,6 +758,8 @@ paths:
   /admin/observability/audit-logs:
     get:
       summary: "Read: observability/audit-logs"
+      x-permission: view_audit
+      x-scope: global
       description: |
         Requires the `view_audit` permission. The most recent audit entries for
         the observability panel; optional `limit` (default 100, capped at 200).
@@ -728,6 +787,8 @@ paths:
   /admin/observability/audit-logs/export:
     get:
       summary: "Read: observability/audit-logs/export"
+      x-permission: view_audit
+      x-scope: global
       description: |
         Requires the `view_audit` permission. CSV of the most recent audit
         entries, columns `id,timestamp,username,action,details,service,version,
@@ -750,6 +811,8 @@ paths:
   /admin/observability/debug-config:
     get:
       summary: "Read: observability/debug-config"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
       responses:
@@ -770,6 +833,8 @@ paths:
   /admin/observability/debug-config-update:
     post:
       summary: "Create or run: observability/debug-config-update"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -790,6 +855,8 @@ paths:
   /admin/observability/logs:
     get:
       summary: "Read: observability/logs"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
       responses:
@@ -810,6 +877,8 @@ paths:
   /admin/observability/stats:
     get:
       summary: "Read: observability/stats"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
       responses:
@@ -830,6 +899,8 @@ paths:
   /admin/graph/diff:
     get:
       summary: "Read: graph/diff"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Structured diff between two graph selections (ADR-0005) — release vs
         release, release vs main, one graph at two instants. `left`/`right`
@@ -866,6 +937,8 @@ paths:
   /admin/periphery:
     get:
       summary: "Read: periphery"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -904,6 +977,8 @@ paths:
   /admin/graph/scope:
     get:
       summary: "Read: graph scope"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1008,6 +1083,8 @@ paths:
   /admin/producers:
     get:
       summary: "Read: producers"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1030,6 +1107,8 @@ paths:
   /admin/producers/metadata:
     post:
       summary: "Create or run: producers/metadata"
+      x-permission: manage_producers
+      x-scope: global
       description: |
         Requires the `manage_producers` permission.
       responses:
@@ -1050,6 +1129,8 @@ paths:
   /admin/producers/{name}:
     get:
       summary: "Read: producers/name"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1083,6 +1164,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: producers/name"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -1115,6 +1198,8 @@ paths:
   /admin/producers/{name}/branch-memberships:
     get:
       summary: "Read: producers/name/branch-memberships"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Reverse lookup (ADR-0005): every (api_type, version, branch) this
         producer is currently referenced by across all sanshain-branches —
@@ -1143,6 +1228,8 @@ paths:
   /admin/producers/{name}/diff:
     get:
       summary: "Read: producers/name/diff"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1243,6 +1330,8 @@ paths:
   /admin/producers/{name}/blame:
     get:
       summary: "Read: producers/name/blame"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1314,6 +1403,8 @@ paths:
   /admin/branches:
     get:
       summary: "Read: branches"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Every sanshain-branch (ADR-0005), newest first: `id`, `name`,
         `created_at`, `created_by`, `source` (`trunk` or the source branch's
@@ -1330,6 +1421,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Write: branches"
+      x-permission: release_ga
+      x-scope: global
       description: |
         Requires the `release_ga` permission (the `releaser` role; admins and
         root hold it implicitly) — creating a named release graph is release
@@ -1391,6 +1484,8 @@ paths:
   /admin/branches/{name}:
     put:
       summary: "Write: branches/name"
+      x-permission: manage_producers
+      x-scope: global
       description: |
         Requires the `manage_producers` permission (admins) — deliberately a
         higher bar than creation. Renames the branch: identity is the internal
@@ -1439,6 +1534,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Write: branches/name"
+      x-permission: manage_producers
+      x-scope: global
       description: |
         Requires the `manage_producers` permission (admins). Deletes the
         branch and its graph rows — the deliberate, audited EOL act — and
@@ -1473,6 +1570,8 @@ paths:
   /admin/branches/{name}/graph:
     get:
       summary: "Read: branches/name/graph"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         The branch's pin set — its graph edges, each `{client, service,
         api_type, version, path, method, valid_from, last_required_at}` with
@@ -1509,6 +1608,8 @@ paths:
   /admin/producers/{name}/endpoints:
     get:
       summary: "Read: producers/name/endpoints"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1537,6 +1638,8 @@ paths:
   /admin/producers/{name}/full-spec:
     get:
       summary: "Read: producers/name/full-spec"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1565,6 +1668,8 @@ paths:
   /admin/producers/{name}/maintainers:
     get:
       summary: "Read: producers/name/maintainers"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
       parameters:
@@ -1590,6 +1695,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: producers/name/maintainers"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       parameters:
@@ -1616,6 +1723,8 @@ paths:
   /admin/producers/{name}/maintainers/groups/{group_id}:
     delete:
       summary: "Delete: producers/name/maintainers/groups/group_id"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       parameters:
@@ -1647,6 +1756,8 @@ paths:
   /admin/producers/{name}/maintainers/users/{user_id}:
     delete:
       summary: "Delete: producers/name/maintainers/users/user_id"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       parameters:
@@ -1678,6 +1789,8 @@ paths:
   /admin/producers/{name}/versions:
     get:
       summary: "Read: producers/name/versions"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1706,6 +1819,8 @@ paths:
   /admin/producers/{name}/versions/{api_type}/{version}:
     delete:
       summary: "Delete: producers/name/versions/api_type/version"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -1744,6 +1859,8 @@ paths:
   /admin/producers/{name}/versions/{api_type}/{version}/promote:
     post:
       summary: "Write: producers/name/versions/api_type/version/promote"
+      x-permission: release_ga
+      x-scope: global
       description: |
         Requires the `release_ga` permission — enforced by the same GA gate every release goes
         through, so an unauthorized attempt answers the instructive `403` and is recorded as a
@@ -1803,6 +1920,8 @@ paths:
   /admin/producers/{name}/versions/{api_type}/{version}/dependents:
     get:
       summary: "Read: producers/name/versions/api_type/version/dependents"
+      x-permission: any-signed-in
+      x-scope: global
       description: |
         Any signed-in caller.
 
@@ -1841,6 +1960,8 @@ paths:
   /admin/roles:
     get:
       summary: "Read: roles"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       responses:
@@ -1861,6 +1982,8 @@ paths:
   /admin/settings/auto-approve:
     get:
       summary: "Read: settings/auto-approve"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1880,6 +2003,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/auto-approve"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1900,6 +2025,8 @@ paths:
   /admin/settings/cache:
     get:
       summary: "Read: settings/cache"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1919,6 +2046,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/cache"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1939,6 +2068,8 @@ paths:
   /admin/settings/database:
     get:
       summary: "Read: settings/database"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1959,6 +2090,8 @@ paths:
   /admin/settings/dependency-max-age:
     get:
       summary: "Read: settings/dependency-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -1978,6 +2111,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/dependency-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission. Body: `{"days": n}`, at
         least 1 and at most 36500 (~100 years); values outside answer `400`.
@@ -1999,6 +2134,8 @@ paths:
   /admin/settings/trunk-max-age:
     get:
       summary: "Read: settings/trunk-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission. The trunk TTL in days
         (ADR-0004), default 90; 0 disables the cleanup.
@@ -2019,6 +2156,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/trunk-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission. Body: `{"days": n}`, at
         most 36500 (~100 years); larger values answer `400`.
@@ -2040,6 +2179,8 @@ paths:
   /admin/settings/snapshot-max-age:
     get:
       summary: "Read: settings/snapshot-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       responses:
@@ -2059,6 +2200,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/snapshot-max-age"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2082,6 +2225,8 @@ paths:
   /admin/webhooks:
     get:
       summary: "Read: webhooks/webhooks"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2107,6 +2252,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: webhooks/webhooks"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2137,6 +2284,8 @@ paths:
   /admin/webhooks/{id}:
     get:
       summary: "Read: webhooks/webhooks/id"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
       parameters:
@@ -2168,6 +2317,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     patch:
       summary: "Update: webhooks/webhooks/id"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2201,6 +2352,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: webhooks/webhooks/id"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2231,6 +2384,8 @@ paths:
   /admin/webhooks/{id}/test:
     post:
       summary: "Create or run: webhooks/webhooks/id/test"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2261,6 +2416,8 @@ paths:
   /admin/webhooks/{id}/rotate-secret:
     post:
       summary: "Create or run: webhooks/webhooks/id/rotate-secret"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2295,6 +2452,8 @@ paths:
   /admin/webhooks/{id}/deliveries:
     get:
       summary: "Read: webhooks/webhooks/id/deliveries"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2329,6 +2488,8 @@ paths:
   /admin/webhooks/{id}/deliveries/{delivery_id}/redeliver:
     post:
       summary: "Create or run: webhooks/webhooks/id/deliveries/delivery_id/redeliver"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -2368,6 +2529,8 @@ paths:
   /admin/producers/{name}/webhooks:
     get:
       summary: "Read: producers/name/webhooks"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2399,6 +2562,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: producers/name/webhooks"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2435,6 +2600,8 @@ paths:
   /admin/producers/{name}/webhooks/{id}:
     get:
       summary: "Read: producers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
       parameters:
@@ -2471,6 +2638,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     patch:
       summary: "Update: producers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2509,6 +2678,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: producers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2544,6 +2715,8 @@ paths:
   /admin/producers/{name}/webhooks/{id}/test:
     post:
       summary: "Create or run: producers/name/webhooks/id/test"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2579,6 +2752,8 @@ paths:
   /admin/producers/{name}/webhooks/{id}/rotate-secret:
     post:
       summary: "Create or run: producers/name/webhooks/id/rotate-secret"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2618,6 +2793,8 @@ paths:
   /admin/producers/{name}/webhooks/{id}/deliveries:
     get:
       summary: "Read: producers/name/webhooks/id/deliveries"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2657,6 +2834,8 @@ paths:
   /admin/producers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver:
     post:
       summary: "Create or run: producers/name/webhooks/id/deliveries/delivery_id/redeliver"
+      x-permission: manage_producers
+      x-scope: producer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
 
@@ -2701,6 +2880,8 @@ paths:
   /admin/consumers/{name}/webhooks:
     get:
       summary: "Read: consumers/name/webhooks"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2732,6 +2913,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: consumers/name/webhooks"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2768,6 +2951,8 @@ paths:
   /admin/consumers/{name}/webhooks/{id}:
     get:
       summary: "Read: consumers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
       parameters:
@@ -2804,6 +2989,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     patch:
       summary: "Update: consumers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2842,6 +3029,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     delete:
       summary: "Delete: consumers/name/webhooks/id"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2877,6 +3066,8 @@ paths:
   /admin/consumers/{name}/webhooks/{id}/test:
     post:
       summary: "Create or run: consumers/name/webhooks/id/test"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2912,6 +3103,8 @@ paths:
   /admin/consumers/{name}/webhooks/{id}/rotate-secret:
     post:
       summary: "Create or run: consumers/name/webhooks/id/rotate-secret"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2951,6 +3144,8 @@ paths:
   /admin/consumers/{name}/webhooks/{id}/deliveries:
     get:
       summary: "Read: consumers/name/webhooks/id/deliveries"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -2990,6 +3185,8 @@ paths:
   /admin/consumers/{name}/webhooks/{id}/deliveries/{delivery_id}/redeliver:
     post:
       summary: "Create or run: consumers/name/webhooks/id/deliveries/delivery_id/redeliver"
+      x-permission: manage_producers
+      x-scope: consumer
       description: |
         Requires the `manage_producers` permission, **or** maintainership of the Producer of the same name as the Consumer in the path (the "same system" rule).
 
@@ -3034,6 +3231,8 @@ paths:
   /admin/settings/webhook-allowed-hosts:
     get:
       summary: "Read: settings/webhook-allowed-hosts"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -3055,6 +3254,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: settings/webhook-allowed-hosts"
+      x-permission: manage_settings
+      x-scope: global
       description: |
         Requires the `manage_settings` permission.
 
@@ -3082,6 +3283,8 @@ paths:
   /admin/users:
     get:
       summary: "Read: users"
+      x-permission: manage_users
+      x-scope: global
       description: |
         Requires the `manage_users` permission.
       responses:
@@ -3102,6 +3305,8 @@ paths:
   /admin/users/{id}:
     delete:
       summary: "Delete: users/id"
+      x-permission: manage_users
+      x-scope: global
       description: |
         Requires the `manage_users` permission. Deleting a user who holds an
         admin-guarded role (`admin`, `releaser`) — directly or via a stored
@@ -3132,6 +3337,8 @@ paths:
   /admin/users/{id}/approve:
     post:
       summary: "Create or run: users/id/approve"
+      x-permission: manage_users
+      x-scope: global
       description: |
         Requires the `manage_users` permission.
       parameters:
@@ -3158,6 +3365,8 @@ paths:
   /admin/users/{id}/maintains:
     get:
       summary: "Read: users/id/maintains"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       parameters:
@@ -3184,6 +3393,8 @@ paths:
   /admin/users/{id}/roles:
     get:
       summary: "Read: users/id/roles"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission.
       parameters:
@@ -3209,6 +3420,8 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
     post:
       summary: "Create or run: users/id/roles"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Granting an admin-guarded role
         (`admin`, `releaser`) additionally requires the caller to be an admin.
@@ -3236,6 +3449,8 @@ paths:
   /admin/users/{id}/roles/{role}:
     delete:
       summary: "Delete: users/id/roles/role"
+      x-permission: manage_roles
+      x-scope: global
       description: |
         Requires the `manage_roles` permission. Revoking an admin-guarded role
         (`admin`, `releaser`) additionally requires the caller to be an admin.

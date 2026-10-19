@@ -512,6 +512,176 @@ mod tests {
         );
     }
 
+    /// Ensures the contracts declare what the router enforces: every
+    /// `maintenance.yaml` operation carries `x-permission` and `x-scope`
+    /// matching its `require(...)` guard (and `x-api-tokens: full` exactly
+    /// where `require_with_api_tokens` admits a full API token), and every
+    /// `api.yaml` operation carries the `x-auth` its middleware implies. The
+    /// documentation site renders these fields, so a guard change that is not
+    /// mirrored here fails the build instead of drifting.
+    #[test]
+    fn contracts_declare_the_router_guards() {
+        use std::collections::BTreeMap;
+
+        fn wire(permission: &str) -> String {
+            let mut out = String::new();
+            for (i, c) in permission.chars().enumerate() {
+                if c.is_ascii_uppercase() && i > 0 {
+                    out.push('_');
+                }
+                out.push(c.to_ascii_lowercase());
+            }
+            out
+        }
+
+        // (method, path) -> (guard kind, scope kind, permission wire name).
+        // One path may be routed twice with different guards per method.
+        let mut guards: BTreeMap<(String, String), (String, String, String)> = BTreeMap::new();
+        for line in include_str!("lib.rs").lines().map(str::trim) {
+            let Some(rest) = line.strip_prefix(".route(\"") else {
+                continue;
+            };
+            let Some(path) = rest.split('"').next() else {
+                continue;
+            };
+            let methods: Vec<&str> = ["get", "post", "put", "patch", "delete"]
+                .into_iter()
+                .filter(|m| rest.contains(&format!("{m}(")))
+                .collect();
+            let kind = if rest.contains("require_with_api_tokens(") {
+                "require_with_api_tokens"
+            } else if rest.contains("require(") {
+                "require"
+            } else if rest.contains("api_auth_write") {
+                "api_auth_write"
+            } else if rest.contains("api_auth") {
+                "api_auth"
+            } else if rest.contains("from_fn") {
+                "session"
+            } else {
+                "none"
+            };
+            let (scope, permission) = match rest.find("RouteGuard::") {
+                Some(at) => {
+                    let guard = &rest[at + "RouteGuard::".len()..];
+                    let scope: String = guard
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric())
+                        .collect();
+                    let permission = guard
+                        .find("Permission::")
+                        .map(|p| {
+                            guard[p + "Permission::".len()..]
+                                .chars()
+                                .take_while(|c| c.is_ascii_alphanumeric())
+                                .collect::<String>()
+                        })
+                        .map(|p| wire(&p))
+                        .unwrap_or_else(|| "any-signed-in".to_string());
+                    (scope, permission)
+                }
+                None => (String::new(), String::new()),
+            };
+            for method in methods {
+                guards.insert(
+                    (method.to_string(), path.to_string()),
+                    (kind.to_string(), scope.clone(), permission.clone()),
+                );
+            }
+        }
+
+        let mut problems: Vec<String> = Vec::new();
+        let field = |op: &serde_yaml_ng::Value, name: &str| -> String {
+            op.get(name)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let maintenance: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(include_str!("../maintenance.yaml"))
+                .expect("maintenance.yaml must parse");
+        for (path, item) in maintenance["paths"].as_mapping().expect("paths") {
+            let path = path.as_str().expect("path key");
+            for (method, op) in item.as_mapping().expect("path item") {
+                let method = method.as_str().expect("method key");
+                let Some((kind, scope, permission)) =
+                    guards.get(&(method.to_string(), path.to_string()))
+                else {
+                    continue; // the sibling test reports unrouted paths
+                };
+                let expected_scope = match scope.as_str() {
+                    "Global" | "Authenticated" => "global",
+                    "Producer" if path.starts_with("/admin/consumers/") => "consumer",
+                    "Producer" => "producer",
+                    other => other,
+                };
+                // The promote route is guarded `Authenticated`; the handler
+                // applies the GA gate itself and the contract documents that.
+                let expected_permission = if path.ends_with("/promote") {
+                    "release_ga".to_string()
+                } else {
+                    permission.clone()
+                };
+                if field(op, "x-permission") != expected_permission {
+                    problems.push(format!(
+                        "{method} {path}: x-permission is {:?}, the router guard says {expected_permission:?}",
+                        field(op, "x-permission")
+                    ));
+                }
+                if field(op, "x-scope") != expected_scope {
+                    problems.push(format!(
+                        "{method} {path}: x-scope is {:?}, the router guard says {expected_scope:?}",
+                        field(op, "x-scope")
+                    ));
+                }
+                let expected_tokens = if kind == "require_with_api_tokens" {
+                    "full"
+                } else {
+                    ""
+                };
+                if field(op, "x-api-tokens") != expected_tokens {
+                    problems.push(format!(
+                        "{method} {path}: x-api-tokens is {:?}, the router says {expected_tokens:?}",
+                        field(op, "x-api-tokens")
+                    ));
+                }
+            }
+        }
+
+        let api: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
+        for (path, item) in api["paths"].as_mapping().expect("paths") {
+            let path = path.as_str().expect("path key");
+            for (method, op) in item.as_mapping().expect("path item") {
+                let method = method.as_str().expect("method key");
+                let Some((kind, _, _)) = guards.get(&(method.to_string(), path.to_string())) else {
+                    continue;
+                };
+                let expected = match kind.as_str() {
+                    "api_auth_write" => "session-or-api-token-full",
+                    "api_auth" => "session-or-api-token",
+                    "none" => "none",
+                    _ => "session",
+                };
+                if field(op, "x-auth") != expected {
+                    problems.push(format!(
+                        "{method} {path}: x-auth is {:?}, the router says {expected:?}",
+                        field(op, "x-auth")
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            problems.is_empty(),
+            "The contracts disagree with the router guards:\n{}\n\
+             Fix the x-permission / x-scope / x-api-tokens fields in maintenance.yaml or \
+             x-auth in api.yaml (or the guard in lib.rs).",
+            problems.join("\n")
+        );
+    }
+
     #[test]
     fn metrics_route_is_registered() {
         let source = include_str!("lib.rs");

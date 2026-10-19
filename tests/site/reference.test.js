@@ -109,6 +109,7 @@ paths:
         description: The thing.
     get:
       summary: Read a thing
+      x-auth: session
       description: |
         Session-authenticated. Lists:
         - one
@@ -131,6 +132,8 @@ paths:
           description: No valid session.
     delete:
       summary: 42
+      x-permission: manage_things
+      x-scope: producer
       description: Requires the \`manage_things\` permission, **or** maintainership of the Producer named in the path.
       responses:
         "204":
@@ -174,7 +177,7 @@ components:
       enum: [draft, final]
 `;
 
-// An administrative fixture: one route states its permission, one does not.
+// An administrative fixture: one operation declares no permission.
 const ADMIN_FIXTURE = `openapi: "3.0.3"
 info:
   title: Admin fixture
@@ -183,6 +186,8 @@ paths:
   /admin/widgets:
     get:
       summary: "Read: widgets"
+      x-permission: any-signed-in
+      x-scope: global
       description: Any signed-in caller.
       responses:
         "200":
@@ -198,6 +203,8 @@ paths:
   /admin/widgets/{id}:
     delete:
       summary: "Delete: widgets"
+      x-permission: manage_widgets
+      x-scope: global
       description: Requires the \`manage_widgets\` permission.
       responses:
         "204":
@@ -207,6 +214,8 @@ paths:
   /admin/other:
     get:
       summary: other
+      x-permission: any-signed-in
+      x-scope: global
       description: Any signed-in caller.
       responses:
         "200":
@@ -526,53 +535,50 @@ test("two paths or schemas that produce the same anchor fail the build naming bo
   assert.match(render(schemas).body, /id="schema-Thing"[\s\S]*id="schema-thing"/);
 });
 
-test("authentication, permission and scope are read from what each operation documents", () => {
+test("authentication, permission and scope are read from the contract fields", () => {
   const contract = loadContract(fixtureFile);
   const [get, del] = operations(contract).map((o) => o.op);
   assert.deepEqual(authLabel(contract, get), ["session token"]);
-  assert.deepEqual(authLabel(contract, { description: "**Unauthenticated** and stateless." }), [
-    "none",
-  ]);
-  assert.deepEqual(authLabel(contract, { responses: { 200: {} } }), ["none"]);
-  assert.deepEqual(authLabel(contract, { responses: { 200: {}, 404: {} } }), [
+  assert.deepEqual(authLabel(contract, { "x-auth": "none" }), ["none"]);
+  assert.deepEqual(authLabel(contract, { "x-auth": "session-or-api-token" }), [
     "session or API token (full or read-only)",
   ]);
+  assert.deepEqual(authLabel(contract, { "x-auth": "session-or-api-token-full" }), [
+    "session or API token (full)",
+  ]);
+  assert.throws(() => authLabel(contract, { "x-auth": "magic" }), /unknown x-auth "magic"/);
+  // Maintenance operations: session-only, unless a full API token is admitted.
+  assert.deepEqual(authLabel(contract, { "x-permission": "manage_users" }), ["session token"]);
   assert.deepEqual(
-    authLabel(contract, { responses: { 403: { $ref: "#/components/responses/ReadOnlyToken" } } }),
-    ["session or API token (full)"],
+    authLabel(contract, { "x-permission": "manage_users", "x-api-tokens": "full" }),
+    ["session token", "API token (full)"],
   );
+  assert.deepEqual(authLabel(contract, {}), ["not stated"]);
+
   assert.deepEqual(permissionOf(del), {
     permission: "manage_things",
     scope: "per Producer: also its maintainers",
   });
-  assert.deepEqual(permissionOf(get), { permission: "any signed-in caller", scope: "global" });
-  assert.deepEqual(
-    permissionOf({ description: "Requires the `manage_users` permission.", responses: {} }),
-    { permission: "manage_users", scope: "global" },
-  );
-  assert.deepEqual(permissionOf({ description: "Something else.", responses: { 403: {} } }), {
+  assert.deepEqual(permissionOf(get), { permission: "not stated", scope: "not stated" });
+  assert.deepEqual(permissionOf({ "x-permission": "any-signed-in" }), {
+    permission: "any signed-in caller",
+    scope: "global",
+  });
+  assert.deepEqual(permissionOf({ "x-permission": "manage_users" }), {
+    permission: "manage_users",
+    scope: "global",
+  });
+  assert.deepEqual(permissionOf({ "x-permission": "manage_users", "x-scope": "consumer" }), {
+    permission: "manage_users",
+    scope: "per Consumer: also maintainers of the Producer of the same name",
+  });
+  assert.deepEqual(permissionOf({ description: "Requires the `x` permission." }), {
     permission: "not stated",
     scope: "not stated",
   });
-
-  // A declared scheme is read literally.
-  const declared = {
-    name: "m.yaml",
-    doc: {
-      security: [{ bearerAuth: [] }],
-      components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer" } } },
-      paths: {},
-    },
-  };
-  assert.deepEqual(authLabel(declared, { description: "Requires x." }), ["session token"]);
-  assert.deepEqual(
-    authLabel(declared, { description: "a `full` API token is accepted beside a session" }),
-    ["session token", "API token (full)"],
-  );
-  assert.deepEqual(authLabel(declared, { security: [] }), ["none"]);
   assert.throws(
-    () => authLabel(declared, { security: [{ ghost: [] }] }),
-    /m\.yaml: security scheme "ghost" is not declared/,
+    () => permissionOf({ "x-permission": "x", "x-scope": "galaxy" }),
+    /unknown x-scope "galaxy"/,
   );
 });
 
@@ -745,14 +751,14 @@ test("an administrative contract shows permission and scope columns and counts t
   );
   assert.match(
     body,
-    /Authentication: <span class="chip">session or API token \(full or read-only\)<\/span> · Permission: <code class="gap">not stated<\/code> · Scope: <code class="gap">not stated<\/code>/,
+    /Authentication: <span class="chip">not stated<\/span> · Permission: <code class="gap">not stated<\/code> · Scope: <code class="gap">not stated<\/code>/,
   );
   const { body: clean } = render(
     contractFile(
       "admin2.yaml",
       ADMIN_FIXTURE.replace(
-        "Nobody wrote the permission sentence.",
-        "Requires the `manage_widgets` permission.",
+        "      description: Nobody wrote the permission sentence.",
+        "      x-permission: manage_widgets\n      x-scope: global\n      description: Declared.",
       ),
     ),
   );
