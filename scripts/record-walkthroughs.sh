@@ -761,6 +761,9 @@ request "$OPS" "06-create-hook" POST /admin/webhooks session "$TMP/body.json"
 expect "operator/06-create" 201 '.secret | startswith("whsec_")' '.webhook.format == "slack"' '.webhook.allow_list_exempt == true'
 HOOK_ID="$(jq -r .webhook.id "$LAST_BODY")"
 HOOK_SECRET="$(jq -r .secret "$LAST_BODY")"
+# The signing secret is shown once; it must not land in the repository either (secret
+# scanners match the whsec_ prefix), so every evidence file carries the placeholder.
+redact "$HOOK_SECRET" "whsec_…"
 request "$OPS" "06-test-hook" POST "/admin/webhooks/$HOOK_ID/test" session ""
 expect "operator/06-test" 202 '.event_id | length == 36'
 for _ in $(seq 1 30); do
