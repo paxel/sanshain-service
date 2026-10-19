@@ -14,6 +14,7 @@
     "check": "npm run fmt:check && npm run lint && npm run test && npm run site:test",
     "build:css": "tailwindcss -i static/css/app.input.css -o static/css/app.css --minify",
     "site": "node scripts/build-site.js",
+    "site:all": "node scripts/build-site-all.js",
     "site:test": "node --test tests/site/*.test.js"
   },
   "devDependencies": {

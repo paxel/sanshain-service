@@ -44,6 +44,11 @@ record-walkthroughs:
 site:
     node scripts/build-site.js
 
+# Build every released version of the documentation site plus the working tree
+# (site-dist/, latest at the root, each release under vX.Y.Z/), as Pages publishes it
+site-all:
+    node scripts/build-site-all.js
+
 # Build the documentation site and preview it at http://localhost:8080/
 site-serve:
     node scripts/build-site.js --serve 8080
