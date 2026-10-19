@@ -1240,6 +1240,23 @@ async function saveAuthConfig() {
   }
 }
 
+// The 400 of the connection test: the message, and the network diagnosis
+// lines the service appends when the directory was unreachable.
+async function connectionTestFailure(res) {
+  const raw = await res.text();
+  if (!raw) return { message: `Request failed (${res.status})`, diagnostics: [] };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.error === "string") {
+      const diagnostics = Array.isArray(parsed.diagnostics)
+        ? parsed.diagnostics.filter((line) => typeof line === "string")
+        : [];
+      return { message: parsed.error, diagnostics };
+    }
+  } catch (_) {}
+  return { message: raw, diagnostics: [] };
+}
+
 async function testLdapConnection() {
   const resultEl = document.getElementById("ldap-test-result");
   const troubleEl = document.getElementById("ldap-troubleshooting");
@@ -1257,8 +1274,16 @@ async function testLdapConnection() {
       resultEl.textContent = "✓ Connection successful";
       resultEl.classList.add("bg-green-50", "text-green-700");
     } else {
-      const errorText = await errorMessage(res);
-      resultEl.textContent = "✗ Connection failed: " + errorText;
+      const { message, diagnostics } = await connectionTestFailure(res);
+      resultEl.textContent = "✗ Connection failed: " + message;
+      if (diagnostics.length) {
+        // The container's own view of the network, one line each; kept
+        // monospace so the per-address columns line up.
+        const pre = document.createElement("pre");
+        pre.className = "mt-2 font-mono text-xs whitespace-pre-wrap";
+        pre.textContent = diagnostics.join("\n");
+        resultEl.appendChild(pre);
+      }
       resultEl.classList.add("bg-red-50", "text-red-700");
       troubleEl.classList.remove("hidden");
     }
