@@ -244,29 +244,11 @@
 
 <h2>Not in the contract</h2>
 <p>
-  The REST reference lists what <code>api.yaml</code> documents. These routes take an API token as
-  well (<code>api_auth</code> in the router, read-only tokens accepted) or a session, but the
-  contract does not list them, so the generated page cannot show them:
+  One route takes an API token and is documented outside <code>api.yaml</code>:
+  <code>POST /mcp</code>, API token only, in
+  <a href="../developer/mcp.html">MCP for AI assistants</a>. Everything else a token can reach
+  (reports, the endpoint history, the update streams) is in the REST reference.
 </p>
-<ul>
-  <li>
-    <code>GET /report</code>, <code>/report/markdown</code>, <code>/report/isolation</code>:
-    <code>api_auth</code>.
-  </li>
-  <li><code>GET /endpoint-versions</code>: <code>api_auth</code>.</li>
-  <li>
-    <code>GET /api/sse/updates</code>, <code>GET /api/ws/updates</code>: <code>api_auth</code>.
-  </li>
-  <li>
-    <code>GET /api/audit/timeline</code>: session with the <code>view_audit</code> permission; API
-    tokens are refused.
-  </li>
-  <li>
-    <code>POST /mcp</code>: API token only, documented in
-    <a href="../developer/mcp.html">MCP for AI assistants</a>.
-  </li>
-</ul>
-
 <h2>Names</h2>
 <p>
   The two roles are <strong>Producer</strong> (provides a spec) and

@@ -732,15 +732,8 @@ mod tests {
             "/tokens",
             "/tokens/{id}",
             // Reports, live updates, and other UI-facing read APIs
-            "/api/audit/timeline",
-            "/api/sse/updates",
-            "/api/ws/updates",
-            "/endpoint-versions",
             // JSON-RPC for AI clients (https://paxel.github.io/sanshain-service/developer/mcp.html), not REST
             "/mcp",
-            "/report",
-            "/report/isolation",
-            "/report/markdown",
         ];
 
         let source = include_str!("lib.rs");

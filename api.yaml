@@ -760,6 +760,251 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
 
+  /report:
+    get:
+      operationId: dependencyReport
+      summary: The dependency report of a graph scope
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        Everything the graph view shows, as JSON: the dependency graph
+        (Consumer pins at exact versions), provided endpoints nobody requires,
+        required endpoints a pinned version does not provide, the trunk pins,
+        harvested AsyncAPI subscriptions, Peripheral Resources and the
+        catalog context of every system. `scope` selects the graph: `dev`
+        (default) is accumulated activity, `main` the trunk, a sanshain-branch
+        name its cut; `main` and a branch take `@<instant>` (RFC 3339) for a
+        past state (ADR-0004, ADR-0005). Not audited.
+      parameters:
+        - $ref: "#/components/parameters/ReportScope"
+      responses:
+        "200":
+          description: The report; `scope_label` names the selected scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DependencyReport"
+        "400":
+          description: |
+            `dev@<instant>` (the dev scope has no timeline), or `main@…` with
+            an instant that does not parse as a date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No sanshain-branch of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Missing or invalid token.
+
+  /report/markdown:
+    get:
+      operationId: dependencyReportMarkdown
+      summary: The dependency report as Markdown
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        The same report as `/report`, rendered as a Markdown document for a
+        wiki page or a release note. Audited as `REPORT`.
+      parameters:
+        - $ref: "#/components/parameters/ReportScope"
+      responses:
+        "200":
+          description: The report.
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "400":
+          description: Unusable `scope`, as for `/report`.
+        "404":
+          description: No sanshain-branch of that name.
+        "401":
+          description: Missing or invalid token.
+
+  /report/isolation:
+    get:
+      operationId: dependencyReportIsolation
+      summary: The isolation report
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        Which Consumers would be affected by which Producer, from the same
+        report as `/report`, rendered as plain text. Audited as `REPORT`.
+      parameters:
+        - $ref: "#/components/parameters/ReportScope"
+      responses:
+        "200":
+          description: The report.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Unusable `scope`, as for `/report`.
+        "404":
+          description: No sanshain-branch of that name.
+        "401":
+          description: Missing or invalid token.
+
+  /endpoint-versions:
+    get:
+      operationId: endpointHistory
+      summary: The history of one endpoint across a Producer's version line
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        Walks the Producer's version line for one endpoint and reports, per
+        version, what it stored for that endpoint and whether that version
+        changed it: the blame trail behind "last changed in version X by Y".
+      parameters:
+        - name: service
+          in: query
+          required: true
+          schema: { type: string }
+          description: The Producer.
+        - name: api_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi, asyncapi, proto]
+            default: openapi
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          description: The endpoint's path (OpenAPI), channel (AsyncAPI) or `Service/Method` (proto).
+        - name: method
+          in: query
+          required: true
+          schema: { type: string }
+          description: The HTTP method, `subscribe`/`publish`, or `rpc`.
+      responses:
+        "200":
+          description: Oldest version first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EndpointHistoryEntry"
+        "404":
+          description: No such Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Missing or invalid token.
+
+  /api/audit/timeline:
+    get:
+      operationId: auditTimeline
+      summary: Audit entries, newest first
+      x-auth: session
+      security:
+        - bearerToken: []
+      description: |
+        The audit log the dashboard's timeline reads. Session only, with the
+        `view_audit` permission (the `admin` and `viewer` roles); an API token
+        is refused.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50 }
+        - name: from_date
+          in: query
+          required: false
+          schema: { type: string }
+          description: RFC 3339 lower bound.
+        - name: to_date
+          in: query
+          required: false
+          schema: { type: string }
+          description: RFC 3339 upper bound.
+        - name: action_type
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact `action_type`, e.g. `PROVIDE`, `REQUIRE`, `ADMIN`, `READ`.
+        - name: service
+          in: query
+          required: false
+          schema: { type: string }
+          description: Service name, `*` wildcards allowed.
+        - name: version
+          in: query
+          required: false
+          schema: { type: string }
+          description: Version, `*` wildcards allowed.
+        - name: stream
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact stream, `trunk` or a sanshain-branch name (ADR-0005).
+      responses:
+        "200":
+          description: Newest first, at most `limit` entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLogEntry"
+        "401":
+          description: Not signed in, or an API token.
+        "403":
+          description: Signed in without `view_audit`.
+
+  /api/sse/updates:
+    get:
+      operationId: updatesSse
+      summary: Catalog change notifications as server-sent events
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        A `text/event-stream` that sends the event `updated` whenever a
+        provide, require, deletion or branch cut changed the catalog; the
+        event carries no detail, the client re-reads what it shows. Keep-alive
+        comments keep the connection open.
+      responses:
+        "200":
+          description: An open event stream; each event's data is `updated`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Missing or invalid token.
+
+  /api/ws/updates:
+    get:
+      operationId: updatesWebSocket
+      summary: Catalog change notifications over a WebSocket
+      x-auth: session-or-api-token
+      security:
+        - bearerToken: []
+      description: |
+        The WebSocket twin of `/api/sse/updates`: after the upgrade the
+        server sends the text frame `updated` on every catalog change and
+        closes when the client closes.
+      responses:
+        "101":
+          description: Switching protocols; text frames `updated` follow.
+        "401":
+          description: Missing or invalid token.
+
   /validate:
     post:
       operationId: validateSpec
@@ -904,6 +1149,15 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
 
 components:
+  parameters:
+    ReportScope:
+      name: scope
+      in: query
+      required: false
+      schema: { type: string }
+      description: |
+        `dev` (default), `main`, `main@<instant>`, `<branch>` or
+        `<branch>@<instant>`; instants are RFC 3339.
   securitySchemes:
     bearerToken:
       type: http
@@ -1649,3 +1903,250 @@ components:
           format: int64
         message:
           type: string
+    ReportEndpoint:
+      type: object
+      description: A provided endpoint that no Consumer requires.
+      required: [api_type, service, version, stability, path, method, deprecated]
+      properties:
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        service:
+          type: string
+        version:
+          type: string
+          description: Semantic version, e.g. `1.2.0`.
+        stability:
+          $ref: "#/components/schemas/Stability"
+        path:
+          type: string
+        method:
+          type: string
+        deprecated:
+          type: boolean
+    ReportMissingEndpoint:
+      type: object
+      description: A required endpoint the pinned version does not provide.
+      required: [api_type, client, service, version, path, method]
+      properties:
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        client:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+          description: Semantic version, e.g. `1.2.0`.
+        path:
+          type: string
+        method:
+          type: string
+    ReportDependency:
+      type: object
+      description: One Consumer-to-Producer edge of the dependency graph, one endpoint at a pinned version.
+      required: [api_type, client, service, version, stability, path, method, deprecated]
+      properties:
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        client:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+          description: Semantic version, e.g. `1.2.0`.
+        stability:
+          $ref: "#/components/schemas/Stability"
+        path:
+          type: string
+        method:
+          type: string
+        deprecated:
+          type: boolean
+    ReportTrunkPin:
+      type: object
+      description: "One trunk pin (ADR-0004): what a Consumer declared as its production dependency."
+      required: [client, service, api_type, version, path, method, valid_from, last_required_at, dangling]
+      properties:
+        client:
+          type: string
+        service:
+          type: string
+        api_type:
+          type: string
+          enum: [openapi, asyncapi, proto]
+        version:
+          type: string
+          description: Semantic version, e.g. `1.2.0`.
+        path:
+          type: string
+        method:
+          type: string
+        valid_from:
+          type: string
+        last_required_at:
+          type: string
+        dangling:
+          type: boolean
+    ReportHarvestedSubscription:
+      type: object
+      description: An AsyncAPI subscription harvested from a provided spec (ADR-0006).
+      required: [client, channel, message_name, owner, trunk]
+      properties:
+        client:
+          type: string
+        channel:
+          type: string
+        message_name:
+          type: string
+        owner:
+          type: string
+          nullable: true
+        trunk:
+          type: boolean
+    ReportPeripheralDependency:
+      type: object
+      description: An edge from a system to a Peripheral Resource from its Backstage catalog file.
+      required: [system, resource]
+      properties:
+        system:
+          type: string
+        resource:
+          type: string
+    EndpointHistoryEntry:
+      type: object
+      description: One version of a Producer's line and what it stored for the endpoint; `changed` marks the versions that altered it (the blame trail).
+      required: [version, stability, provided_by, updated_at, yaml_content, changed]
+      properties:
+        version:
+          type: string
+          description: Semantic version, e.g. `1.2.0`.
+        stability:
+          $ref: "#/components/schemas/Stability"
+        provided_by:
+          type: string
+        updated_at:
+          type: string
+        yaml_content:
+          type: string
+          nullable: true
+        changed:
+          type: boolean
+    AuditLogEntry:
+      type: object
+      description: One audit entry.
+      required: [id, timestamp, username, action, details, service, version, action_type, diff, stream]
+      properties:
+        id:
+          type: integer
+        timestamp:
+          type: string
+        username:
+          type: string
+        action:
+          type: string
+        details:
+          type: string
+        service:
+          type: string
+          nullable: true
+        version:
+          type: string
+          nullable: true
+        action_type:
+          type: string
+          nullable: true
+        diff:
+          type: string
+          nullable: true
+        stream:
+          type: string
+          nullable: true
+    SystemContext:
+      type: object
+      description: |
+        What a system's Backstage `catalog-info.yaml` says about it: owner,
+        description, source location and links, as pushed to `/catalog/{systemname}`.
+      required: [owner, description, source_location, links]
+      properties:
+        owner:
+          type: object
+          nullable: true
+          required: [kind, name]
+          properties:
+            kind:
+              type: string
+            name:
+              type: string
+        description:
+          type: string
+          nullable: true
+        source_location:
+          type: string
+          nullable: true
+        links:
+          type: array
+          items:
+            type: object
+            required: [url, title, type, icon]
+            properties:
+              url:
+                type: string
+              title:
+                type: string
+              type:
+                type: string
+                nullable: true
+              icon:
+                type: string
+                nullable: true
+    DependencyReport:
+      type: object
+      description: The dependency report of one graph scope.
+      required: [unused_endpoints, missing_endpoints, dependency_graph, service_tags, trunk_graph, harvested_subscriptions, peripheral_dependencies, systems]
+      properties:
+        unused_endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportEndpoint"
+        missing_endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportMissingEndpoint"
+        dependency_graph:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportDependency"
+        service_tags:
+          type: object
+          description: Tags per service name.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        trunk_graph:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportTrunkPin"
+        harvested_subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportHarvestedSubscription"
+        peripheral_dependencies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportPeripheralDependency"
+        systems:
+          type: object
+          description: Catalog context per system name.
+          additionalProperties:
+            $ref: "#/components/schemas/SystemContext"
+        trunk_stale_before:
+          type: string
+          description: Only in the dev scope; trunk pins last required before this instant are stale.
+        scope_label:
+          type: string
+          description: The selected scope (`main`, a branch name, optionally with its instant); absent for `dev`.

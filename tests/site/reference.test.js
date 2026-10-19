@@ -602,11 +602,18 @@ test("the real api.yaml classifies exactly the catalog-changing routes as full-t
   assert.deepEqual(byLabel.none.sort(), ["get /version", "post /validate"]);
   assert.deepEqual(byLabel["session token"].sort(), [
     "delete /auth/tokens/{id}",
+    "get /api/audit/timeline",
     "get /auth/tokens",
     "post /auth/tokens",
   ]);
-  assert.deepEqual(byLabel["session or API token (full or read-only)"], [
+  assert.deepEqual(byLabel["session or API token (full or read-only)"].sort(), [
+    "get /api/sse/updates",
+    "get /api/ws/updates",
+    "get /endpoint-versions",
     "get /producers/{producername}/versions",
+    "get /report",
+    "get /report/isolation",
+    "get /report/markdown",
   ]);
 });
 
