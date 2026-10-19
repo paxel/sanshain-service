@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Roles and permissions](https://paxel.github.io/sanshain-service/operator/roles.html) for the concepts.
-  version: "2.7.0"
+  version: "2.8.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
