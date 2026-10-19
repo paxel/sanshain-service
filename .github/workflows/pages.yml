@@ -2,7 +2,9 @@ name: Pages
 
 # Builds the documentation site (site/ -> site-dist/) on every push to summer,
 # every pull request and every release tag; deploys it to GitHub Pages only
-# for release tags, so the published docs match the released version.
+# for release tags. Every build assembles every released version (each tag
+# that carries a site, under /vX.Y.Z/) plus the working tree at the root, so
+# a release whose docs no longer build fails on summer, not on release day.
 #
 # One-time manual steps for the repository owner:
 #   1. Settings -> Pages -> Source: "GitHub Actions".
@@ -26,6 +28,8 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # every release tag is built, see scripts/build-site-all.js
 
       - uses: actions/setup-node@v4
         with:
@@ -37,11 +41,11 @@ jobs:
 
       - name: Lint site sources
         run: |
-          npx eslint scripts/build-site.js scripts/site site/assets/site.js tests/site
-          npx prettier --check scripts/build-site.js scripts/site site/assets/site.js site/assets/site.css tests/site
+          npx eslint scripts/build-site.js scripts/build-site-all.js scripts/site site/assets/site.js tests/site
+          npx prettier --check scripts/build-site.js scripts/build-site-all.js scripts/site site/assets/site.js site/assets/site.css tests/site
 
-      - name: Build site
-        run: node scripts/build-site.js --base "/${{ github.event.repository.name }}/"
+      - name: Build site, every released version and the working tree
+        run: node scripts/build-site-all.js --base "/${{ github.event.repository.name }}/"
 
       - name: Test site build
         run: npm run site:test
