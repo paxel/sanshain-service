@@ -2,6 +2,7 @@ pub mod cached_repository;
 pub mod database;
 pub mod ldap_provider;
 pub mod local_auth_provider;
+pub mod net_diag;
 pub mod oidc_provider;
 pub(crate) mod pin_rows;
 pub mod postgres_repository;

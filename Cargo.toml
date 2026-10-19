@@ -54,6 +54,8 @@ ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ri
 # Host and port of an LDAP URL, for the TCP connect the provider does itself
 # (already in the tree via ldap3).
 url = "2"
+# Unprivileged datagram ICMP sockets for the LDAP network diagnosis (#59).
+socket2 = "0.6"
 # OIDC human login (ai/improvements grill: batch 2). reqwest via openidconnect's
 # feature; rustls-tls to match the existing rustls stack (no native-tls pull).
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
