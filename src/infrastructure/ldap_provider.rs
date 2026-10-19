@@ -71,6 +71,38 @@ fn host_port(url: &url::Url) -> String {
     format!("{}:{}", host, url.port().unwrap_or(default_port))
 }
 
+/// The plain-language reason a TLS or StartTLS handshake failed, with where to
+/// look next, recognised from the rustls text ldap3 passes through; anything
+/// unrecognised is kept as it came.
+fn explain_handshake_error(text: &str) -> String {
+    let explained = if text.contains("UnknownIssuer") {
+        "the server certificate is not trusted: its CA is not in the trust store; \
+         mount the CA with EXTRA_CA_CERTS_DIR"
+    } else if text.contains("NotValidForName") {
+        "the server certificate is not valid for the hostname in the URL: \
+         use the name the certificate carries, or reissue it for this one"
+    } else if text.contains("Expired") {
+        "the server certificate has expired: renew it on the directory"
+    } else if text.contains("NotValidYet") {
+        "the server certificate is not valid yet: check the clocks of the directory and this host"
+    } else if text.contains("corrupt message") || text.contains("InvalidMessage") {
+        "the server did not answer with TLS: ldaps:// points at a plain LDAP port; \
+         use the TLS port, or ldap:// with StartTLS"
+    } else if text.contains("fatal alert") {
+        "the server refused the TLS handshake: \
+         check which TLS versions and ciphers the directory accepts"
+    } else if text.contains("reset")
+        || text.contains("unexpected EOF")
+        || text.contains("UnexpectedEof")
+    {
+        "the server closed the connection during the handshake: \
+         StartTLS on a TLS port does this; use ldaps:// for that port"
+    } else {
+        return text.to_string();
+    };
+    format!("{explained} ({text})")
+}
+
 /// The plain-language reason a TCP connect to `addr` failed, with where to
 /// look next. The OS text alone (`No route to host (os error 113)`) tells an
 /// admin nothing about which side of the network to check.
@@ -250,7 +282,7 @@ impl LdapAuthProvider {
         )
         .await
         .map_err(|_| self.stalled())?
-        .map_err(|e| could_not_connect(e.to_string()))
+        .map_err(|e| could_not_connect(explain_handshake_error(&e.to_string())))
     }
 
     #[tracing::instrument(skip_all)]
@@ -547,6 +579,60 @@ mod tests {
             "Could not connect to LDAP server at ldap://127.0.0.1:1: nothing listens on \
              127.0.0.1:1: the host is up but the port is closed; check the port and that the \
              directory is running"
+        );
+    }
+
+    #[test]
+    fn handshake_errors_are_explained_and_keep_the_original_text() {
+        let cases = [
+            (
+                "I/O error: invalid peer certificate: UnknownIssuer",
+                "the server certificate is not trusted: its CA is not in the trust store; \
+                 mount the CA with EXTRA_CA_CERTS_DIR",
+            ),
+            (
+                "I/O error: invalid peer certificate: NotValidForName",
+                "the server certificate is not valid for the hostname in the URL: \
+                 use the name the certificate carries, or reissue it for this one",
+            ),
+            (
+                "I/O error: invalid peer certificate: Expired",
+                "the server certificate has expired: renew it on the directory",
+            ),
+            (
+                "I/O error: invalid peer certificate: NotValidYet",
+                "the server certificate is not valid yet: check the clocks of the directory and \
+                 this host",
+            ),
+            (
+                "I/O error: received corrupt message of type InvalidContentType",
+                "the server did not answer with TLS: ldaps:// points at a plain LDAP port; \
+                 use the TLS port, or ldap:// with StartTLS",
+            ),
+            (
+                "I/O error: received fatal alert: HandshakeFailure",
+                "the server refused the TLS handshake: \
+                 check which TLS versions and ciphers the directory accepts",
+            ),
+            (
+                "I/O error: Connection reset by peer (os error 104)",
+                "the server closed the connection during the handshake: \
+                 StartTLS on a TLS port does this; use ldaps:// for that port",
+            ),
+        ];
+        for (raw, explanation) in cases {
+            assert_eq!(
+                explain_handshake_error(raw),
+                format!("{explanation} ({raw})")
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_handshake_error_is_passed_through() {
+        assert_eq!(
+            explain_handshake_error("LDAP operation result: rc=52"),
+            "LDAP operation result: rc=52"
         );
     }
 }
