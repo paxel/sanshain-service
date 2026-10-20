@@ -11,7 +11,9 @@ use sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 
-const TTL: Duration = Duration::from_millis(300);
+/// Generous: the "still stale" assertions have to run within one TTL even
+/// under tarpaulin, where ptrace makes every step several times slower.
+const TTL: Duration = Duration::from_secs(2);
 
 /// Long enough for the TTL to have elapsed on every moka clock read.
 async fn wait_past_ttl() {
