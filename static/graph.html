@@ -345,6 +345,24 @@
               <span id="graph-direction-label">Vertical</span>
             </button>
             <button
+              id="graph-compact-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="toggleGraphViewSwitch"
+              data-click-args='["compact"]'
+              title="Tighter gaps between nodes and ranks, for a graph that outgrows the screen (remembered in this browser)"
+            >
+              Compact
+            </button>
+            <button
+              id="graph-rainbow-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="toggleGraphViewSwitch"
+              data-click-args='["rainbow"]'
+              title="One colour per Consumer for the plain arrows, so they can be told apart (remembered in this browser)"
+            >
+              Rainbow
+            </button>
+            <button
               id="graph-fit-view"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               data-click="graphFitToView"
@@ -493,12 +511,7 @@
           id="graph-cycle-warning"
           class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center"
         >
-          <svg
-            class="w-5 h-5 mr-2 shrink-0"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
+          <svg class="w-5 h-5 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"

@@ -1908,6 +1908,41 @@ test.describe("Graph (unrequired) box", () => {
     expect(lr.boxY).toBeGreaterThan(lr.maxBottom);
   });
 
+  test("Compact tightens the layout; it and the direction are remembered", async ({ page }) => {
+    await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    const height = () =>
+      page.evaluate(() => {
+        const nodes = [...document.querySelectorAll("#custom-graph g.graph-node > rect")];
+        const top = Math.min(...nodes.map((r) => +r.getAttribute("y")));
+        const bottom = Math.max(
+          ...nodes.map((r) => +r.getAttribute("y") + +r.getAttribute("height")),
+        );
+        return bottom - top;
+      });
+    const svg = page.locator("#custom-graph");
+    await expect(svg).toHaveAttribute("data-compact", "0");
+    const airy = await height();
+    await page.click("#graph-compact-toggle");
+    await expect(svg).toHaveAttribute("data-compact", "1");
+    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    const compact = await height();
+    expect(compact).toBeLessThan(airy * 0.6);
+    await page.click("#graph-direction-toggle");
+    await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    // Both survive a reload; the URL carries neither.
+    expect(page.url()).not.toMatch(/compact|direction/);
+    await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    await expect(svg).toHaveAttribute("data-compact", "1");
+    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    // Not a custom-renderer control: hidden in the other modes.
+    await page.click("#graph-mode-mermaid");
+    await expect(page.locator("#graph-compact-toggle")).toBeHidden();
+    await expect(page.locator("#graph-direction-toggle")).toBeHidden();
+  });
+
   test("islands pack into empty space without growing the graph", async ({ page }) => {
     await openGraph(page);
     await expect(node(page, ISLAND)).toHaveCount(1, { timeout: 20000 });

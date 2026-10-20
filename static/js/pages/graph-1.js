@@ -12,12 +12,65 @@ function onSessionExpired() {
 let lastGraphReport = null;
 let lastMermaidCode = "";
 let currentGraphMode = "custom";
-let currentGraphDirection = "TB";
+
+// The view switches of the custom renderer (direction, Compact, Rainbow) are
+// taste, not meaning, so they are remembered per browser and never in the URL.
+// Storage can be unavailable (private window, blocked site data): then every
+// visit starts from the defaults.
+const GRAPH_VIEW_KEYS = {
+  direction: "sanshain_graph_direction",
+  compact: "sanshain_graph_compact",
+  rainbow: "sanshain_graph_rainbow",
+};
+function readGraphViewPref(name) {
+  try {
+    return localStorage.getItem(GRAPH_VIEW_KEYS[name]);
+  } catch {
+    return null;
+  }
+}
+function writeGraphViewPref(name, value) {
+  try {
+    localStorage.setItem(GRAPH_VIEW_KEYS[name], value);
+  } catch {
+    // Forgotten on the next visit; the switch still works now.
+  }
+}
+let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
+window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
+window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
+
+const GRAPH_SWITCH_BASE =
+  "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors shadow-xs";
+const GRAPH_SWITCH_ON = "bg-indigo-600 border-indigo-600 text-white";
+const GRAPH_SWITCH_OFF = "bg-white border-slate-300 text-slate-600 hover:bg-slate-50";
+
+// Reflect the remembered switches in the toolbar.
+function syncGraphViewButtons() {
+  const label = document.getElementById("graph-direction-label");
+  if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
+  for (const name of ["compact", "rainbow"]) {
+    const btn = document.getElementById(`graph-${name}-toggle`);
+    if (!btn) continue;
+    const on = window.graphViewSwitches[name];
+    btn.className = `${GRAPH_SWITCH_BASE} ${on ? GRAPH_SWITCH_ON : GRAPH_SWITCH_OFF}`;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
 
 function toggleGraphDirection() {
   currentGraphDirection = currentGraphDirection === "TB" ? "LR" : "TB";
-  const label = document.getElementById("graph-direction-label");
-  if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
+  writeGraphViewPref("direction", currentGraphDirection);
+  syncGraphViewButtons();
+  if (currentGraphMode === "custom") {
+    redrawGraph();
+  }
+}
+
+function toggleGraphViewSwitch(name) {
+  window.graphViewSwitches[name] = !window.graphViewSwitches[name];
+  writeGraphViewPref(name, window.graphViewSwitches[name] ? "1" : "0");
+  syncGraphViewButtons();
   if (currentGraphMode === "custom") {
     redrawGraph();
   }
@@ -35,12 +88,16 @@ function switchGraphMode(mode) {
     }
   });
   const dirBtn = document.getElementById("graph-direction-toggle");
+  const compactBtn = document.getElementById("graph-compact-toggle");
+  const rainbowBtn = document.getElementById("graph-rainbow-toggle");
   const copyBtn = document.getElementById("graph-copy");
   const dlBtn = document.getElementById("graph-download");
   const dlPngBtn = document.getElementById("graph-download-png");
   const toolbarRow = document.getElementById("graph-toolbar-row");
 
   if (dirBtn) dirBtn.classList.toggle("hidden", mode !== "custom");
+  if (compactBtn) compactBtn.classList.toggle("hidden", mode !== "custom");
+  if (rainbowBtn) rainbowBtn.classList.toggle("hidden", mode !== "custom");
   if (copyBtn) copyBtn.classList.remove("hidden");
   if (dlBtn) dlBtn.classList.remove("hidden");
   if (dlPngBtn) dlPngBtn.classList.remove("hidden");
@@ -722,6 +779,7 @@ window.addEventListener("sanshain-update", async () => {
 });
 
 function initGraph() {
+  syncGraphViewButtons();
   checkDiscoveryAuth(() => showGraph());
 }
 if (document.readyState === "loading") {

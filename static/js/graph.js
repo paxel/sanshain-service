@@ -21,6 +21,26 @@ window.graphProtocolFilters = {
   // require nothing — shown by default, hideable like a protocol.
   unrequired: true,
 };
+
+// The view switches of the custom renderer, presentation only and never
+// resolution inputs: Compact tightens the layout gaps, Rainbow colours the
+// plain edges per source node. The page script remembers them per browser.
+window.graphViewSwitches = { compact: false, rainbow: false };
+
+// The gaps of the custom layout: dagre's own and the compaction pass's. Compact
+// trims them for installs whose graph outgrows the screen; the airy default
+// stays for the small ones.
+function graphLayoutGaps(isLR, compact) {
+  if (compact) {
+    return isLR
+      ? { nodesep: 40, ranksep: 80, edgesep: 40, gap: 14, groupGap: 40 }
+      : { nodesep: 50, ranksep: 110, edgesep: 40, gap: 16, groupGap: 50 };
+  }
+  return isLR
+    ? { nodesep: 100, ranksep: 150, edgesep: 80, gap: 25, groupGap: 100 }
+    : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120 };
+}
+window.graphLayoutGaps = graphLayoutGaps;
 // Independent display-state highlights (never resolution inputs):
 // outdated = Pin below the line's latest GA within the same major (a Pin to a
 //   superseded Snapshot included);
@@ -1280,6 +1300,9 @@ function renderCustomGraph(report, svgElement, direction) {
   // cluster bounds, edge tangents).
   const dir = direction === "LR" ? "LR" : "TB";
   const isLR = dir === "LR";
+  const switches = window.graphViewSwitches || {};
+  const gaps = graphLayoutGaps(isLR, !!switches.compact);
+  svgElement.dataset.compact = switches.compact ? "1" : "0";
 
   // Build missing edge keys from report.missing_endpoints
   const missingEdgeKeys = new Set();
@@ -1391,10 +1414,9 @@ function renderCustomGraph(report, svgElement, direction) {
   const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
     rankdir: dir,
-    // Increased spacing for better clarity
-    nodesep: isLR ? 100 : 120,
-    ranksep: isLR ? 150 : 250,
-    edgesep: 80,
+    nodesep: gaps.nodesep,
+    ranksep: gaps.ranksep,
+    edgesep: gaps.edgesep,
     marginx: 40,
     marginy: 60,
   });
@@ -1468,8 +1490,8 @@ function renderCustomGraph(report, svgElement, direction) {
     nodeFOffsets.set(node, 0);
   }
 
-  const GAP = isLR ? 25 : 30; // gap between units on a rank (flow axis)
-  const GROUP_GAP = isLR ? 100 : 120; // larger gap between different roles (flow axis)
+  const GAP = gaps.gap; // gap between units on a rank (flow axis)
+  const GROUP_GAP = gaps.groupGap; // larger gap between different roles (flow axis)
 
   // Step 1 — group nodes by rank and calculate global lane metrics.
   const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
