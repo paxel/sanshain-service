@@ -41,6 +41,30 @@ function graphLayoutGaps(isLR, compact) {
     : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120 };
 }
 window.graphLayoutGaps = graphLayoutGaps;
+
+// Rainbow: one hue per source node for the plain edges, so one Consumer's
+// fan-out can be followed through the crossings. Stable by name, and clear of
+// the warning hues (purple, orange, amber, red) that circular, missing, stale,
+// dangling and major-behind edges keep.
+const GRAPH_RAINBOW = [
+  "#2563eb", // blue
+  "#059669", // emerald
+  "#db2777", // pink
+  "#0891b2", // cyan
+  "#65a30d", // lime
+  "#4f46e5", // indigo
+  "#0d9488", // teal
+  "#92400e", // brown
+];
+function graphRainbowIndex(name) {
+  let h = 5381;
+  for (const ch of name) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+  return h % GRAPH_RAINBOW.length;
+}
+function graphRainbowColor(name) {
+  return GRAPH_RAINBOW[graphRainbowIndex(name)];
+}
+window.graphRainbowColor = graphRainbowColor;
 // Independent display-state highlights (never resolution inputs):
 // outdated = Pin below the line's latest GA within the same major (a Pin to a
 //   superseded Snapshot included);
@@ -1303,6 +1327,8 @@ function renderCustomGraph(report, svgElement, direction) {
   const switches = window.graphViewSwitches || {};
   const gaps = graphLayoutGaps(isLR, !!switches.compact);
   svgElement.dataset.compact = switches.compact ? "1" : "0";
+  const rainbow = !!switches.rainbow;
+  svgElement.dataset.rainbow = rainbow ? "1" : "0";
 
   // Build missing edge keys from report.missing_endpoints
   const missingEdgeKeys = new Set();
@@ -1789,6 +1815,7 @@ function renderCustomGraph(report, svgElement, direction) {
     ["arrow-red", "#a855f7"],
     ["arrow-orange", "#f97316"],
     ["arrow-green", "#22c55e"],
+    ...GRAPH_RAINBOW.map((color, i) => [`arrow-rainbow-${i}`, color]),
   ].forEach(([id, color]) => {
     const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
     marker.setAttribute("id", id);
@@ -1971,7 +1998,7 @@ function renderCustomGraph(report, svgElement, direction) {
       dashArray = "3 4";
       markerEnd = "url(#arrow)";
     } else if (isBidirectionalPubSub) {
-      edgeColor = "#94a3b8";
+      edgeColor = rainbow ? graphRainbowColor(e.v) : "#94a3b8";
       edgeWidth = "2";
       dashArray = "6 3";
       markerEnd = "";
@@ -1981,9 +2008,9 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "3";
       markerEnd = "url(#arrow-red)";
     } else {
-      edgeColor = "#94a3b8";
+      edgeColor = rainbow ? graphRainbowColor(e.v) : "#94a3b8";
       edgeWidth = "2";
-      markerEnd = "url(#arrow)";
+      markerEnd = rainbow ? `url(#arrow-rainbow-${graphRainbowIndex(e.v)})` : "url(#arrow)";
     }
     path.setAttribute("stroke", edgeColor);
     path.setAttribute("stroke-width", edgeWidth);

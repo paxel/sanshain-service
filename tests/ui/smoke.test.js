@@ -1943,6 +1943,54 @@ test.describe("Graph (unrequired) box", () => {
     await expect(page.locator("#graph-direction-toggle")).toBeHidden();
   });
 
+  test("Rainbow colours the plain edges per Consumer and leaves the warnings alone", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    const strokes = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#custom-graph path.graph-edge")].map((p) => ({
+          from: p.dataset.from,
+          type: p.dataset.edgeType,
+          stroke: p.getAttribute("stroke"),
+          marker: p.getAttribute("marker-end"),
+        })),
+      );
+    const svg = page.locator("#custom-graph");
+    await expect(svg).toHaveAttribute("data-rainbow", "0");
+    const plain = await strokes();
+    expect(plain.filter((e) => e.type === "normal").every((e) => e.stroke === "#94a3b8")).toBe(
+      true,
+    );
+    await page.click("#graph-rainbow-toggle");
+    await expect(svg).toHaveAttribute("data-rainbow", "1");
+    const coloured = await strokes();
+    const normal = coloured.filter((e) => e.type === "normal");
+    expect(normal.length).toBeGreaterThan(2);
+    const byFrom = new Map();
+    for (const e of normal) {
+      expect(e.stroke).not.toBe("#94a3b8");
+      expect(e.marker).toMatch(/^url\(#arrow-rainbow-\d\)$/);
+      if (byFrom.has(e.from)) expect(byFrom.get(e.from)).toBe(e.stroke);
+      byFrom.set(e.from, e.stroke);
+    }
+    expect(new Set(byFrom.values()).size).toBeGreaterThan(1);
+    // The missing dependency keeps its orange.
+    const missing = coloured.filter((e) => e.type === "missing");
+    expect(missing.length).toBeGreaterThan(0);
+    expect(missing.every((e) => e.stroke === "#f97316")).toBe(true);
+    // Remembered across a reload, stable per name.
+    await page.goto("/graph.html");
+    await expect(box(page)).toHaveCount(1, { timeout: 20000 });
+    await expect(svg).toHaveAttribute("data-rainbow", "1");
+    await expect(page.locator("#graph-rainbow-toggle")).toHaveAttribute("aria-pressed", "true");
+    const again = await strokes();
+    for (const e of again.filter((x) => x.type === "normal")) {
+      expect(e.stroke).toBe(byFrom.get(e.from));
+    }
+  });
+
   test("islands pack into empty space without growing the graph", async ({ page }) => {
     await openGraph(page);
     await expect(node(page, ISLAND)).toHaveCount(1, { timeout: 20000 });
