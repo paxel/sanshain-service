@@ -1623,6 +1623,8 @@ test.describe("Graph (unrequired) box", () => {
   const DEV_CHANNEL = "s8.dev.only.events";
   const HOTFIX = "s8-hotfix-svc"; // only a tag-flagged member of BRANCH
   const BRANCH = "s8-rel";
+  // A four-link chain: decisively tall when vertical, wide when horizontal.
+  const DEEP = ["s8-deep-1", "s8-deep-2", "s8-deep-3", "s8-deep-4"];
   const openapi = (title, version = "1.0.0") =>
     [
       "openapi: 3.0.3",
@@ -1741,6 +1743,24 @@ test.describe("Graph (unrequired) box", () => {
       ),
       "require STALE",
     );
+    for (const name of DEEP) {
+      await ok(
+        await request.post("/provide", {
+          headers,
+          data: { producername: name, stability: "snapshot", openapi_yaml: openapi(name) },
+        }),
+        `provide ${name}`,
+      );
+    }
+    for (let i = 1; i < DEEP.length; i++) {
+      await ok(
+        await request.get(
+          `/require?consumername=${DEEP[i - 1]}&producername=${DEEP[i]}&version=1.0.0&path=/thing&method=GET`,
+          { headers },
+        ),
+        `require ${DEEP[i]}`,
+      );
+    }
     // A dev-only (not trunk-flagged) subscription to a channel nobody owns.
     await ok(
       await request.post("/provide/asyncapi", {
@@ -1849,8 +1869,9 @@ test.describe("Graph (unrequired) box", () => {
     await expect(box(page)).toHaveCount(0);
   });
 
-  test("the box sits at the end of the flow in both directions", async ({ page }) => {
-    await openGraph(page);
+  test("the box sits beside a tall graph and below a wide one", async ({ page }) => {
+    // The chain and the box: the middle links focus all four.
+    await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const measure = () =>
       page.evaluate(() => {
@@ -1863,14 +1884,28 @@ test.describe("Graph (unrequired) box", () => {
           maxBottom: Math.max(
             ...nodes.map((r) => +r.getAttribute("y") + +r.getAttribute("height")),
           ),
+          side: {
+            tall: graphOverflowSide({ minX: 0, minY: 0, maxX: 300, maxY: 301 }, false),
+            wide: graphOverflowSide({ minX: 0, minY: 0, maxX: 301, maxY: 300 }, true),
+            square: graphOverflowSide({ minX: 0, minY: 0, maxX: 300, maxY: 300 }, false),
+            noneTb: graphOverflowSide(null, false),
+            noneLr: graphOverflowSide(null, true),
+          },
         };
       });
     const tb = await measure();
-    expect(tb.boxY).toBeGreaterThan(tb.maxBottom);
+    expect(tb.side).toEqual({
+      tall: "right",
+      wide: "below",
+      square: "below",
+      noneTb: "below",
+      noneLr: "right",
+    });
+    expect(tb.boxX).toBeGreaterThan(tb.maxRight);
     await page.click("#graph-direction-toggle");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
     const lr = await measure();
-    expect(lr.boxX).toBeGreaterThan(lr.maxRight);
+    expect(lr.boxY).toBeGreaterThan(lr.maxBottom);
   });
 
   test("islands pack into empty space without growing the graph", async ({ page }) => {
@@ -1880,7 +1915,7 @@ test.describe("Graph (unrequired) box", () => {
       const box = { minX: 0, minY: 0, maxX: 1000, maxY: 600 };
       // The left half is taken; the right half is free.
       const obstacles = [{ x0: 0, y0: 0, x1: 450, y1: 600 }];
-      const inside = graphPackIslands(box, obstacles, [{ w: 200, h: 100 }], false);
+      const inside = graphPackIslands(box, obstacles, [{ w: 200, h: 100 }], "below");
       const many = graphPackIslands(
         box,
         [{ x0: 0, y0: 0, x1: 1000, y1: 600 }],
@@ -1889,7 +1924,7 @@ test.describe("Graph (unrequired) box", () => {
           { w: 400, h: 100 },
           { w: 400, h: 100 },
         ],
-        false,
+        "below",
       );
       const lr = graphPackIslands(
         box,
@@ -1899,14 +1934,14 @@ test.describe("Graph (unrequired) box", () => {
           { w: 100, h: 250 },
           { w: 100, h: 250 },
         ],
-        true,
+        "right",
       );
       return { inside, many, lr };
     });
     expect(packed.inside[0].x).toBeGreaterThanOrEqual(480);
     expect(packed.inside[0].x + 200).toBeLessThanOrEqual(1000);
     expect(packed.inside[0].y + 100).toBeLessThanOrEqual(600);
-    // Overflow goes below (TB) / right (LR), never wider / taller.
+    // Overflow goes to the chosen side, never widening / heightening the frame.
     for (const p of packed.many) {
       expect(p.y).toBeGreaterThan(600);
       expect(p.x + 400).toBeLessThanOrEqual(1000);

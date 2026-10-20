@@ -1105,22 +1105,34 @@ function graphIslands(nodes, deps) {
 }
 window.graphIslands = graphIslands;
 
+// Which side of the main graph (`box` = {minX, minY, maxX, maxY}) takes what
+// does not fit inside it — overflowing islands and the "(unrequired)" box:
+// "right" when the graph is taller than wide, "below" otherwise, so the
+// drawing squares up instead of growing along its long side. Without a main
+// graph the flow direction decides.
+function graphOverflowSide(box, isLR) {
+  if (!box) return isLR ? "right" : "below";
+  return box.maxY - box.minY > box.maxX - box.minX ? "right" : "below";
+}
+window.graphOverflowSide = graphOverflowSide;
+
 // Pack islands ({w, h}) into the empty areas of the main graph's bounding box
 // (`box` = {minX, minY, maxX, maxY}, or null when there is no main graph),
 // avoiding the `obstacles` rects ({x0, y0, x1, y1}). Islands that do not fit
-// go to the end of the flow — below in TB, right in LR — wrapped inside the
-// box's width (TB) / height (LR), so the graph never grows across the flow.
+// go to `side` ("right" or "below", see graphOverflowSide) wrapped inside the
+// box's height (right) / width (below), so they never lengthen the long side.
 // Returns the top-left {x, y} of every island, in input order.
-function graphPackIslands(box, obstacles, islands, isLR) {
+function graphPackIslands(box, obstacles, islands, side) {
   const CELL = 10;
   const MARGIN = 30;
+  const toRight = side === "right";
   const widest = Math.max(0, ...islands.map((i) => i.w));
   const tallest = Math.max(0, ...islands.map((i) => i.h));
   const frame = box || {
     minX: 0,
     minY: 0,
-    maxX: isLR ? 0 : Math.max(widest, 900),
-    maxY: isLR ? Math.max(tallest, 600) : 0,
+    maxX: toRight ? 0 : Math.max(widest, 900),
+    maxY: toRight ? Math.max(tallest, 600) : 0,
   };
   const cols = Math.max(0, Math.floor((frame.maxX - frame.minX) / CELL));
   const rows = Math.max(0, Math.floor((frame.maxY - frame.minY) / CELL));
@@ -1162,23 +1174,23 @@ function graphPackIslands(box, obstacles, islands, isLR) {
   } else {
     overflow.push(...islands.map((_, i) => i));
   }
-  // The end of the flow, wrapped inside the frame across the flow.
+  // The chosen side, wrapped inside the frame's extent along that side.
   overflow.sort((a, b) => a - b);
   const GAP = 60;
-  let along = isLR ? (box ? frame.maxX + 80 : 0) : box ? frame.maxY + 80 : 0;
-  let across = isLR ? frame.minY : frame.minX;
+  let along = toRight ? (box ? frame.maxX + 80 : 0) : box ? frame.maxY + 80 : 0;
+  let across = toRight ? frame.minY : frame.minX;
   let lane = 0;
-  const limit = isLR ? frame.maxY : frame.maxX;
+  const limit = toRight ? frame.maxY : frame.maxX;
   overflow.forEach((i) => {
-    const size = isLR ? islands[i].h : islands[i].w;
-    const depth = isLR ? islands[i].w : islands[i].h;
-    const start = isLR ? frame.minY : frame.minX;
+    const size = toRight ? islands[i].h : islands[i].w;
+    const depth = toRight ? islands[i].w : islands[i].h;
+    const start = toRight ? frame.minY : frame.minX;
     if (across > start && across + size > limit) {
       along += lane + GAP;
       across = start;
       lane = 0;
     }
-    positions[i] = isLR ? { x: along, y: across } : { x: across, y: along };
+    positions[i] = toRight ? { x: along, y: across } : { x: across, y: along };
     across += size + GAP;
     lane = Math.max(lane, depth);
   });
@@ -1186,11 +1198,12 @@ function graphPackIslands(box, obstacles, islands, isLR) {
 }
 window.graphPackIslands = graphPackIslands;
 
-// The "(unrequired)" box at the end of the flow — below the graph in TB,
-// right of it in LR — with one compact chip per member in a dense grid:
-// as wide as the graph in TB, as tall as the graph in LR.
+// The "(unrequired)" box on `side` of the graph ("right" or "below", see
+// graphOverflowSide) with one compact chip per member in a dense grid: a
+// column as tall as the graph on the right, a strip as wide as the graph below.
 // `extent` = {minX, minY, maxX, maxY} of everything drawn before it.
-function graphLayoutUnrequiredBox(names, extent, isLR) {
+function graphLayoutUnrequiredBox(names, extent, side) {
+  const toRight = side === "right";
   const CHIP_H = 26;
   const GAP = 8;
   const PAD = 12;
@@ -1201,7 +1214,7 @@ function graphLayoutUnrequiredBox(names, extent, isLR) {
   let cols;
   let x;
   let y;
-  if (isLR) {
+  if (toRight) {
     const height = Math.max(e.maxY - e.minY, HEADER + CHIP_H + 2 * PAD);
     const rows = Math.max(
       1,
@@ -1228,7 +1241,7 @@ function graphLayoutUnrequiredBox(names, extent, isLR) {
   return {
     x,
     y,
-    w: isLR ? innerW : Math.max(innerW, e.maxX - e.minX),
+    w: toRight ? innerW : Math.max(innerW, e.maxX - e.minX),
     h: HEADER + 2 * PAD + rowsUsed * (CHIP_H + GAP) - GAP,
     chips,
   };
@@ -1615,6 +1628,8 @@ function renderCustomGraph(report, svgElement, direction) {
     });
     return box;
   };
+  // Everything outside the main graph goes to the side with more room.
+  const overflowSide = graphOverflowSide(extentOf(g.nodes()), isLR);
   if (islands.length > 0) {
     const mainBox = extentOf(g.nodes());
     const obstacles = [];
@@ -1660,7 +1675,7 @@ function renderCustomGraph(report, svgElement, direction) {
       const depth = ranks[0].depth + ISLAND_RANK + ranks[1].depth;
       return { ranks, span, depth, w: isLR ? depth : span, h: isLR ? span : depth };
     });
-    const spots = graphPackIslands(mainBox, obstacles, shapes, isLR);
+    const spots = graphPackIslands(mainBox, obstacles, shapes, overflowSide);
     shapes.forEach((shape, i) => {
       const spot = spots[i];
       let rankStart = 0;
@@ -1692,10 +1707,14 @@ function renderCustomGraph(report, svgElement, direction) {
     });
   }
 
-  // ── The "(unrequired)" box, at the end of the flow ───────────────
+  // ── The "(unrequired)" box, beside or below the graph ────────────
   const unrequiredBox =
     unrequired.length > 0
-      ? graphLayoutUnrequiredBox(unrequired.map((p) => p.name).sort(), extentOf(g.nodes()), isLR)
+      ? graphLayoutUnrequiredBox(
+          unrequired.map((p) => p.name).sort(),
+          extentOf(g.nodes()),
+          overflowSide,
+        )
       : null;
 
   // Calculate the actual bounding box of all nodes and clusters after compaction
