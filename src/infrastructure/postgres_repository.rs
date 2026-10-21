@@ -2271,16 +2271,30 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
+        // The two columns have different types — `sessions.expires_at` is a
+        // TIMESTAMP, `api_tokens.expires_at` RFC 3339 text — and the cutoff
+        // arrives as text: each comparison casts to an instant. A failure on
+        // one table must not keep the other from being cleaned.
+        let statements = [
+            "DELETE FROM sessions WHERE expires_at < $1::timestamptz",
+            "DELETE FROM api_tokens WHERE expires_at::timestamptz < $1::timestamptz",
+        ];
         let mut removed = 0u64;
-        for table in ["sessions", "api_tokens"] {
-            let res = sqlx::query(&format!("DELETE FROM {table} WHERE expires_at < $1"))
+        let mut failure = None;
+        for statement in statements {
+            match sqlx::query(statement)
                 .bind(now_iso)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            removed += res.rows_affected();
+            {
+                Ok(res) => removed += res.rows_affected(),
+                Err(e) => failure = Some(RepositoryError::Internal(e.to_string())),
+            }
         }
-        Ok(removed)
+        match failure {
+            Some(e) => Err(e),
+            None => Ok(removed),
+        }
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
@@ -2371,7 +2385,7 @@ impl SpecRepository for PostgresSpecRepository {
             SELECT t.id, t.scope, t.last_used_at, u.id, u.username, u.password_hash, u.approved
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
-            WHERE t.token_hash = $1 AND t.expires_at > TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS')
+            WHERE t.token_hash = $1 AND t.expires_at::timestamptz > NOW()
             "#,
         )
         .bind(token_hash)

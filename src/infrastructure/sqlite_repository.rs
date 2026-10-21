@@ -2260,7 +2260,7 @@ impl SpecRepository for SqliteSpecRepository {
             SELECT s.user_id, u.id, u.username, u.password_hash, s.expires_at, u.approved
             FROM sessions s
             JOIN users u ON s.user_id = u.id
-            WHERE s.token = ? AND s.expires_at > datetime('now')
+            WHERE s.token = ? AND julianday(s.expires_at) > julianday('now')
             "#,
         )
         .bind(hash_session_token(token))
@@ -2289,11 +2289,15 @@ impl SpecRepository for SqliteSpecRepository {
     async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
         let mut removed = 0u64;
         for table in ["sessions", "api_tokens"] {
-            let res = sqlx::query(&format!("DELETE FROM {table} WHERE expires_at < ?"))
-                .bind(now_iso)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            // Compared as instants: the stored RFC 3339 text and the cutoff
+            // need not share a spelling (`T` or space, `Z` or `+00:00`).
+            let res = sqlx::query(&format!(
+                "DELETE FROM {table} WHERE julianday(expires_at) < julianday(?)"
+            ))
+            .bind(now_iso)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             removed += res.rows_affected();
         }
         Ok(removed)
@@ -2387,7 +2391,7 @@ impl SpecRepository for SqliteSpecRepository {
             SELECT t.id, t.scope, t.last_used_at, u.id, u.username, u.password_hash, u.approved
             FROM api_tokens t
             JOIN users u ON t.user_id = u.id
-            WHERE t.token_hash = ? AND t.expires_at > datetime('now')
+            WHERE t.token_hash = ? AND julianday(t.expires_at) > julianday('now')
             "#,
         )
         .bind(token_hash)

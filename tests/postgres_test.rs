@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, OnceLock};
 
 mod common;
+#[path = "common/credential_expiry.rs"]
+mod credential_expiry;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -1061,4 +1063,20 @@ async fn test_postgres_version_origin_set_get_list_and_swept_with_its_version() 
         1
     );
     assert!(repo.list_version_origins().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_postgres_refuses_and_cleans_expired_credentials() {
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    credential_expiry::expired_credentials_are_refused_and_cleaned(&repo).await;
 }
