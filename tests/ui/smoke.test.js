@@ -1489,6 +1489,9 @@ test.describe("Graph provides/requires badges", () => {
             "kind: Component",
             "metadata:",
             `  name: ${ASYNC_A}`,
+            "  tags:",
+            "    - Kafka",
+            "    - s7-tagged",
             "spec:",
             "  type: service",
             "  dependsOn:",
@@ -1511,6 +1514,26 @@ test.describe("Graph provides/requires badges", () => {
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
   const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
+
+  test("catalog tags are chips in the node panel and a tag: focus narrows the graph", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
+    await node(page, ASYNC_A).hover();
+    const tooltip = page.locator("#graph-tooltip");
+    await expect(tooltip).toBeVisible({ timeout: 5000 });
+    await expect(tooltip.locator('[data-context="tags"] [data-tag]')).toHaveText([
+      "kafka",
+      "s7-tagged",
+    ]);
+    // Only ASYNC_A carries s7-tagged: the focus keeps it and its neighbours.
+    await page.goto("/graph.html?focus=tag:s7-tagged");
+    await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
+    await expect(node(page, GRPC)).toHaveCount(1);
+    await expect(node(page, ASYNC_B)).toHaveCount(0);
+    await expect(node(page, TRUNK)).toHaveCount(0);
+  });
 
   test("a REST service required by async providers shows no messaging badge", async ({ page }) => {
     await openGraph(page);

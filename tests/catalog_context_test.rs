@@ -175,6 +175,9 @@ const FULL_METADATA: &str = r#"  description: "  Takes orders and hands them to 
     - url: https://grafana.acme.corp/d/orders
       title: Dashboard
     - url: https://jira.acme.corp/browse/ORD
+  tags:
+    - Java
+    - kafka
 "#;
 
 #[cfg(test)]
@@ -188,6 +191,7 @@ fn expected_full_context() -> Value {
             {"url": "https://grafana.acme.corp/d/orders", "title": "Dashboard", "type": null, "icon": null},
             {"url": "https://jira.acme.corp/browse/ORD", "title": "jira.acme.corp", "type": null, "icon": null},
         ],
+        "tags": ["java", "kafka"],
     })
 }
 
@@ -397,7 +401,7 @@ async fn a_second_push_replaces_the_context_and_an_identical_one_changes_nothing
     assert_eq!(audit_count(&ctx).await, 2);
     assert_eq!(
         get_json(&ctx, "/admin/producers/orders").await["context"],
-        json!({"owner": null, "description": null, "source_location": null, "links": []})
+        json!({"owner": null, "description": null, "source_location": null, "links": [], "tags": []})
     );
 }
 
@@ -480,7 +484,7 @@ async fn fields_are_normalised_validated_and_bounded() {
     let context = get_json(&ctx, "/admin/producers/orders").await["context"].clone();
     assert_eq!(
         context,
-        json!({"owner": null, "description": null, "source_location": null, "links": []})
+        json!({"owner": null, "description": null, "source_location": null, "links": [], "tags": []})
     );
 }
 

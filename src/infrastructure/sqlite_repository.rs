@@ -84,7 +84,7 @@ fn hash_session_token(token: &str) -> String {
 
 use super::pin_rows::{
     PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
-    system_context_from_row,
+    system_context_from_row, tags_json,
 };
 use super::webhook_rows::{
     DELIVERY_COLUMNS, DeliveryRow, WEBHOOK_COLUMNS, WebhookRow, data_from_json, data_json,
@@ -3076,12 +3076,12 @@ impl SpecRepository for SqliteSpecRepository {
         }
         sqlx::query(
             "INSERT INTO system_context \
-                   (system_name, owner_kind, owner_name, description, source_location, links_json, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?) \
+                   (system_name, owner_kind, owner_name, description, source_location, links_json, tags_json, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
                  ON CONFLICT (system_name) DO UPDATE SET \
                    owner_kind = excluded.owner_kind, owner_name = excluded.owner_name, \
                    description = excluded.description, source_location = excluded.source_location, \
-                   links_json = excluded.links_json, updated_at = excluded.updated_at",
+                   links_json = excluded.links_json, tags_json = excluded.tags_json, updated_at = excluded.updated_at",
         )
         .bind(system)
         .bind(context.owner.as_ref().map(|o| o.kind.as_str()))
@@ -3089,6 +3089,7 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(context.description.as_deref())
         .bind(context.source_location.as_deref())
         .bind(links_json(context)?)
+        .bind(tags_json(context)?)
         .bind(now_iso)
         .execute(&self.pool)
         .await
@@ -3101,7 +3102,7 @@ impl SpecRepository for SqliteSpecRepository {
         system: &str,
     ) -> Result<Option<SystemContext>, RepositoryError> {
         let row: Option<SystemContextRow> = sqlx::query_as(
-            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json, tags_json \
              FROM system_context WHERE system_name = ?",
         )
         .bind(system)
@@ -3116,7 +3117,7 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
     ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
         let rows: Vec<SystemContextRow> = sqlx::query_as(
-            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json, tags_json \
              FROM system_context ORDER BY system_name",
         )
         .fetch_all(&self.pool)
@@ -4215,6 +4216,7 @@ mod tests {
                 link_type: Some("docs".to_string()),
                 icon: None,
             }],
+            tags: vec!["java".to_string()],
         };
         assert!(
             repo.upsert_system_context("orders", &context, "2026-01-01T00:00:00Z")

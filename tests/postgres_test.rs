@@ -743,6 +743,7 @@ async fn test_postgres_system_context_upsert_get_list_delete() {
             link_type: Some("docs".to_string()),
             icon: None,
         }],
+        tags: vec!["java".to_string()],
     };
     assert!(
         repo.upsert_system_context("orders", &context, "2026-01-01T00:00:00Z")

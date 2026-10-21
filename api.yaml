@@ -695,6 +695,9 @@ paths:
         - `metadata.links`: `url` (must be `http` or `https`, otherwise the
           link is dropped), `title` (defaults to the URL's host), `type` and
           `icon`; at most 20, further ones are ignored.
+        - `metadata.tags`, lower-cased and deduplicated, at most 20; shown as
+          chips with the context, answered by the MCP `describe_service`, and
+          a graph focus (`tag:<name>`).
 
         Everything else in the file is ignored. Each push **replaces** the
         system's periphery and its context: a resource no longer listed is
@@ -2183,8 +2186,8 @@ components:
       type: object
       description: |
         What a system's Backstage `catalog-info.yaml` says about it: owner,
-        description, source location and links, as pushed to `/catalog/{systemname}`.
-      required: [owner, description, source_location, links]
+        description, source location, links and tags, as pushed to `/catalog/{systemname}`.
+      required: [owner, description, source_location, links, tags]
       properties:
         owner:
           type: object
@@ -2217,6 +2220,10 @@ components:
               icon:
                 type: string
                 nullable: true
+        tags:
+          type: array
+          items:
+            type: string
     DependencyReport:
       type: object
       description: The dependency report of one graph scope.

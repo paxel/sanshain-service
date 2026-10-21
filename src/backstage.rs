@@ -58,6 +58,9 @@ const MAX_LINKS: usize = 20;
 /// included (#48).
 const MAX_LINK_TEXT_CHARS: usize = 200;
 
+/// `metadata.tags` beyond this many are ignored (ADR-0010).
+const MAX_TAGS: usize = 20;
+
 /// A link or source-location URL longer than this is dropped (#48).
 const MAX_URL_CHARS: usize = 2048;
 
@@ -87,6 +90,8 @@ struct Metadata {
     annotations: Option<BTreeMap<String, Value>>,
     #[serde(default)]
     links: Option<Value>,
+    #[serde(default)]
+    tags: Option<Value>,
 }
 
 /// What Sanshain read of the system's Component: its periphery (#46) and
@@ -176,6 +181,13 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
             .as_ref()
             .and_then(Value::as_sequence)
             .map(|items| items.iter().filter_map(link).take(MAX_LINKS).collect())
+            .unwrap_or_default(),
+        tags: component
+            .metadata
+            .tags
+            .as_ref()
+            .and_then(Value::as_sequence)
+            .map(|items| tags(items))
             .unwrap_or_default(),
     };
     let system = component
@@ -298,6 +310,30 @@ fn link(item: &Value) -> Option<SystemLink> {
         link_type: bounded("type"),
         icon: bounded("icon"),
     })
+}
+
+/// `metadata.tags` (ADR-0010): Backstage's tag charset is lower-case letters,
+/// digits, `-`, `+` and `#`, at most 63 characters; a tag outside it is no tag.
+/// Lower-cased, deduplicated in order, at most [`MAX_TAGS`].
+fn tags(items: &[Value]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for item in items {
+        let Some(raw) = item.as_str() else { continue };
+        let tag = raw.trim().to_lowercase();
+        let valid = !tag.is_empty()
+            && tag.len() <= 63
+            && tag.chars().all(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '+' | '#')
+            });
+        if valid && seen.insert(tag.clone()) {
+            out.push(tag);
+            if out.len() == MAX_TAGS {
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// `raw` parsed as an absolute `http` or `https` URL with a host of at most
@@ -553,7 +589,30 @@ spec:
                         icon: None,
                     },
                 ],
+                tags: vec![],
             }
+        );
+    }
+
+    #[test]
+    fn tags_are_lower_cased_deduplicated_and_bounded() {
+        let yaml = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\n  tags:\n    - Java\n    - kafka\n    - java\n    - ' tier-1 '\n    - 'has space'\n    - 7\n    - c++\n";
+        assert_eq!(
+            read_component(yaml, "svc").unwrap().context.tags,
+            vec!["java", "kafka", "tier-1", "c++"]
+        );
+        let many: String = (0..25).map(|i| format!("    - t{i}\n")).collect();
+        let yaml = format!(
+            "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\n  tags:\n{many}"
+        );
+        assert_eq!(read_component(&yaml, "svc").unwrap().context.tags.len(), 20);
+        let not_a_list = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\n  tags: java\n";
+        assert!(
+            read_component(not_a_list, "svc")
+                .unwrap()
+                .context
+                .tags
+                .is_empty()
         );
     }
 

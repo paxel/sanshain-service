@@ -538,7 +538,7 @@ async fn describe_service_carries_the_context_of_the_catalog_info() {
     assert_eq!(before["context"], Value::Null);
 
     // The build pushes the catalog-info (#48) through the same router.
-    let catalog = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\n  description: Takes orders.\n  annotations:\n    backstage.io/source-location: url:https://github.com/acme/orders\n  links:\n    - url: https://wiki.acme.corp/orders\n      title: Wiki\n      type: docs\nspec:\n  owner: team-orders\n";
+    let catalog = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\n  description: Takes orders.\n  annotations:\n    backstage.io/source-location: url:https://github.com/acme/orders\n  links:\n    - url: https://wiki.acme.corp/orders\n      title: Wiki\n      type: docs\n  tags:\n    - java\nspec:\n  owner: team-orders\n";
     let res = seed
         .app
         .clone()
@@ -575,7 +575,8 @@ async fn describe_service_carries_the_context_of_the_catalog_info() {
             "source_location": "https://github.com/acme/orders",
             "links": [
                 { "url": "https://wiki.acme.corp/orders", "title": "Wiki", "type": "docs", "icon": null }
-            ]
+            ],
+            "tags": ["java"]
         })
     );
 }

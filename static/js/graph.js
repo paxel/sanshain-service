@@ -662,8 +662,25 @@ function getFilteredReport(report) {
     // narrows the edges like any other focused node.
     unrequired = unrequired.filter((p) => tags.includes(p.name.toLowerCase()));
     unrequired.forEach((p) => focusNodes.add(p.name));
+    // `tag:<name>` (ADR-0010) focuses every system whose catalog context
+    // carries the tag, plus their neighbours, like naming each of them.
+    const systems = report.systems || {};
     for (const tag of window.graphFocusTags) {
       const target = tag.toLowerCase();
+      if (target.startsWith("tag:")) {
+        const wanted = target.slice(4).trim();
+        const tagged = Object.keys(systems).filter((name) =>
+          (systems[name].tags || []).includes(wanted),
+        );
+        tagged.forEach((name) => {
+          focusNodes.add(name);
+          deps.forEach((d) => {
+            if (d.client === name) focusNodes.add(d.service);
+            if (d.service === name) focusNodes.add(d.client);
+          });
+        });
+        continue;
+      }
       const exactMatch = deps.find(
         (d) => d.client.toLowerCase() === target || d.service.toLowerCase() === target,
       );

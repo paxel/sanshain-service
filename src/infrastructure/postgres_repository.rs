@@ -85,7 +85,7 @@ fn hash_session_token(token: &str) -> String {
 
 use super::pin_rows::{
     PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
-    system_context_from_row,
+    system_context_from_row, tags_json,
 };
 use super::webhook_rows::{
     DELIVERY_COLUMNS, DeliveryRow, WEBHOOK_COLUMNS, WebhookRow, data_from_json, data_json,
@@ -3070,12 +3070,12 @@ impl SpecRepository for PostgresSpecRepository {
         }
         sqlx::query(
             "INSERT INTO system_context \
-                   (system_name, owner_kind, owner_name, description, source_location, links_json, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                   (system_name, owner_kind, owner_name, description, source_location, links_json, tags_json, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
                  ON CONFLICT (system_name) DO UPDATE SET \
                    owner_kind = EXCLUDED.owner_kind, owner_name = EXCLUDED.owner_name, \
                    description = EXCLUDED.description, source_location = EXCLUDED.source_location, \
-                   links_json = EXCLUDED.links_json, updated_at = EXCLUDED.updated_at",
+                   links_json = EXCLUDED.links_json, tags_json = EXCLUDED.tags_json, updated_at = EXCLUDED.updated_at",
         )
         .bind(system)
         .bind(context.owner.as_ref().map(|o| o.kind.as_str()))
@@ -3083,6 +3083,7 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(context.description.as_deref())
         .bind(context.source_location.as_deref())
         .bind(links_json(context)?)
+        .bind(tags_json(context)?)
         .bind(now_iso)
         .execute(&self.pool)
         .await
@@ -3095,7 +3096,7 @@ impl SpecRepository for PostgresSpecRepository {
         system: &str,
     ) -> Result<Option<SystemContext>, RepositoryError> {
         let row: Option<SystemContextRow> = sqlx::query_as(
-            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json, tags_json \
              FROM system_context WHERE system_name = $1",
         )
         .bind(system)
@@ -3110,7 +3111,7 @@ impl SpecRepository for PostgresSpecRepository {
         &self,
     ) -> Result<BTreeMap<String, SystemContext>, RepositoryError> {
         let rows: Vec<SystemContextRow> = sqlx::query_as(
-            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json \
+            "SELECT system_name, owner_kind, owner_name, description, source_location, links_json, tags_json \
              FROM system_context ORDER BY system_name",
         )
         .fetch_all(&self.pool)

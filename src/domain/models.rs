@@ -784,6 +784,9 @@ pub struct SystemContext {
     /// prefix; only kept when it is an `http` or `https` URL.
     pub source_location: Option<String>,
     pub links: Vec<SystemLink>,
+    /// `metadata.tags` (ADR-0010), lower-cased, deduplicated, at most 20.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// A Producer's or Consumer's context answer (#48): the name as asked for,

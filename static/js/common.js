@@ -821,6 +821,19 @@ function systemContextHtml(context, dark) {
       `<div class="flex flex-wrap items-center gap-1.5" data-context="links">${chips.join("")}</div>`,
     );
   }
+  if (context.tags && context.tags.length) {
+    const tagChip = dark
+      ? "bg-indigo-900/60 text-indigo-200 border border-indigo-700"
+      : "bg-indigo-50 text-indigo-700 border border-indigo-200";
+    rows.push(
+      `<div class="flex flex-wrap items-center gap-1" data-context="tags">${context.tags
+        .map(
+          (tag) =>
+            `<span class="px-1.5 py-0.5 rounded-full text-[10px] font-mono ${tagChip}" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`,
+        )
+        .join("")}</div>`,
+    );
+  }
   return rows.length ? `<div class="space-y-1" data-context>${rows.join("")}</div>` : "";
 }
 
