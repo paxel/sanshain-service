@@ -220,7 +220,9 @@ function renderLogs() {
       const context = l.service
         ? `<span class="text-teal-400">[${escapeHtml(l.service)}${l.version ? "@" + escapeHtml(l.version) : ""}]</span> `
         : "";
-      return `<div class="mb-1"><span class="text-slate-500">[${l.timestamp.substring(11, 19)}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> <span class="text-indigo-400">${escapeHtml(l.target)}</span>: ${context}${escapeHtml(l.message)}</div>`;
+      // The reader's own date and time; the module path is a developer's
+      // detail and stays on hover (and in the copied text).
+      return `<div class="mb-1 log-line" title="${escapeHtml(l.target)}"><span class="text-slate-500 log-time">[${escapeHtml(logLocalTime(l.timestamp))}]</span> <span class="${color} font-bold">${l.level.padEnd(5)}</span> ${context}${escapeHtml(l.message)}</div>`;
     })
     .join("");
 
@@ -228,6 +230,15 @@ function renderLogs() {
   if (autoScroll && autoScroll.checked) {
     container.scrollTop = container.scrollHeight;
   }
+}
+
+// A log instant (RFC 3339, UTC) as the reader's local `YYYY-MM-DD HH:MM:SS`.
+// An unparsable value is shown as it came.
+function logLocalTime(timestamp) {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return timestamp;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function getLogsAsText() {
@@ -254,7 +265,9 @@ function getLogsAsText() {
   return allLogs
     .map((l) => {
       const context = l.service ? `[${l.service}${l.version ? "@" + l.version : ""}] ` : "";
-      return `[${l.timestamp.substring(11, 19)}] ${l.level.padEnd(5)} ${l.target}: ${context}${l.message}`;
+      // Copied lines keep the exact UTC instant and the module: they end up in
+      // tickets and chats, read by people in other time zones.
+      return `${l.timestamp} ${l.level.padEnd(5)} ${l.target}: ${context}${l.message}`;
     })
     .join("\n");
 }

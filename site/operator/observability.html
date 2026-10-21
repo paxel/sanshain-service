@@ -160,7 +160,11 @@
     <tr>
       <td>Log viewer</td>
       <td><code>GET /admin/observability/logs</code></td>
-      <td>The in-memory buffer by level, with copy and download.</td>
+      <td>
+        The in-memory buffer by level, with copy and download. Each line shows the date and time in
+        the reader's time zone; the Rust module that wrote it appears on hover. Copied and
+        downloaded lines carry the exact UTC instant and the module, as stdout does.
+      </td>
     </tr>
     <tr>
       <td>Debug Tracing</td>

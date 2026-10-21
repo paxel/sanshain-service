@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - On PostgreSQL the hourly credential cleanup failed every run (`operator does not exist: timestamp without time zone < text`) and removed no expired session or API token; it now cleans both, and a failure on one no longer skips the other.
 
 ### Changed
+- The Observability page's log lines show the date and time in the reader's time zone instead of a bare UTC time of day, so a line from yesterday no longer reads like one from today; the Rust module moves to a hover title. Copied lines keep the exact UTC instant and the module.
 - Saving the auth config or testing the connection refuses an LDAP server URL that is not `ldap://host[:port]` or `ldaps://host[:port]` with `400`, naming the expected form. A typo like `ldap:/dc01:636` (one slash) used to be stored and then fail as an unexplained "connection refused".
 - Every client and server error in the log names the request and the caller: `Client error: Forbidden (POST /admin/settings/cache, user dev-1)` instead of a bare `Client error: Forbidden`. The query string and any credential stay out of the line.
 - Graph panels open after the mouse has rested on a node or edge for two seconds instead of at once, so a cursor crossing the graph no longer pops panels along its way; once a panel is open, moving onto a neighbour switches it at once, and clicking an `(unrequired)` chip opens its panel immediately as before.

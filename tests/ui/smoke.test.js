@@ -2408,3 +2408,27 @@ test.describe("Graph toolbar layout", () => {
     expect(await pageScrollsSideways(page)).toBe(false);
   });
 });
+
+test.describe("Observability log lines", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+  test("a log line shows the local date and time and keeps the module on hover", async ({
+    page,
+  }) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto("/observability.html");
+    const line = page.locator("#log-container .log-line").first();
+    await expect(line).toBeVisible({ timeout: 20000 });
+    await expect(line.locator(".log-time")).toHaveText(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]$/);
+    await expect(line).toHaveAttribute("title", /^sanshain_service/);
+    await expect(line).not.toContainText("sanshain_service");
+    // The copied text keeps the exact UTC instant and the module.
+    const copied = await page.evaluate(() => getLogsAsText().split("\n")[0]);
+    expect(copied).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z? +[A-Z]+ +sanshain_service/);
+  });
+});
