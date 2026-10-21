@@ -1,5 +1,6 @@
 use axum_prometheus::PrometheusMetricLayer;
 use chrono::Utc;
+use sanshain_service::application::background::job_failed;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use std::collections::{HashMap, VecDeque};
@@ -451,17 +452,17 @@ pub async fn main() {
             match services::cleanup_expired_snapshots(&cleanup_repo).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Snapshot cleanup: deleted {} unused snapshots", n),
-                Err(e) => tracing::warn!("Snapshot cleanup failed: {:?}", e),
+                Err(e) => job_failed("snapshot_cleanup", "Snapshot cleanup", &e),
             }
             match services::cleanup_stale_dependencies(&cleanup_repo).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Dependency cleanup: pruned {} stale dependencies", n),
-                Err(e) => tracing::warn!("Dependency cleanup failed: {:?}", e),
+                Err(e) => job_failed("dependency_cleanup", "Dependency cleanup", &e),
             }
             match services::cleanup_stale_trunk_data(&cleanup_repo).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Trunk cleanup: closed {} stale trunk pins", n),
-                Err(e) => tracing::warn!("Trunk cleanup failed: {:?}", e),
+                Err(e) => job_failed("trunk_cleanup", "Trunk cleanup", &e),
             }
             match services::cleanup_expired_credentials(&cleanup_repo).await {
                 Ok(0) => {}
@@ -469,7 +470,7 @@ pub async fn main() {
                     "Credential cleanup: removed {} expired sessions and API tokens",
                     n
                 ),
-                Err(e) => tracing::warn!("Credential cleanup failed: {:?}", e),
+                Err(e) => job_failed("credential_cleanup", "Credential cleanup", &e),
             }
             match sanshain_service::application::webhook_delivery::cleanup_webhook_data(
                 &cleanup_repo,
@@ -478,7 +479,7 @@ pub async fn main() {
             {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("Webhook cleanup: removed {} settled deliveries", n),
-                Err(e) => tracing::warn!("Webhook cleanup failed: {:?}", e),
+                Err(e) => job_failed("webhook_cleanup", "Webhook cleanup", &e),
             }
 
             // Prune expired CSRF tokens
@@ -549,7 +550,7 @@ pub async fn main() {
                         summary.failed,
                         summary.dead
                     ),
-                    Err(e) => tracing::warn!("Webhook pass failed: {:?}", e),
+                    Err(e) => job_failed("webhook_delivery", "Webhook pass", &e),
                 }
             }
         });

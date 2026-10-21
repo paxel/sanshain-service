@@ -45,6 +45,18 @@
       </td>
     </tr>
     <tr>
+      <td><code>sanshain_background_job_failures_total</code></td>
+      <td>counter; <code>job</code></td>
+      <td>
+        Failed runs of a periodic job: <code>snapshot_cleanup</code>,
+        <code>dependency_cleanup</code>, <code>trunk_cleanup</code>,
+        <code>credential_cleanup</code>, <code>webhook_cleanup</code>,
+        <code>webhook_delivery</code>. Each failure also logs a WARN line; a counter that keeps
+        rising is a job failing every run. Alert on
+        <code>increase(sanshain_background_job_failures_total[2h]) &gt; 0</code>.
+      </td>
+    </tr>
+    <tr>
       <td><code>sanshain_catalog_pushes_total</code></td>
       <td>counter</td>
       <td>Catalog pushes handled.</td>
