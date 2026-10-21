@@ -1629,6 +1629,39 @@ async fn another_user_cannot_change_a_snapshot_and_is_sent_to_the_next_free_mino
 }
 
 #[tokio::test]
+async fn deleted_versions_take_their_origin_with_them() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    for version in ["1.0.0", "1.1.0"] {
+        let (status, _) = provide_with(
+            &ctx,
+            &axel,
+            &spec_users_only(version),
+            json!({"note": format!("why {version}")}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+    let count = |pool: sqlx::SqlitePool| async move {
+        sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM spec_version_origin")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .0
+    };
+    assert_eq!(count(ctx.pool.clone()).await, 2);
+    // Expiry sweeps them (everything is older than a far-future cutoff).
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    assert_eq!(
+        repo.delete_expired_snapshots("2999-01-01T00:00:00Z")
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(count(ctx.pool.clone()).await, 0);
+}
+
+#[tokio::test]
 async fn deleting_the_snapshot_frees_its_number_for_anyone() {
     let ctx = setup().await;
     let axel = seeded_token(&ctx, "axel", &[]).await;

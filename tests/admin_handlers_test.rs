@@ -1382,18 +1382,36 @@ async fn one_click_promote_releases_the_stored_snapshot() {
     let (app, repo, root_token) = app_with_seed().await;
 
     let _dev_token = seed_promo_snapshot(&app, &repo).await;
+    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
+    let snapshot = repo
+        .find_spec_version(sid, ApiType::OpenApi, "2.0.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let why = sanshain_service::domain::models::VersionOrigin {
+        change_url: Some("https://github.com/acme/promo/pull/3".to_string()),
+        note: Some("Promo endpoint".to_string()),
+        ..Default::default()
+    };
+    repo.set_version_origin(snapshot.id, &why, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
 
     let (status, body) = post_promote(&app, &root_token, "promo-svc", "2.0.0").await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(body["promoted"], true);
     assert_eq!(body["stability"], "ga");
 
-    let sid = repo.find_service("promo-svc").await.unwrap().unwrap();
     let meta = repo
         .find_spec_version(sid, ApiType::OpenApi, "2.0.0".parse().unwrap())
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(
+        repo.get_version_origin(meta.id).await.unwrap(),
+        Some(why),
+        "a promotion that says nothing keeps the snapshot's why"
+    );
     assert_eq!(meta.stability, Stability::Ga);
     assert_eq!(
         meta.provided_by, "dev-user",

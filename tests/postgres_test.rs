@@ -993,3 +993,72 @@ async fn test_postgres_concurrent_worker_passes_send_a_delivery_once() {
     );
     assert_eq!(repo.count_pending_webhook_deliveries().await.unwrap(), 0);
 }
+
+#[tokio::test]
+async fn test_postgres_version_origin_set_get_list_and_swept_with_its_version() {
+    use sanshain_service::domain::models::{ApiType, Stability, VersionOrigin};
+    use sanshain_service::domain::ports::{SpecRepository, UpsertSpecVersion};
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let sid = repo.ensure_service("origin-svc").await.unwrap();
+    let id = repo
+        .upsert_spec_version(UpsertSpecVersion {
+            outbox: Vec::new(),
+            service_id: sid,
+            api_type: ApiType::OpenApi,
+            version: "1.0.0".parse().unwrap(),
+            stability: Stability::Snapshot,
+            content: "c",
+            content_hash: "sha256:c",
+            provided_by: "alice",
+            expected_prior_hash: None,
+            now_iso: "2026-01-01T00:00:00Z",
+            endpoints: Vec::new(),
+        })
+        .await
+        .unwrap();
+    let origin = VersionOrigin {
+        build_url: Some("https://ci/1".to_string()),
+        change_url: None,
+        tickets: vec!["ORD-7".to_string()],
+        note: Some("why".to_string()),
+    };
+    repo.set_version_origin(id, &origin, "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.get_version_origin(id).await.unwrap(),
+        Some(origin.clone())
+    );
+    assert_eq!(
+        repo.list_version_origins().await.unwrap().get(&id),
+        Some(&origin)
+    );
+    // An empty origin removes the row.
+    repo.set_version_origin(id, &VersionOrigin::default(), "2026-01-02T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(repo.get_version_origin(id).await.unwrap(), None);
+    // Expiry sweeps the origin with its version.
+    repo.set_version_origin(id, &origin, "2026-01-03T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.delete_expired_snapshots("2999-01-01T00:00:00Z")
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(repo.list_version_origins().await.unwrap().is_empty());
+}

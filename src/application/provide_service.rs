@@ -715,9 +715,13 @@ async fn provide_spec_inner(
     apply_contract_ops(repo, contract_ops).await?;
 
     // The write landed: the latest Provide's origin is the version's, an
-    // empty one included.
-    repo.set_version_origin(entry_id, origin, &now_iso())
-        .await?;
+    // empty one included — except a promotion that says nothing (the admin
+    // page's Promote to GA): releasing the snapshot keeps its why, like it
+    // keeps its provider.
+    if !(promoting && origin.is_empty()) {
+        repo.set_version_origin(entry_id, origin, &now_iso())
+            .await?;
+    }
 
     // The write landed; stamp the trunk marker on the (possibly fresh) entry.
     if trunk {

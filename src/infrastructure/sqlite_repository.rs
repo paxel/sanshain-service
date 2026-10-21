@@ -1235,6 +1235,14 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Origins live apart from their versions (no foreign key): sweep the
+        // ones whose version just went.
+        sqlx::query(
+            "DELETE FROM spec_version_origin WHERE spec_version_id NOT IN (SELECT id FROM spec_versions)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
 
@@ -1625,6 +1633,10 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_version_origin")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM spec_versions")
             .execute(&self.pool)
             .await
@@ -1690,6 +1702,10 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM endpoints")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_version_origin")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1808,6 +1824,13 @@ impl SpecRepository for SqliteSpecRepository {
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
             "DELETE FROM endpoints WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = ?)",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM spec_version_origin WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = ?)",
         )
         .bind(service_id)
         .execute(&mut *tx)
