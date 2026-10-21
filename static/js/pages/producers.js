@@ -9,6 +9,9 @@ let currentUser = null;
 // version-key -> sanshain-branch names referencing it (reverse lookup).
 let branchMembershipMap = new Map();
 
+// The ticket URL template of the instance, for the origin chips of a version row.
+let ticketTemplate = null;
+
 async function loadServices() {
   showLoader();
   const list = document.getElementById("services-list");
@@ -159,6 +162,7 @@ async function showProducerVersions(serviceName) {
   let versions;
   try {
     versions = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
+    ticketTemplate = await loadTicketUrlTemplate();
   } catch (err) {
     list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
     return;
@@ -352,6 +356,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
                             &middot; <span data-provider></span>
                             &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
                         </p>
+                        ${originHtml(v.origin, ticketTemplate, false)}
                     </div>
                 </div>
                 <div class="flex items-center gap-2">

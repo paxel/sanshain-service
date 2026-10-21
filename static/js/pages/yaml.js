@@ -9,6 +9,18 @@
 // full-spec mode it is the whole stored document, and null marks a version
 // whose document could not be loaded.
 let globalVersions = [];
+let ticketTemplate = null;
+
+// The origin of a version as one line of text, for a tooltip.
+function originText(origin) {
+  if (!origin) return "";
+  const parts = [];
+  if (origin.note) parts.push(origin.note);
+  if (origin.change_url) parts.push(`change: ${origin.change_url}`);
+  if (origin.build_url) parts.push(`build: ${origin.build_url}`);
+  if ((origin.tickets || []).length) parts.push(`tickets: ${origin.tickets.join(", ")}`);
+  return parts.join(" · ");
+}
 let activeVersion = null;
 let isDiffMode = false;
 let isBlameOn = false;
@@ -143,11 +155,13 @@ async function loadFullSpecVersions() {
         return specRes.ok ? await specRes.text() : null;
       }),
     );
+    ticketTemplate = await loadTicketUrlTemplate();
     globalVersions = line.map((v, i) => ({
       version: v.version,
       stability: v.stability,
       provided_by: v.provided_by,
       updated_at: v.updated_at,
+      origin: v.origin,
       yaml_content: contents[i],
       // A promotion keeps the content; only a new hash is a change.
       changed: i === 0 || v.content_hash !== line[i - 1].content_hash,
@@ -416,8 +430,15 @@ function renderDiffView() {
   if (!fromVersion || !toVersion) return;
 
   prefetchPatch(fromVersion, toVersion);
+  const originOf = (version) => {
+    const v = globalVersions.find((x) => x.version === version);
+    const html = v ? originHtml(v.origin, ticketTemplate, true) : "";
+    return html
+      ? `<div class="mt-1 text-[11px]" data-diff-origin="${escapeHtml(version)}"><span class="text-slate-400">${escapeHtml(version)}:</span>${html}</div>`
+      : "";
+  };
   mountDiffView(viewerContainer, {
-    caption: `Comparing <span class="text-indigo-400 font-bold">${escapeHtml(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${escapeHtml(toVersion)}</span>`,
+    caption: `Comparing <span class="text-indigo-400 font-bold">${escapeHtml(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${escapeHtml(toVersion)}</span>${originOf(fromVersion)}${originOf(toVersion)}`,
     emptyHtml: `No differences between ${escapeHtml(fromVersion)} and ${escapeHtml(toVersion)}.`,
     // Endpoint snippets are re-serialized when a spec is split, so they never
     // differ in whitespace alone: the switch would have no effect there.
@@ -553,8 +574,9 @@ async function renderBlameView(version) {
       const user = attribution(b);
       const shortUser = user.length > 12 ? user.slice(0, 10) + ".." : user;
       const shade = bi % 2 === 0 ? "bg-slate-950" : "bg-slate-900";
+      const why = originText(b.origin);
       const meta = `
-          <span class="font-bold text-indigo-400 shrink-0 mr-1">${escapeHtml(b.version)}</span>
+          <span class="font-bold text-indigo-400 shrink-0 mr-1" ${why ? `title="${escapeHtml(why)}" data-origin-title` : ""}>${escapeHtml(b.version)}</span>
           <span class="truncate max-w-[70px]" title="${escapeHtml(user)}">${escapeHtml(shortUser)}</span>
           <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${escapeHtml((b.updated_at || "").slice(0, 10))}</span>`;
       const lines = b.lines

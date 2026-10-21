@@ -287,7 +287,14 @@ test.describe("One-click promote", () => {
     const { token } = await login.json();
     await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
-      data: { producername: SERVICE, stability: "snapshot", openapi_yaml: SPEC },
+      data: {
+        producername: SERVICE,
+        stability: "snapshot",
+        openapi_yaml: SPEC,
+        change_url: "https://github.com/acme/promote/pull/12",
+        tickets: ["PRM-12"],
+        note: "Release-me endpoint for the promote flow",
+      },
     });
     await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
@@ -297,6 +304,39 @@ test.describe("One-click promote", () => {
         openapi_yaml: SPEC,
       },
     });
+    await request.post("/admin/settings/ticket-url-template", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { template: "https://jira.acme.corp/browse/{id}" },
+    });
+  });
+
+  test("a version row shows the origin of its build with the ticket linked", async ({ page }) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const card = page.locator(".endpoint-card", { hasText: "1.0.0" });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    const origin = card.locator("[data-origin]");
+    await expect(origin.locator('[data-origin="note"]')).toHaveText(
+      "Release-me endpoint for the promote flow",
+    );
+    await expect(origin.locator('[data-context-link="change"]')).toHaveAttribute(
+      "href",
+      "https://github.com/acme/promote/pull/12",
+    );
+    const ticket = origin.locator('[data-context-link="ticket"]');
+    await expect(ticket).toHaveText("PRM-12");
+    await expect(ticket).toHaveAttribute("href", "https://jira.acme.corp/browse/PRM-12");
+    // The admin page shows and saves the template; the diff caption carries the origin.
+    await page.goto("/admin.html");
+    await expect(page.locator("#ticket-url-template")).toHaveValue(
+      "https://jira.acme.corp/browse/{id}",
+      { timeout: 10000 },
+    );
   });
 
   // The happy path decided in #28: see the button on a snapshot row, confirm,

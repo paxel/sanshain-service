@@ -486,6 +486,50 @@ pub async fn set_snapshot_max_age_days(
     Ok(())
 }
 
+/// The ticket URL template: where a ticket id of a version's origin links
+/// to, with `{id}` for the id (`https://jira.acme.corp/browse/{id}`). `None`
+/// shows ids as plain text.
+pub async fn get_ticket_url_template(
+    repo: &impl SpecRepository,
+) -> Result<Option<String>, AppError> {
+    Ok(repo
+        .get_setting("ticket_url_template")
+        .await?
+        .filter(|t| !t.trim().is_empty()))
+}
+
+/// Set (or, with a blank value, clear) the ticket URL template. It must be
+/// an absolute `http(s)` URL without whitespace that names `{id}` once at
+/// least, at most 2048 characters: anything else is refused by name.
+pub async fn set_ticket_url_template(
+    repo: &impl SpecRepository,
+    template: Option<&str>,
+) -> Result<Option<String>, AppError> {
+    let template = template.map(str::trim).filter(|t| !t.is_empty());
+    if let Some(t) = template {
+        if t.chars().count() > 2048 {
+            return Err(AppError::BadRequest(
+                "the ticket URL template is longer than 2048 characters".to_string(),
+            ));
+        }
+        if !(t.starts_with("https://") || t.starts_with("http://"))
+            || t.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err(AppError::BadRequest(
+                "the ticket URL template must be an absolute http(s) URL".to_string(),
+            ));
+        }
+        if !t.contains("{id}") {
+            return Err(AppError::BadRequest(
+                "the ticket URL template must contain {id}, the place of the ticket id".to_string(),
+            ));
+        }
+    }
+    repo.set_setting("ticket_url_template", template.unwrap_or(""))
+        .await?;
+    Ok(template.map(str::to_string))
+}
+
 /// Use-based snapshot expiry: a snapshot neither provided nor required for
 /// `snapshot_max_age_days` is abandoned work and dies. GA is never age-culled.
 #[instrument(skip_all)]

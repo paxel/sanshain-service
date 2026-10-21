@@ -184,6 +184,10 @@ pub fn create_app(state: AppState) -> Router {
         // a full-scope token beside a session; read-only tokens are refused.
         .route("/admin/backup/sqlite", get(admin::download_sqlite_snapshot).layer(require_with_api_tokens(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/settings/snapshot-max-age", get(admin::get_snapshot_max_age).post(admin::set_snapshot_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        // The ticket URL template is set under settings (ManageSettings) and read by every
+        // signed-in user from its own path: the pages link ticket ids with it.
+        .route("/admin/settings/ticket-url-template", post(admin::set_ticket_url_template).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/ticket-url-template", get(admin::get_ticket_url_template).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))

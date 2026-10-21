@@ -32,6 +32,9 @@ export default [
         apiCall: "readonly",
         getSanshainToken: "readonly",
         systemContextHtml: "readonly",
+        loadTicketUrlTemplate: "readonly",
+        originHtml: "readonly",
+        ticketUrl: "readonly",
         // webhooks.js (#47)
         renderWebhookPanel: "readonly",
         // discovery.js globals

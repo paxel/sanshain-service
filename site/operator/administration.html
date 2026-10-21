@@ -257,6 +257,14 @@
 <h2>Settings</h2>
 <ul>
   <li>
+    <strong>Ticket Links</strong>: the ticket URL template, an absolute <code>http(s)</code> URL
+    with <code>{id}</code> for the id (<code>https://jira.acme.corp/browse/{id}</code>). The pages
+    render the ticket ids of a version's <a href="../start/glossary.html#origin">origin</a> as links
+    with it; empty shows them as plain text (<code>GET /admin/ticket-url-template</code> for every
+    signed-in user, <code>POST /admin/settings/ticket-url-template</code> audited as
+    <code>SET_TICKET_URL_TEMPLATE</code>).
+  </li>
+  <li>
     <strong>In-Memory Cache</strong>: the memory bound at runtime, hit rate, entries and memory
     used, and <strong>Clear Cache</strong> (<code>POST /admin/cache/clear</code>, audited as
     <code>CLEAR_CACHE</code>). See <a href="configuration.html#the-data-cache">The data cache</a>.

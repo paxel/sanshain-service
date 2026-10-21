@@ -21,6 +21,51 @@ async fn snapshot_max_age_set_get() {
     assert_eq!(d, 7);
 }
 
+// The ticket URL template: unset by default, validated by name, blank clears.
+#[tokio::test]
+async fn ticket_url_template_is_validated_and_cleared_by_a_blank() {
+    let repo = MockRepo::new();
+    assert_eq!(admin::get_ticket_url_template(&repo).await.unwrap(), None);
+    let set = admin::set_ticket_url_template(&repo, Some(" https://jira.acme.corp/browse/{id} "))
+        .await
+        .unwrap();
+    assert_eq!(set.as_deref(), Some("https://jira.acme.corp/browse/{id}"));
+    assert_eq!(
+        admin::get_ticket_url_template(&repo)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("https://jira.acme.corp/browse/{id}")
+    );
+    for (bad, expected) in [
+        ("https://jira.acme.corp/browse/", "must contain {id}"),
+        ("jira/{id}", "absolute http(s) URL"),
+        (
+            "https://jira.acme.corp/br owse/{id}",
+            "absolute http(s) URL",
+        ),
+    ] {
+        match admin::set_ticket_url_template(&repo, Some(bad)).await {
+            Err(AppError::BadRequest(msg)) => assert!(msg.contains(expected), "{bad}: {msg}"),
+            other => panic!("{bad}: expected a refusal, got {other:?}"),
+        }
+    }
+    // A refusal keeps what was set; a blank clears it.
+    assert!(
+        admin::get_ticket_url_template(&repo)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        admin::set_ticket_url_template(&repo, Some("  "))
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(admin::get_ticket_url_template(&repo).await.unwrap(), None);
+}
+
 // 3. cleanup_expired_snapshots returns 0 when days==0 (cleanup disabled)
 #[tokio::test]
 async fn cleanup_expired_snapshots_zero_days() {

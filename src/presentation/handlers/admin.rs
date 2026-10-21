@@ -618,6 +618,44 @@ pub async fn test_auth_config(
     }
 }
 
+/// The ticket URL template, readable by every signed-in user: the pages
+/// render ticket ids of a version's origin as links with it.
+pub async fn get_ticket_url_template(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let template = services::get_ticket_url_template(&state.repo).await?;
+    Ok(Json(json!({ "template": template })))
+}
+
+#[derive(Deserialize)]
+pub struct TicketUrlTemplatePayload {
+    pub template: Option<String>,
+}
+
+pub async fn set_ticket_url_template(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<TicketUrlTemplatePayload>,
+) -> Result<impl IntoResponse, AppError> {
+    let template =
+        services::set_ticket_url_template(&state.repo, payload.template.as_deref()).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_TICKET_URL_TEMPLATE",
+            details: &match &template {
+                Some(t) => format!("Set the ticket URL template to {t}"),
+                None => "Cleared the ticket URL template".to_string(),
+            },
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "template": template })))
+}
+
 pub async fn get_snapshot_max_age(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {

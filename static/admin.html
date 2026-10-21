@@ -397,6 +397,33 @@
           </div>
         </section>
 
+        <!-- Ticket links -->
+        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+          <div class="mb-4">
+            <h2 class="text-lg font-semibold text-slate-800">Ticket Links</h2>
+            <p class="text-sm text-slate-500 mt-1">
+              Where a ticket id of a version's origin links to, with <code>{id}</code> for the id,
+              for example <code>https://jira.acme.corp/browse/{id}</code>. Leave empty to show ids
+              as plain text.
+            </p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <input
+              type="url"
+              id="ticket-url-template"
+              placeholder="https://jira.acme.corp/browse/{id}"
+              class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <button
+              data-click="saveTicketUrlTemplate"
+              class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Save
+            </button>
+            <span id="ticket-url-template-result" class="text-sm text-slate-500"></span>
+          </div>
+        </section>
+
         <!-- Dependency Cleanup -->
         <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
           <div class="mb-4">

@@ -71,6 +71,7 @@ async function loadAll() {
   loadBranches();
   loadTrunkMaxAge();
   loadSnapshotMaxAge();
+  loadTicketUrlTemplateSetting();
   loadDependencyMaxAge();
   loadServices();
   loadClients();
@@ -365,6 +366,33 @@ async function saveSnapshotMaxAge() {
       document.getElementById("snapshot-cleanup-result").textContent = "✓ Saved";
       setTimeout(() => (document.getElementById("snapshot-cleanup-result").textContent = ""), 3000);
     }
+  } catch (_) {}
+}
+
+async function loadTicketUrlTemplateSetting() {
+  try {
+    const res = await apiCall("/admin/ticket-url-template");
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById("ticket-url-template").value = data.template || "";
+    }
+  } catch (_) {}
+}
+
+async function saveTicketUrlTemplate() {
+  const template = document.getElementById("ticket-url-template").value.trim();
+  const result = document.getElementById("ticket-url-template-result");
+  try {
+    const res = await apiCall("/admin/settings/ticket-url-template", {
+      method: "POST",
+      body: { template: template || null },
+    });
+    if (res.ok) {
+      result.textContent = template ? "✓ Saved" : "✓ Cleared";
+    } else {
+      result.textContent = "✗ " + (await errorMessage(res));
+    }
+    setTimeout(() => (result.textContent = ""), 5000);
   } catch (_) {}
 }
 

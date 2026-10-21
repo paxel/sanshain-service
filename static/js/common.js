@@ -837,6 +837,66 @@ function systemContextHtml(context, dark) {
   return rows.length ? `<div class="space-y-1" data-context>${rows.join("")}</div>` : "";
 }
 
+// The ticket URL template of the instance (GET /admin/settings/ticket-url-template),
+// fetched once per page; `null` renders ticket ids as plain text.
+let _ticketUrlTemplate = null;
+let _ticketUrlTemplateLoaded = null;
+async function loadTicketUrlTemplate() {
+  if (!_ticketUrlTemplateLoaded) {
+    _ticketUrlTemplateLoaded = (async () => {
+      try {
+        const res = await apiCall("/admin/ticket-url-template");
+        if (res.ok) _ticketUrlTemplate = (await res.json()).template || null;
+      } catch (_) {
+        /* ids stay plain text */
+      }
+    })();
+  }
+  await _ticketUrlTemplateLoaded;
+  return _ticketUrlTemplate;
+}
+
+function ticketUrl(template, id) {
+  return template ? template.replaceAll("{id}", encodeURIComponent(id)) : null;
+}
+
+// A version's origin (what the providing build said about why): the note,
+// then chips for the build, the change and each ticket. Empty string when
+// the build said nothing.
+function originHtml(origin, template, dark) {
+  if (!origin) return "";
+  const text = dark ? "text-slate-300" : "text-slate-600";
+  const chip = dark
+    ? "bg-slate-800 text-slate-200 border border-slate-500 hover:bg-slate-700"
+    : "bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-200";
+  const plain = dark
+    ? "bg-slate-800 text-slate-300 border border-slate-600"
+    : "bg-slate-50 text-slate-600 border border-slate-200";
+  const rows = [];
+  if (origin.note) {
+    rows.push(
+      `<p class="text-xs ${text} break-words" data-origin="note">${escapeHtml(origin.note)}</p>`,
+    );
+  }
+  const chips = [];
+  if (origin.build_url) chips.push(linkChip(origin.build_url, "build", "build", chip));
+  if (origin.change_url) chips.push(linkChip(origin.change_url, "change", "change", chip));
+  for (const id of origin.tickets || []) {
+    const url = ticketUrl(template, id);
+    chips.push(
+      url
+        ? linkChip(url, id, "ticket", chip)
+        : `<span data-origin-ticket class="px-2 py-0.5 rounded-full text-[11px] ${plain}">${escapeHtml(id)}</span>`,
+    );
+  }
+  if (chips.length) {
+    rows.push(
+      `<div class="flex flex-wrap items-center gap-1.5" data-origin="links">${chips.join("")}</div>`,
+    );
+  }
+  return rows.length ? `<div class="space-y-1 mt-1.5" data-origin>${rows.join("")}</div>` : "";
+}
+
 function linkChip(url, label, kind, chipClass) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-context-link="${kind}" class="px-2 py-0.5 rounded-full text-[11px] ${chipClass}">${escapeHtml(label)}</a>`;
 }

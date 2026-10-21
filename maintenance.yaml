@@ -2192,6 +2192,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/ticket-url-template:
+    get:
+      summary: "Read: ticket-url-template"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The ticket URL template (`{"template": "https://jira.acme.corp/browse/{id}"}`, or
+        `null`): the pages render the ticket ids of a version's origin as links with it. Set
+        under `/admin/settings/ticket-url-template`.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/ticket-url-template:
+    post:
+      summary: "Create or run: settings/ticket-url-template"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        Set the ticket URL template: an absolute `http(s)` URL containing `{id}`, at most 2048
+        characters; a blank or missing `template` clears it. Audited as `SET_TICKET_URL_TEMPLATE`.
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: Not an absolute http(s) URL with `{id}`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/snapshot-max-age:
     get:
       summary: "Read: settings/snapshot-max-age"
