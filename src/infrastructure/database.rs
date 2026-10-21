@@ -106,6 +106,26 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, touch_spec_version_trunk(spec_version_id, now_iso))
     }
 
+    async fn set_version_origin(
+        &self,
+        spec_version_id: i64,
+        origin: &VersionOrigin,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_version_origin(spec_version_id, origin, now_iso))
+    }
+
+    async fn get_version_origin(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<VersionOrigin>, RepositoryError> {
+        delegate!(self, get_version_origin(spec_version_id))
+    }
+
+    async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
+        delegate!(self, list_version_origins())
+    }
+
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         delegate!(self, list_trunk_pins_at(at))
     }

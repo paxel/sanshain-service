@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, SemVer, Stability};
+use crate::domain::models::{ApiType, SemVer, Stability, VersionOrigin};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
@@ -56,6 +56,16 @@ pub struct ProvideRequest {
     /// is a contradiction rather than a request with defaults to fill in.
     #[serde(default)]
     pub retired: bool,
+    /// The origin of this build (all optional): where it ran, the change
+    /// behind it, the tickets it closes and one line of intent.
+    #[serde(default)]
+    pub build_url: Option<String>,
+    #[serde(default)]
+    pub change_url: Option<String>,
+    #[serde(default)]
+    pub tickets: Vec<String>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 struct ProvideCommon<'a> {
@@ -70,6 +80,8 @@ struct ProvideCommon<'a> {
     trunk: bool,
     tag: Option<&'a str>,
     retired: bool,
+    /// What the build says about why: build URL, change URL, tickets, note.
+    origin: VersionOrigin,
 }
 
 /// The rejection a missing field produced when the deserializer still required
@@ -135,6 +147,7 @@ async fn provide_common(
         trunk,
         tag,
         retired,
+        origin,
     } = params;
 
     if retired {
@@ -166,7 +179,7 @@ async fn provide_common(
         (_, None) => return Ok(missing_field("stability")),
     };
 
-    let res = services::provide_spec(
+    let res = services::provide_spec_with_origin(
         &state.repo,
         services::ProvideSpecParams {
             producername,
@@ -179,6 +192,7 @@ async fn provide_common(
             caller: caller.map(|axum::Extension(a)| a),
             require_prior_content_match: false,
         },
+        &origin,
     )
     .await?;
 
@@ -357,6 +371,12 @@ pub async fn provide(
             trunk: payload.trunk,
             tag: payload.tag.as_deref(),
             retired: payload.retired,
+            origin: VersionOrigin {
+                build_url: payload.build_url.clone(),
+                change_url: payload.change_url.clone(),
+                tickets: payload.tickets.clone(),
+                note: payload.note.clone(),
+            },
         },
     )
     .await
@@ -381,6 +401,16 @@ pub struct ProvideAsyncApiRequest {
     /// See `ProvideRequest::retired`.
     #[serde(default)]
     pub retired: bool,
+    /// The origin of this build (all optional): where it ran, the change
+    /// behind it, the tickets it closes and one line of intent.
+    #[serde(default)]
+    pub build_url: Option<String>,
+    #[serde(default)]
+    pub change_url: Option<String>,
+    #[serde(default)]
+    pub tickets: Vec<String>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 pub async fn provide_asyncapi(
@@ -403,6 +433,12 @@ pub async fn provide_asyncapi(
             trunk: payload.trunk,
             tag: payload.tag.as_deref(),
             retired: payload.retired,
+            origin: VersionOrigin {
+                build_url: payload.build_url.clone(),
+                change_url: payload.change_url.clone(),
+                tickets: payload.tickets.clone(),
+                note: payload.note.clone(),
+            },
         },
     )
     .await
@@ -427,6 +463,16 @@ pub struct ProvideProtoRequest {
     /// See `ProvideRequest::retired`.
     #[serde(default)]
     pub retired: bool,
+    /// The origin of this build (all optional): where it ran, the change
+    /// behind it, the tickets it closes and one line of intent.
+    #[serde(default)]
+    pub build_url: Option<String>,
+    #[serde(default)]
+    pub change_url: Option<String>,
+    #[serde(default)]
+    pub tickets: Vec<String>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 pub async fn provide_proto(
@@ -449,6 +495,12 @@ pub async fn provide_proto(
             trunk: payload.trunk,
             tag: payload.tag.as_deref(),
             retired: payload.retired,
+            origin: VersionOrigin {
+                build_url: payload.build_url.clone(),
+                change_url: payload.change_url.clone(),
+                tickets: payload.tickets.clone(),
+                note: payload.note.clone(),
+            },
         },
     )
     .await

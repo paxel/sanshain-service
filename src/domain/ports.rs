@@ -322,6 +322,27 @@ pub trait SpecRepository: Send + Sync {
         now_iso: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    // --- Version origin: what the providing build said about why ---
+
+    /// Replace a version's origin; an empty one removes the row.
+    fn set_version_origin(
+        &self,
+        spec_version_id: i64,
+        origin: &VersionOrigin,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// One version's origin, `None` when no build said anything.
+    fn get_version_origin(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<Option<VersionOrigin>, RepositoryError>> + Send;
+
+    /// Every stored origin, by version-line entry id.
+    fn list_version_origins(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<i64, VersionOrigin>, RepositoryError>> + Send;
+
     /// Record trunk pins, append-only (ADR-0004/0005): per pin key, a
     /// different version closes the open record and inserts a new one; the
     /// same version only refreshes the open record's `last_required_at`.

@@ -52,6 +52,23 @@ pub struct ProvideSpecParams<'a> {
     pub require_prior_content_match: bool,
 }
 
+/// [`provide_spec`] with the origin the build declared: build URL, change
+/// URL, tickets and note. A real write replaces the stored origin, an empty
+/// one included (the latest Provide wins); the idempotent no-op only fills
+/// one in, so CI rebuilding what a developer provided from a laptop adds
+/// the references without ever erasing them.
+#[instrument(skip_all, fields(producer = %params.producername, api_type = %params.api_type.as_str()))]
+pub async fn provide_spec_with_origin(
+    repo: &impl SpecRepository,
+    params: ProvideSpecParams<'_>,
+    origin: &VersionOrigin,
+) -> Result<ProvideResponse, AppError> {
+    let origin = origin
+        .normalized()
+        .map_err(|reason| AppError::BadRequest(format!("origin: {reason}")))?;
+    provide_spec_inner(repo, params, &origin).await
+}
+
 /// Promote a stored snapshot to GA without re-uploading (#28).
 ///
 /// Definitionally "provide the stored content with `stability: ga`": the call
@@ -210,10 +227,19 @@ async fn record_version_rejection(
     }
 }
 
+/// A Provide without an origin: what every caller but the HTTP handlers uses.
 #[instrument(skip_all)]
 pub async fn provide_spec(
     repo: &impl SpecRepository,
     params: ProvideSpecParams<'_>,
+) -> Result<ProvideResponse, AppError> {
+    provide_spec_inner(repo, params, &VersionOrigin::default()).await
+}
+
+async fn provide_spec_inner(
+    repo: &impl SpecRepository,
+    params: ProvideSpecParams<'_>,
+    origin: &VersionOrigin,
 ) -> Result<ProvideResponse, AppError> {
     let ProvideSpecParams {
         producername,
@@ -390,6 +416,12 @@ pub async fn provide_spec(
         // follows this provide, and report the harvest either way.
         if harvest_asyncapi && !dry_run {
             reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
+        }
+        // The bytes are known; the origin may be news (CI rebuilding what a
+        // laptop provided). It fills an empty slot and never replaces one.
+        if !dry_run && !origin.is_empty() && repo.get_version_origin(entry.id).await?.is_none() {
+            repo.set_version_origin(entry.id, origin, &now_iso())
+                .await?;
         }
         return Ok(ProvideResponse {
             version,
@@ -629,6 +661,7 @@ pub async fn provide_spec(
             line: &line,
             content,
             endpoints: &endpoint_records,
+            origin,
         },
     )
     .await?;
@@ -680,6 +713,11 @@ pub async fn provide_spec(
     };
 
     apply_contract_ops(repo, contract_ops).await?;
+
+    // The write landed: the latest Provide's origin is the version's, an
+    // empty one included.
+    repo.set_version_origin(entry_id, origin, &now_iso())
+        .await?;
 
     // The write landed; stamp the trunk marker on the (possibly fresh) entry.
     if trunk {
@@ -799,6 +837,7 @@ struct ProvideFacts<'a> {
     line: &'a [SpecVersionMeta],
     content: &'a str,
     endpoints: &'a [EndpointRecord],
+    origin: &'a VersionOrigin,
 }
 
 /// The outbox rows a Provide writes with its version-line entry (#47):
@@ -847,6 +886,7 @@ async fn plan_provide_events(
         stream: facts.stream,
         actor: facts.username,
         compatibility,
+        origin: facts.origin,
     });
     events.extend(webhooks::event_for(
         WebhookEventType::VersionPublished,

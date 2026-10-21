@@ -118,6 +118,8 @@ pub struct MockRepo {
     pub periphery: Mutex<Vec<MockPeripheryRow>>,
     /// In-memory `system_context` rows (#48), by system name.
     pub system_contexts: Mutex<BTreeMap<String, SystemContext>>,
+    /// In-memory `spec_version_origin` rows, by version-line entry id.
+    pub version_origins: Mutex<BTreeMap<i64, VersionOrigin>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
@@ -199,6 +201,7 @@ impl MockRepo {
             harvested_subscriptions: Mutex::new(Vec::new()),
             periphery: Mutex::new(Vec::new()),
             system_contexts: Mutex::new(BTreeMap::new()),
+            version_origins: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
@@ -478,6 +481,10 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner);
         let before = versions.len();
         versions.retain(|v| v.id != spec_version_id);
+        self.version_origins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&spec_version_id);
         let existed = versions.len() != before;
         if existed {
             // Endpoints live inside the entry; dependencies cascade explicitly.
@@ -517,6 +524,44 @@ impl SpecRepository for MockRepo {
             entry.updated_at = now_iso.to_string();
         }
         Ok(())
+    }
+
+    async fn set_version_origin(
+        &self,
+        spec_version_id: i64,
+        origin: &VersionOrigin,
+        _now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut origins = self
+            .version_origins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if origin.is_empty() {
+            origins.remove(&spec_version_id);
+        } else {
+            origins.insert(spec_version_id, origin.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_version_origin(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<VersionOrigin>, RepositoryError> {
+        Ok(self
+            .version_origins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&spec_version_id)
+            .cloned())
+    }
+
+    async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
+        Ok(self
+            .version_origins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone())
     }
 
     async fn touch_spec_version_trunk(

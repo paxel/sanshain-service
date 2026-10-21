@@ -749,6 +749,106 @@ pub struct PeripheralDependency {
     pub resource: String,
 }
 
+/// The origin of a version: what the build that provided it said about why
+/// the bytes are what they are. References, not content: the build that
+/// produced it, the change (pull or merge request) behind it, the tickets it
+/// closes and one line of intent. Every field optional; the latest Provide
+/// that carries any of them wins.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct VersionOrigin {
+    pub build_url: Option<String>,
+    pub change_url: Option<String>,
+    #[serde(default)]
+    pub tickets: Vec<String>,
+    pub note: Option<String>,
+}
+
+impl VersionOrigin {
+    /// At most this many ticket ids are kept.
+    pub const MAX_TICKETS: usize = 20;
+    /// A ticket id is at most this long.
+    pub const MAX_TICKET_CHARS: usize = 64;
+    /// The note is one line of at most this many characters.
+    pub const MAX_NOTE_CHARS: usize = 200;
+    /// A URL longer than this is refused.
+    pub const MAX_URL_CHARS: usize = 2048;
+
+    pub fn is_empty(&self) -> bool {
+        self.build_url.is_none()
+            && self.change_url.is_none()
+            && self.tickets.is_empty()
+            && self.note.is_none()
+    }
+
+    /// The origin as stored: URLs absolute `http(s)`, ticket ids trimmed,
+    /// deduplicated and of letters, digits, `-`, `_` and `.`, the note
+    /// trimmed with its whitespace collapsed. Blank text is absent. A value
+    /// outside those bounds is refused by name so a misconfigured pipeline
+    /// learns it at once.
+    pub fn normalized(&self) -> Result<VersionOrigin, String> {
+        let url = |field: &str, value: &Option<String>| -> Result<Option<String>, String> {
+            let Some(raw) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {
+                return Ok(None);
+            };
+            if raw.chars().count() > Self::MAX_URL_CHARS {
+                return Err(format!(
+                    "{field} is longer than {} characters",
+                    Self::MAX_URL_CHARS
+                ));
+            }
+            let ok = (raw.starts_with("https://") || raw.starts_with("http://"))
+                && raw.len() > 8
+                && !raw.chars().any(|c| c.is_whitespace() || c.is_control());
+            if !ok {
+                return Err(format!("{field} must be an absolute http(s) URL"));
+            }
+            Ok(Some(raw.to_string()))
+        };
+        let mut tickets: Vec<String> = Vec::new();
+        for raw in &self.tickets {
+            let ticket = raw.trim();
+            if ticket.is_empty() {
+                continue;
+            }
+            let valid = ticket.chars().count() <= Self::MAX_TICKET_CHARS
+                && ticket
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+            if !valid {
+                return Err(format!(
+                    "ticket '{ticket}' is not an id of letters, digits, '-', '_' and '.' (at most {} characters)",
+                    Self::MAX_TICKET_CHARS
+                ));
+            }
+            if !tickets.iter().any(|t| t == ticket) {
+                tickets.push(ticket.to_string());
+            }
+        }
+        if tickets.len() > Self::MAX_TICKETS {
+            return Err(format!("at most {} tickets", Self::MAX_TICKETS));
+        }
+        let note = self
+            .note
+            .as_deref()
+            .map(|n| n.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|n| !n.is_empty());
+        if let Some(n) = &note
+            && n.chars().count() > Self::MAX_NOTE_CHARS
+        {
+            return Err(format!(
+                "note is longer than {} characters",
+                Self::MAX_NOTE_CHARS
+            ));
+        }
+        Ok(VersionOrigin {
+            build_url: url("build_url", &self.build_url)?,
+            change_url: url("change_url", &self.change_url)?,
+            tickets,
+            note,
+        })
+    }
+}
+
 /// Who owns a system per its Backstage `spec.owner` (#48): the ref's kind
 /// (`group` unless the ref says otherwise, Backstage's default for owners)
 /// and name, both lower-cased like every other ref. The namespace is not
@@ -1077,6 +1177,9 @@ pub struct ProducerVersionInfo {
     pub updated_at: String,
     pub last_required_at: Option<String>,
     pub endpoint_count: i64,
+    /// What the build that provided it said about why (empty when nothing).
+    #[serde(default)]
+    pub origin: VersionOrigin,
     /// Use-based expiry for snapshots when cleanup is enabled; `None` for GA
     /// (never age-culled) or when cleanup is off. Populated by the application
     /// layer; `None` in raw repository results.

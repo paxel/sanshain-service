@@ -208,6 +208,8 @@ pub struct DescribedVersion {
     pub last_provided_at: String,
     pub endpoint_count: i64,
     pub superseded: bool,
+    /// What the build behind it said about why (empty when nothing).
+    pub origin: VersionOrigin,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -319,6 +321,7 @@ pub async fn describe_service(
                 last_provided_at: v.updated_at.clone(),
                 endpoint_count: v.endpoint_count,
                 superseded: latest.get(&v.api_type).is_some_and(|l| *l > v.version),
+                origin: v.origin.clone(),
             });
         }
         for (api_type, version) in latest {

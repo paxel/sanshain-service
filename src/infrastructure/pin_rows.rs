@@ -109,6 +109,36 @@ pub(crate) fn system_context_from_row(
     ))
 }
 
+/// `(spec_version_id, build_url, change_url, tickets_json, note)` — one
+/// `spec_version_origin` row, shared by both engines.
+pub(crate) type VersionOriginRow = (i64, Option<String>, Option<String>, String, Option<String>);
+
+/// A `spec_version_origin` row into the domain's [`VersionOrigin`] and its id.
+pub(crate) fn version_origin_from_row(
+    row: VersionOriginRow,
+) -> Result<(i64, crate::domain::models::VersionOrigin), RepositoryError> {
+    let (id, build_url, change_url, tickets_json, note) = row;
+    let tickets = serde_json::from_str(&tickets_json).map_err(|e| {
+        RepositoryError::Internal(format!("tickets of version {id} are not JSON: {e}"))
+    })?;
+    Ok((
+        id,
+        crate::domain::models::VersionOrigin {
+            build_url,
+            change_url,
+            tickets,
+            note,
+        },
+    ))
+}
+
+/// The `tickets_json` column value of an origin.
+pub(crate) fn tickets_json(
+    origin: &crate::domain::models::VersionOrigin,
+) -> Result<String, RepositoryError> {
+    serde_json::to_string(&origin.tickets).map_err(|e| RepositoryError::Internal(e.to_string()))
+}
+
 /// The `tags_json` column value of a context.
 pub(crate) fn tags_json(
     context: &crate::domain::models::SystemContext,

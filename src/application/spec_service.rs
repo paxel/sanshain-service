@@ -464,6 +464,9 @@ pub struct VersionDiff {
     pub from: SemVer,
     pub to: SemVer,
     pub hunks: Vec<DiffHunk>,
+    /// What the builds behind each side said about why.
+    pub from_origin: VersionOrigin,
+    pub to_origin: VersionOrigin,
 }
 
 /// Diff two versions of a line with the service's `similar` diff. Snapshots
@@ -481,10 +484,26 @@ pub async fn diff_versions(
     let options = request.options;
     let hunks =
         super::run_cpu_bound(move || Ok(diff_lines(&from_content, &to_content, options))).await?;
+    let origin_of = |version: SemVer| async move {
+        match repo.find_service(producername).await? {
+            Some(sid) => match repo
+                .find_spec_version(sid, request.api_type, version)
+                .await?
+            {
+                Some(entry) => {
+                    Ok::<_, AppError>(repo.get_version_origin(entry.id).await?.unwrap_or_default())
+                }
+                None => Ok(VersionOrigin::default()),
+            },
+            None => Ok(VersionOrigin::default()),
+        }
+    };
     Ok(VersionDiff {
         from: request.from,
         to: request.to,
         hunks,
+        from_origin: origin_of(request.from).await?,
+        to_origin: origin_of(request.to).await?,
     })
 }
 
@@ -530,6 +549,8 @@ pub struct BlameBlock {
     pub stability: Stability,
     pub provided_by: String,
     pub updated_at: String,
+    /// What the build behind the version said about why.
+    pub origin: VersionOrigin,
     /// 1-based number of the block's first line.
     pub start_line: usize,
     pub lines: Vec<String>,
@@ -571,6 +592,7 @@ pub async fn blame_version(
         .last()
         .map(|t| t.lines().collect())
         .unwrap_or_default();
+    let origins = repo.list_version_origins().await?;
     Ok(group_blame(&owners)
         .into_iter()
         .filter_map(|run| {
@@ -580,6 +602,7 @@ pub async fn blame_version(
                 stability: meta.stability,
                 provided_by: meta.provided_by.clone(),
                 updated_at: meta.updated_at.clone(),
+                origin: origins.get(&meta.id).cloned().unwrap_or_default(),
                 start_line: run.start + 1,
                 lines: last
                     .iter()

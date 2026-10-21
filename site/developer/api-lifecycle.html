@@ -167,6 +167,16 @@
     <strong>Expiry</strong>: a snapshot neither provided nor required for
     <code>snapshot_max_age_days</code> (default 30) is cleaned up. Use keeps it alive.
   </li>
+  <li>
+    <strong>Origin</strong>: a provide may say why. <code>build_url</code>,
+    <code>change_url</code> (the pull or merge request), <code>tickets</code> (ids) and
+    <code>note</code> (one line) are stored with the version as its
+    <a href="../start/glossary.html#origin">origin</a>; the latest provide that carries any of them
+    wins, and a no-op re-provide of identical bytes only fills an empty one, so CI rebuilding what a
+    laptop provided adds the references without erasing them. Shown on the version row, in the diff
+    and the blame, answered by the MCP and carried by the <code>version.published</code>
+    webhook.
+  </li>
 </ul>
 
 <h2>2. Going GA</h2>

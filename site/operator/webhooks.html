@@ -211,7 +211,9 @@
         <code>trunk</code> or a branch name), <code>actor</code> (username or <code>null</code>),
         <code>compatibility</code> (<code>null</code>, or
         <code>{"against": "&lt;previous GA&gt;", "impact": "none|patch|minor|major"}</code> on a GA
-        provide with a previous GA).
+        provide with a previous GA), <code>origin</code> (<code>build_url</code>,
+        <code>change_url</code>, <code>tickets</code>, <code>note</code>, each absent when the build
+        said nothing).
       </td>
     </tr>
     <tr>
@@ -295,7 +297,13 @@
     "promoted": false,
     "stream": "trunk",
     "actor": "alice",
-    "compatibility": { "against": "1.4.0", "impact": "major" }
+    "compatibility": { "against": "1.4.0", "impact": "major" },
+    "origin": {
+      "build_url": "https://ci.acme.corp/job/orders/42",
+      "change_url": "https://github.com/acme/orders/pull/7",
+      "tickets": ["ORD-7"],
+      "note": "Ship the orders API v2"
+    }
   },
   "links": {
     "producer": "https://sanshain.corp/producers.html?service=orders",

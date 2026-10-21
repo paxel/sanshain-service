@@ -190,6 +190,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261021000000_system_context_tags.sql",
         "c486f6a2e794c32fa0e8a009dfa0339c5920fe586f1598f55cfbc64e437d8fa8",
     ),
+    (
+        "20261021000001_version_origin.sql",
+        "d0292986fbeeeecba338cd10160821a93b2244186f34f9cfd93e7f3a28a8f134",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -332,6 +336,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261021000000_system_context_tags.sql",
         "c486f6a2e794c32fa0e8a009dfa0339c5920fe586f1598f55cfbc64e437d8fa8",
+    ),
+    (
+        "20261021000001_version_origin.sql",
+        "f23264c1f765ec83ae690e62f33a85ff18353cd77c03e04a089900a8c235536c",
     ),
 ];
 

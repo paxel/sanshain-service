@@ -394,6 +394,14 @@
     provides or requires.
   </dd>
 
+  <dt id="origin">Origin</dt>
+  <dd>
+    What the build that provided a version said about why: its build URL, the pull or merge request
+    behind it (<code>change_url</code>), the ticket ids it closes and one line of intent. The latest
+    provide that carries any of them wins; a no-op re-provide of identical bytes only fills an empty
+    one. References, never content: the ticket itself stays in the tracker.
+  </dd>
+
   <dt id="catalog-context">Catalog context</dt>
   <dd>
     What the catalog push records besides the periphery: the system's owner, description, source

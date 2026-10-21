@@ -1459,6 +1459,25 @@ components:
             With `dry_run: true` the permission check and the Producer lookup
             run and nothing is retired; the returned counts are zero because
             nothing happened.
+        build_url:
+          type: string
+          nullable: true
+          description: |
+            Where this build ran (an absolute `http(s)` URL). Part of the
+            version's **origin**: the latest Provide that carries one wins,
+            and a no-op re-provide of identical bytes only fills an empty one.
+        change_url:
+          type: string
+          nullable: true
+          description: The pull or merge request behind this build (an absolute `http(s)` URL).
+        tickets:
+          type: array
+          items: { type: string }
+          description: Ticket ids this build closes (letters, digits, `-`, `_`, `.`; at most 20); rendered as links through the instance's ticket URL template.
+        note:
+          type: string
+          nullable: true
+          description: One line of intent, at most 200 characters.
         dry_run:
           type: boolean
           default: false
@@ -1504,6 +1523,22 @@ components:
           type: boolean
           default: false
           description: See `ProvidePayload.retired`.
+        build_url:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.build_url`.
+        change_url:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.change_url`.
+        tickets:
+          type: array
+          items: { type: string }
+          description: See `ProvidePayload.tickets`.
+        note:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.note`.
         dry_run:
           type: boolean
           default: false
@@ -1537,6 +1572,22 @@ components:
           type: boolean
           default: false
           description: See `ProvidePayload.retired`.
+        build_url:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.build_url`.
+        change_url:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.change_url`.
+        tickets:
+          type: array
+          items: { type: string }
+          description: See `ProvidePayload.tickets`.
+        note:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.note`.
         dry_run:
           type: boolean
           default: false
@@ -1759,6 +1810,27 @@ components:
           type: string
           description: Why the document is invalid; absent when valid.
 
+    VersionOrigin:
+      type: object
+      description: |
+        What the build that provided a version said about why: references,
+        not content. The latest Provide that carries any of them wins; a
+        no-op re-provide of identical bytes only fills an empty one. All
+        fields absent when no build said anything.
+      required: [build_url, change_url, tickets, note]
+      properties:
+        build_url:
+          type: string
+          nullable: true
+        change_url:
+          type: string
+          nullable: true
+        tickets:
+          type: array
+          items: { type: string }
+        note:
+          type: string
+          nullable: true
     ProducerVersionInfo:
       type: object
       required:
@@ -1770,7 +1842,10 @@ components:
         - created_at
         - updated_at
         - endpoint_count
+        - origin
       properties:
+        origin:
+          $ref: "#/components/schemas/VersionOrigin"
         api_type:
           type: string
           enum: [openapi, asyncapi, proto]
@@ -1866,7 +1941,7 @@ components:
     WebhookVersionPublishedData:
       type: object
       description: A Provide succeeded. The idempotent no-op emits nothing.
-      required: [producer, api_type, version, stability, promoted, stream, actor, compatibility]
+      required: [producer, api_type, version, stability, promoted, stream, actor, compatibility, origin]
       properties:
         producer:
           type: string
@@ -1896,6 +1971,8 @@ components:
             impact:
               type: string
               enum: [none, patch, minor, major]
+        origin:
+          $ref: "#/components/schemas/VersionOrigin"
     WebhookProvideRejectedData:
       type: object
       description: A Provide was refused by a version rule. Dry-runs emit nothing.

@@ -1309,6 +1309,215 @@ async fn validator_rejects_unknown_shapes_but_stores_nothing() {
 }
 
 // ---------------------------------------------------------------------------
+// The origin of a version: what the providing build said about why.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn provide_with(
+    ctx: &TestContext,
+    token: &str,
+    yaml: &str,
+    extra: Value,
+) -> (StatusCode, Value) {
+    let mut payload = json!({"producername": "svc", "openapi_yaml": yaml, "stability": "snapshot"});
+    for (k, v) in extra.as_object().unwrap() {
+        payload[k] = v.clone();
+    }
+    let request = Request::builder()
+        .method("POST")
+        .uri("/provide")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, as_json(&String::from_utf8_lossy(&bytes)))
+}
+
+#[cfg(test)]
+async fn origin_of(ctx: &TestContext, version: &str) -> Value {
+    let (status, _, body) = send(ctx, "GET", "/admin/producers/svc/versions", None, &[]).await;
+    if status == StatusCode::NOT_FOUND {
+        return Value::Null;
+    }
+    assert_eq!(status, StatusCode::OK, "{body}");
+    as_json(&body)
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["version"] == version)
+        .map(|v| v["origin"].clone())
+        .unwrap_or(Value::Null)
+}
+
+#[tokio::test]
+async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let ci = seeded_token(&ctx, "ci", &[]).await;
+    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null});
+
+    // A laptop build says nothing.
+    let (status, _) = provide_with(&ctx, &axel, &spec_two_endpoints("1.3.0"), json!({})).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(origin_of(&ctx, "1.3.0").await, empty);
+
+    // CI rebuilds the same bytes with references: the no-op fills them in.
+    let ci_origin = json!({
+        "build_url": "https://ci.acme.corp/job/svc/42 ",
+        "change_url": "https://github.com/acme/svc/pull/7",
+        "tickets": ["ORD-7", " ORD-7", "ORD-9"],
+        "note": "  Adds the   users endpoint.\n",
+    });
+    let (status, body) = provide_with(&ctx, &ci, &spec_two_endpoints("1.3.0"), ci_origin).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body["changes"]["inserts"], 0);
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await,
+        json!({
+            "build_url": "https://ci.acme.corp/job/svc/42",
+            "change_url": "https://github.com/acme/svc/pull/7",
+            "tickets": ["ORD-7", "ORD-9"],
+            "note": "Adds the users endpoint.",
+        })
+    );
+    // Another no-op with other references changes nothing: filled is filled.
+    let (status, _) = provide_with(
+        &ctx,
+        &ci,
+        &spec_two_endpoints("1.3.0"),
+        json!({"note": "Rebuilt on a Sunday"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await["note"],
+        "Adds the users endpoint."
+    );
+
+    // A real write by the owner replaces the origin, an empty one included.
+    let (status, _) = provide_with(
+        &ctx,
+        &axel,
+        &spec_two_endpoints_reworded("1.3.0"),
+        json!({"note": "Reworded"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(origin_of(&ctx, "1.3.0").await["note"], "Reworded");
+    assert!(origin_of(&ctx, "1.3.0").await["change_url"].is_null());
+    let (status, _) = provide_with(&ctx, &axel, &spec_users_only("1.3.0"), json!({})).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(origin_of(&ctx, "1.3.0").await, empty);
+
+    // A dry run records nothing.
+    let (status, _) = provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.3.0"),
+        json!({"dry_run": true, "note": "dry"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(origin_of(&ctx, "1.3.0").await, empty);
+}
+
+#[tokio::test]
+async fn an_origin_outside_its_bounds_is_refused_by_name_before_anything_is_stored() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    for (extra, expected) in [
+        (
+            json!({"build_url": "ftp://ci/x"}),
+            "build_url must be an absolute http(s) URL",
+        ),
+        (
+            json!({"change_url": "not a url"}),
+            "change_url must be an absolute http(s) URL",
+        ),
+        (json!({"tickets": ["ORD 7"]}), "ticket 'ORD 7' is not an id"),
+        (
+            json!({"tickets": (0..21).map(|i| format!("T-{i}")).collect::<Vec<_>>()}),
+            "at most 20 tickets",
+        ),
+        (
+            json!({"note": "x".repeat(201)}),
+            "note is longer than 200 characters",
+        ),
+    ] {
+        let (status, body) = provide_with(&ctx, &axel, &spec_users_only("1.0.0"), extra).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let error = body["error"].as_str().unwrap_or("");
+        assert!(error.contains(expected), "{error}");
+    }
+    assert_eq!(
+        origin_of(&ctx, "1.0.0").await,
+        Value::Null,
+        "nothing was stored"
+    );
+}
+
+#[tokio::test]
+async fn the_diff_and_the_blame_carry_the_origins_of_the_versions() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.0.0"),
+        json!({"note": "First"}),
+    )
+    .await;
+    provide_with(
+        &ctx,
+        &axel,
+        &spec_two_endpoints("1.1.0"),
+        json!({"change_url": "https://github.com/acme/svc/pull/9", "tickets": ["ORD-9"]}),
+    )
+    .await;
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/svc/diff?api_type=openapi&from=1.0.0&to=1.1.0&format=json",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let diff = as_json(&body);
+    assert_eq!(diff["from_origin"]["note"], "First");
+    assert_eq!(diff["to_origin"]["tickets"], json!(["ORD-9"]));
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/svc/blame?api_type=openapi&version=1.1.0",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let blocks = as_json(&body);
+    let by_version = |v: &str| {
+        blocks
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["version"] == v)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(by_version("1.0.0")["origin"]["note"], "First");
+    assert_eq!(
+        by_version("1.1.0")["origin"]["change_url"],
+        "https://github.com/acme/svc/pull/9"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot ownership: different bytes under a snapshot number come from the
 // user who last provided it, or they are sent to the next free minor.
 // ---------------------------------------------------------------------------

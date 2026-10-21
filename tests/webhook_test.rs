@@ -302,7 +302,12 @@ async fn a_provide_emits_version_published_and_a_dry_run_or_no_op_does_not() {
         "orders",
         "ga",
         &spec("1.0.0", &["/a"], &[]),
-        json!({"trunk": true}),
+        json!({
+            "trunk": true,
+            "change_url": "https://github.com/acme/orders/pull/7",
+            "tickets": ["ORD-7"],
+            "note": "Ship the orders API",
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "first GA provide");
@@ -314,6 +319,10 @@ async fn a_provide_emits_version_published_and_a_dry_run_or_no_op_does_not() {
         json!({
             "producer": "orders", "api_type": "openapi", "version": "1.0.0", "stability": "ga",
             "promoted": false, "stream": "trunk", "actor": "root", "compatibility": null,
+            "origin": {
+                "build_url": null, "change_url": "https://github.com/acme/orders/pull/7",
+                "tickets": ["ORD-7"], "note": "Ship the orders API",
+            },
         })
     );
 

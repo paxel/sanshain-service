@@ -442,6 +442,7 @@ async fn diff_versions(state: &AppState, p: DiffVersionsParams) -> Result<ToolOu
         "service": p.service, "api_type": request.api_type,
         "from": diff.from, "to": diff.to, "path": p.path, "method": p.method,
         "added": added, "removed": removed,
+        "from_origin": diff.from_origin, "to_origin": diff.to_origin,
     });
     let mut body = header.clone();
     body["diff"] = Value::String(text);

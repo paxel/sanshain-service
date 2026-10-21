@@ -174,10 +174,10 @@
       <td><code>describe_service</code></td>
       <td><code>name</code>, <code>scope?</code></td>
       <td>
-        One service: version lines (with <code>last_provided_at</code>, <code>superseded</code>),
-        endpoints of the latest version per line with their one-line <code>summary</code> from the
-        spec, its consumers and what they pin, what it requires, its periphery and who shares it,
-        and its <code>context</code> from catalog-info, tags included.
+        One service: version lines (with <code>last_provided_at</code>, <code>superseded</code>,
+        <code>origin</code>), endpoints of the latest version per line with their one-line
+        <code>summary</code> from the spec, its consumers and what they pin, what it requires, its
+        periphery and who shares it, and its <code>context</code> from catalog-info, tags included.
         <em>Who owns <code>orders</code>, and where is its code?</em>
       </td>
     </tr>
@@ -225,8 +225,9 @@
         <code>ignore_whitespace?</code>, <code>path?</code>, <code>method?</code>
       </td>
       <td>
-        The unified diff (the UI's engine) and the added and removed line counts.
-        <em>What changed between 2.3.0 and 2.4.0 of <code>payments</code>?</em>
+        The unified diff (the UI's engine), the added and removed line counts and the origin of both
+        versions (<code>from_origin</code>, <code>to_origin</code>: build, change, tickets, note).
+        <em>What changed between 2.3.0 and 2.4.0 of <code>payments</code>, and why?</em>
       </td>
     </tr>
     <tr>
@@ -236,8 +237,8 @@
         <code>method?</code>
       </td>
       <td>
-        Blocks of lines with the version that last changed them, who provided it and when.
-        <em>Since when has this field been required?</em>
+        Blocks of lines with the version that last changed them, who provided it, when, and its
+        origin. <em>Since when has this field been required, and which change made it so?</em>
       </td>
     </tr>
   </tbody>

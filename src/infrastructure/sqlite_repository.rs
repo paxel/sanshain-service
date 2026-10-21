@@ -83,8 +83,8 @@ fn hash_session_token(token: &str) -> String {
 }
 
 use super::pin_rows::{
-    PinRow, SystemContextRow, links_json, periphery_track_key, pin_row_to_info,
-    system_context_from_row, tags_json,
+    PinRow, SystemContextRow, VersionOriginRow, links_json, periphery_track_key, pin_row_to_info,
+    system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
 use super::webhook_rows::{
     DELIVERY_COLUMNS, DeliveryRow, WEBHOOK_COLUMNS, WebhookRow, data_from_json, data_json,
@@ -458,6 +458,11 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn delete_spec_version(&self, spec_version_id: i64) -> Result<bool, RepositoryError> {
         let mut tx = self.write_tx().await?;
+        sqlx::query("DELETE FROM spec_version_origin WHERE spec_version_id = ?")
+            .bind(spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // A deleted version is no longer what trunk carries; its closed member
         // record stays as history.
         sqlx::query(
@@ -507,6 +512,68 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn set_version_origin(
+        &self,
+        spec_version_id: i64,
+        origin: &VersionOrigin,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        if origin.is_empty() {
+            sqlx::query("DELETE FROM spec_version_origin WHERE spec_version_id = ?")
+                .bind(spec_version_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO spec_version_origin \
+                   (spec_version_id, build_url, change_url, tickets_json, note, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?) \
+                 ON CONFLICT (spec_version_id) DO UPDATE SET \
+                   build_url = excluded.build_url, change_url = excluded.change_url, \
+                   tickets_json = excluded.tickets_json, note = excluded.note, \
+                   updated_at = excluded.updated_at",
+        )
+        .bind(spec_version_id)
+        .bind(origin.build_url.as_deref())
+        .bind(origin.change_url.as_deref())
+        .bind(tickets_json(origin)?)
+        .bind(origin.note.as_deref())
+        .bind(now_iso)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_version_origin(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Option<VersionOrigin>, RepositoryError> {
+        let row: Option<VersionOriginRow> = sqlx::query_as(
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note \
+             FROM spec_version_origin WHERE spec_version_id = ?",
+        )
+        .bind(spec_version_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        row.map(|row| version_origin_from_row(row).map(|(_, o)| o))
+            .transpose()
+    }
+
+    async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
+        let rows: Vec<VersionOriginRow> = sqlx::query_as(
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note \
+             FROM spec_version_origin",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        rows.into_iter().map(version_origin_from_row).collect()
     }
 
     async fn touch_spec_version_trunk(

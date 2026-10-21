@@ -87,6 +87,18 @@ curl -s -X POST $SANSHAIN/auth/tokens \
   <a href="release-graphs.html">Release graphs</a>.
 </p>
 
+<h3>Why: the origin of a build</h3>
+<p>
+  A provide may carry what the pipeline knows about why it runs: the build URL, the pull or merge
+  request (<code>change_url</code>), the ticket ids it closes and one line of intent. The clients
+  take the build and change URL from the runner's own variables on GitHub Actions, GitLab CI and
+  Jenkins; <code>SANSHAIN_BUILD_URL</code> and <code>SANSHAIN_CHANGE_URL</code> override them, and
+  <code>SANSHAIN_TICKETS</code> (comma-separated) and <code>SANSHAIN_NOTE</code> are set by the
+  pipeline that knows them. A raw <code>curl</code> pipeline sends the fields itself. Sanshain shows
+  the <a href="../start/glossary.html#origin">origin</a> on the version row, in the diff and the
+  blame; ticket ids become links through the administrator's ticket URL template.
+</p>
+
 <h3>The catalog push</h3>
 <p>
   A build with <code>catalogInfo</code> in its <code>sanshain.yaml</code> also pushes the project's

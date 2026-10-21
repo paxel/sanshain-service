@@ -92,6 +92,11 @@
     <strong>trunk</strong> when trunk CI last provided this version, and a chip per
     <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> that references it.
   </li>
+  <li>
+    the <a href="../start/glossary.html#origin">origin</a> when the providing build sent one: the
+    note, then chips for the build, the change (pull or merge request) and each ticket, the tickets
+    linked through the ticket URL template an administrator set.
+  </li>
 </ul>
 <figure class="screenshot">
   <img
@@ -145,7 +150,9 @@
   down the side: every version of the line, its stability and provider, marked
   <strong>changed</strong> where the text differs from the version before. Pick two versions in
   <strong>Compare / Diff</strong>; switch <strong>Blame</strong> on to see, for every line, the
-  version that last changed it. Copy and Download act on what is shown.
+  version that last changed it, and, where the providing build said so, why: the diff header and
+  every blame block carry the version's <a href="../start/glossary.html#origin">origin</a>. Copy and
+  Download act on what is shown.
 </p>
 <p>
   A diff has two switches. <strong>Ignore whitespace</strong> (off by default, per view) drops

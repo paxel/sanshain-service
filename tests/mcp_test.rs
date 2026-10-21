@@ -489,6 +489,10 @@ async fn list_services_and_describe_service_answer_the_catalog() {
     let v1 = versions.iter().find(|v| v["version"] == "1.0.0").unwrap();
     assert_eq!(v1["superseded"], true);
     assert!(v1["last_provided_at"].is_string());
+    assert_eq!(
+        v1["origin"],
+        json!({"build_url": null, "change_url": null, "tickets": [], "note": null})
+    );
     let endpoints = d["endpoints"].as_array().unwrap();
     assert_eq!(
         endpoints.len(),
