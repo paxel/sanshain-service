@@ -50,6 +50,7 @@ pub async fn push_catalog(
                 system,
                 trunk,
                 resources: Vec::new(),
+                components: Vec::new(),
                 recorded: false,
                 warnings: vec![warning],
                 changed: false,
@@ -64,8 +65,16 @@ pub async fn push_catalog(
         .await?
         .into_iter()
         .collect();
+    // `component:` refs ride the periphery set (ADR-0010): the report drops
+    // the ones a Sanshain system answers for, the rest draw as missing.
+    let refs: Vec<String> = component
+        .resources
+        .iter()
+        .chain(component.components.iter())
+        .cloned()
+        .collect();
     let periphery_changed = repo
-        .reconcile_periphery(&system, trunk, &component.resources, &now, outbox)
+        .reconcile_periphery(&system, trunk, &refs, &now, outbox)
         .await?;
     let context_changed = repo
         .upsert_system_context(&system, &component.context, &now)
@@ -77,6 +86,7 @@ pub async fn push_catalog(
         system,
         trunk,
         resources: component.resources,
+        components: component.components,
         recorded: true,
         warnings: Vec::new(),
         changed: periphery_changed || context_changed || domain_changed,
@@ -233,6 +243,7 @@ mod tests {
                 system: "orders".to_string(),
                 trunk: false,
                 resources: vec!["resource:default/orders-db".to_string()],
+                components: Vec::new(),
                 recorded: true,
                 warnings: Vec::new(),
                 changed: true,

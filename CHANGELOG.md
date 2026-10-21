@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.9.0]
 
 ### Added
+- A `component:` ref in the Component's `dependsOn` that names no Producer and no Consumer is drawn as a dashed missing component with an edge from the depending system (legend entry, panel naming who declared it); a ref with a Sanshain pendant stays ignored, so the moment that system provides or requires, the `require` edges take over (ADR-0010).
 - The catalog push keeps the Component's `metadata.tags`: chips with the catalog context on the node panel and the Producer and Consumer pages, `tags` in the MCP `describe_service` answer, and `tag:<name>` in the graph's focus box narrows the drawing to the tagged systems and their neighbours.
 - The catalog push reads the Component's `spec.system`: its name fills the Producer's domain, the cluster the graph draws, when no domain is set; a domain an administrator typed stays (ADR-0010).
 - Endpoints carry the one line their Producer wrote about them: an OpenAPI operation's `summary` (or the first sentence of its `description`), an AsyncAPI operation, message or channel summary, or the comment above a proto `rpc`. The Producer page shows it under each endpoint, and the MCP `find_endpoint` hits and `describe_service` endpoints carry it as `summary`, so an assistant answers "what is this for" without fetching the spec. Proto snippets now keep the comment block above their `rpc`.

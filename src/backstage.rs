@@ -1,8 +1,9 @@
 //! Reading a Backstage `catalog-info.yaml` (#46, #48): only what the network
 //! graph and the system pages need of the Component that *is* the pushing
 //! system — the `resource:` refs in its `dependsOn`, its owner, description,
-//! source location and links. Everything else in the file (other entities,
-//! `consumesApis`, `component:` refs, lifecycle, any further field) is
+//! source location, links and tags, and the `component:` refs that name no
+//! Sanshain system (ADR-0010). Everything else in the file (other entities,
+//! `consumesApis`, lifecycle, any further field) is
 //! ignored: edges between systems stay Sanshain's own (`require`), so nothing
 //! here can duplicate them or needs a name mapping between Backstage and
 //! Sanshain.
@@ -34,6 +35,9 @@ pub enum CatalogError {
 /// default to the field; for a periphery the only kind Sanshain draws is
 /// `resource`, so a bare `orders-db` means `resource:<namespace>/orders-db`.
 const DEFAULT_KIND: &str = "resource";
+
+/// The `kind` of a `dependsOn` ref drawn as a missing component (ADR-0010).
+const COMPONENT_KIND: &str = "component";
 
 /// The `kind` an unqualified `spec.system` ref is read as.
 const DEFAULT_SYSTEM_KIND: &str = "system";
@@ -104,6 +108,10 @@ pub struct CatalogComponent {
     /// Backstage; refs are lower-cased because Backstage compares them
     /// case-insensitively, and one shared resource must merge into one node.
     pub resources: Vec<String>,
+    /// The full, lower-cased `component:<namespace>/<name>` refs the
+    /// Component depends on (ADR-0010), sorted and deduplicated. Drawn as a
+    /// missing component while no Sanshain system of that name exists.
+    pub components: Vec<String>,
     pub context: SystemContext,
     /// The name of the Backstage system the Component belongs to
     /// (`spec.system`, lower-cased, namespace dropped): the graph's natural
@@ -154,7 +162,7 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
         .namespace
         .as_deref()
         .unwrap_or(DEFAULT_NAMESPACE);
-    let resources = resource_dependencies(&component, namespace)?;
+    let (resources, components) = dependencies(&component, namespace)?;
     let context = SystemContext {
         owner: component
             .spec
@@ -200,15 +208,18 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
         .map(|(_, _, name)| name);
     Ok(CatalogComponent {
         resources,
+        components,
         context,
         system,
     })
 }
 
-/// The periphery half (#46): `spec.dependsOn` as full resource refs.
-fn resource_dependencies(component: &Entity, namespace: &str) -> Result<Vec<String>, CatalogError> {
+/// `spec.dependsOn` as full refs: the periphery half (#46, `resource:` refs)
+/// and the `component:` refs (ADR-0010), each sorted and deduplicated.
+type Dependencies = (Vec<String>, Vec<String>);
+fn dependencies(component: &Entity, namespace: &str) -> Result<Dependencies, CatalogError> {
     let depends_on = match component.spec.as_ref().and_then(|s| s.get("dependsOn")) {
-        None | Some(Value::Null) => return Ok(Vec::new()),
+        None | Some(Value::Null) => return Ok((Vec::new(), Vec::new())),
         Some(Value::Sequence(items)) => items,
         Some(_) => {
             return Err(CatalogError::MalformedDependsOn(
@@ -219,6 +230,7 @@ fn resource_dependencies(component: &Entity, namespace: &str) -> Result<Vec<Stri
     };
 
     let mut refs = std::collections::BTreeSet::new();
+    let mut components = std::collections::BTreeSet::new();
     for item in depends_on {
         let Some(raw) = item.as_str() else {
             return Err(CatalogError::MalformedDependsOn(
@@ -234,9 +246,18 @@ fn resource_dependencies(component: &Entity, namespace: &str) -> Result<Vec<Stri
         };
         if kind == DEFAULT_KIND {
             refs.insert(format!("{DEFAULT_KIND}:{ns}/{name}"));
+        } else if kind == COMPONENT_KIND {
+            components.insert(format!("{COMPONENT_KIND}:{ns}/{name}"));
         }
     }
-    Ok(refs.into_iter().collect())
+    Ok((refs.into_iter().collect(), components.into_iter().collect()))
+}
+
+/// The name part of a `component:<namespace>/<name>` ref, the one a Sanshain
+/// system name is compared with (ADR-0010).
+pub fn component_ref_name(reference: &str) -> Option<&str> {
+    let rest = reference.strip_prefix("component:")?;
+    Some(rest.rsplit_once('/').map_or(rest, |(_, name)| name))
 }
 
 /// Split a Backstage string ref `[kind:][namespace/]name` into its three
@@ -388,6 +409,19 @@ spec:
   consumesApis:
     - api:default/stripe-api
 "#;
+
+    #[test]
+    fn component_refs_are_kept_apart_from_the_periphery() {
+        let read = read_component(ORDERS, "orders-service").unwrap();
+        assert_eq!(read.components, vec!["component:default/billing-service"]);
+        assert_eq!(read.resources.len(), 3);
+        assert_eq!(
+            component_ref_name("component:default/billing-service"),
+            Some("billing-service")
+        );
+        assert_eq!(component_ref_name("component:billing"), Some("billing"));
+        assert_eq!(component_ref_name("resource:default/db"), None);
+    }
 
     #[test]
     fn reads_only_resource_refs_and_qualifies_them() {

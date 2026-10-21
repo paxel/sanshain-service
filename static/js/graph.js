@@ -100,10 +100,11 @@ window.graphScopePeriphery = null;
 // view and instant like the periphery.
 window.graphScopeData = null;
 
-// A Peripheral Resource node is keyed by its full Backstage ref; it is shown
-// as `name`, or `namespace/name` outside the default namespace.
+// A Peripheral Resource node (or a missing component, ADR-0010) is keyed by
+// its full Backstage ref; it is shown as `name`, or `namespace/name` outside
+// the default namespace.
 function graphPeripheralLabel(ref) {
-  const rest = ref.replace(/^resource:/, "");
+  const rest = ref.replace(/^(resource|component):/, "");
   return rest.startsWith("default/") ? rest.slice("default/".length) : rest;
 }
 window.graphPeripheralLabel = graphPeripheralLabel;
@@ -405,7 +406,7 @@ function graphNodeBadges(report, deps) {
   });
   deps.forEach((d) => {
     if (d.peripheral) {
-      add(provides, d.service, "resource");
+      if (!d.missing_component) add(provides, d.service, "resource");
       return;
     }
     add(requires, d.client, graphBadgeKind(d.api_type));
@@ -624,6 +625,9 @@ function getFilteredReport(report) {
       method: "DEPENDS",
       deprecated: false,
       peripheral: true,
+      // A `component:` ref no Sanshain system answers for (ADR-0010): drawn
+      // as a missing component, not as a resource.
+      missing_component: p.resource.startsWith("component:"),
     });
   });
 
@@ -2077,7 +2081,12 @@ function renderCustomGraph(report, svgElement, direction) {
     let fill, stroke, textColor;
 
     const isPeripheralNode = peripheralNodes.has(node);
-    if (isPeripheralNode) {
+    const isMissingComponent = isPeripheralNode && node.startsWith("component:");
+    if (isMissingComponent) {
+      fill = "#fff7ed";
+      stroke = "#f97316";
+      textColor = "#9a3412";
+    } else if (isPeripheralNode) {
       fill = "#f1f5f9";
       stroke = "#64748b";
       textColor = "#334155";
@@ -2105,7 +2114,8 @@ function renderCustomGraph(report, svgElement, direction) {
     group.dataset.provides = badges.provides.join(",");
     group.dataset.requires = badges.requires.join(",");
     // Set role for legend highlighting
-    if (isPeripheralNode) group.dataset.role = "peripheral";
+    if (isMissingComponent) group.dataset.role = "missing-component";
+    else if (isPeripheralNode) group.dataset.role = "peripheral";
     else if (isMissingService) group.dataset.role = "missing";
     else if (isClient && isService) group.dataset.role = "both";
     else if (isService) group.dataset.role = "service";
@@ -2128,8 +2138,8 @@ function renderCustomGraph(report, svgElement, direction) {
     rect.setAttribute("fill", fill);
     rect.setAttribute("stroke", stroke);
     rect.setAttribute("stroke-width", "2");
-    if (isMissingService) rect.setAttribute("stroke-dasharray", "6 3");
-    if (isPeripheralNode) rect.setAttribute("stroke-dasharray", "4 3");
+    if (isMissingService || isMissingComponent) rect.setAttribute("stroke-dasharray", "6 3");
+    else if (isPeripheralNode) rect.setAttribute("stroke-dasharray", "4 3");
     group.appendChild(rect);
 
     // Top-left "!" for a missing service.
@@ -2368,6 +2378,23 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Unprovided Channel</div>
         <div class="font-bold text-white break-all">${_graphEscapeHtml(name)}</div>
         <div class="text-[11px] text-slate-400 mt-1">Subscribed to in an AsyncAPI document, but no Producer publishes this channel yet.</div>
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
+      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.opacity = "1";
+      return;
+    }
+
+    if (name.startsWith("component:")) {
+      const dependents = deps
+        .filter((d) => d.peripheral && d.service === name)
+        .map((d) => d.client)
+        .sort();
+      tooltip.innerHTML = `
+        <div class="text-[10px] text-orange-400 font-bold uppercase tracking-wider mb-0.5">Missing component</div>
+        <div class="font-bold text-white break-all">${_graphEscapeHtml(graphPeripheralLabel(name))}</div>
+        <div class="text-[11px] text-slate-400 mt-1">Declared under dependsOn in the Backstage catalog-info of ${_graphEscapeHtml(dependents.join(", "))}, but no Sanshain system of that name provides or requires anything yet.</div>
       `;
       tooltip.style.display = "block";
       tooltip.style.left = Math.max(10, e.clientX + 8) + "px";

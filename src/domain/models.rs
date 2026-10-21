@@ -867,6 +867,10 @@ pub struct CatalogPushResult {
     pub system: String,
     pub trunk: bool,
     pub resources: Vec<String>,
+    /// The `component:` refs recorded (ADR-0010), drawn as missing while no
+    /// Sanshain system of that name exists.
+    #[serde(default)]
+    pub components: Vec<String>,
     /// Whether the push was recorded. A file Sanshain cannot read as the
     /// system's Component records nothing (the previous periphery stays) and
     /// answers `false` with the reason as a warning (ADR-0007 amendment).

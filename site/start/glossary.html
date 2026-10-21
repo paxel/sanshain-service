@@ -386,6 +386,14 @@
     system and of it the periphery and the catalog context; everything else is ignored.
   </dd>
 
+  <dt id="missing-component">Missing component</dt>
+  <dd>
+    A <code>component:</code> ref in a system's <code>dependsOn</code> that names no Producer and no
+    Consumer: drawn as a dashed node with an edge from the depending system, so a dependency the
+    graph cannot see is at least visible as a gap. It disappears the moment a system of that name
+    provides or requires.
+  </dd>
+
   <dt id="catalog-context">Catalog context</dt>
   <dd>
     What the catalog push records besides the periphery: the system's owner, description, source

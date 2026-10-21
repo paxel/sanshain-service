@@ -677,12 +677,14 @@ paths:
         Sanshain reads only the `Component` whose `metadata.name` equals
         `systemname` (case-insensitive), and of it only:
 
-        - `spec.dependsOn`: only `resource:` refs are kept; `component:` refs
-          and `consumesApis` are ignored, because edges between systems are
-          Sanshain's own (`/require`). A ref without a kind is read as a
-          `resource`, a ref without a namespace takes the Component's
-          namespace (`default` when it declares none), and refs are
-          lower-cased.
+        - `spec.dependsOn`: `resource:` refs become Peripheral Resources;
+          `component:` refs are recorded too and drawn as a **missing
+          component** while no Producer or Consumer of that name exists (a
+          ref with a Sanshain pendant is ignored: edges between systems are
+          Sanshain's own, `/require`); `consumesApis` is ignored. A ref
+          without a kind is read as a `resource`, a ref without a namespace
+          takes the Component's namespace (`default` when it declares none),
+          and refs are lower-cased.
         - `spec.owner`, normalised like other refs (a bare `team-orders` is
           `group:default/team-orders`) and kept as kind and name.
         - `spec.system`, the Backstage system the Component belongs to: its
@@ -1721,6 +1723,10 @@ components:
           type: array
           description: The recorded refs, `resource:<namespace>/<name>`, lower-cased and sorted.
           items: { type: string }
+        components:
+          type: array
+          description: The recorded `component:<namespace>/<name>` refs, lower-cased and sorted; drawn as missing components while no Sanshain system of that name exists.
+          items: { type: string }
         recorded:
           type: boolean
           description: |
@@ -2126,7 +2132,7 @@ components:
           type: boolean
     ReportPeripheralDependency:
       type: object
-      description: An edge from a system to a Peripheral Resource from its Backstage catalog file.
+      description: An edge from a system to a Peripheral Resource (`resource:` ref) or a missing component (`component:` ref with no Sanshain pendant) from its Backstage catalog file.
       required: [system, resource]
       properties:
         system:

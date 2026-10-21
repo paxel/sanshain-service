@@ -54,7 +54,42 @@ pub async fn get_periphery(
             (PeripheryTrack::Branch(branch.id), at.as_deref())
         }
     };
-    Ok(repo.list_periphery(track, at).await?)
+    without_known_components(repo, repo.list_periphery(track, at).await?).await
+}
+
+/// ADR-0010: a `component:` ref is drawn as a missing component only while no
+/// Producer or Consumer of that name exists; with a pendant the `require`
+/// edges are the truth and the ref is dropped. Present-day names, whatever
+/// the scope: a system that exists today is not missing in a cut either.
+pub async fn without_known_components(
+    repo: &impl SpecRepository,
+    periphery: Vec<PeripheralDependency>,
+) -> Result<Vec<PeripheralDependency>, AppError> {
+    if !periphery
+        .iter()
+        .any(|p| p.resource.starts_with("component:"))
+    {
+        return Ok(periphery);
+    }
+    let mut known: std::collections::HashSet<String> = repo
+        .list_producers_detailed()
+        .await?
+        .into_iter()
+        .map(|p| p.name.to_lowercase())
+        .collect();
+    known.extend(
+        repo.list_consumers()
+            .await?
+            .into_iter()
+            .map(|c| c.to_lowercase()),
+    );
+    Ok(periphery
+        .into_iter()
+        .filter(|p| {
+            crate::backstage::component_ref_name(&p.resource)
+                .is_none_or(|name| !known.contains(name))
+        })
+        .collect())
 }
 
 /// The harvested subscriptions (ADR-0006) that belong to a scope: dev keeps
@@ -342,7 +377,9 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     // Harvested AsyncAPI subscription edges (#6/ADR-0006). The dev report
     // carries the full set; scoped views filter it below.
     report.harvested_subscriptions = repo.list_current_harvested_subscriptions().await?;
-    report.peripheral_dependencies = repo.list_periphery(PeripheryTrack::Dev, None).await?;
+    report.peripheral_dependencies =
+        without_known_components(repo, repo.list_periphery(PeripheryTrack::Dev, None).await?)
+            .await?;
     // Owner, description, source location and links per system (#48): a
     // present-day fact, so every scope carries the same map.
     report.systems = repo.list_system_contexts().await?;

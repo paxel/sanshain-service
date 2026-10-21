@@ -192,6 +192,7 @@ async fn any_authenticated_caller_may_push_and_gets_the_recorded_set_back() {
             "system": "orders",
             "trunk": false,
             "resources": ["resource:default/cache", "resource:default/orders-db"],
+            "components": ["component:default/billing"],
             "recorded": true,
         })
     );
@@ -245,7 +246,7 @@ async fn an_unreadable_file_answers_200_records_nothing_and_warns() {
         assert_eq!(status, StatusCode::OK, "{reason}: {body}");
         assert_eq!(
             as_json(&body),
-            json!({"system": "orders", "trunk": true, "resources": [], "recorded": false}),
+            json!({"system": "orders", "trunk": true, "resources": [], "components": [], "recorded": false}),
             "{reason}"
         );
         let warnings: Vec<String> = headers
@@ -344,6 +345,76 @@ async fn get_json(ctx: &TestContext, uri: &str) -> Value {
     let (status, _, body) = send(ctx, "GET", uri, None).await;
     assert_eq!(status, StatusCode::OK, "{uri} got: {body}");
     as_json(&body)
+}
+
+/// ADR-0010: a `component:` ref draws as missing until a system of that name exists.
+#[tokio::test]
+async fn a_component_ref_without_a_pendant_is_a_missing_component_until_one_appears() {
+    let ctx = setup().await;
+    let (status, body) = push(
+        &ctx,
+        "orders",
+        &catalog(
+            "orders",
+            &["orders-db", "component:Billing", "component:acme/shop"],
+        ),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["resources"], json!(["resource:default/orders-db"]));
+    assert_eq!(
+        body["components"],
+        json!(["component:acme/shop", "component:default/billing"])
+    );
+    let edges = |report: &Value| {
+        report["peripheral_dependencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["resource"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let dev = get_json(&ctx, "/report").await;
+    assert_eq!(
+        edges(&dev),
+        vec![
+            "component:acme/shop",
+            "component:default/billing",
+            "resource:default/orders-db"
+        ]
+    );
+    // The main view (a trunk push) carries them too, like the periphery.
+    let main = get_json(&ctx, "/report?scope=main").await;
+    assert_eq!(edges(&main).len(), 3);
+
+    // billing provides: its ref has a pendant now and is dropped; shop, a
+    // Consumer, likewise.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(json!({"producername": "billing", "openapi_yaml": one_endpoint_spec(), "stability": "snapshot"})),
+    )
+    .await;
+    assert!(status.is_success(), "{status} {body}");
+    let dev = get_json(&ctx, "/report").await;
+    assert_eq!(
+        edges(&dev),
+        vec!["component:acme/shop", "resource:default/orders-db"]
+    );
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=Shop&producername=billing&version=1.0.0&path=/users&method=GET",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let dev = get_json(&ctx, "/report").await;
+    assert_eq!(edges(&dev), vec!["resource:default/orders-db"]);
+    let periphery = get_json(&ctx, "/admin/periphery?scope=main").await;
+    assert_eq!(periphery.as_array().unwrap().len(), 1, "{periphery}");
 }
 
 #[tokio::test]

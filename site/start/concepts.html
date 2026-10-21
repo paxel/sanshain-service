@@ -305,8 +305,10 @@
   owner, description, source location and links, the
   <a href="glossary.html#catalog-context">catalog context</a> shown on the node panel and on the
   system's page, and since 2.9.0 the Backstage system the Component belongs to, which fills the
-  Producer's domain (the graph's cluster) when an administrator set none. Edges between systems are
-  never read from Backstage; those are what requires record.
+  Producer's domain (the graph's cluster) when an administrator set none. A
+  <code>component:</code> ref that names no Sanshain system is drawn as a
+  <a href="glossary.html#missing-component">missing component</a>. Edges between systems that
+  Sanshain knows are never read from Backstage; those are what requires record.
 </p>
 
 <h2>Credentials</h2>

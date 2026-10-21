@@ -521,8 +521,10 @@ requires:
         a kind is read as a resource; one without a namespace takes the Component's namespace (<code
           >default</code
         >
-        when it has none); refs are lower-cased. <code>component:</code> refs and
-        <code>consumesApis</code> are ignored: edges between systems are what requires record.
+        when it has none); refs are lower-cased. A <code>component:</code> ref is drawn as a
+        <a href="../start/glossary.html#missing-component">missing component</a> while no Sanshain
+        system of that name exists, and ignored once one does: edges between systems are what
+        requires record. <code>consumesApis</code> is ignored.
       </td>
     </tr>
     <tr>

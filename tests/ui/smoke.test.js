@@ -1496,6 +1496,7 @@ test.describe("Graph provides/requires badges", () => {
             "  type: service",
             "  dependsOn:",
             "    - resource:s7-db",
+            "    - component:s7-ghost",
           ].join("\n"),
         },
       }),
@@ -1527,6 +1528,14 @@ test.describe("Graph provides/requires badges", () => {
       "kafka",
       "s7-tagged",
     ]);
+    // The component ref names no Sanshain system: a dashed missing component
+    // hangs off ASYNC_A, labelled by its name.
+    const ghost = page.locator(
+      '#custom-graph g.graph-node[data-node="component:default/s7-ghost"]',
+    );
+    await expect(ghost).toHaveAttribute("data-role", "missing-component");
+    await expect(ghost.locator("rect").first()).toHaveAttribute("stroke-dasharray", "6 3");
+    await expect(ghost).toContainText("s7-ghost");
     // Only ASYNC_A carries s7-tagged: the focus keeps it and its neighbours.
     await page.goto("/graph.html?focus=tag:s7-tagged");
     await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
