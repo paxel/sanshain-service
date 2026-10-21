@@ -270,6 +270,25 @@ async fn auth_config_get_put_and_password_masking() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "LDAP config required for ldap mode");
 
+    // A one-slash URL is refused where it is typed, and nothing changes.
+    let (status, body) = send_json(
+        &app,
+        "PUT",
+        "/admin/auth-config",
+        &auth,
+        &json!({ "auth_mode": "ldap", "ldap_config": {
+            "server_url": "ldap:/dc01.example.com:636",
+            "bind_dn": "cn=admin,dc=example,dc=com",
+            "base_dn": "dc=example,dc=com",
+        } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let error = body["error"].as_str().unwrap_or("");
+    assert!(error.contains("no ldap:// or ldaps:// scheme"), "{error}");
+    let (_, body) = get_json(&app, "/admin/auth-config", &auth).await;
+    assert_eq!(body["auth_mode"], "local");
+
     // Store an LDAP config with a real bind password.
     let ldap = json!({
         "server_url": "ldap://127.0.0.1:9",

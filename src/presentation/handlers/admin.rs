@@ -535,6 +535,13 @@ pub async fn set_auth_config(
             "LDAP config required for ldap mode".to_string(),
         ));
     }
+    // Checked whenever LDAP is chosen or a server URL was typed; a blank URL
+    // under another mode is no configuration at all.
+    if let Some(ldap) = &payload.ldap_config
+        && (mode == AuthMode::Ldap || !ldap.server_url.trim().is_empty())
+    {
+        ldap.validate_server_url().map_err(AppError::BadRequest)?;
+    }
     if mode == AuthMode::Oidc
         && payload.oidc_config.is_none()
         && services::get_oidc_config(&state.repo).await?.is_none()
@@ -596,6 +603,7 @@ pub async fn test_auth_config(
     use crate::infrastructure::ldap_provider::{LdapAuthProvider, directory_host_and_port};
     use crate::infrastructure::net_diag;
 
+    config.validate_server_url().map_err(AppError::BadRequest)?;
     let server_url = config.server_url.clone();
     let provider = LdapAuthProvider::new(config);
     match provider.test_connection().await {

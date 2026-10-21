@@ -414,6 +414,47 @@ pub struct LdapConfig {
 }
 
 impl LdapConfig {
+    /// The server URL must be `ldap://host[:port]` or `ldaps://host[:port]`.
+    /// A typo such as `ldap:/host:636` (one slash) parses as a URL without a
+    /// host and fails later as an unexplained "connection refused"; it is
+    /// refused where it is typed instead, naming the expected form.
+    pub fn validate_server_url(&self) -> Result<(), String> {
+        let url = self.server_url.trim();
+        let expected =
+            "expected ldap://host:port or ldaps://host:port (e.g. ldaps://dc01.example.com:636)";
+        let rest = url
+            .strip_prefix("ldaps://")
+            .or_else(|| url.strip_prefix("ldap://"))
+            .ok_or_else(|| {
+                format!("LDAP server URL '{url}' has no ldap:// or ldaps:// scheme — {expected}")
+            })?;
+        let authority = rest.split('/').next().unwrap_or_default();
+        // `[::1]:636` keeps its colons inside the brackets.
+        let (host, port) = match authority.strip_prefix('[') {
+            Some(bracketed) => match bracketed.split_once(']') {
+                Some((host, tail)) => (host, tail.strip_prefix(':')),
+                None => ("", None),
+            },
+            None => match authority.rsplit_once(':') {
+                Some((host, port)) => (host, Some(port)),
+                None => (authority, None),
+            },
+        };
+        if host.is_empty() {
+            return Err(format!(
+                "LDAP server URL '{url}' names no host — {expected}"
+            ));
+        }
+        if let Some(port) = port
+            && !matches!(port.parse::<u16>(), Ok(p) if p > 0)
+        {
+            return Err(format!(
+                "LDAP server URL '{url}' has no valid port — {expected}"
+            ));
+        }
+        Ok(())
+    }
+
     fn default_user_filter() -> String {
         "(uid={username})".to_string()
     }
@@ -1571,6 +1612,41 @@ pub struct DeliveryPassSummary {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ldap_server_url_needs_a_scheme_a_host_and_a_valid_port() {
+        let check = |url: &str| {
+            serde_json::from_value::<super::LdapConfig>(serde_json::json!({
+                "server_url": url, "bind_dn": "", "base_dn": ""
+            }))
+            .expect("minimal config")
+            .validate_server_url()
+        };
+        for good in [
+            "ldap://dc01.example.com",
+            "ldaps://dc01.example.com:636",
+            " ldap://10.0.0.5:389/ ",
+            "ldaps://[::1]:636",
+        ] {
+            assert_eq!(check(good), Ok(()), "{good}");
+        }
+        for (bad, why) in [
+            (
+                "ldap:/hcwplabdc01.example.local:636",
+                "no ldap:// or ldaps:// scheme",
+            ),
+            ("dc01.example.com:389", "no ldap:// or ldaps:// scheme"),
+            ("ldap://", "names no host"),
+            ("ldaps://:636", "names no host"),
+            ("ldap://dc01:0", "no valid port"),
+            ("ldap://dc01:70000", "no valid port"),
+            ("ldap://dc01:abc", "no valid port"),
+        ] {
+            let err = check(bad).expect_err(bad);
+            assert!(err.contains(why), "{bad}: {err}");
+            assert!(err.contains("ldaps://host:port"), "{err}");
+        }
+    }
+
     use super::*;
     use std::str::FromStr;
 

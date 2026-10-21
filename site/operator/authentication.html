@@ -169,7 +169,9 @@
       <td>
         <code>ldaps://</code> is TLS from the first byte; <code>ldap://</code> is plain, or StartTLS
         with <code>use_tls</code>. Without a port, 636 for <code>ldaps://</code> and 389 for
-        <code>ldap://</code>.
+        <code>ldap://</code>. Saving and Test Connection refuse anything else with <code>400</code>:
+        a missing scheme, a missing host (<code>ldap:/dc01:636</code>, one slash) or a port outside
+        1–65535.
       </td>
       <td><code>ldaps://ldap.example.com:636</code></td>
     </tr>
@@ -259,10 +261,12 @@
 <ol>
   <li>
     Name resolution and a TCP connection to the host and port, with a 5 s limit. A failure here
-    means the directory was never reached; the message says which step failed and where to look,
-    for example <code>Could not connect to LDAP server at …: this container has no route to
-    10.1.2.3: check the network, VPN or Docker network of the pod</code>. See
-    <a href="#when-the-directory-is-unreachable">When the directory is unreachable</a>.
+    means the directory was never reached; the message says which step failed and where to look, for
+    example
+    <code
+      >Could not connect to LDAP server at …: this container has no route to 10.1.2.3: check the
+      network, VPN or Docker network of the pod</code
+    >. See <a href="#when-the-directory-is-unreachable">When the directory is unreachable</a>.
   </li>
   <li>
     The TLS or StartTLS handshake and the service-account bind, each under the operation timeout (10
@@ -324,23 +328,30 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
     <strong>DNS</strong>: every address the name resolves to, with the lookup time. A dual-stack
     directory shows two addresses; a stray IPv6 record shows up here.
   </li>
-  <li><strong>Resolvers</strong>: the <code>nameserver</code> and <code>search</code> entries of the container's <code>/etc/resolv.conf</code>.</li>
+  <li>
+    <strong>Resolvers</strong>: the <code>nameserver</code> and <code>search</code> entries of the
+    container's <code>/etc/resolv.conf</code>.
+  </li>
   <li>
     <strong>One line per address</strong>: an ICMP echo (<code>ping</code>), the kernel's route
-    lookup (<code>route</code>, the local address it would send from, or <code>no route from this
-    container</code>), and a TCP connect to the port (<code>tcp/636</code>: <code>accepted</code>,
-    <code>refused</code>, <code>no route</code>, or <code>no answer within 2 s</code>). The three
-    together tell "host down" from "host up, port closed" from "no way there at all".
+    lookup (<code>route</code>, the local address it would send from, or
+    <code>no route from this container</code>), and a TCP connect to the port (<code>tcp/636</code>:
+    <code>accepted</code>, <code>refused</code>, <code>no route</code>, or
+    <code>no answer within 2 s</code>). The three together tell "host down" from "host up, port
+    closed" from "no way there at all".
   </li>
 </ul>
 <p>
   The echo uses an unprivileged ICMP socket. Docker allows those by default; on Kubernetes the line
-  reads <code>ping not permitted in this container (net.ipv4.ping_group_range)</code> unless the
-  pod sets that sysctl, and the route and TCP lines still answer. Each probe is bounded by 2 s and
-  the whole diagnosis by 5 s. Failures after the connection is up (TLS, a stall, the bind) carry
-  no diagnosis: the network was proven at that point. TLS failures are explained the same way,
-  for example <code>the server certificate is not trusted: its CA is not in the trust store; mount
-  the CA with EXTRA_CA_CERTS_DIR (…)</code>.
+  reads <code>ping not permitted in this container (net.ipv4.ping_group_range)</code> unless the pod
+  sets that sysctl, and the route and TCP lines still answer. Each probe is bounded by 2 s and the
+  whole diagnosis by 5 s. Failures after the connection is up (TLS, a stall, the bind) carry no
+  diagnosis: the network was proven at that point. TLS failures are explained the same way, for
+  example
+  <code
+    >the server certificate is not trusted: its CA is not in the trust store; mount the CA with
+    EXTRA_CA_CERTS_DIR (…)</code
+  >.
 </p>
 <table>
   <thead>
