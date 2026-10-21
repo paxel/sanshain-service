@@ -1286,6 +1286,33 @@ fn redact_query_password(s: &str) -> String {
     format!("{}?{}", before, redacted.join("&"))
 }
 
+/// The instance settings every signed-in user may read: what the admin page
+/// shows as a greyed-out value to someone who may not change it, so no control
+/// ever shows a value it did not receive. Only harmless values: the auth
+/// configuration, the webhook allow-list and the database stay behind their
+/// own permissions.
+pub async fn get_instance_settings(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let stats = state.repo.cache_stats().await;
+    Ok(Json(json!({
+        "auto_approve_users": services::get_auto_approve_users(&state.repo).await?,
+        "snapshot_max_age_days": services::get_snapshot_max_age_days(&state.repo).await?,
+        "dependency_max_age_days": services::get_dependency_max_age_days(&state.repo).await?,
+        "trunk_max_age_days": services::get_trunk_max_age_days(&state.repo).await?,
+        "ticket_url_template": services::get_ticket_url_template(&state.repo).await?,
+        "cache": {
+            "enabled": stats.enabled,
+            "memory_limit_mb": stats.memory_limit_mb,
+            "memory_used_mb": stats.estimated_memory_used_bytes as f64 / 1024.0 / 1024.0,
+            "entry_count": stats.entry_count,
+            "hit_count": stats.hit_count,
+            "miss_count": stats.miss_count,
+            "hit_rate": stats.hit_rate_percent,
+        },
+    })))
+}
+
 pub async fn get_cache_config(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {

@@ -890,8 +890,7 @@ async function refreshTimeline() {
   slider.max = String(window.graphTimelineDates.length);
   slider.value = slider.max;
   document.getElementById("graph-timeline-label").textContent = "now";
-  const createBtn = document.getElementById("graph-create-branch-here");
-  createBtn.classList.toggle("hidden", !window.graphUserPermissions.includes("release_ga"));
+  // Greyed for those without release_ga (data-needs on the button), not hidden.
   row.classList.remove("hidden");
 }
 

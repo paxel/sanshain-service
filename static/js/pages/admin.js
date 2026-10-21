@@ -64,9 +64,34 @@ async function checkSession() {
   }
 }
 
+// --- Instance settings (#harmless values, readable by everyone signed in) ---
+// One fetch shows every harmless setting's real value, also to someone who may
+// not change it: a greyed control must never show a value it did not receive.
+let instanceSettingsRequest = null;
+function instanceSettings(refresh = false) {
+  if (refresh || !instanceSettingsRequest) {
+    instanceSettingsRequest = apiCall("/admin/instance-settings")
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+  }
+  return instanceSettingsRequest;
+}
+
+// A section whose content the caller may not read: say so instead of loading
+// it and drawing a 403 as an empty or wrong value.
+function lockedNote(elementId, permission) {
+  const el = document.getElementById(elementId);
+  if (el) {
+    el.innerHTML = `<p class="text-sm text-slate-400 italic" data-locked>Visible to holders of the ${escapeHtml(permission)} permission.</p>`;
+  }
+}
+
 // --- Load All ---
 async function loadAll() {
-  loadDatabaseInfo();
+  // Each section loads only what the caller may read; the rest says whose it is.
+  const can = (permission) => adminActor?.is_root || hasPermission(adminActor, permission);
+  if (can("manage_settings")) loadDatabaseInfo();
+  else lockedNote("db-url", "manage_settings");
   loadCacheConfig();
   loadBranches();
   loadTrunkMaxAge();
@@ -76,14 +101,21 @@ async function loadAll() {
   loadServices();
   loadClients();
   loadAutoApproveUsers();
-  loadAuthConfig();
+  if (can("manage_auth_config")) loadAuthConfig();
+  else lockedNote("auth-config-locked", "manage_auth_config");
   // Ordered: the catalogue tells the user and group rows which roles
   // exist, the user list feeds the maintainer picker, and groups feed
   // it too — so each waits for what it needs.
-  await loadRoleCatalogue();
-  await loadUsers();
-  await loadGroups();
-  await loadMaintainers();
+  if (can("manage_roles")) await loadRoleCatalogue();
+  if (can("manage_users")) await loadUsers();
+  else lockedNote("users-list", "manage_users");
+  if (can("manage_roles")) {
+    await loadGroups();
+    await loadMaintainers();
+  } else {
+    lockedNote("groups-list", "manage_roles");
+    lockedNote("maintainers-list", "manage_roles");
+  }
 }
 
 // --- Webhooks (#47) ---
@@ -179,9 +211,9 @@ async function downloadDatabaseSnapshot() {
 // --- Cache Config ---
 async function loadCacheConfig() {
   try {
-    const res = await apiCall("/admin/settings/cache");
-    if (res.ok) {
-      const data = await res.json();
+    const settings = await instanceSettings(true);
+    if (settings) {
+      const data = settings.cache;
       document.getElementById("cache-memory-mb").value = data.memory_limit_mb;
       if (data.enabled) {
         document.getElementById("cache-stats").classList.remove("hidden");
@@ -228,10 +260,9 @@ async function clearCache() {
 // --- Trunk TTL (ADR-0004) ---
 async function loadTrunkMaxAge() {
   try {
-    const res = await apiCall("/admin/settings/trunk-max-age");
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById("trunk-max-age-days").value = data.days;
+    const settings = await instanceSettings();
+    if (settings) {
+      document.getElementById("trunk-max-age-days").value = settings.trunk_max_age_days;
     }
   } catch (e) {
     console.warn("Could not load trunk max age:", e);
@@ -280,8 +311,8 @@ async function loadBranches() {
                             <span class="text-slate-400 text-xs ml-2">from <span data-branch-source></span> as of <span data-branch-asof></span> by <span data-branch-creator></span></span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <button data-rename class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Rename</button>
-                            <button data-delete class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
+                            <button data-rename data-needs="manage_producers" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Rename</button>
+                            <button data-delete data-needs="manage_producers" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
                         </div>`;
       row.querySelector("[data-branch-name]").textContent = b.name;
       row.querySelector("[data-branch-source]").textContent = b.source;
@@ -346,10 +377,9 @@ async function deleteBranch(name) {
 
 async function loadSnapshotMaxAge() {
   try {
-    const res = await apiCall("/admin/settings/snapshot-max-age");
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById("snapshot-max-age-days").value = data.days;
+    const settings = await instanceSettings();
+    if (settings) {
+      document.getElementById("snapshot-max-age-days").value = settings.snapshot_max_age_days;
     }
   } catch (_) {}
 }
@@ -412,10 +442,9 @@ async function triggerSnapshotCleanup() {
 // --- Dependency Cleanup ---
 async function loadDependencyMaxAge() {
   try {
-    const res = await apiCall("/admin/settings/dependency-max-age");
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById("dependency-max-age-days").value = data.days;
+    const settings = await instanceSettings();
+    if (settings) {
+      document.getElementById("dependency-max-age-days").value = settings.dependency_max_age_days;
     }
   } catch (_) {}
 }
@@ -459,10 +488,9 @@ let autoApproveUsersEnabled = false;
 
 async function loadAutoApproveUsers() {
   try {
-    const res = await apiCall("/admin/settings/auto-approve");
-    if (res.ok) {
-      const data = await res.json();
-      autoApproveUsersEnabled = typeof data === "boolean" ? data : !!data.auto_approve_users;
+    const settings = await instanceSettings();
+    if (settings) {
+      autoApproveUsersEnabled = !!settings.auto_approve_users;
       updateAutoApproveUsersUI();
     }
   } catch (_) {}
@@ -543,11 +571,13 @@ function roleControls(user) {
     ? `<select id="grant-role-${user.id}" class="text-xs rounded-sm border-slate-200">
                        <option value="">grant role…</option>${options}
                    </select>
-                   <button data-click="grantRole" data-click-args="${attrJson([user.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
+                   <button data-click="grantRole" data-needs="manage_roles" data-click-args="${attrJson([user.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
     : "";
   const revoke = held
     .map(
-      (r) => `<button data-click="revokeRole" data-click-args="${attrJson([user.id, r])}"
+      (
+        r,
+      ) => `<button data-click="revokeRole" data-needs="manage_roles" data-click-args="${attrJson([user.id, r])}"
                         title="Revoke ${escapeAttr(r)}"
                         class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`,
     )
@@ -627,7 +657,7 @@ async function loadGroups() {
           .map(
             (
               r,
-            ) => `<button data-click="setGroupRoles" data-click-args="${attrJson([g.id, r, false])}"
+            ) => `<button data-click="setGroupRoles" data-needs="manage_roles" data-click-args="${attrJson([g.id, r, false])}"
                                 title="Remove ${escapeAttr(r)}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(r)}</button>`,
           )
@@ -649,7 +679,7 @@ async function loadGroups() {
               .map((id) => {
                 const u = knownUsers.find((x) => x.id === id);
                 const label = u ? u.username : `user #${id}`;
-                return `<button data-click="removeGroupMember" data-click-args="${attrJson([g.id, id])}"
+                return `<button data-click="removeGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id, id])}"
                                 title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
                                 class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
               })
@@ -674,10 +704,10 @@ async function loadGroups() {
                                     ? `<select id="group-role-${g.id}" class="text-xs rounded-sm border-slate-200">
                                     <option value="">add role…</option>${addable}
                                 </select>
-                                <button data-click="addGroupRole" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
+                                <button data-click="addGroupRole" data-needs="manage_roles" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
                                     : ""
                                 }
-                                ${directory ? "" : `<button data-click="confirmDeleteGroup" data-click-args="${attrJson([g.name, g.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
+                                ${directory ? "" : `<button data-click="confirmDeleteGroup" data-needs="manage_roles" data-click-args="${attrJson([g.name, g.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>`}
                             </div>
                         </div>
                         <div class="mt-1 space-x-2">${roles || '<span class="text-xs text-slate-400 italic">no roles attached</span>'}</div>
@@ -691,7 +721,7 @@ async function loadGroups() {
                                 ? `<select id="group-member-${g.id}" class="text-xs rounded-sm border-slate-200">
                                 <option value="">add member…</option>${addableMembers}
                             </select>
-                            <button data-click="addGroupMember" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
+                            <button data-click="addGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
                                 : ""
                             }
                         </div>`
@@ -809,12 +839,12 @@ async function loadMaintainers() {
       .map((p) => {
         const users = (p.user_ids || []).map((id) => {
           const u = knownUsers.find((x) => x.id === id);
-          return `<button data-click="unassignMaintainer" data-click-args="${attrJson([p.producer, "users", id])}"
+          return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "users", id])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : "user " + id)}</button>`;
         });
         const groups = (p.group_ids || []).map((id) => {
           const g = knownGroups.find((x) => x.id === id);
-          return `<button data-click="unassignMaintainer" data-click-args="${attrJson([p.producer, "groups", id])}"
+          return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "groups", id])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
         });
         return `
@@ -890,8 +920,8 @@ async function loadUsers() {
                         </div>
                         <div class="flex items-center space-x-2">
                             ${roleControls(u)}
-                            ${!u.approved ? `<button data-click="approveUser" data-click-args="${attrJson([u.id])}" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
-                            ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
+                            ${!u.approved ? `<button data-click="approveUser" data-needs="manage_users" data-click-args="${attrJson([u.id])}" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
+                            ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-needs="manage_users" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
                         </div>
                     </div>
                 `,
@@ -1034,9 +1064,9 @@ function renderServices(services) {
                             ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ""}
                         </div>
                         <div class="flex items-center space-x-3">
-                            <button data-click="openMetadataModal" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
+                            <button data-click="openMetadataModal" data-needs="manage_producers" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
-                            <button data-click="confirmDeleteService" data-click-args="${attrJson([svc])}"
+                            <button data-click="confirmDeleteService" data-needs="manage_producers" data-needs-producer="${escapeHtml(svc)}" data-click-args="${attrJson([svc])}"
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                         </div>
                     </div>
@@ -1094,7 +1124,7 @@ async function renderVersions(container, serviceName) {
                                     class="text-green-600 hover:text-green-700 text-xs">Promote to GA</button>`
                                 : ""
                             }
-                            <button data-click="deleteVersion" data-click-args="${attrJson([serviceName, v.api_type, v.version])}"
+                            <button data-click="deleteVersion" data-needs="manage_producers" data-needs-producer="${escapeHtml(serviceName)}" data-click-args="${attrJson([serviceName, v.api_type, v.version])}"
                                 class="text-red-400 hover:text-red-600 text-xs">Delete</button>
                         </span>
                     </div>
@@ -1192,7 +1222,7 @@ function renderClients(clients) {
       (c) => `
                 <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                     <span class="font-medium text-slate-800">${escapeHtml(c)}</span>
-                    <button data-click="confirmDeleteClient" data-click-args="${attrJson([c])}"
+                    <button data-click="confirmDeleteClient" data-needs="manage_consumers" data-click-args="${attrJson([c])}"
                         class="text-red-500 hover:text-red-700 text-sm">Delete</button>
                 </div>
             `,

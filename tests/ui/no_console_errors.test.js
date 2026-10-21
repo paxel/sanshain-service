@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 
+// The live-update stream stays open by design, so "networkidle" would never
+// arrive: these tests get an empty stream, which the page retries quietly.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/sse/updates", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+});
+
 // The safety net for de-inlining (ai/improvements.md #11). The CSP forbids
 // inline scripts, and every `onclick=` now routes through the delegated
 // dispatcher via `data-<event>` attributes. A handler or script that was missed

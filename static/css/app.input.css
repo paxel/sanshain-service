@@ -46,3 +46,17 @@
     display: none;
   }
 }
+
+/*
+  A control the caller may not use (see applyGates in common.js): greyed and
+  inert, with a title that names the permission it needs.
+*/
+@layer components {
+  [data-gated] {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+  }
+  a[data-gated] {
+    pointer-events: none;
+  }
+}

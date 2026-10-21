@@ -188,6 +188,8 @@ pub fn create_app(state: AppState) -> Router {
         // signed-in user from its own path: the pages link ticket ids with it.
         .route("/admin/settings/ticket-url-template", post(admin::set_ticket_url_template).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/ticket-url-template", get(admin::get_ticket_url_template).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // The harmless settings as values for everyone signed in; changing each stays behind ManageSettings.
+        .route("/admin/instance-settings", get(admin::get_instance_settings).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/cleanup/snapshots", post(admin::trigger_snapshot_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/dependency-max-age", get(admin::get_dependency_max_age).post(admin::set_dependency_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))

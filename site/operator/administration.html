@@ -21,12 +21,18 @@
 
 <h2>The admin page</h2>
 <p>
-  <code>/admin.html</code> needs a signed-in session; every section and button is shown or hidden by
-  the caller's effective permissions (<a href="roles.html">Roles and permissions</a>), and every
-  route behind it is in the generated
-  <a href="../reference/maintenance.html">Maintenance API</a> with its guard. Top to bottom:
-  In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL, Snapshot
-  Cleanup, Dependency Cleanup, Auto Acknowledge New Users, Authentication, Users, Groups,
+  <code>/admin.html</code> needs a signed-in session. A control the caller may not use is greyed
+  out, never hidden, and its tooltip names the permission it needs (a maintainer grant on the
+  Producer counts for that Producer's buttons); the same holds on the Producer page and the graph.
+  Settings everybody may know (auto-acknowledge, the cleanup ages, the cache size and the ticket
+  template) show their real value to everyone signed in, from
+  <code>GET /admin/instance-settings</code>; the authentication configuration, the webhook
+  allow-list, the database URL, users, groups and maintainers show "Visible to holders of the …
+  permission" to whoever lacks it, and the page does not ask for them. Roles and permissions are
+  described in <a href="roles.html">Roles and permissions</a>, and every route behind it is in the
+  generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. Top to
+  bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL,
+  Snapshot Cleanup, Dependency Cleanup, Auto Acknowledge New Users, Authentication, Users, Groups,
   Maintainers, Provide a Spec for a Producer, Producers, Consumers, Danger Zone. Administrative
   routes accept session tokens only, so a script that administers logs in first (<code
     >POST /auth/login</code

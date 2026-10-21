@@ -2192,6 +2192,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/instance-settings:
+    get:
+      summary: "Read: instance-settings"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The harmless instance settings as values, for the admin page to show to someone who may
+        see but not change them: `auto_approve_users`, `snapshot_max_age_days`,
+        `dependency_max_age_days`, `trunk_max_age_days`, `ticket_url_template` and `cache`
+        (`enabled`, `memory_limit_mb`, `memory_used_mb`, `entry_count`, `hit_count`, `miss_count`,
+        `hit_rate`). Changing each stays behind `manage_settings`; the auth configuration, the
+        webhook allow-list and the database are not included.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/ticket-url-template:
     get:
       summary: "Read: ticket-url-template"

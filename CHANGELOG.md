@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.9.0]
 
 ### Added
+- The start page links the documentation of the running release (`https://paxel.github.io/sanshain-service/v<version>/`).
 - `sanshain_background_job_failures_total{job}` counts every failed run of a periodic job (snapshot, dependency, trunk, credential and webhook cleanup, webhook delivery), so monitoring can alert on a job that fails every run instead of an unread WARN line.
 - A **Ticket Links** setting on the admin page: a URL template with `{id}` (`https://jira.acme.corp/browse/{id}`) turns the ticket ids of a version's origin into links on the version row, in the diff header and the blame; unset shows them as plain text.
 - A provide may say why: `build_url`, `change_url` (the pull or merge request), `tickets` (ids) and `note` (one line) are stored with the version as its origin. The latest provide that carries any of them wins; a no-op re-provide of identical bytes only fills an empty one. Shown on the version row, in the diff header and every blame block, answered by the MCP (`describe_service`, `diff_versions`, `blame`) and carried by the `version.published` webhook.
@@ -21,6 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `rustls-webpki` 0.103.16 and `webpki-roots` 1.0.10, closing RUSTSEC-2026-0382 (distrusted intermediates accepted) and RUSTSEC-2026-0381 (distrusted emSign intermediates in the bundled roots).
 
 ### Fixed
+- Live updates in the browser never connected: the page opened the update stream with the session token in the URL, which the server refuses, so every page drew a `403` and retried it. The stream now authenticates with the `Authorization` header, and the token no longer appears in URLs or proxy logs.
+- A control the caller may not use is greyed out with a tooltip naming the permission it needs, instead of a live button that answers `403`: version Delete and Promote, the graph's Create branch, the admin page's settings, cleanups, users, groups, maintainers, Producers and Consumers, the audit export. A maintainer grant on a Producer counts for its buttons.
+- A greyed-out setting shows its real value: auto-acknowledge, the snapshot, dependency and trunk ages, the cache size and the ticket template are readable by everyone signed in (`GET /admin/instance-settings`); the authentication configuration, the webhook allow-list, the database, users, groups and maintainers say whose they are instead of showing an empty or wrong value. Pages no longer request what the caller may not read, which removes the bursts of `Forbidden` in the log (the audit panel asked every five seconds).
 - An expired session or API token stopped working only at the end of its expiry day (UTC), not at its expiry time: the check compared the stored `…T…` timestamp with a `… …` one as text. Sessions on SQLite and API tokens on both databases were affected; both now compare instants.
 - On PostgreSQL the hourly credential cleanup failed every run (`operator does not exist: timestamp without time zone < text`) and removed no expired session or API token; it now cleans both, and a failure on one no longer skips the other.
 

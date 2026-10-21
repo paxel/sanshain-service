@@ -39,6 +39,62 @@ function hasAnyPermission(user, permissions) {
   return permissions.some((permission) => hasPermission(user, permission));
 }
 
+// --- Gated controls ---
+//
+// A control marked `data-needs="<permission>"` (and, for one Producer's
+// actions, `data-needs-producer="<name>"`) is greyed out and inert for a caller
+// who may not use it, with a title naming the permission — never hidden, so
+// the user learns the feature exists and whom to ask. A maintainer grant on
+// the named Producer counts like the global permission, as the server's
+// Producer-scoped guard does. Applied to everything already on the page and,
+// through an observer, to every row rendered later.
+let gateUser = null;
+let gateObserver = null;
+
+function gateAllows(user, permission, producer) {
+  if (!user) return false;
+  if (user.is_root || hasPermission(user, permission)) return true;
+  return Boolean(producer) && Array.isArray(user.maintains) && user.maintains.includes(producer);
+}
+
+function gateElement(el) {
+  const permission = el.dataset.needs;
+  if (!permission || !gateUser) return;
+  if (gateAllows(gateUser, permission, el.dataset.needsProducer)) {
+    if (el.hasAttribute("data-gated")) {
+      el.removeAttribute("data-gated");
+      el.removeAttribute("aria-disabled");
+      el.disabled = false;
+      if (el.dataset.gateTitle !== undefined) el.title = el.dataset.gateTitle;
+    }
+    return;
+  }
+  if (el.hasAttribute("data-gated")) return;
+  el.dataset.gateTitle = el.title || "";
+  el.setAttribute("data-gated", "");
+  el.setAttribute("aria-disabled", "true");
+  if ("disabled" in el) el.disabled = true;
+  el.title = `Needs the ${permission} permission${el.dataset.needsProducer ? " or a maintainer grant on " + el.dataset.needsProducer : ""} — ask an administrator`;
+}
+
+function applyGates(root = document) {
+  if (root.nodeType !== 1 && root !== document) return;
+  if (root.matches && root.matches("[data-needs]")) gateElement(root);
+  root.querySelectorAll("[data-needs]").forEach(gateElement);
+}
+
+// Remember who is signed in and gate the page for them, now and from then on.
+function setGateUser(user) {
+  gateUser = user;
+  applyGates(document);
+  if (!gateObserver && typeof MutationObserver !== "undefined" && document.body) {
+    gateObserver = new MutationObserver((mutations) => {
+      for (const m of mutations) m.addedNodes.forEach((node) => applyGates(node));
+    });
+    gateObserver.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
 // Permissions that, between them, mean "there is something on the admin
 // dashboard for this person". Kept in one place so a new section does not have
 // to remember to extend every caller.
@@ -63,6 +119,7 @@ function canSeeAdminDashboard(user) {
 }
 
 function updateBannerAuth(user) {
+  if (user) setGateUser(user);
   const usernameEl = document.getElementById("banner-username");
   const logoutEl = document.getElementById("banner-logout");
   const signinEl = document.getElementById("banner-signin");
@@ -154,23 +211,42 @@ async function renderBanner(user = null) {
   }
 }
 
-function initSSEUpdates() {
+// Live updates over server-sent events, read with fetch: an EventSource cannot
+// send the Authorization header, and a token in the URL was both refused by the
+// server and written into every proxy log. A refused stream is not retried —
+// it would only repeat the refusal.
+async function initSSEUpdates() {
   if (!sanshainToken || window._sseInitialized) return;
   window._sseInitialized = true;
-
-  const source = new EventSource(`/api/sse/updates?token=${sanshainToken}`);
-  source.onmessage = (event) => {
-    if (event.data === "updated") {
-      console.log("Specs updated (SSE), triggering UI refresh event...");
-      window.dispatchEvent(new CustomEvent("sanshain-update"));
+  let retry = true;
+  try {
+    const res = await fetch("/api/sse/updates", {
+      headers: { Authorization: `Bearer ${sanshainToken}`, Accept: "text/event-stream" },
+    });
+    if (res.status === 401 || res.status === 403) retry = false;
+    if (!res.ok || !res.body) return;
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let end;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const event = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        const updated = event
+          .split("\n")
+          .some((line) => line.startsWith("data:") && line.slice(5).trim() === "updated");
+        if (updated) window.dispatchEvent(new CustomEvent("sanshain-update"));
+      }
     }
-  };
-  source.onerror = (err) => {
-    console.error("SSE error:", err);
-    source.close();
+  } catch (_) {
+    // A dropped connection; reconnect below.
+  } finally {
     window._sseInitialized = false;
-    setTimeout(initSSEUpdates, 10000);
-  };
+    if (retry) setTimeout(initSSEUpdates, 10000);
+  }
 }
 
 function initWSUpdates() {

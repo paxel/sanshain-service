@@ -209,12 +209,15 @@ async function showProducerVersions(serviceName) {
   const webhooksPanel = document.createElement("div");
   webhooks.appendChild(webhooksPanel);
   list.appendChild(webhooks);
-  renderWebhookPanel(
-    webhooksPanel,
-    `/admin/producers/${encodeURIComponent(serviceName)}/webhooks`,
-  ).then((visible) => {
-    if (visible) webhooks.classList.remove("hidden");
-  });
+  // Asked only of those who may see it: anyone else would draw a 403.
+  if (gateAllows(currentUser, "manage_producers", serviceName)) {
+    renderWebhookPanel(
+      webhooksPanel,
+      `/admin/producers/${encodeURIComponent(serviceName)}/webhooks`,
+    ).then((visible) => {
+      if (visible) webhooks.classList.remove("hidden");
+    });
+  }
 
   if (!versions || versions.length === 0) {
     const empty = document.createElement("div");
@@ -363,11 +366,11 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
                     <button type="button" data-view class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">View spec</button>
                     <button type="button" data-download class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Download</button>
                     ${
-                      isSnapshot && hasPermission(currentUser, "release_ga")
-                        ? '<button type="button" data-promote class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-green-50 text-green-700">Promote to GA</button>'
+                      isSnapshot
+                        ? '<button type="button" data-promote data-needs="release_ga" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-green-50 text-green-700">Promote to GA</button>'
                         : ""
                     }
-                    <button type="button" data-delete class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
+                    <button type="button" data-delete data-needs="manage_producers" data-needs-producer="${escapeHtml(serviceName)}" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
                     <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                     </svg>

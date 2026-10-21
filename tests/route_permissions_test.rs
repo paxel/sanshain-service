@@ -223,6 +223,7 @@ async fn an_administrator_still_reaches_every_admin_surface() {
         ("GET", "/admin/observability/audit-logs"),
         ("GET", "/admin/settings/snapshot-max-age"),
         ("GET", "/admin/ticket-url-template"),
+        ("GET", "/admin/instance-settings"),
         ("GET", "/admin/producers/orders/maintainers"),
         ("GET", "/admin/backup/sqlite"),
         ("GET", "/admin/webhooks"),
@@ -880,5 +881,43 @@ async fn a_refusal_is_logged_with_method_path_and_caller() {
     assert!(
         !log.contains(&w.plain),
         "the token must never be logged: {log}"
+    );
+}
+
+/// The harmless settings are values every signed-in user may read, so a greyed
+/// control shows the real value; the sensitive ones stay out of the answer.
+#[tokio::test]
+async fn every_signed_in_user_reads_the_harmless_instance_settings() {
+    let w = world().await;
+    let request = Request::builder()
+        .uri("/admin/instance-settings")
+        .header("Authorization", format!("Bearer {}", w.plain))
+        .body(Body::empty())
+        .expect("request");
+    let response = w.app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(body["snapshot_max_age_days"], 30);
+    assert!(body["auto_approve_users"].is_boolean(), "{body}");
+    assert!(body["cache"]["memory_limit_mb"].is_number(), "{body}");
+    for secret in [
+        "ldap_config",
+        "auth_mode",
+        "allowed_hosts",
+        "database",
+        "url",
+    ] {
+        assert!(
+            body.get(secret).is_none(),
+            "{secret} must not be readable: {body}"
+        );
+    }
+    assert_eq!(
+        status(&w.app, "GET", "/admin/settings/auto-approve", &w.plain).await,
+        StatusCode::FORBIDDEN,
+        "the per-setting endpoints stay behind manage_settings"
     );
 }

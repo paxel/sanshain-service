@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 
+// The live-update stream stays open by design, so "networkidle" would never
+// arrive: these tests get an empty stream, which the page retries quietly.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/sse/updates", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+});
+
 // Link crawler — the net the two 2.2 navigation bugs slipped through.
 //
 // The de-inlining audit checks the DOM at page load, but both real breakages

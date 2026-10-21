@@ -21,6 +21,7 @@ async function checkSession() {
       // Reading logs and stats needs only `view_observability`;
       // changing the debug configuration is a settings change.
       isAdmin = hasPermission(data, "manage_settings");
+      canAudit = data.is_root || hasPermission(data, "view_audit");
       await renderBanner(data);
       applyAdminState();
       hideLoader();
@@ -59,6 +60,10 @@ async function loadObservability() {
   loadLogs();
   loadAuditLogs();
 }
+
+// The audit log needs `view_audit`; without it the panel says whose it is
+// instead of asking (and drawing a 403) every five seconds.
+let canAudit = false;
 
 async function loadBranchCount() {
   // ADR-0005: the branch count gauge, human-readable next to the raw
@@ -344,6 +349,14 @@ const AUDIT_PANEL_FETCH = 100;
 const AUDIT_PANEL_SHOW = 30;
 
 async function loadAuditLogs() {
+  if (!canAudit) {
+    const body = document.getElementById("audit-log-body");
+    if (body && !body.querySelector("[data-locked]")) {
+      body.innerHTML =
+        '<tr><td colspan="6" class="p-3 text-sm text-slate-400 italic" data-locked>Visible to holders of the view_audit permission.</td></tr>';
+    }
+    return;
+  }
   try {
     const res = await apiCall(`/admin/observability/audit-logs?limit=${AUDIT_PANEL_FETCH}`);
     if (res.ok) {

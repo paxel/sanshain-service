@@ -158,6 +158,7 @@
             <input
               type="number"
               id="cache-memory-mb"
+              data-needs="manage_settings"
               min="0"
               value="0"
               class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -165,12 +166,14 @@
             <span class="text-sm text-slate-500">MB</span>
             <button
               data-click="saveCacheConfig"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Save
             </button>
             <button
               data-click="clearCache"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
             >
               Clear Cache
@@ -270,17 +273,20 @@
             <input
               type="text"
               id="new-branch-name"
+              data-needs="release_ga"
               placeholder="Branch name (e.g. Release Maribou)"
               class="grow px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             />
             <input
               type="datetime-local"
               id="new-branch-as-of"
+              data-needs="release_ga"
               title="Optional: create retroactively off the trunk graph at this instant"
               class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             />
             <button
               id="create-branch-btn"
+              data-needs="release_ga"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Create branch
@@ -311,6 +317,7 @@
             >
             <textarea
               id="webhook-allowed-hosts"
+              data-needs="manage_settings"
               rows="3"
               placeholder="hooks.slack.com&#10;*.webhook.office.com&#10;http://n8n.corp.internal"
               class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -318,6 +325,7 @@
             <div class="flex items-center gap-3 mt-2">
               <button
                 data-click="saveWebhookAllowedHosts"
+                data-needs="manage_settings"
                 class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Save allow-list
@@ -342,6 +350,7 @@
             <input
               type="number"
               id="trunk-max-age-days"
+              data-needs="manage_settings"
               min="0"
               value="90"
               class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -349,12 +358,14 @@
             <span class="text-sm text-slate-500">days</span>
             <button
               data-click="saveTrunkMaxAge"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Save
             </button>
             <button
               data-click="triggerTrunkCleanup"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
             >
               Run Cleanup
@@ -376,6 +387,7 @@
             <input
               type="number"
               id="snapshot-max-age-days"
+              data-needs="manage_settings"
               min="0"
               value="30"
               class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -383,12 +395,14 @@
             <span class="text-sm text-slate-500">days</span>
             <button
               data-click="saveSnapshotMaxAge"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Save
             </button>
             <button
               data-click="triggerSnapshotCleanup"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
             >
               Run Cleanup
@@ -411,11 +425,13 @@
             <input
               type="url"
               id="ticket-url-template"
+              data-needs="manage_settings"
               placeholder="https://jira.acme.corp/browse/{id}"
               class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             />
             <button
               data-click="saveTicketUrlTemplate"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Save
@@ -436,6 +452,7 @@
             <input
               type="number"
               id="dependency-max-age-days"
+              data-needs="manage_settings"
               min="1"
               value="30"
               class="w-24 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -443,12 +460,14 @@
             <span class="text-sm text-slate-500">days</span>
             <button
               data-click="saveDependencyMaxAge"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
             >
               Save
             </button>
             <button
               data-click="triggerDependencyCleanup"
+              data-needs="manage_settings"
               class="px-3 py-1.5 bg-slate-600 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
             >
               Run Cleanup
@@ -470,6 +489,7 @@
             <button
               id="auto-approve-toggle"
               data-click="toggleAutoApproveUsers"
+              data-needs="manage_settings"
               class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200"
             >
               <span
@@ -487,6 +507,7 @@
             <p class="text-sm text-slate-500 mt-1">
               Select the authentication mode for the service.
             </p>
+            <div id="auth-config-locked" class="mt-1"></div>
           </div>
           <div class="space-y-3">
             <div class="flex items-center space-x-6">
@@ -494,6 +515,7 @@
                 <input
                   type="radio"
                   name="auth-mode"
+                  data-needs="manage_auth_config"
                   value="disabled"
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
@@ -504,6 +526,7 @@
                 <input
                   type="radio"
                   name="auth-mode"
+                  data-needs="manage_auth_config"
                   value="dev"
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
@@ -514,6 +537,7 @@
                 <input
                   type="radio"
                   name="auth-mode"
+                  data-needs="manage_auth_config"
                   value="local"
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
@@ -524,6 +548,7 @@
                 <input
                   type="radio"
                   name="auth-mode"
+                  data-needs="manage_auth_config"
                   value="ldap"
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
@@ -539,6 +564,7 @@
                   <input
                     type="text"
                     id="ldap-server-url"
+                    data-needs="manage_auth_config"
                     placeholder="ldap://ldap.example.com:389"
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
@@ -548,6 +574,7 @@
                   <input
                     type="text"
                     id="ldap-bind-dn"
+                    data-needs="manage_auth_config"
                     placeholder="cn=admin,dc=example,dc=com"
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
@@ -557,6 +584,7 @@
                   <input
                     type="password"
                     id="ldap-bind-password"
+                    data-needs="manage_auth_config"
                     placeholder="••••••••"
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
@@ -566,6 +594,7 @@
                   <input
                     type="text"
                     id="ldap-base-dn"
+                    data-needs="manage_auth_config"
                     placeholder="dc=example,dc=com"
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
@@ -575,6 +604,7 @@
                   <input
                     type="text"
                     id="ldap-user-filter"
+                    data-needs="manage_auth_config"
                     placeholder="(uid={username})"
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                   />
@@ -589,6 +619,7 @@
                   <input
                     type="text"
                     id="ldap-admin-group"
+                    data-needs="manage_auth_config"
                     placeholder="cn=admins,ou=groups,dc=example,dc=com"
                     title="Convenience for first-time setup: this directory group is created as a Sanshain group holding the admin role. Manage roles per group in the Groups section afterwards."
                     class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
@@ -598,6 +629,7 @@
               <div class="flex space-x-2 pt-2">
                 <button
                   data-click="testLdapConnection"
+                  data-needs="manage_auth_config"
                   class="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-sm hover:bg-slate-200 transition-colors"
                 >
                   Test Connection
@@ -636,6 +668,7 @@
             <div class="pt-2">
               <button
                 data-click="saveAuthConfig"
+                data-needs="manage_auth_config"
                 class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors"
               >
                 Save Authentication Settings
@@ -654,11 +687,16 @@
               </p>
             </div>
             <div class="flex items-center space-x-3">
-              <button data-click="loadUsers" class="text-indigo-600 hover:text-indigo-800 text-sm">
+              <button
+                data-click="loadUsers"
+                data-needs="manage_users"
+                class="text-indigo-600 hover:text-indigo-800 text-sm"
+              >
                 ↻ Refresh
               </button>
               <button
                 data-click="confirmNukeUsers"
+                data-needs="run_destructive_operations"
                 class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium"
               >
                 💀 Nuke Users
@@ -682,13 +720,18 @@
                 stored here.
               </p>
             </div>
-            <button data-click="loadGroups" class="text-indigo-600 hover:text-indigo-800 text-sm">
+            <button
+              data-click="loadGroups"
+              data-needs="manage_roles"
+              class="text-indigo-600 hover:text-indigo-800 text-sm"
+            >
               ↻ Refresh
             </button>
           </div>
           <div class="flex items-center gap-2 mb-4">
             <input
               id="new-group-name"
+              data-needs="manage_roles"
               type="text"
               placeholder="New group name"
               class="flex-1 rounded-lg border-slate-200 text-sm focus:ring-indigo-500 focus:border-indigo-500"
@@ -696,6 +739,7 @@
             <button
               id="create-group-btn"
               data-click="createGroup"
+              data-needs="manage_roles"
               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
             >
               Create
@@ -716,6 +760,7 @@
             </div>
             <button
               data-click="loadMaintainers"
+              data-needs="manage_roles"
               class="text-indigo-600 hover:text-indigo-800 text-sm"
             >
               ↻ Refresh
@@ -724,14 +769,17 @@
           <div class="flex items-center gap-2 mb-4">
             <select
               id="maintainer-producer"
+              data-needs="manage_roles"
               class="flex-1 rounded-lg border-slate-200 text-sm"
             ></select>
             <select
               id="maintainer-subject"
+              data-needs="manage_roles"
               class="flex-1 rounded-lg border-slate-200 text-sm"
             ></select>
             <button
               data-click="assignMaintainer"
+              data-needs="manage_roles"
               class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
             >
               Assign
@@ -825,6 +873,7 @@
               </button>
               <button
                 data-click="confirmNukeServices"
+                data-needs="run_destructive_operations"
                 class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium"
               >
                 💀 Nuke Producers
@@ -860,6 +909,7 @@
               </button>
               <button
                 data-click="confirmNukeClients"
+                data-needs="run_destructive_operations"
                 class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors font-medium"
               >
                 💀 Nuke Consumers
@@ -891,6 +941,7 @@
             </div>
             <button
               data-click="confirmNukeDatabase"
+              data-needs="run_destructive_operations"
               class="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm transition-colors font-bold border-2 border-red-900"
             >
               💀☠️ NUKE DATABASE ☠️💀

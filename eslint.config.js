@@ -35,6 +35,9 @@ export default [
         loadTicketUrlTemplate: "readonly",
         originHtml: "readonly",
         ticketUrl: "readonly",
+        gateAllows: "readonly",
+        setGateUser: "readonly",
+        applyGates: "readonly",
         // webhooks.js (#47)
         renderWebhookPanel: "readonly",
         // discovery.js globals

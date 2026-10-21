@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
 
+// The live-update stream stays open by design, so "networkidle" would never
+// arrive: these tests get an empty stream, which the page retries quietly.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/sse/updates", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+});
+
 // Runtime companion to the static tests/no_inline_handlers.rs guard for the CSP
 // de-inlining (ai/improvements.md #11). The static test proves no source ships
 // an inline on* handler; this proves the replacements are wired correctly:
