@@ -25,7 +25,7 @@ window.graphProtocolFilters = {
 // The view switches of the custom renderer, presentation only and never
 // resolution inputs: Compact tightens the layout gaps, Rainbow colours the
 // plain edges per source node. The page script remembers them per browser.
-window.graphViewSwitches = { compact: false, rainbow: false };
+window.graphViewSwitches = { compact: false, rainbow: false, topics: false };
 
 // How long the mouse rests on a node or edge before its panel opens.
 const GRAPH_HOVER_DELAY_MS = 2000;
@@ -409,6 +409,10 @@ function graphNodeBadges(report, deps) {
       if (!d.missing_component) add(provides, d.service, "resource");
       return;
     }
+    if (d.topic_edge) {
+      if (d.badge_requires) add(requires, d.badge_requires, graphBadgeKind("asyncapi"));
+      return;
+    }
     add(requires, d.client, graphBadgeKind(d.api_type));
   });
   const ordered = (set) =>
@@ -493,6 +497,80 @@ function graphUnownedChannelNode(channel) {
   return `${channel} ?`;
 }
 window.graphUnownedChannelNode = graphUnownedChannelNode;
+
+// Topic explode (the Topics switch): every AsyncAPI channel is one node,
+// keyed `topic:<channel>`, and each messaging edge becomes a pair through it
+// in the direction the data flows: publisher → topic → subscriber. `method`
+// is the provider's operation, so PUB means the Producer publishes and the
+// Consumer subscribes, SUB the other way round; a harvested subscription is
+// the Consumer subscribing to the owner's channel, or to nobody's, in which
+// case the topic node stands unowned. The Consumer's edge keeps the pin
+// (`flag_key` names the original edge for the highlights) and its requires
+// badge (`badge_requires`); the publishing edge carries neither. Edges of
+// every other type pass through unchanged.
+function graphTopicNode(channel) {
+  return `topic:${channel}`;
+}
+window.graphTopicNode = graphTopicNode;
+
+function graphExplodeTopics(deps) {
+  const out = [];
+  const seen = new Set();
+  const push = (edge) => {
+    const key = `${edge.client}-->${edge.service}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(edge);
+  };
+  deps.forEach((d) => {
+    if ((d.api_type || "").toLowerCase() !== "asyncapi") {
+      out.push(d);
+      return;
+    }
+    const topic = graphTopicNode(d.path);
+    const original = `${d.client}-->${d.service}`;
+    const base = {
+      ...d,
+      unfulfilled: false,
+      topic_edge: true,
+      flag_key: null,
+      badge_requires: null,
+    };
+    if (d.harvested) {
+      if (!d.unfulfilled) push({ ...base, client: d.service, service: topic });
+      push({
+        ...base,
+        client: topic,
+        service: d.client,
+        badge_requires: d.client,
+        topic_unowned: !!d.unfulfilled,
+      });
+      return;
+    }
+    if ((d.method || "").toUpperCase() === "SUB") {
+      // The Producer subscribes: the Consumer publishes into the topic.
+      push({
+        ...base,
+        client: d.client,
+        service: topic,
+        flag_key: original,
+        badge_requires: d.client,
+      });
+      push({ ...base, client: topic, service: d.service });
+      return;
+    }
+    push({ ...base, client: d.service, service: topic });
+    push({
+      ...base,
+      client: topic,
+      service: d.client,
+      flag_key: original,
+      badge_requires: d.client,
+    });
+  });
+  return out;
+}
+window.graphExplodeTopics = graphExplodeTopics;
 
 // The "(unrequired)" box members: producers of the scope with no service edge
 // (nobody requires them, they require nothing, no harvested subscription) and
@@ -1323,7 +1401,12 @@ function renderCustomGraph(report, svgElement, direction) {
   // Clear previous content
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
-  const deps = report.dependency_graph || [];
+  const switches = window.graphViewSwitches || {};
+  // The roles (Consumer, Producer, both) come from the edges as recorded;
+  // the topic explode rewires them through topic nodes for drawing only.
+  const roleDeps = report.dependency_graph || [];
+  const deps = switches.topics ? graphExplodeTopics(roleDeps) : roleDeps;
+  svgElement.dataset.topics = switches.topics ? "1" : "0";
   const unrequired = report.unrequired || [];
   if (deps.length === 0 && unrequired.length === 0) {
     const warningDiv = document.getElementById("graph-cycle-warning");
@@ -1349,7 +1432,6 @@ function renderCustomGraph(report, svgElement, direction) {
   // cluster bounds, edge tangents).
   const dir = direction === "LR" ? "LR" : "TB";
   const isLR = dir === "LR";
-  const switches = window.graphViewSwitches || {};
   const gaps = graphLayoutGaps(isLR, !!switches.compact);
   svgElement.dataset.compact = switches.compact ? "1" : "0";
   const rainbow = !!switches.rainbow;
@@ -1380,8 +1462,19 @@ function renderCustomGraph(report, svgElement, direction) {
     edgeLabels.get(key).push(d);
   });
 
-  const clientNodes = new Set(deps.map((d) => d.client));
-  const serviceNodes = new Set(deps.map((d) => d.service));
+  const clientNodes = new Set(roleDeps.map((d) => d.client));
+  const serviceNodes = new Set(roleDeps.map((d) => d.service));
+  // Topic nodes (the Topics switch) and the ones nobody publishes.
+  const topicNodes = new Set();
+  const unownedTopicNodes = new Set();
+  deps.forEach((d) => {
+    if (!d.topic_edge) return;
+    if (d.service.startsWith("topic:")) topicNodes.add(d.service);
+    if (d.client.startsWith("topic:")) {
+      topicNodes.add(d.client);
+      if (d.topic_unowned) unownedTopicNodes.add(d.client);
+    }
+  });
   const cycleEdges = graphDetectCycles(adjMap);
   // Peripheral Resources (#46) and the edges leading to them.
   const peripheralNodes = new Set(deps.filter((d) => d.peripheral).map((d) => d.service));
@@ -1492,7 +1585,11 @@ function renderCustomGraph(report, svgElement, direction) {
 
   for (const node of allNodes) {
     const meta = serviceMetaMap.get(node);
-    const label = peripheralNodes.has(node) ? graphPeripheralLabel(node) : node;
+    const label = peripheralNodes.has(node)
+      ? graphPeripheralLabel(node)
+      : node.startsWith("topic:") && topicNodes.has(node)
+        ? node.slice("topic:".length)
+        : node;
     const m = _measureNode(label, !!(meta && meta.icon));
     // Main view: the version label sits bottom-right, beside the requires
     // badges on the bottom-left; keep both on the node.
@@ -1984,7 +2081,8 @@ function renderCustomGraph(report, svgElement, direction) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     const isBidirectionalPubSub = pubsubBidirectional.has(key);
-    const hFlags = edgeHighlightFlags.get(key);
+    const firstDep = (edgeLabels.get(key) || [])[0];
+    const hFlags = edgeHighlightFlags.get(firstDep && firstDep.flag_key ? firstDep.flag_key : key);
     // One decision for colour, width and dash together: they were previously
     // set in separate passes, and the later pass overwrote the dash the
     // stale/dangling branches had just chosen.
@@ -2082,7 +2180,17 @@ function renderCustomGraph(report, svgElement, direction) {
 
     const isPeripheralNode = peripheralNodes.has(node);
     const isMissingComponent = isPeripheralNode && node.startsWith("component:");
-    if (isMissingComponent) {
+    const isTopicNode = topicNodes.has(node);
+    const isUnownedTopic = unownedTopicNodes.has(node);
+    if (isUnownedTopic) {
+      fill = "#fff7ed";
+      stroke = "#f97316";
+      textColor = "#9a3412";
+    } else if (isTopicNode) {
+      fill = "#e0f2fe";
+      stroke = "#0284c7";
+      textColor = "#075985";
+    } else if (isMissingComponent) {
       fill = "#fff7ed";
       stroke = "#f97316";
       textColor = "#9a3412";
@@ -2114,7 +2222,8 @@ function renderCustomGraph(report, svgElement, direction) {
     group.dataset.provides = badges.provides.join(",");
     group.dataset.requires = badges.requires.join(",");
     // Set role for legend highlighting
-    if (isMissingComponent) group.dataset.role = "missing-component";
+    if (isTopicNode) group.dataset.role = "topic";
+    else if (isMissingComponent) group.dataset.role = "missing-component";
     else if (isPeripheralNode) group.dataset.role = "peripheral";
     else if (isMissingService) group.dataset.role = "missing";
     else if (isClient && isService) group.dataset.role = "both";
@@ -2138,7 +2247,8 @@ function renderCustomGraph(report, svgElement, direction) {
     rect.setAttribute("fill", fill);
     rect.setAttribute("stroke", stroke);
     rect.setAttribute("stroke-width", "2");
-    if (isMissingService || isMissingComponent) rect.setAttribute("stroke-dasharray", "6 3");
+    if (isMissingService || isMissingComponent || isUnownedTopic)
+      rect.setAttribute("stroke-dasharray", "6 3");
     else if (isPeripheralNode) rect.setAttribute("stroke-dasharray", "4 3");
     group.appendChild(rect);
 
@@ -2378,6 +2488,32 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Unprovided Channel</div>
         <div class="font-bold text-white break-all">${_graphEscapeHtml(name)}</div>
         <div class="text-[11px] text-slate-400 mt-1">Subscribed to in an AsyncAPI document, but no Producer publishes this channel yet.</div>
+      `;
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
+      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.opacity = "1";
+      return;
+    }
+
+    if (topicNodes.has(name)) {
+      const publishers = deps
+        .filter((d) => d.topic_edge && d.service === name)
+        .map((d) => d.client)
+        .sort();
+      const subscribers = deps
+        .filter((d) => d.topic_edge && d.client === name)
+        .map((d) => d.service)
+        .sort();
+      const list = (items) =>
+        items.length
+          ? items.map((n) => `<span class="font-mono">${_graphEscapeHtml(n)}</span>`).join(", ")
+          : '<span class="text-slate-500">nobody</span>';
+      tooltip.innerHTML = `
+        <div class="text-[10px] ${unownedTopicNodes.has(name) ? "text-orange-400" : "text-sky-400"} font-bold uppercase tracking-wider mb-0.5">${unownedTopicNodes.has(name) ? "Unprovided topic" : "Topic"}</div>
+        <div class="font-bold text-white break-all">${_graphEscapeHtml(name.slice("topic:".length))}</div>
+        <div class="text-[11px] text-slate-300 mt-1" data-panel="publishers">Published by ${list(publishers)}</div>
+        <div class="text-[11px] text-slate-300" data-panel="subscribers">Subscribed by ${list(subscribers)}</div>
       `;
       tooltip.style.display = "block";
       tooltip.style.left = Math.max(10, e.clientX + 8) + "px";

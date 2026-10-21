@@ -21,6 +21,7 @@ const GRAPH_VIEW_KEYS = {
   direction: "sanshain_graph_direction",
   compact: "sanshain_graph_compact",
   rainbow: "sanshain_graph_rainbow",
+  topics: "sanshain_graph_topics",
 };
 function readGraphViewPref(name) {
   try {
@@ -39,6 +40,7 @@ function writeGraphViewPref(name, value) {
 let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
 window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
+window.graphViewSwitches.topics = readGraphViewPref("topics") === "1";
 
 const GRAPH_SWITCH_BASE =
   "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors shadow-xs";
@@ -49,7 +51,7 @@ const GRAPH_SWITCH_OFF = "bg-white border-slate-300 text-slate-600 hover:bg-slat
 function syncGraphViewButtons() {
   const label = document.getElementById("graph-direction-label");
   if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
-  for (const name of ["compact", "rainbow"]) {
+  for (const name of ["compact", "rainbow", "topics"]) {
     const btn = document.getElementById(`graph-${name}-toggle`);
     if (!btn) continue;
     const on = window.graphViewSwitches[name];
@@ -90,6 +92,7 @@ function switchGraphMode(mode) {
   const dirBtn = document.getElementById("graph-direction-toggle");
   const compactBtn = document.getElementById("graph-compact-toggle");
   const rainbowBtn = document.getElementById("graph-rainbow-toggle");
+  const topicsBtn = document.getElementById("graph-topics-toggle");
   const copyBtn = document.getElementById("graph-copy");
   const dlBtn = document.getElementById("graph-download");
   const dlPngBtn = document.getElementById("graph-download-png");
@@ -98,6 +101,7 @@ function switchGraphMode(mode) {
   if (dirBtn) dirBtn.classList.toggle("hidden", mode !== "custom");
   if (compactBtn) compactBtn.classList.toggle("hidden", mode !== "custom");
   if (rainbowBtn) rainbowBtn.classList.toggle("hidden", mode !== "custom");
+  if (topicsBtn) topicsBtn.classList.toggle("hidden", mode !== "custom");
   if (copyBtn) copyBtn.classList.remove("hidden");
   if (dlBtn) dlBtn.classList.remove("hidden");
   if (dlPngBtn) dlPngBtn.classList.remove("hidden");

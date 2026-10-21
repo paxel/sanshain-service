@@ -1325,6 +1325,7 @@ test.describe("Graph provides/requires badges", () => {
   const ASYNC_B = "s7-async-b"; // provides messaging, requires REST, subscribes
   const TRUNK = "s7-trunk-svc"; // trunk REST line, dev-only messaging line
   const TRUNK_CONSUMER = "s7-trunk-consumer";
+  const SUB = "s7-subscriber"; // pins A's channel
   const openapi = (title) =>
     [
       "openapi: 3.0.3",
@@ -1449,6 +1450,14 @@ test.describe("Graph provides/requires badges", () => {
       ),
       "A requires gRPC",
     );
+    // A pinned subscriber of A's channel, for the Topics switch.
+    await ok(
+      await request.get(
+        `/require/asyncapi?consumername=${SUB}&producername=${ASYNC_A}&version=1.0.0&path=s7.a.events&method=PUB`,
+        { headers },
+      ),
+      "SUB requires A's channel",
+    );
     // Main view fixture: only the REST line is trunk-provided.
     await ok(
       await request.post("/provide", {
@@ -1515,6 +1524,49 @@ test.describe("Graph provides/requires badges", () => {
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
   const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
+
+  test("the Topics switch draws channels as nodes between publishers and subscribers", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
+    const edge = (from, to) =>
+      page.locator(`#custom-graph path.graph-edge[data-from="${from}"][data-to="${to}"]`);
+    const topicA = node(page, "topic:s7.a.events");
+    const nobody = node(page, "topic:s7.nobody.events");
+    await expect(edge(SUB, ASYNC_A)).toHaveCount(1);
+    await expect(topicA).toHaveCount(0);
+    await expect(node(page, "s7.nobody.events ?")).toHaveCount(1);
+
+    await page.click("#graph-topics-toggle");
+    await expect(page.locator("#custom-graph")).toHaveAttribute("data-topics", "1");
+    await expect(topicA).toHaveAttribute("data-role", "topic");
+    await expect(topicA).toContainText("s7.a.events");
+    await expect(edge(ASYNC_A, "topic:s7.a.events")).toHaveCount(1);
+    await expect(edge("topic:s7.a.events", SUB)).toHaveCount(1);
+    await expect(edge(SUB, ASYNC_A)).toHaveCount(0);
+    // A channel nobody publishes is a dashed topic; the old missing node is gone.
+    await expect(nobody).toHaveAttribute("data-role", "topic");
+    await expect(nobody.locator("rect").first()).toHaveAttribute("stroke-dasharray", "6 3");
+    await expect(edge("topic:s7.nobody.events", ASYNC_B)).toHaveCount(1);
+    await expect(node(page, "s7.nobody.events ?")).toHaveCount(0);
+    // Roles stay what the recorded edges say: A still provides and requires.
+    await expect(node(page, ASYNC_A)).toHaveAttribute("data-role", "both");
+    await expect(node(page, SUB)).toHaveAttribute("data-requires", "msg");
+
+    await topicA.hover();
+    const tooltip = page.locator("#graph-tooltip");
+    await expect(tooltip).toBeVisible({ timeout: 5000 });
+    await expect(tooltip.locator('[data-panel="publishers"]')).toContainText(ASYNC_A);
+    await expect(tooltip.locator('[data-panel="subscribers"]')).toContainText(SUB);
+
+    // Remembered, and hidden in the Mermaid mode like the other switches.
+    await page.goto("/graph.html");
+    await expect(topicA).toHaveCount(1, { timeout: 20000 });
+    await expect(page.locator("#graph-topics-toggle")).toHaveAttribute("aria-pressed", "true");
+    await page.click("#graph-mode-mermaid");
+    await expect(page.locator("#graph-topics-toggle")).toBeHidden();
+  });
 
   test("catalog tags are chips in the node panel and a tag: focus narrows the graph", async ({
     page,
@@ -1651,7 +1703,8 @@ test.describe("Graph provides/requires badges", () => {
     await expect(page.locator("#mermaid-graph svg")).toContainText(ASYNC_A, { timeout: 20000 });
     const code = await page.evaluate(() => lastMermaidCode);
     expect(code).toContain(`s7_rest_svc["${REST}<br/>▲ REST"]`);
-    expect(code).toContain(`s7_async_a("${ASYNC_A}<br/>▲ MSG   ▼ REST · gRPC")`);
+    // A is required too now (the pinned subscriber): both roles, square shape.
+    expect(code).toContain(`s7_async_a["${ASYNC_A}<br/>▲ MSG   ▼ REST · gRPC"]`);
     expect(code).toContain(`s7_grpc_svc["${GRPC}<br/>▲ gRPC"]`);
     const text = await page.locator("#mermaid-graph svg").textContent();
     expect(text.replace(/\s+/g, " ")).toContain("▲ MSG ▼ REST · gRPC");

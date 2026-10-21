@@ -363,6 +363,15 @@
               Rainbow
             </button>
             <button
+              id="graph-topics-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="toggleGraphViewSwitch"
+              data-click-args='["topics"]'
+              title="Draw every AsyncAPI channel as a node between its publishers and subscribers instead of direct messaging arrows (remembered in this browser)"
+            >
+              Topics
+            </button>
+            <button
               id="graph-fit-view"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               data-click="graphFitToView"
@@ -661,6 +670,17 @@
               >
                 <span class="w-4 h-3 rounded-sm" style="border: 1.5px dashed #f97316"></span>
                 <span>Missing comp.</span>
+              </div>
+              <div
+                class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"
+                data-legend-highlight="node-role:topic"
+                title="An AsyncAPI channel drawn as its own node (the Topics switch)"
+              >
+                <span
+                  class="w-4 h-3 rounded-sm"
+                  style="background: #e0f2fe; border: 1.5px solid #0284c7"
+                ></span>
+                <span>Topic</span>
               </div>
               <div
                 class="flex items-center gap-2.5 legend-item cursor-pointer rounded-sm px-1 py-0.5 transition-colors hover:bg-slate-50"

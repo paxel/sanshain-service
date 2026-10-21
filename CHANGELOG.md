@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.9.0]
 
 ### Added
+- A **Topics** graph switch beside Compact and Rainbow: every AsyncAPI channel becomes a node between its publishers and subscribers in place of the direct messaging arrows, a channel nobody publishes stands as a dashed topic, and the topic's panel lists who publishes and who subscribes. Remembered in the browser like the other switches.
 - A `component:` ref in the Component's `dependsOn` that names no Producer and no Consumer is drawn as a dashed missing component with an edge from the depending system (legend entry, panel naming who declared it); a ref with a Sanshain pendant stays ignored, so the moment that system provides or requires, the `require` edges take over (ADR-0010).
 - The catalog push keeps the Component's `metadata.tags`: chips with the catalog context on the node panel and the Producer and Consumer pages, `tags` in the MCP `describe_service` answer, and `tag:<name>` in the graph's focus box narrows the drawing to the tagged systems and their neighbours.
 - The catalog push reads the Component's `spec.system`: its name fills the Producer's domain, the cluster the graph draws, when no domain is set; a domain an administrator typed stays (ADR-0010).
