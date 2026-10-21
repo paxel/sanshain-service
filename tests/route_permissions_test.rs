@@ -831,3 +831,54 @@ async fn webhook_routes_follow_the_settings_and_maintainer_scopes() {
         "root reaches a system's hooks without a grant"
     );
 }
+
+/// A writer the test reads back: every log line the request produced.
+#[derive(Clone, Default)]
+struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(mut inner) = self.0.lock() {
+            inner.extend_from_slice(buf);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+    type Writer = Captured;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// A refused request is logged with method, path and caller, never with the
+/// query string or a credential, so an operator can trace it.
+#[tokio::test]
+async fn a_refusal_is_logged_with_method_path_and_caller() {
+    let w = world().await;
+    let captured = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(captured.clone())
+        .with_ansi(false)
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let uri = "/admin/settings/snapshot-max-age?secret=x";
+    assert_eq!(
+        status(&w.app, "POST", uri, &w.plain).await,
+        StatusCode::FORBIDDEN
+    );
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        log.contains("Client error: Forbidden (POST /admin/settings/snapshot-max-age, user plain)"),
+        "{log}"
+    );
+    assert!(!log.contains("secret=x"), "{log}");
+    assert!(
+        !log.contains(&w.plain),
+        "the token must never be logged: {log}"
+    );
+}

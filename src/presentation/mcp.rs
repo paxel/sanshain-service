@@ -158,6 +158,12 @@ pub async fn mcp_auth(
         }
     };
     let mut req = req;
+    if let Some(slot) = req
+        .extensions()
+        .get::<crate::presentation::middleware::CallerSlot>()
+    {
+        slot.set(&caller.user.username);
+    }
     req.extensions_mut().insert(caller);
     Ok(next.run(req).await)
 }

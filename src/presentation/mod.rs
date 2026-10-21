@@ -63,13 +63,14 @@ impl IntoResponse for AppError {
             ),
         };
 
-        if status.is_client_error() {
-            tracing::warn!("Client error: {}", body.error);
-        } else if status.is_server_error() {
-            tracing::error!("Server error: {}", body.error);
-        }
-
-        (status, Json(body)).into_response()
+        // Logged by `middleware::log_errors`, which knows the request this
+        // answer belongs to; here only the message travels with the response.
+        let message = body.error.clone();
+        let mut response = (status, Json(body)).into_response();
+        response
+            .extensions_mut()
+            .insert(middleware::ErrorMessage(message));
+        response
     }
 }
 

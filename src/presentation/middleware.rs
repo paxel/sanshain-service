@@ -86,9 +86,59 @@ async fn attach_caller(
         );
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    if let Some(slot) = req.extensions().get::<CallerSlot>() {
+        slot.set(&actor.username);
+    }
     req.extensions_mut().insert(actor);
     req.extensions_mut().insert(user);
     Ok(())
+}
+
+/// The message of an error answer, put on the response by
+/// `AppError::into_response` for [`log_errors`] to log with its request.
+#[derive(Clone, Debug)]
+pub struct ErrorMessage(pub String);
+
+/// Where the authentication middleware leaves the caller's name for
+/// [`log_errors`], which runs outside it and so never sees the request
+/// extensions it adds.
+#[derive(Clone, Default)]
+pub struct CallerSlot(Arc<std::sync::Mutex<Option<String>>>);
+
+impl CallerSlot {
+    pub fn set(&self, name: &str) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = Some(name.to_string());
+        }
+    }
+
+    fn get(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|slot| slot.clone())
+    }
+}
+
+/// Logs every error answer with what an operator needs to trace it: method,
+/// path and caller, e.g. `Client error: Forbidden (POST /admin/settings/cache,
+/// user dev-1)`. The query string stays out — it may carry names a log should
+/// not — and so does any credential.
+pub async fn log_errors(mut req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let slot = CallerSlot::default();
+    req.extensions_mut().insert(slot.clone());
+    let response = next.run(req).await;
+    if let Some(ErrorMessage(message)) = response.extensions().get::<ErrorMessage>() {
+        let caller = slot
+            .get()
+            .map_or_else(|| "anonymous".to_string(), |name| format!("user {name}"));
+        let status = response.status();
+        if status.is_server_error() {
+            tracing::error!("Server error: {message} ({method} {path}, {caller})");
+        } else if status.is_client_error() {
+            tracing::warn!("Client error: {message} ({method} {path}, {caller})");
+        }
+    }
+    response
 }
 
 pub async fn authenticated_auth(

@@ -269,6 +269,8 @@ pub fn create_app(state: AppState) -> Router {
             .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(tracing::Level::DEBUG))
             .on_response(tower_http::trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)))
         .layer(from_fn_with_state(state.clone(), validate_csrf))
+        // Outside the routes' own auth layers: sees every error answer.
+        .layer(axum::middleware::from_fn(presentation::middleware::log_errors))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store, no-cache, must-revalidate, proxy-revalidate"),
