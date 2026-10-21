@@ -27,6 +27,10 @@ window.graphProtocolFilters = {
 // plain edges per source node. The page script remembers them per browser.
 window.graphViewSwitches = { compact: false, rainbow: false };
 
+// How long the mouse rests on a node or edge before its panel opens.
+const GRAPH_HOVER_DELAY_MS = 2000;
+window.GRAPH_HOVER_DELAY_MS = GRAPH_HOVER_DELAY_MS;
+
 // The gaps of the custom layout: dagre's own and the compaction pass's. Compact
 // trims them for installs whose graph outgrows the screen; the airy default
 // stays for the small ones.
@@ -2229,6 +2233,10 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // ── Tooltip ──────────────────────────────────────────────────────
   let tooltipHideTimer = null;
+  // Hovering opens the panel only after the mouse has rested on a node or
+  // edge for a while: a cursor crossing the graph must not pop panels along
+  // its way. Once a panel is open, moving onto a neighbour switches at once.
+  let tooltipShowTimer = null;
   let tooltip = document.getElementById("graph-tooltip");
   if (!tooltip) {
     tooltip = document.createElement("div");
@@ -2431,16 +2439,41 @@ function renderCustomGraph(report, svgElement, direction) {
     }, 300);
   }
 
+  const hoverThen = (show) => (e) => {
+    if (tooltipShowTimer) clearTimeout(tooltipShowTimer);
+    if (tooltip.style.display === "block") {
+      show(e);
+      return;
+    }
+    tooltipShowTimer = setTimeout(() => {
+      tooltipShowTimer = null;
+      show(e);
+    }, GRAPH_HOVER_DELAY_MS);
+  };
+  const leave = () => {
+    if (tooltipShowTimer) {
+      clearTimeout(tooltipShowTimer);
+      tooltipShowTimer = null;
+    }
+    hideTooltip();
+  };
+
   // Edge hover
   mainG.querySelectorAll(".edge-hit, .graph-edge").forEach((el) => {
-    el.addEventListener("mouseenter", (e) => showTooltip(e, el.dataset.from, el.dataset.to));
-    el.addEventListener("mouseleave", hideTooltip);
+    el.addEventListener(
+      "mouseenter",
+      hoverThen((e) => showTooltip(e, el.dataset.from, el.dataset.to)),
+    );
+    el.addEventListener("mouseleave", leave);
   });
 
   // Node hover
   mainG.querySelectorAll(".graph-node").forEach((el) => {
-    el.addEventListener("mouseenter", (e) => showNodeTooltip(e, el.dataset.node));
-    el.addEventListener("mouseleave", hideTooltip);
+    el.addEventListener(
+      "mouseenter",
+      hoverThen((e) => showNodeTooltip(e, el.dataset.node)),
+    );
+    el.addEventListener("mouseleave", leave);
   });
 
   // An "(unrequired)" chip opens the node panel on click.

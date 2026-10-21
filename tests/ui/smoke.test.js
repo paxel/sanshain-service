@@ -844,7 +844,7 @@ test.describe("Graph node navigation", () => {
 
     const hrefFor = async (node) => {
       await page.locator(`[data-node="${node}"]`).first().hover();
-      await page.waitForTimeout(400);
+      await expect(page.locator("#graph-tooltip")).toBeVisible();
       return page.locator("#graph-tooltip a").first().getAttribute("href");
     };
 
@@ -1829,6 +1829,30 @@ test.describe("Graph (unrequired) box", () => {
     await expect(tooltip.locator('[data-panel="versions"]')).toHaveText("openapi 1.4.0 ga");
     await expect(tooltip.locator('[data-panel="last-provided"]')).toContainText("last provided 20");
     await expect(tooltip.locator('[data-panel="provides"]')).toContainText("REST");
+  });
+
+  test("a node panel opens after the hover delay, a neighbour's at once", async ({ page }) => {
+    await openGraph(page);
+    await expect(node(page, STALE)).toHaveCount(1, { timeout: 20000 });
+    const delay = await page.evaluate(() => GRAPH_HOVER_DELAY_MS);
+    expect(delay).toBe(2000);
+    const tooltip = page.locator("#graph-tooltip");
+    await node(page, STALE).hover();
+    await page.waitForTimeout(delay / 2);
+    await expect(tooltip).toBeHidden();
+    await page.waitForTimeout(delay);
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText(STALE);
+    // The panel is open: the neighbour's replaces it without waiting again.
+    await node(page, STALE_CONSUMER).hover();
+    await expect(tooltip).toContainText(STALE_CONSUMER, { timeout: delay / 2 });
+    // Leaving before the delay never opens one.
+    await page.mouse.move(5, 5);
+    await expect(tooltip).toBeHidden();
+    await node(page, STALE).hover();
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(delay + 300);
+    await expect(tooltip).toBeHidden();
   });
 
   test("the node panel shows derived provides/requires, not stale tags", async ({ page }) => {
