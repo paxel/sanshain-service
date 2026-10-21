@@ -535,10 +535,10 @@ pub async fn set_auth_config(
             "LDAP config required for ldap mode".to_string(),
         ));
     }
-    // Checked whenever LDAP is chosen or a server URL was typed; a blank URL
-    // under another mode is no configuration at all.
+    // Checked only when LDAP is the chosen mode: switching away from LDAP must
+    // stay possible even with a broken URL stored.
     if let Some(ldap) = &payload.ldap_config
-        && (mode == AuthMode::Ldap || !ldap.server_url.trim().is_empty())
+        && mode == AuthMode::Ldap
     {
         ldap.validate_server_url().map_err(AppError::BadRequest)?;
     }

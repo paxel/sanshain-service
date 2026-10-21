@@ -1071,6 +1071,18 @@ async fn test_postgres_refuses_and_cleans_expired_credentials() {
     let host = postgres_container.get_host().await.unwrap();
     let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
     let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    // A database whose default zone is behind UTC: sqlx starts every
+    // connection in UTC, so expiries still compare as instants.
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    sqlx::query("ALTER DATABASE postgres SET timezone TO 'Pacific/Pago_Pago'")
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
