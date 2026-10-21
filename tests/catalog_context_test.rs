@@ -265,6 +265,77 @@ async fn a_push_makes_the_context_visible_on_every_endpoint() {
     assert_eq!(scope_main["systems"]["webapp"]["owner"]["kind"], "user");
 }
 
+/// The domain of the `orders` Producer as the admin list answers it.
+#[cfg(test)]
+async fn domain_of(ctx: &TestContext) -> Value {
+    get_json(ctx, "/admin/producers")
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "orders")
+        .map(|p| p["domain"].clone())
+        .unwrap()
+}
+
+/// ADR-0010: `spec.system` fills an empty domain; an administrator's stays.
+#[tokio::test]
+async fn spec_system_fills_an_empty_domain_and_never_an_administrators() {
+    let ctx = setup().await;
+    seed_roles(&ctx).await;
+    assert!(domain_of(&ctx).await.is_null());
+
+    let (status, body) = push(
+        &ctx,
+        "orders",
+        &catalog_with("orders", "", "  system: Order-Management\n"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(domain_of(&ctx).await, "order-management");
+    // The domain alone counted as a change: the push is audited once, and
+    // the same push again changes nothing.
+    assert_eq!(audit_count(&ctx).await, 1);
+    push(
+        &ctx,
+        "orders",
+        &catalog_with("orders", "", "  system: Order-Management\n"),
+        false,
+    )
+    .await;
+    assert_eq!(audit_count(&ctx).await, 1);
+
+    // What the administrator typed wins over every later push.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/producers/metadata",
+        Some(json!({"name": "orders", "icon": null, "domain": "sales"})),
+    )
+    .await;
+    assert!(status.is_success(), "{status} {body}");
+    push(
+        &ctx,
+        "orders",
+        &catalog_with("orders", "", "  system: shop\n"),
+        false,
+    )
+    .await;
+    assert_eq!(domain_of(&ctx).await, "sales");
+
+    // A pure Consumer has no domain to fill; the push still records.
+    let (status, body) = push(
+        &ctx,
+        "webapp",
+        &catalog_with("webapp", "", "  system: shop\n"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["recorded"], true);
+}
+
 #[tokio::test]
 async fn a_system_without_a_push_has_no_context_and_an_unknown_one_is_404() {
     let ctx = setup().await;

@@ -1,7 +1,8 @@
 //! What a system's Backstage `catalog-info.yaml` says about it, pushed by
 //! its build: the Peripheral Resources outside Sanshain it depends on (#46),
 //! drawn in the network graph, and its context — owner, description, source
-//! location and links (#48) — shown on its node and its page.
+//! location and links (#48) — shown on its node and its page — and the
+//! Backstage system it belongs to, which fills an empty domain (ADR-0010).
 
 use super::webhook_service as webhooks;
 use super::{now_iso, run_cpu_bound};
@@ -69,6 +70,8 @@ pub async fn push_catalog(
     let context_changed = repo
         .upsert_system_context(&system, &component.context, &now)
         .await?;
+    let domain_changed =
+        fill_domain_from_system(repo, &system, component.system.as_deref()).await?;
     metrics::counter!("sanshain_catalog_pushes_total").increment(1);
     Ok(CatalogPushResult {
         system,
@@ -76,8 +79,44 @@ pub async fn push_catalog(
         resources: component.resources,
         recorded: true,
         warnings: Vec::new(),
-        changed: periphery_changed || context_changed,
+        changed: periphery_changed || context_changed || domain_changed,
     })
+}
+
+/// `spec.system` names the Backstage system the Component belongs to — the
+/// graph's natural cluster. It fills a Producer's domain once, when none is
+/// set; a domain an administrator typed stays whatever the next push says
+/// (ADR-0010). A pure Consumer has no domain, so nothing happens for it.
+/// Answers whether the domain changed.
+async fn fill_domain_from_system(
+    repo: &impl SpecRepository,
+    system: &str,
+    backstage_system: Option<&str>,
+) -> Result<bool, AppError> {
+    let Some(domain) = backstage_system else {
+        return Ok(false);
+    };
+    if repo.find_service(system).await?.is_none() {
+        return Ok(false);
+    }
+    let Some(producer) = repo
+        .list_producers_detailed()
+        .await?
+        .into_iter()
+        .find(|p| p.name == system)
+    else {
+        return Ok(false);
+    };
+    if producer
+        .domain
+        .as_deref()
+        .is_some_and(|d| !d.trim().is_empty())
+    {
+        return Ok(false);
+    }
+    repo.update_producer_metadata(system, producer.icon.as_deref(), Some(domain))
+        .await?;
+    Ok(true)
 }
 
 /// The outbox row of a catalog push (#47): the system's own hooks — as a

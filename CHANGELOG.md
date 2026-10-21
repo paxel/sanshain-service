@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.9.0]
 
 ### Added
+- The catalog push reads the Component's `spec.system`: its name fills the Producer's domain, the cluster the graph draws, when no domain is set; a domain an administrator typed stays (ADR-0010).
 - Endpoints carry the one line their Producer wrote about them: an OpenAPI operation's `summary` (or the first sentence of its `description`), an AsyncAPI operation, message or channel summary, or the comment above a proto `rpc`. The Producer page shows it under each endpoint, and the MCP `find_endpoint` hits and `describe_service` endpoints carry it as `summary`, so an assistant answers "what is this for" without fetching the spec. Proto snippets now keep the comment block above their `rpc`.
 
 ### Changed

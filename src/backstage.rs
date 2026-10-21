@@ -35,6 +35,9 @@ pub enum CatalogError {
 /// `resource`, so a bare `orders-db` means `resource:<namespace>/orders-db`.
 const DEFAULT_KIND: &str = "resource";
 
+/// The `kind` an unqualified `spec.system` ref is read as.
+const DEFAULT_SYSTEM_KIND: &str = "system";
+
 /// The `kind` an unqualified `spec.owner` ref is read as — Backstage's
 /// default for owners.
 const DEFAULT_OWNER_KIND: &str = "group";
@@ -97,6 +100,10 @@ pub struct CatalogComponent {
     /// case-insensitively, and one shared resource must merge into one node.
     pub resources: Vec<String>,
     pub context: SystemContext,
+    /// The name of the Backstage system the Component belongs to
+    /// (`spec.system`, lower-cased, namespace dropped): the graph's natural
+    /// cluster, filling a Producer's empty domain (ADR-0010).
+    pub system: Option<String>,
 }
 
 /// Read the Component named `system` out of `yaml`: its periphery and its
@@ -171,7 +178,19 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
             .map(|items| items.iter().filter_map(link).take(MAX_LINKS).collect())
             .unwrap_or_default(),
     };
-    Ok(CatalogComponent { resources, context })
+    let system = component
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("system"))
+        .and_then(Value::as_str)
+        .and_then(|raw| split_ref(raw, DEFAULT_SYSTEM_KIND, namespace))
+        .filter(|(kind, _, _)| kind == DEFAULT_SYSTEM_KIND)
+        .map(|(_, _, name)| name);
+    Ok(CatalogComponent {
+        resources,
+        context,
+        system,
+    })
 }
 
 /// The periphery half (#46): `spec.dependsOn` as full resource refs.
@@ -535,6 +554,41 @@ spec:
                     },
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn spec_system_is_read_as_a_lower_cased_name_and_other_kinds_are_not() {
+        let with = |system: &str| {
+            format!(
+                "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: svc\nspec:\n  system: {system}\n"
+            )
+        };
+        assert_eq!(
+            read_component(&with("Order-Management"), "svc")
+                .unwrap()
+                .system
+                .as_deref(),
+            Some("order-management")
+        );
+        assert_eq!(
+            read_component(&with("system:acme/shop"), "svc")
+                .unwrap()
+                .system
+                .as_deref(),
+            Some("shop")
+        );
+        assert_eq!(
+            read_component(&with("group:shop"), "svc").unwrap().system,
+            None
+        );
+        assert_eq!(
+            read_component(&with("'not a ref'"), "svc").unwrap().system,
+            None
+        );
+        assert_eq!(
+            read_component(ORDERS, "orders-service").unwrap().system,
+            None
         );
     }
 

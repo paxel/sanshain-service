@@ -685,6 +685,9 @@ paths:
           lower-cased.
         - `spec.owner`, normalised like other refs (a bare `team-orders` is
           `group:default/team-orders`) and kept as kind and name.
+        - `spec.system`, the Backstage system the Component belongs to: its
+          name fills the Producer's **domain** (the graph's cluster) when no
+          domain is set; a domain an administrator set stays.
         - `metadata.description`, trimmed, at most 1000 characters (a longer
           one is cut with an ellipsis).
         - the `backstage.io/source-location` annotation, without its `url:`
