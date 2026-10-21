@@ -128,6 +128,18 @@ system's own `catalog-info.yaml`. One node per ref, shared by every system that 
 Producer or Consumer, and never an edge between two systems: those stay Sanshain's own.
 _Avoid_: external service, dependency (without qualifier), infrastructure
 
+**Missing component**:
+A `component:` ref in a system's `dependsOn` that names no Producer and no Consumer: drawn as a
+dashed node so a dependency the graph cannot otherwise see shows as a gap. It disappears the moment
+a system of that name provides or requires (ADR-0010).
+_Avoid_: ghost service, unknown system
+
+**Origin**:
+What the build that provided a Version said about why: its build URL, the pull or merge request
+behind it (change URL), the ticket ids it closes and one line of intent. References, never content;
+the latest Provide carrying any of it wins, a no-op re-provide only fills an empty one.
+_Avoid_: commit, changelog, reason (without qualifier)
+
 **Actor**:
 The authenticated caller behind a request. Always what the audit log records; never overridable.
 The Actor is also the attribution shown on a Version — the last provider — with one exception:

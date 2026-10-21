@@ -94,6 +94,7 @@ sequenceDiagram
 - **Idempotency**: Re-providing byte-identical content is a no-op regardless of stability or caller.
 - **GA immutability**: A GA version with different content returns `409` with `proposed_version` (breaking → major, additive → minor, shape-identical → patch). A GA whose changes against the highest GA below it are breaking without a major bump is rejected the same way (semver honesty).
 - **Snapshots**: Overwritable by the user who last provided them, never compatibility-checked. Different content from another user returns `409` (`snapshot_owned`) with the next free minor as `proposed_version`; identical bytes from anyone are a no-op. A snapshot Provide for a GA'd number is rejected; a GA Provide for a snapshot number promotes it in place.
+- **Origin**: Optional `build_url`, `change_url`, `tickets` and `note` say why; stored with the version-line entry (latest Provide wins, a no-op only fills an empty one, a silent promotion keeps it) and shown on the version row, in the diff, the blame, the MCP and the `version.published` webhook. Out-of-bounds values answer `400` by name.
 - **Dry run**: When `dry_run: true`, all validation and version-rule classification runs but nothing is persisted. Returns 202 on success.
 
 ### Spec Splitting (`openapi.rs`, `asyncapi.rs`, `proto.rs`)

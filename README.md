@@ -9,9 +9,9 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 ### TL;DR
 - **Centralized Specs**: Unified registry for OpenAPI, AsyncAPI, and gRPC/Proto.
 - **Spec Splitting**: Clients download only the YAML snippets they need, avoiding massive dependency bloat.
-- **Versioned, Pinned**: Producers publish immutable GA versions (or overwritable snapshots); Consumers pin the exact version they build against. No fallback, no surprises.
+- **Versioned, Pinned**: Producers publish immutable GA versions (or snapshots only their provider may overwrite); Consumers pin the exact version they build against. No fallback, no surprises.
 - **Contract Safety**: A forgotten version bump or a breaking change hiding behind a minor bump is rejected at the door, with the correct next version proposed.
-- **Live Graph**: Visualizes microservice dependencies in real-time, highlighting outdated and snapshot-pinned Consumers.
+- **Live Graph**: Visualizes microservice dependencies in real-time, highlighting outdated and snapshot-pinned Consumers; Compact, Rainbow and Topics switches keep large graphs readable.
 - **Client-First**: Designed for CI/CD automation with dedicated plugins.
 
 ---
@@ -22,9 +22,10 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Dependency Tracking**: Tracks exactly which Consumer pins which version of which endpoint.
 - **Web Dashboard**: Navigate services, version timelines, diffs and dependencies visually.
 - **Release Graphs**: A trunk ("main") stream and named sanshain-branches capture what production actually is — release cuts (retroactive if needed), a timeline over past graph states, structured graph diffs, and release-scoped reports (`?scope=main[@instant]` or `<branch>[@instant]`).
-- **Periphery from Backstage**: A build can push its Backstage `catalog-info.yaml` (`PUT /catalog/{systemname}`, or `catalogInfo` in `sanshain.yaml`); the databases, buckets and queues its Component lists under `dependsOn` appear in the graph as Peripheral Resources, shared between the systems that use them, and travel into release cuts and diffs.
+- **Periphery from Backstage**: A build can push its Backstage `catalog-info.yaml` (`PUT /catalog/{systemname}`, or `catalogInfo` in `sanshain.yaml`); the databases, buckets and queues its Component lists under `dependsOn` appear in the graph as Peripheral Resources, shared between the systems that use them, and travel into release cuts and diffs. The same file supplies the owner, description, links and tags shown on each node (a `tag:<name>` focus narrows the graph), fills an empty domain from `spec.system`, and draws `component:` refs that name no Sanshain system as missing components.
 - **AsyncAPI payloads as OpenAPI**: An AsyncAPI requirement can ask for `format: openapi` and receive just its message payload schemas as an OpenAPI 3.0.3 document, ready for OpenAPI code generators. See [sanshain.yaml](https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html#payload-schemas-as-openapi-format-openapi).
 - **Free Spec Validator**: The landing page validates any OpenAPI, AsyncAPI or Protobuf spec against the exact rules a publish would face — no login, nothing stored.
+- **Why a version changed**: Each provide may carry its origin — build URL, pull or merge request, ticket ids (linked through an admin-set URL template) and a one-line note. The clients fill the URLs from GitHub Actions, GitLab CI and Jenkins on their own; the version row, diff, blame, MCP and webhooks show it.
 - **Auditing**: Full history of provides and administrative actions.
 - **Backup**: On SQLite, a consistent database snapshot is one authenticated `GET` away — and a Helm CronJob fetches it nightly; PostgreSQL gets a `pg_dump` CronJob. Restore is documented for both. See [Backup and restore](https://paxel.github.io/sanshain-service/operator/backup.html).
 - **Flexible Auth**: Local accounts, LDAP/Active Directory, or OpenID Connect SSO for human login; machine clients always use API tokens.
