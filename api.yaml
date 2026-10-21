@@ -63,9 +63,15 @@ paths:
         The GA gate still applies first: for `stability: ga` the caller must
         hold `release_ga` even when the re-provide would change nothing.
 
-        **Snapshots** are overwritable: a snapshot Provide for an existing
-        snapshot version replaces it wholesale (last writer wins; the previous
-        provider is named in the audit trail).
+        **Snapshots** are overwritable by their provider: a snapshot Provide
+        for an existing snapshot version replaces it wholesale when it comes
+        from the user who last provided it (the audit trail still names
+        every overwrite). Different content from anyone else is rejected 409
+        (`snapshot_owned`) naming the provider and proposing the next free
+        minor, so two developers who picked the same number cannot break each
+        other's Consumer builds; CI rebuilding what its developer provided
+        sends identical bytes and stays a no-op. An administrator deletes the
+        snapshot to free the number.
 
         **GA is immutable**: a Provide for an existing GA version with
         different content is rejected 409 with `proposed_version` — the next
@@ -1893,7 +1899,7 @@ components:
           description: The attempted Version.
         rule:
           type: string
-          enum: [immutable_ga, snapshot_on_ga, breaking_without_major, message_contract_conflict, ga_requires_releaser]
+          enum: [immutable_ga, snapshot_on_ga, snapshot_owned, breaking_without_major, message_contract_conflict, ga_requires_releaser]
         message:
           type: string
         proposed_version:

@@ -745,7 +745,9 @@ pub fn validate_spec(api_type: ApiType, content: &str) -> ValidationReport {
 mod tests {
     use super::*;
     // These exercise the pure version-rule helpers (now in version_rules).
-    use super::super::version_rules::{classify_change, diff_endpoints, ga_baseline, propose_free};
+    use super::super::version_rules::{
+        classify_change, diff_endpoints, ga_baseline, propose_free, propose_free_minor,
+    };
     use crate::application::mock_repo::MockRepo;
 
     // The blocking-pool wrapper must give the same verdict as the sync
@@ -936,6 +938,23 @@ mod tests {
         assert_eq!(
             propose_free(&line, "2.0.0".parse().unwrap()).to_string(),
             "2.0.0"
+        );
+    }
+
+    #[test]
+    fn propose_free_minor_skips_taken_minors() {
+        let line = vec![
+            meta("1.3.0", Stability::Snapshot),
+            meta("1.4.0", Stability::Ga),
+            meta("1.5.0", Stability::Snapshot),
+        ];
+        assert_eq!(
+            propose_free_minor(&line, "1.3.0".parse().unwrap()).to_string(),
+            "1.6.0"
+        );
+        assert_eq!(
+            propose_free_minor(&line, "2.0.0".parse().unwrap()).to_string(),
+            "2.1.0"
         );
     }
 

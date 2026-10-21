@@ -28,7 +28,7 @@
 <ol>
   <li>
     <strong>Iterate</strong> on <a href="../start/glossary.html#snapshot">snapshots</a>:
-    overwritable, last writer wins, never compatibility-checked, expire when unused.
+    overwritable by their provider, never compatibility-checked, expire when unused.
   </li>
   <li>
     <strong>Release</strong> the same number as <a href="../start/glossary.html#ga">GA</a>: it is
@@ -59,7 +59,7 @@
       (immutable_ga) with the next free number proposed by what changed; 1.1.0 as a snapshot is
       refused (snapshot_on_ga); 1.2.0 GA promotes the snapshot in place; 1.3.0 GA that is breaking
       relative to 1.1.0 is refused (breaking_without_major) with 2.0.0 proposed; 1.2.0 snapshot
-      again overwrites the snapshot.
+      again overwrites the snapshot when it comes from its provider.
     </desc>
     <defs>
       <marker
@@ -133,7 +133,7 @@
 
     <text x="8" y="356" class="d-text d-mono">1.2.0 snapshot again</text>
     <path d="M300 351H352" class="d-line" marker-end="url(#arr-l)" />
-    <text x="372" y="356" class="d-text">overwrite: last writer wins, audited</text>
+    <text x="372" y="356" class="d-text">overwrite by its provider, audited</text>
   </svg>
   <figcaption>
     What a provide meets on the line. Every <code>409</code> names the number to publish as instead.
@@ -149,8 +149,13 @@
 </p>
 <ul>
   <li>
-    <strong>Overwritable</strong>: re-providing the same snapshot number replaces it wholesale. Last
-    writer wins; every overwrite is audited and names the previous provider.
+    <strong>Overwritable by its provider</strong>: re-providing the same snapshot number replaces it
+    wholesale when the Provide comes from the user who last provided it; every overwrite is audited.
+    Different content from anyone else is refused <strong>409</strong> <code>snapshot_owned</code>,
+    naming the provider and proposing the next free minor, so two developers who both picked 1.3.0
+    cannot break each other's Consumer builds. Identical bytes from anyone (CI rebuilding the commit
+    its developer already provided) stay a no-op. An administrator deletes the snapshot to free the
+    number.
   </li>
   <li><strong>Never compatibility-checked</strong>: break whatever you like between overwrites.</li>
   <li>
@@ -384,7 +389,10 @@
       <td>Any change, new or same snapshot number</td>
       <td>snapshot</td>
       <td>accepted</td>
-      <td>iterate; overwrites are audited</td>
+      <td>
+        iterate; only the provider overwrites, audited; others get <strong>409</strong>
+        <code>snapshot_owned</code>
+      </td>
     </tr>
     <tr>
       <td>Same GA number, identical content</td>

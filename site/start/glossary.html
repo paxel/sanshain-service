@@ -111,9 +111,10 @@
 
   <dt id="snapshot">Snapshot</dt>
   <dd>
-    A version in its mutable state: re-providing it overwrites it (last writer wins, every overwrite
-    audited), it is never compatibility-checked, and it expires once neither provided nor required
-    for the snapshot window.
+    A version in its mutable state: re-providing it overwrites it (the user who last provided it may
+    change it, anyone else's different content is refused with the next free minor proposed, every
+    overwrite audited), it is never compatibility-checked, and it expires once neither provided nor
+    required for the snapshot window.
   </dd>
 
   <dt id="ga">GA</dt>

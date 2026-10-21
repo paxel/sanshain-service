@@ -787,7 +787,7 @@ async fn endpoint_history_walks_introduction_removal_and_return() {
 }
 
 #[tokio::test]
-async fn snapshot_overwrite_by_another_actor_is_audited() {
+async fn snapshot_overwrite_by_another_actor_is_refused_and_audited() {
     let repo = MockRepo::new();
     let original = one_endpoint("1.0.0");
     let mut params = provide_params(
@@ -810,21 +810,31 @@ async fn snapshot_overwrite_by_another_actor_is_audited() {
         false,
     );
     params.caller = Some(sanshain_service::domain::permissions::Actor::test_releaser_named("bob"));
-    spec_service::provide_spec(&repo, params).await.unwrap();
+    match spec_service::provide_spec(&repo, params).await {
+        Err(AppError::VersionConflict { message, proposed }) => {
+            assert!(message.contains("provided by 'alice'"), "{message}");
+            assert_eq!(proposed.to_string(), "1.1.0");
+        }
+        other => panic!("expected the ownership refusal, got {other:?}"),
+    }
 
     let logs = repo.audit_logs.lock().unwrap().clone();
-    let overwrites: Vec<&AuditLogEntry> = logs
+    let rejections: Vec<&AuditLogEntry> = logs
         .iter()
-        .filter(|l| l.action == "SNAPSHOT_OVERWRITTEN")
+        .filter(|l| l.action == "VERSION_REJECTED")
         .collect();
-    assert_eq!(overwrites.len(), 1, "{logs:?}");
-    assert_eq!(overwrites[0].username, "bob");
+    assert_eq!(rejections.len(), 1, "{logs:?}");
+    assert_eq!(rejections[0].username, "bob");
     assert!(
-        overwrites[0].details.contains("alice"),
+        rejections[0].details.contains("alice"),
         "{:?}",
-        overwrites[0]
+        rejections[0]
     );
-    assert_eq!(overwrites[0].version.as_deref(), Some("1.0.0"));
+    assert_eq!(rejections[0].version.as_deref(), Some("1.0.0"));
+    assert!(
+        !logs.iter().any(|l| l.action == "SNAPSHOT_OVERWRITTEN"),
+        "{logs:?}"
+    );
 }
 
 /// A same-content promotion is a release, not an overwrite: the audit trail

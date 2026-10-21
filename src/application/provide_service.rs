@@ -10,6 +10,7 @@ use super::spec_service::{
 };
 use super::version_rules::{
     check_compatibility, classify_change, diff_endpoints, ga_baseline, propose_free,
+    propose_free_minor,
 };
 use super::webhook_service as webhooks;
 use crate::asyncapi;
@@ -462,6 +463,43 @@ pub async fn provide_spec(
             .await;
             return Err(AppError::VersionConflict { message, proposed });
         }
+        // A snapshot belongs to whoever last provided it: different bytes
+        // under its number are accepted from that user alone. Two developers
+        // who both picked 1.3.0 would otherwise take turns breaking each
+        // other's Consumer builds; the second one is sent to the next free
+        // minor. Byte-identical content never reaches here (the no-op above),
+        // so CI rebuilding what its developer provided passes; a GA Provide is
+        // the Releaser's deliberate act and stays exempt by role. No caller
+        // identity (dev mode) means no owners either.
+        (Some(entry), Stability::Snapshot)
+            if !entry.provided_by.is_empty()
+                && username.is_some_and(|actor| actor != entry.provided_by) =>
+        {
+            let proposed = propose_free_minor(&line, version);
+            let message = format!(
+                "version {} of {} '{}' is a snapshot provided by '{}' — only they may change it; publish your work as {} instead, or ask an administrator to delete the snapshot",
+                version,
+                api_type.as_str(),
+                producername,
+                entry.provided_by,
+                proposed
+            );
+            record_version_rejection(
+                repo,
+                dry_run,
+                VersionRejection {
+                    username,
+                    producername,
+                    api_type,
+                    version,
+                    reason: "snapshot_owned",
+                    message: &message,
+                    proposed: Some(proposed),
+                },
+            )
+            .await;
+            return Err(AppError::VersionConflict { message, proposed });
+        }
         _ => {}
     }
 
@@ -553,7 +591,6 @@ pub async fn provide_spec(
         });
     }
 
-    let overwriting = existing.as_ref().map(|e| e.provided_by.clone());
     // Attribution is the authenticated Actor — with one exception: promoting a
     // snapshot with byte-identical content keeps the snapshot's provider, so
     // the human who built it stays on the released version (the audit's
@@ -681,44 +718,6 @@ pub async fn provide_spec(
             tracing::warn!(
                 service = producername,
                 "Could not record the promotion in the audit log: {}",
-                e
-            );
-        }
-    }
-
-    // An overwrite by a different Actor is allowed (last writer wins) but
-    // never silent: the previous provider is named in the audit trail.
-    if let Some(previous) = overwriting
-        && !promoting
-        && let Some(actor) = username
-        && !previous.is_empty()
-        && previous != actor
-    {
-        let details = format!(
-            "Snapshot {} {} of '{}' overwritten by '{}' (previously provided by '{}')",
-            api_type.as_str(),
-            version,
-            producername,
-            actor,
-            previous
-        );
-        if let Err(e) = repo
-            .insert_audit_log(
-                actor,
-                NewAuditLog {
-                    action: "SNAPSHOT_OVERWRITTEN",
-                    details: &details,
-                    service: Some(producername),
-                    version: Some(&version.to_string()),
-                    action_type: Some("WRITE"),
-                    ..Default::default()
-                },
-            )
-            .await
-        {
-            tracing::warn!(
-                service = producername,
-                "Could not record the snapshot overwrite in the audit log: {}",
                 e
             );
         }

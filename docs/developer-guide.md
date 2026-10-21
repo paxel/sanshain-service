@@ -93,7 +93,7 @@ sequenceDiagram
 - **Version from the spec**: `info.version` (OpenAPI/AsyncAPI) or a mandatory `// sanshain-version:` comment (proto); `MAJOR[.MINOR[.PATCH]]` with an optional `v` prefix (normalized, implicit zeroes), rejected `400` otherwise.
 - **Idempotency**: Re-providing byte-identical content is a no-op regardless of stability or caller.
 - **GA immutability**: A GA version with different content returns `409` with `proposed_version` (breaking → major, additive → minor, shape-identical → patch). A GA whose changes against the highest GA below it are breaking without a major bump is rejected the same way (semver honesty).
-- **Snapshots**: Overwritable, last writer wins, never compatibility-checked. A snapshot Provide for a GA'd number is rejected; a GA Provide for a snapshot number promotes it in place.
+- **Snapshots**: Overwritable by the user who last provided them, never compatibility-checked. Different content from another user returns `409` (`snapshot_owned`) with the next free minor as `proposed_version`; identical bytes from anyone are a no-op. A snapshot Provide for a GA'd number is rejected; a GA Provide for a snapshot number promotes it in place.
 - **Dry run**: When `dry_run: true`, all validation and version-rule classification runs but nothing is persisted. Returns 202 on success.
 
 ### Spec Splitting (`openapi.rs`, `asyncapi.rs`, `proto.rs`)
@@ -313,7 +313,9 @@ flowchart TD
     B -->|No| C[Insert new version-line entry]
     B -->|Yes| D{Stored stability?}
     D -->|Snapshot| E{Provide stability?}
-    E -->|snapshot| F[Overwrite - last writer wins]
+    E -->|snapshot| F{Same provider?}
+    F -->|Yes| F1[Overwrite]
+    F -->|No| F2[409 snapshot_owned, next free minor]
     E -->|ga| G[Promote in place]
     D -->|GA| H{Content identical?}
     H -->|Yes| I[202 - idempotent no-op]

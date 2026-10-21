@@ -95,8 +95,9 @@
 <ul>
   <li>
     A <a href="glossary.html#snapshot">snapshot</a> is work in progress. Providing the same number
-    again replaces it; the last writer wins and the overwrite is audited. Snapshots are never
-    compatibility-checked, and one that is neither provided nor required for 30 days (the
+    again replaces it, as long as it is the same user: someone else's different content is refused
+    with the next free minor proposed, so two lines of work cannot overwrite each other. Snapshots
+    are never compatibility-checked, and one that is neither provided nor required for 30 days (the
     <a href="glossary.html#snapshot-expiry">snapshot window</a>) is cleaned up.
   </li>
   <li>

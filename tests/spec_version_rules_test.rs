@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
 use chrono::Utc;
 use sanshain_service::application::services;
+use sanshain_service::domain::models::ApiType;
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
@@ -1305,6 +1306,185 @@ async fn validator_rejects_unknown_shapes_but_stores_nothing() {
         .await
         .unwrap();
     assert_eq!(count.0, 0, "validation must never persist anything");
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot ownership: different bytes under a snapshot number come from the
+// user who last provided it, or they are sent to the next free minor.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn another_user_cannot_change_a_snapshot_and_is_sent_to_the_next_free_minor() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let other = seeded_token(&ctx, "other", &[]).await;
+
+    let (status, _) = provide_as(
+        &ctx,
+        &axel,
+        "svc",
+        "snapshot",
+        &spec_two_endpoints("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    // 1.4.0 is taken too, so the proposal skips to 1.5.0.
+    let (status, _) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.4.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    // The other developer moves to 1.3.0 with different content: refused.
+    let (status, body) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let error = body["error"].as_str().unwrap_or("");
+    assert!(error.contains("provided by 'axel'"), "{error}");
+    assert!(error.contains("publish your work as 1.5.0"), "{error}");
+    assert_eq!(body["proposed_version"], "1.5.0");
+    // A dry run answers the same without recording anything.
+    let (status, body) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.3.0"),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["proposed_version"], "1.5.0");
+
+    // Axel's snapshot is untouched: its two endpoints still resolve.
+    let (status, _, _) = require(&ctx, "client", "svc", "1.3.0", "/users", "GET").await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Byte-identical content from anyone (CI rebuilding Axel's commit) is the
+    // usual no-op; the owner may change their own snapshot freely.
+    let (status, body) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_two_endpoints("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body["changes"]["inserts"], 0);
+    let (status, _) = provide_as(
+        &ctx,
+        &axel,
+        "svc",
+        "snapshot",
+        &spec_two_endpoints_reworded("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, _) = provide_as(
+        &ctx,
+        &axel,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    // The refusal is audited as a version rejection naming the rule's remedy.
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT username, details FROM audit_logs WHERE action = 'VERSION_REJECTED'",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].0, "other");
+    assert!(rows[0].1.contains("1.5.0"), "{}", rows[0].1);
+}
+
+#[tokio::test]
+async fn deleting_the_snapshot_frees_its_number_for_anyone() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let other = seeded_token(&ctx, "other", &[]).await;
+    let (status, _) = provide_as(
+        &ctx,
+        &axel,
+        "svc",
+        "snapshot",
+        &spec_two_endpoints("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, _) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // The administrator's escape hatch, the same one as for GA.
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let sid = repo.find_service("svc").await.unwrap().unwrap();
+    let entry = repo
+        .find_spec_version(sid, ApiType::OpenApi, "1.3.0".parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    repo.delete_spec_version(entry.id).await.unwrap();
+
+    let (status, body) = provide_as(
+        &ctx,
+        &other,
+        "svc",
+        "snapshot",
+        &spec_users_only("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
+#[tokio::test]
+async fn a_releaser_still_promotes_another_users_snapshot_with_different_bytes() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let ci = seeded_token(&ctx, "ci", &["releaser"]).await;
+    let (status, _) = provide_as(
+        &ctx,
+        &axel,
+        "svc",
+        "snapshot",
+        &spec_two_endpoints("1.3.0"),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, body) = provide_as(&ctx, &ci, "svc", "ga", &spec_users_only("1.3.0"), false).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body["promoted"], true);
 }
 
 // ---------------------------------------------------------------------------

@@ -81,8 +81,9 @@ never Sanshain's.
 _Avoid_: channel (an AsyncAPI term here), maturity, branch type
 
 **Snapshot**:
-A Version in its mutable state: re-providing it overwrites it, last writer wins, and it expires
-once neither provided nor required for the configured window. The same entry in the line until it
+A Version in its mutable state: re-providing it overwrites it when the Provide comes from the user
+who last provided it (anyone else's different content is refused with the next free minor
+proposed), and it expires once neither provided nor required for the configured window. The same entry in the line until it
 is promoted or gone.
 _Avoid_: draft, pre-release, feature version, WIP version
 

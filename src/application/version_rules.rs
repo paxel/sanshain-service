@@ -33,6 +33,18 @@ pub(crate) fn propose_free(line: &[SpecVersionMeta], candidate: SemVer) -> SemVe
     proposal
 }
 
+/// The next free minor above `version`: the number to send a second line of
+/// work to when the one it picked already belongs to someone else. Minors,
+/// not patches, because parallel lines of work are minors in practice.
+pub(crate) fn propose_free_minor(line: &[SpecVersionMeta], version: SemVer) -> SemVer {
+    let taken: HashSet<SemVer> = line.iter().map(|v| v.version).collect();
+    let mut proposal = version.increment(Impact::Minor);
+    while taken.contains(&proposal) {
+        proposal = proposal.increment(Impact::Minor);
+    }
+    proposal
+}
+
 /// Classify the change between two documents for the bump proposal:
 /// breaking → major, additive → minor, shape-identical → patch.
 pub(crate) fn classify_change(
