@@ -10,10 +10,16 @@ use crate::domain::ports::SpecRepository;
 
 #[derive(Template)]
 #[template(path = "index.html")]
-struct IndexTemplate {}
+struct IndexTemplate {
+    /// The running version: the documentation card links its own release's
+    /// docs, so a reader sees the rules this instance applies.
+    pub version: &'static str,
+}
 
 pub async fn index_page() -> Result<Response, AppError> {
-    let template = IndexTemplate {};
+    let template = IndexTemplate {
+        version: env!("CARGO_PKG_VERSION"),
+    };
     Ok(Html(
         template
             .render()

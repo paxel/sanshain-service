@@ -94,6 +94,26 @@ body %}
     </div>
   </div>
 
+  <!-- Documentation of the running release. -->
+  <div class="max-w-4xl mx-auto mb-10">
+    <a
+      id="docs-card"
+      href="https://paxel.github.io/sanshain-service/v{{ version }}/"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="flex items-center justify-between gap-4 bg-white rounded-2xl shadow-xs border border-slate-200 p-6 hover:shadow-md transition-shadow"
+    >
+      <div>
+        <h3 class="text-lg font-bold text-slate-800">Documentation</h3>
+        <p class="text-sm text-slate-500">
+          Getting started, the developer and operator guides and the API reference for this
+          instance's release, v{{ version }}.
+        </p>
+      </div>
+      <span class="text-indigo-600 font-semibold text-sm whitespace-nowrap">Open the docs →</span>
+    </a>
+  </div>
+
   <!-- Free spec validator: the same pipeline a Provide runs, minus persistence. -->
   <div class="max-w-4xl mx-auto mb-16">
     <div class="bg-white rounded-2xl shadow-xs border border-slate-200 p-8">

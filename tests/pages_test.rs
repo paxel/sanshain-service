@@ -86,3 +86,23 @@ async fn landing_page_has_title_and_csp() {
     let text = String::from_utf8_lossy(&body);
     assert!(text.contains("<title>Sanshain"));
 }
+
+/// The start page links the documentation of the running release, so a reader
+/// sees the rules this instance applies.
+#[tokio::test]
+async fn landing_page_links_the_docs_of_the_running_version() {
+    let app = app().await;
+    let res = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(res.into_body(), 256 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&body);
+    let expected = format!(
+        "href=\"https://paxel.github.io/sanshain-service/v{}/\"",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert!(text.contains(&expected), "{expected} missing");
+}
