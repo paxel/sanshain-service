@@ -9,6 +9,53 @@ pub struct AsyncApiSpec {
     pub deprecated: bool,
 }
 
+/// The one-line description of the single operation in a channel snippet, in
+/// the order a Producer is likeliest to have written one: the operation's
+/// `summary`, its message's `summary`, the channel's `summary`, then the
+/// first sentence of the operation's, the channel's or the message's
+/// `description`. Both 2.x (channel-nested operations) and 3.x shapes.
+pub fn channel_summary(snippet: &str) -> Option<String> {
+    let root: Value = serde_yaml_ng::from_str(snippet).ok()?;
+    let first_entry = |key: &str| -> Option<Value> {
+        root.get(key)?
+            .as_mapping()?
+            .iter()
+            .next()
+            .map(|(_, v)| v.clone())
+    };
+    let channel = first_entry("channels");
+    let operation = first_entry("operations").or_else(|| {
+        let channel = channel.as_ref()?;
+        ["publish", "subscribe"]
+            .iter()
+            .find_map(|op| channel.get(op).cloned())
+    });
+    let message = operation
+        .as_ref()
+        .and_then(|op| op.get("message").cloned())
+        .or_else(|| {
+            channel
+                .as_ref()?
+                .get("messages")?
+                .as_mapping()?
+                .iter()
+                .next()
+                .map(|(_, v)| v.clone())
+        });
+    let text = |node: &Option<Value>, key: &str| -> Option<String> {
+        node.as_ref()?
+            .get(key)?
+            .as_str()
+            .and_then(crate::descriptions::first_sentence)
+    };
+    text(&operation, "summary")
+        .or_else(|| text(&message, "summary"))
+        .or_else(|| text(&channel, "summary"))
+        .or_else(|| text(&operation, "description"))
+        .or_else(|| text(&channel, "description"))
+        .or_else(|| text(&message, "description"))
+}
+
 pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
     let root: Value = serde_yaml_ng::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
@@ -1006,6 +1053,29 @@ pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_summary_reads_operation_message_or_channel_text() {
+        let op_summary = "asyncapi: 2.6.0\nchannels:\n  orders.placed:\n    description: Channel prose.\n    publish:\n      summary: An order was placed\n";
+        assert_eq!(
+            channel_summary(op_summary).as_deref(),
+            Some("An order was placed")
+        );
+        let message_summary = "asyncapi: 2.6.0\nchannels:\n  orders.placed:\n    subscribe:\n      message:\n        summary: Order placed event\n";
+        assert_eq!(
+            channel_summary(message_summary).as_deref(),
+            Some("Order placed event")
+        );
+        let channel_description = "asyncapi: 2.6.0\nchannels:\n  orders.placed:\n    description: Every placed order. Once.\n    publish:\n      message:\n        payload: {}\n";
+        assert_eq!(
+            channel_summary(channel_description).as_deref(),
+            Some("Every placed order.")
+        );
+        let v3 = "asyncapi: 3.0.0\nchannels:\n  orders:\n    address: orders.placed\noperations:\n  placed:\n    action: send\n    summary: Emits placed orders\n    channel:\n      $ref: '#/channels/orders'\n";
+        assert_eq!(channel_summary(v3).as_deref(), Some("Emits placed orders"));
+        let bare = "asyncapi: 2.6.0\nchannels:\n  orders.placed:\n    publish:\n      message:\n        payload: {}\n";
+        assert_eq!(channel_summary(bare), None);
+    }
 
     #[test]
     fn test_split_asyncapi_2_x() {

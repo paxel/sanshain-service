@@ -1679,6 +1679,8 @@ impl SpecRepository for MockRepo {
                     path: e.path.clone(),
                     deprecated: e.deprecated,
                     consumer_count: consumers.len() as i64,
+                    summary: None,
+                    yaml_content: e.yaml_content.clone(),
                 });
             }
         }

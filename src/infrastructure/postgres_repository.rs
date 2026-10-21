@@ -1940,6 +1940,7 @@ impl SpecRepository for PostgresSpecRepository {
             String,
             bool,
             i64,
+            String,
         );
         let pattern = crate::infrastructure::like_pattern(&search.query);
         let method = search.method.as_ref().map(|m| m.to_uppercase());
@@ -1949,7 +1950,8 @@ impl SpecRepository for PostgresSpecRepository {
              e.deprecated, \
              (SELECT COUNT(DISTINCT d.client_id) FROM dependencies d \
               WHERE d.spec_version_id = v.id AND d.api_type = e.api_type \
-                AND d.normalized_path = e.normalized_path AND d.method = e.method) \
+                AND d.normalized_path = e.normalized_path AND d.method = e.method), \
+             e.yaml_content \
              FROM endpoints e \
              JOIN spec_versions v ON v.id = e.spec_version_id \
              JOIN services s ON s.id = v.service_id \
@@ -1982,6 +1984,7 @@ impl SpecRepository for PostgresSpecRepository {
                     path,
                     deprecated,
                     consumer_count,
+                    yaml_content,
                 )| {
                     Ok(EndpointSearchHit {
                         producer,
@@ -1994,6 +1997,8 @@ impl SpecRepository for PostgresSpecRepository {
                         path,
                         deprecated,
                         consumer_count,
+                        summary: None,
+                        yaml_content,
                     })
                 },
             )

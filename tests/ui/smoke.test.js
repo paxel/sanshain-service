@@ -719,6 +719,7 @@ test.describe("Endpoint card navigation", () => {
     "paths:",
     "  /widgets/{id}:",
     "    get:",
+    "      summary: Reads one widget. By id.",
     "      responses:",
     "        '200':",
     "          description: OK",
@@ -737,6 +738,19 @@ test.describe("Endpoint card navigation", () => {
       headers: { Authorization: `Bearer ${token}` },
       data: { producername: SERVICE, stability: "ga", openapi_yaml: SPEC },
     });
+  });
+
+  test("an endpoint card shows the operation's summary from the spec", async ({ page }) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}&api_type=openapi&version=1.0.0`);
+    const card = page.locator(".endpoint-card").first();
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.locator(".endpoint-summary")).toHaveText("Reads one widget.");
   });
 
   test("clicking an endpoint card opens that endpoint, not a URL of undefineds", async ({

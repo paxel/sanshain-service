@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.9.0]
 
+### Added
+- Endpoints carry the one line their Producer wrote about them: an OpenAPI operation's `summary` (or the first sentence of its `description`), an AsyncAPI operation, message or channel summary, or the comment above a proto `rpc`. The Producer page shows it under each endpoint, and the MCP `find_endpoint` hits and `describe_service` endpoints carry it as `summary`, so an assistant answers "what is this for" without fetching the spec. Proto snippets now keep the comment block above their `rpc`.
+
 ### Changed
 - Graph panels open after the mouse has rested on a node or edge for two seconds instead of at once, so a cursor crossing the graph no longer pops panels along its way; once a panel is open, moving onto a neighbour switches it at once, and clicking an `(unrequired)` chip opens its panel immediately as before.
 - A snapshot can only be changed by the user who last provided it. Different content from anyone else is refused `409` (`snapshot_owned`) naming the provider and proposing the next free minor, so two developers who picked the same number no longer break each other's Consumer builds; identical bytes from anyone (CI rebuilding an already provided commit) stay a no-op, and an administrator deletes the snapshot to free the number.

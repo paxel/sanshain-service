@@ -89,6 +89,7 @@ info:
 paths:
   /hello:
     get:
+      summary: Says hello. Politely.
       responses:
         '200': { description: ok }
 "#;
@@ -246,6 +247,7 @@ async fn admin_lists_and_cache_endpoints_work() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0]["path"], "/hello");
     assert_eq!(listed[0]["method"], "GET");
+    assert_eq!(listed[0]["summary"], "Says hello.");
 
     // Cache stats
     let (status, _) = get_json(&app, "/admin/settings/cache", &auth).await;
@@ -535,7 +537,7 @@ async fn blame_endpoint_answers_blocks_for_documents_and_endpoints() {
         vec![
             ("1.0.0".to_string(), 1, 3),
             ("1.1.0".to_string(), 4, 1),
-            ("1.0.0".to_string(), 5, 5),
+            ("1.0.0".to_string(), 5, 6),
         ]
     );
     assert_eq!(blocks[1]["lines"][0], "  version: 1.1.0");

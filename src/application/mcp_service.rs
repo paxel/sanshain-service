@@ -217,6 +217,8 @@ pub struct DescribedEndpoint {
     pub method: String,
     pub path: String,
     pub deprecated: bool,
+    /// What the Producer wrote about it, one line, when it wrote anything.
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -324,6 +326,7 @@ pub async fn describe_service(
                 endpoints.push(DescribedEndpoint {
                     api_type,
                     version,
+                    summary: crate::descriptions::endpoint_summary(api_type, &e.yaml_content),
                     method: e.method,
                     path: e.path,
                     deprecated: e.deprecated,
@@ -430,7 +433,15 @@ pub async fn find_endpoint(
             "query must not be empty — give part of a path, channel or method name".to_string(),
         ));
     }
-    Ok(repo.search_endpoints(search).await?)
+    Ok(repo
+        .search_endpoints(search)
+        .await?
+        .into_iter()
+        .map(|mut hit| {
+            hit.summary = crate::descriptions::endpoint_summary(hit.api_type, &hit.yaml_content);
+            hit
+        })
+        .collect())
 }
 
 /// The highest version of a Producer's line, for calls that omit the version.

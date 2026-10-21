@@ -517,6 +517,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       api_type: e.api_type,
       path: e.path,
       method: e.method,
+      summary: e.summary,
       service: serviceName,
       deprecated: e.deprecated,
     }));
@@ -591,6 +592,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                             <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
                             ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ""}
                         </div>
+                        ${ep.summary ? `<div class="endpoint-summary text-xs text-slate-500 mt-1.5 ml-1">${escapeHtml(ep.summary)}</div>` : ""}
                         <div class="flex items-center">
                             ${
                               isUnused

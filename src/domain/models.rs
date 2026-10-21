@@ -606,6 +606,12 @@ pub struct EndpointSearchHit {
     pub path: String,
     pub deprecated: bool,
     pub consumer_count: i64,
+    /// The one-line description derived from the snippet by the application;
+    /// repositories leave it empty.
+    pub summary: Option<String>,
+    /// The endpoint's own snippet, for deriving `summary`; never serialized.
+    #[serde(skip)]
+    pub yaml_content: String,
 }
 
 /// How a request for an endpoint at a Pin was answered.

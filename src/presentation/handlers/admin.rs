@@ -68,7 +68,7 @@ pub async fn admin_list_producer_endpoints(
     Path(name): Path<String>,
     Query(query): Query<VersionedSpecQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let res = services::list_producer_endpoints(
+    let res = services::list_producer_endpoints_described(
         &state.repo,
         &name,
         query.api_type.unwrap_or(ApiType::OpenApi),

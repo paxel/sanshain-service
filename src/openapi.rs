@@ -107,6 +107,57 @@ fn blank_path_variables(path: &str) -> String {
     blanked
 }
 
+/// The one-line description of the single operation in an endpoint snippet:
+/// its `summary`, else the first sentence of its `description`. Read from the
+/// raw YAML so a snippet the typed model would refuse still yields its line.
+pub fn operation_summary(snippet: &str) -> Option<String> {
+    const METHODS: [&str; 8] = [
+        "get", "post", "put", "delete", "patch", "options", "head", "trace",
+    ];
+    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(snippet).ok()?;
+    let paths = root.get("paths")?.as_mapping()?;
+    for (_, item) in paths {
+        for method in METHODS {
+            let Some(operation) = item.get(method) else {
+                continue;
+            };
+            if let Some(summary) = operation.get("summary").and_then(|v| v.as_str())
+                && let Some(line) = crate::descriptions::first_sentence(summary)
+            {
+                return Some(line);
+            }
+            if let Some(description) = operation.get("description").and_then(|v| v.as_str())
+                && let Some(line) = crate::descriptions::first_sentence(description)
+            {
+                return Some(line);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::operation_summary;
+
+    #[test]
+    fn operation_summary_prefers_summary_then_first_sentence_of_description() {
+        let with_summary = "openapi: 3.0.3\npaths:\n  /orders/{id}:\n    get:\n      summary: Fetch one order\n      description: Long prose. More.\n";
+        assert_eq!(
+            operation_summary(with_summary).as_deref(),
+            Some("Fetch one order")
+        );
+        let description_only = "openapi: 3.0.3\npaths:\n  /orders:\n    post:\n      description: |\n        Places an order. Needs a cart.\n";
+        assert_eq!(
+            operation_summary(description_only).as_deref(),
+            Some("Places an order.")
+        );
+        let bare = "openapi: 3.0.3\npaths:\n  /orders:\n    get:\n      responses: {}\n";
+        assert_eq!(operation_summary(bare), None);
+        assert_eq!(operation_summary("not: [valid"), None);
+    }
+}
+
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     tracing::debug!("Splitting OpenAPI specification ({} bytes)", yaml_str.len());
     let openapi: OpenAPI = serde_yaml_ng::from_str(yaml_str)

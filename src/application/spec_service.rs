@@ -378,6 +378,38 @@ pub async fn list_producer_endpoints(
     Ok(repo.get_endpoints_for_version(entry.id).await?)
 }
 
+/// An endpoint of a list with the one line the Producer wrote about it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ListedEndpoint {
+    #[serde(flatten)]
+    pub endpoint: EndpointRecord,
+    /// Derived from the snippet: the operation's `summary` or the first
+    /// sentence of its `description` (message summary, rpc comment).
+    pub summary: Option<String>,
+}
+
+/// The endpoints of one version-line entry with their one-line descriptions.
+pub async fn list_producer_endpoints_described(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<Vec<ListedEndpoint>, AppError> {
+    Ok(
+        list_producer_endpoints(repo, producername, api_type, version)
+            .await?
+            .into_iter()
+            .map(|endpoint| ListedEndpoint {
+                summary: crate::descriptions::endpoint_summary(
+                    endpoint.api_type,
+                    &endpoint.yaml_content,
+                ),
+                endpoint,
+            })
+            .collect(),
+    )
+}
+
 /// The full provided document of one version-line entry — what the Producer
 /// submitted, with line endings and a leading BOM normalized on provide.
 pub async fn get_full_spec(

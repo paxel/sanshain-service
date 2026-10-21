@@ -175,8 +175,9 @@
       <td><code>name</code>, <code>scope?</code></td>
       <td>
         One service: version lines (with <code>last_provided_at</code>, <code>superseded</code>),
-        endpoints of the latest version per line, its consumers and what they pin, what it requires,
-        its periphery and who shares it, and its <code>context</code> from catalog-info.
+        endpoints of the latest version per line with their one-line <code>summary</code> from the
+        spec, its consumers and what they pin, what it requires, its periphery and who shares it,
+        and its <code>context</code> from catalog-info.
         <em>Who owns <code>orders</code>, and where is its code?</em>
       </td>
     </tr>
@@ -188,7 +189,8 @@
       <td>
         Endpoints across all Producers whose path, channel or method name contains
         <code>query</code> (case-insensitive, <code>*</code> wildcard), latest versions by default,
-        with the consumer count. <em>Where is the endpoint that cancels an order?</em>
+        each with its one-line <code>summary</code> from the spec and the consumer count.
+        <em>Where is the endpoint that cancels an order, and what does it do?</em>
       </td>
     </tr>
     <tr>

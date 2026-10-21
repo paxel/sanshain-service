@@ -95,9 +95,18 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
         for rpc_cap in re_rpc.captures_iter(&service.body) {
             let method_name = &rpc_cap[1];
             let rpc_line = rpc_cap[0].trim();
+            let rpc_start = rpc_cap.get(0).map(|m| m.start()).unwrap_or(0);
 
             let mut snippet = common_base.clone();
             snippet.push_str(&format!("\nservice {} {{\n", service.name));
+            // The comment block right above the rpc is its documentation:
+            // it travels with the snippet so a Consumer (and the endpoint
+            // list) reads what the Producer wrote.
+            for line in leading_comment_lines(&service.body[..rpc_start]) {
+                snippet.push_str("  ");
+                snippet.push_str(line);
+                snippet.push('\n');
+            }
             snippet.push_str("  ");
             snippet.push_str(rpc_line);
             if !rpc_line.ends_with(';') && !rpc_line.ends_with('}') {
@@ -115,6 +124,36 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
     }
 
     Ok(specs)
+}
+
+/// The `//` comment lines directly above the end of `before` (the text that
+/// precedes an rpc inside its service block), top to bottom, trimmed. A blank
+/// line or anything that is not a line comment ends the block.
+fn leading_comment_lines(before: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = Vec::new();
+    for line in before.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            lines.push(trimmed);
+        } else {
+            break;
+        }
+    }
+    lines.reverse();
+    lines
+}
+
+/// The one-line description of the single rpc in a proto snippet: the first
+/// sentence of the comment block directly above it, if any.
+pub fn rpc_summary(snippet: &str) -> Option<String> {
+    let re_rpc = RE_RPC.as_ref().ok()?;
+    let rpc = re_rpc.find(snippet)?;
+    let text = leading_comment_lines(&snippet[..rpc.start()])
+        .iter()
+        .map(|line| line.trim_start_matches('/').trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    crate::descriptions::first_sentence(&text)
 }
 
 fn extract_service_blocks(re_service: &Regex, content: &str) -> Vec<ServiceBlock> {
@@ -462,6 +501,44 @@ service HealthService {
             .find(|s| s.service == "HealthService" && s.method == "Check")
             .unwrap();
         assert!(check.content.contains("service HealthService"));
+    }
+
+    #[test]
+    fn split_keeps_the_comment_above_an_rpc_and_rpc_summary_reads_it() {
+        let content = r#"
+syntax = "proto3";
+// sanshain-version: 1.0.0
+message Req {}
+message Res {}
+
+// Not about an rpc.
+
+service UserService {
+  // Reads one user by id.
+  // Fails with NOT_FOUND for unknown ids.
+  rpc GetUser (Req) returns (Res);
+
+  rpc CreateUser (Req) returns (Res);
+}
+"#;
+        let result = split_proto(content).unwrap();
+        let get_user = result.iter().find(|s| s.method == "GetUser").unwrap();
+        assert!(
+            get_user.content.contains("  // Reads one user by id.\n  // Fails with NOT_FOUND for unknown ids.\n  rpc GetUser"),
+            "{}",
+            get_user.content
+        );
+        assert_eq!(
+            rpc_summary(&get_user.content).as_deref(),
+            Some("Reads one user by id.")
+        );
+        let create = result.iter().find(|s| s.method == "CreateUser").unwrap();
+        assert!(
+            !create.content.contains("Reads one user"),
+            "{}",
+            create.content
+        );
+        assert_eq!(rpc_summary(&create.content), None);
     }
 
     #[test]

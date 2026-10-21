@@ -79,6 +79,7 @@ paths:
         '200': { description: ok }
   /orders/{id}:
     get:
+      summary: Fetch one order
       responses:
         '200': { description: ok }
     delete:
@@ -101,6 +102,7 @@ paths:
         '201': { description: created }
   /orders/{id}:
     get:
+      summary: Fetch one order
       responses:
         '200': { description: ok }
 "#;
@@ -494,6 +496,13 @@ async fn list_services_and_describe_service_answer_the_catalog() {
         "the latest version's endpoints: {endpoints:?}"
     );
     assert!(endpoints.iter().all(|e| e["version"] == "1.1.0"));
+    let described = endpoints
+        .iter()
+        .find(|e| e["path"] == "/orders/{id}" && e["method"] == "GET")
+        .unwrap();
+    assert_eq!(described["summary"], "Fetch one order");
+    let bare = endpoints.iter().find(|e| e["path"] == "/orders").unwrap();
+    assert!(bare["summary"].is_null(), "{bare}");
     assert_eq!(d["consumers"][0]["name"], "web");
     assert_eq!(d["consumers"][0]["version"], "1.0.0");
     assert_eq!(d["consumers"][0]["endpoints"][0]["path"], "/orders/{id}");
@@ -589,6 +598,8 @@ async fn find_endpoint_searches_latest_versions_by_default() {
     assert_eq!(hit["method"], "GET");
     assert_eq!(hit["path"], "/orders/{id}");
     assert_eq!(hit["consumer_count"], 0, "the pin is on 1.0.0");
+    assert_eq!(hit["summary"], "Fetch one order");
+    assert!(hit.get("yaml_content").is_none(), "{hit}");
 
     let all = call_json(
         &seed.app,
