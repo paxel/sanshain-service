@@ -1,2 +1,4 @@
-# recorded with curl; the sanshain-conan invocation is:
+# orders/, hotfix pipeline of release-2026.10
 $ sanshain-conan --tag release-2026.10 require
+Requiring 1 endpoints from payments (version: 1.0.0, type: openapi)...
+Saved to generated/payments/payments.yaml

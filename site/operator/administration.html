@@ -32,11 +32,10 @@
   described in <a href="roles.html">Roles and permissions</a>, and every route behind it is in the
   generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. Top to
   bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL,
-  Snapshot Cleanup, Dependency Cleanup, Auto Acknowledge New Users, Authentication, Users, Groups,
-  Maintainers, Provide a Spec for a Producer, Producers, Consumers, Danger Zone. Administrative
-  routes accept session tokens only, so a script that administers logs in first (<code
-    >POST /auth/login</code
-  >); the one exception is the backup download, which takes a <code>full</code> API token.
+  Snapshot Cleanup, Ticket Links, Dependency Cleanup, Authentication, Users, Groups, Maintainers,
+  Provide a Spec for a Producer, Producers, Consumers, Danger Zone. Administrative routes accept
+  session tokens only, so a script that administers logs in first (<code>POST /auth/login</code>);
+  the one exception is the backup download, which takes a <code>full</code> API token.
 </p>
 <figure class="screenshot">
   <img
@@ -254,7 +253,7 @@
 <figure class="screenshot">
   <img
     src="../assets/images/admin_snapshot_cleanup.png"
-    alt="The Sanshain-Branches, Trunk Data TTL, Snapshot Cleanup, Dependency Cleanup and Auto Acknowledge New Users sections, each age with a days field, Save and Run Cleanup"
+    alt="The end of the Webhooks section, then Trunk Data TTL, Snapshot Cleanup, Ticket Links and Dependency Cleanup, each age with a days field, Save and Run Cleanup"
     loading="lazy"
   />
   <figcaption>The retention sections. Each age has a Save and a Run Cleanup button.</figcaption>
@@ -281,12 +280,14 @@
     >), read-only; and on SQLite the snapshot download.
   </li>
   <li>
-    <strong>Auto Acknowledge New Users</strong>: approves registrations automatically, see
-    <a href="authentication.html#local-accounts">Authentication</a>.
+    <strong>Authentication</strong>: the mode (Off, Dev, Local users, LDAP, OIDC) with the LDAP and
+    OIDC forms, and in Local mode the <strong>Registration</strong> and
+    <strong>Auto-acknowledge new users</strong> switches, see
+    <a href="authentication.html">Authentication</a>.
   </li>
   <li>
-    <strong>Authentication</strong>: the mode and the LDAP form, see
-    <a href="authentication.html">Authentication</a>.
+    <strong>Users</strong>: approve, delete and grant roles, and create
+    <a href="authentication.html#service-accounts">service accounts</a> for automation.
   </li>
   <li>
     <strong>Webhooks</strong>: global hooks and the <strong>Allowed receiver hosts</strong> list,

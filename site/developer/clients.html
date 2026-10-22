@@ -11,8 +11,9 @@
 <ul>
   <li>
     <strong>Compatibility</strong>: client 2.x speaks Sanshain Service 2.x. The catalog push and
-    <code>format: openapi</code> need Sanshain Service 2.4.0 or later; everything else works with
-    any 2.x service.
+    <code>format: openapi</code> need Sanshain Service 2.4.0 or later, the origin of a provide 2.9.0
+    or later (an older service refuses it; the client warns and provides without it); everything
+    else works with any 2.x service.
   </li>
   <li><strong>Three commands</strong>: provide, require, catalog, each a separate step.</li>
   <li>
@@ -26,6 +27,19 @@
     <code>SANSHAIN_TAG=&lt;branch&gt;</code> a
     <a href="../start/glossary.html#sanshain-branch">sanshain-branch</a> build. Both set, the client
     sends neither and warns (strict mode fails before any request).
+  </li>
+  <li>
+    <strong>Origin</strong>: every provide carries the build URL and the pull or merge request from
+    the runner's variables on GitHub Actions, GitLab CI and Jenkins, and the ticket ids and the note
+    from <code>SANSHAIN_TICKETS</code> and <code>SANSHAIN_NOTE</code>; each client's flag wins over
+    <code>SANSHAIN_BUILD_URL</code>, <code>SANSHAIN_CHANGE_URL</code> and the other variables, which
+    win over the runner. The variables, the order and each client's flag names are in
+    <a href="ci-integration.html#why-the-origin-of-a-build">CI integration</a>.
+  </li>
+  <li>
+    <strong>Dry runs</strong>: Maven (<code>-Dsanshain.dry.run=true</code>) and the JavaScript CLI
+    (<code>--dry-run</code>) send <code>dry_run</code>; the Rust, Go and Conan clients and the
+    GitHub Action do not.
   </li>
   <li>
     <strong>Environment</strong>: <code>SANSHAIN_URL</code> overrides <code>sanshainUrl</code>,
@@ -70,15 +84,19 @@ mvn sanshain:catalog</code></pre>
 <p>
   Configuration comes from <code>sanshain.yaml</code>, overridable by Maven properties
   (<code>-Dsanshain.url</code>, <code>-Dsanshain.token</code>, <code>-Dsanshain.ga</code>,
-  <code>-Dsanshain.trunk</code>, <code>-Dsanshain.tag</code>, <code>-Dsanshain.strict</code>) and by
-  the environment; URL and token can also live in <code>settings.xml</code> (a
-  <code>&lt;server&gt;</code> with id <code>sanshain</code> for the token). The plugin inlines local
-  <code>$ref</code>s and proto <code>import</code>s into one document before upload
-  (<code>combine</code>, on by default), and picks <code>/require-bundle</code> automatically when
-  an entry has two or more endpoints. <code>configFile</code> points it at another
-  <code>sanshain.yaml</code>. Require ETags are kept in <code>target/.sanshain-cache.json</code>,
-  removed by <code>mvn clean</code>. Its README documents the full precedence chain, strict and
-  best-effort modes, and the <code>openapi-generator</code> wiring.
+  <code>-Dsanshain.trunk</code>, <code>-Dsanshain.tag</code>, <code>-Dsanshain.strict</code>,
+  <code>-Dsanshain.dry.run</code>, and for the origin <code>-Dsanshain.buildUrl</code>,
+  <code>-Dsanshain.changeUrl</code>, <code>-Dsanshain.tickets</code>, <code>-Dsanshain.note</code>)
+  and by the environment. Unlike the other clients, <code>-Dsanshain.trunk=false</code> also turns
+  off a <code>SANSHAIN_TRUNK=true</code> from the environment; URL and token can also live in
+  <code>settings.xml</code> (a <code>&lt;server&gt;</code> with id <code>sanshain</code> for the
+  token). The plugin inlines local <code>$ref</code>s and proto <code>import</code>s into one
+  document before upload (<code>combine</code>, on by default), and picks
+  <code>/require-bundle</code> automatically when an entry has two or more endpoints.
+  <code>configFile</code> points it at another <code>sanshain.yaml</code>. Require ETags are kept in
+  <code>target/.sanshain-cache.json</code>, removed by <code>mvn clean</code>. Its README documents
+  the full precedence chain, strict and best-effort modes, and the
+  <code>openapi-generator</code> wiring.
 </p>
 
 <h2>Rust (cargo)</h2>
@@ -91,7 +109,8 @@ mvn sanshain:catalog</code></pre>
 cargo sanshain provide        # snapshot (the default)
 cargo sanshain provide --ga   # immutable GA
 cargo sanshain require        # download the pinned snippets
-cargo sanshain catalog        # push catalog-info.yaml</code></pre>
+cargo sanshain catalog        # push catalog-info.yaml
+cargo sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
 <p>
   The subcommand README has the flags and CI recipes; the library README has the configuration
   reference and the <code>Client</code> API for builds that embed the client.
@@ -109,7 +128,8 @@ sanshain-go --ga provide
 sanshain-go --trunk provide      # or SANSHAIN_TRUNK=true
 sanshain-go --tag R1 provide     # or SANSHAIN_TAG=R1
 sanshain-go require
-sanshain-go catalog</code></pre>
+sanshain-go catalog
+sanshain-go -tickets PAY-12 -note "card refunds" provide</code></pre>
 <p>
   <code>--config path/to/sanshain.yaml</code> points it at another file; <code>strict: true</code>
   in the file turns on strict mode. The README covers the failure modes, the ETag state file and the
@@ -127,7 +147,9 @@ npx sanshain provide          # snapshot
 npx sanshain provide --ga
 npx sanshain provide --trunk  # or --tag R1
 npx sanshain require
-npx sanshain catalog</code></pre>
+npx sanshain catalog
+npx sanshain provide --dry-run   # validate only, e.g. on a pull request
+npx sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
 <p>
   A <code>"prebuild": "sanshain require"</code> script in <code>package.json</code> fetches the
   pinned snippets before every build. Beyond the shared variables the CLI reads
@@ -138,7 +160,8 @@ npx sanshain catalog</code></pre>
 <p>
   The Action wraps the CLI. Its inputs are <code>command</code> (provide, require or catalog),
   <code>token</code> (or the <code>SANSHAIN_TOKEN</code> secret in the environment),
-  <code>ga</code>, <code>trunk</code>, <code>tag</code> and <code>working-directory</code>:
+  <code>ga</code>, <code>trunk</code>, <code>tag</code>, <code>tickets</code>, <code>note</code> and
+  <code>working-directory</code>; the build and pull-request URLs come from GitHub's own variables:
 </p>
 <pre><code>- uses: paxel/sanshain-js@main
   with:
@@ -168,8 +191,10 @@ class MyProject(ConanFile):
 <p>
   Providing runs from the CLI, after the tests: <code>sanshain-conan provide</code> (or
   <code>python3 -m sanshainconan.cli provide</code>), with <code>--ga</code>, <code>--trunk</code>,
-  <code>--tag</code> and <code>--best-effort</code> as flags. <code>strict: true</code> in
-  <code>sanshain.yaml</code> turns on strict mode.
+  <code>--tag</code>, <code>--best-effort</code> and the origin flags <code>--build-url</code>,
+  <code>--change-url</code>, <code>--tickets</code> and <code>--note</code>. The
+  <code>conanfile.py</code> integration reads the <code>SANSHAIN_*</code> variables only.
+  <code>strict: true</code> in <code>sanshain.yaml</code> turns on strict mode.
 </p>
 
 <h2>No client for your language?</h2>
@@ -183,4 +208,4 @@ class MyProject(ConanFile):
   <code>api.yaml</code> in the repository is the OpenAPI document to generate a client from.
 </p>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.10.0.</p>

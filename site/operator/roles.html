@@ -28,7 +28,10 @@
   <tbody>
     <tr>
       <td><code>manage_users</code></td>
-      <td>List, approve and delete user accounts.</td>
+      <td>
+        List, approve and delete user accounts; create service accounts and issue, see and revoke
+        their API tokens.
+      </td>
       <td><code>admin</code>, <code>user_manager</code></td>
     </tr>
     <tr>
@@ -60,14 +63,17 @@
     <tr>
       <td><code>manage_settings</code></td>
       <td>
-        Cleanup ages, the cache, auto-approve, the webhook allow-list and global webhooks, the debug
-        flags.
+        Cleanup ages, the cache, registration and auto-approve, the webhook allow-list and global
+        webhooks, the debug flags.
       </td>
       <td><code>admin</code></td>
     </tr>
     <tr>
       <td><code>manage_auth_config</code></td>
-      <td>Read and change the authentication mode and the LDAP and OIDC configuration.</td>
+      <td>
+        Read and change the authentication mode and the LDAP and OIDC configuration. The only
+        accounts that sign in while the mode is Off or Dev.
+      </td>
       <td><code>admin</code></td>
     </tr>
     <tr>

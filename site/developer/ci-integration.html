@@ -104,15 +104,134 @@ curl -s -X POST $SANSHAIN/auth/tokens \
 
 <h3>Why: the origin of a build</h3>
 <p>
-  A provide may carry what the pipeline knows about why it runs: the build URL, the pull or merge
-  request (<code>change_url</code>), the ticket ids it closes and one line of intent. The clients
-  take the build and change URL from the runner's own variables on GitHub Actions, GitLab CI and
-  Jenkins; <code>SANSHAIN_BUILD_URL</code> and <code>SANSHAIN_CHANGE_URL</code> override them, and
-  <code>SANSHAIN_TICKETS</code> (comma-separated) and <code>SANSHAIN_NOTE</code> are set by the
-  pipeline that knows them. A raw <code>curl</code> pipeline sends the fields itself. Sanshain shows
-  the <a href="../start/glossary.html#origin">origin</a> on the version row, in the diff and the
-  blame; ticket ids become links through the administrator's ticket URL template.
+  A provide may carry what the pipeline knows about why it runs (Sanshain Service 2.9.0 or later):
+  <code>build_url</code>, where the build ran; <code>change_url</code>, the pull or merge request;
+  <code>tickets</code>, at most 20 ids of letters, digits, <code>-</code>, <code>_</code> and
+  <code>.</code>; and <code>note</code>, one line of at most 200 characters. Both URLs must be
+  http(s). Sanshain shows the <a href="../start/glossary.html#origin">origin</a> on the version row,
+  in the diff and the blame; ticket ids become links through the administrator's ticket URL
+  template. A raw <code>curl</code> pipeline sends the fields itself.
 </p>
+<p>
+  The clients fill the two URLs from the runner's own variables; tickets and the note are intent and
+  never come from the runner:
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Runner</th>
+      <th><code>build_url</code></th>
+      <th><code>change_url</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GitHub Actions</td>
+      <td>
+        <code>$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID</code>
+      </td>
+      <td>
+        <code>$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/&lt;n&gt;</code> when
+        <code>GITHUB_REF</code> is <code>refs/pull/&lt;n&gt;/…</code>
+      </td>
+    </tr>
+    <tr>
+      <td>GitLab CI</td>
+      <td><code>CI_JOB_URL</code></td>
+      <td>
+        <code>$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID</code> in a
+        merge-request pipeline
+      </td>
+    </tr>
+    <tr>
+      <td>Jenkins</td>
+      <td><code>BUILD_URL</code></td>
+      <td><code>CHANGE_URL</code> (multibranch pull-request builds)</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The checks run in that order, whatever CI the build is on. Azure Pipelines, Bitbucket Pipelines,
+  CircleCI, Buildkite, TeamCity and others fill nothing; set <code>SANSHAIN_BUILD_URL</code> and
+  <code>SANSHAIN_CHANGE_URL</code> from their variables instead. For every field the client takes
+  the first value that is not blank, in this order:
+</p>
+<ol>
+  <li>the client's flag or property (table below);</li>
+  <li>
+    the environment: <code>SANSHAIN_BUILD_URL</code>, <code>SANSHAIN_CHANGE_URL</code>,
+    <code>SANSHAIN_TICKETS</code> (comma-separated; trimmed, duplicates dropped),
+    <code>SANSHAIN_NOTE</code>;
+  </li>
+  <li>for the two URLs, the runner variables above.</li>
+</ol>
+<p>
+  A blank value counts as unset, so an empty flag or variable does not switch the runner's URL off;
+  only unsetting the runner variable does. No client reads the origin from
+  <code>sanshain.yaml</code> or from git. Against a service older than 2.9.0, which refuses the
+  fields, every client drops the origin, warns, and provides again without it.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Client</th>
+      <th>Origin</th>
+      <th><code>dry_run</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Maven</td>
+      <td>
+        <code>-Dsanshain.buildUrl</code>, <code>-Dsanshain.changeUrl</code>,
+        <code>-Dsanshain.tickets</code>, <code>-Dsanshain.note</code>
+      </td>
+      <td><code>-Dsanshain.dry.run=true</code> (provide, require, catalog)</td>
+    </tr>
+    <tr>
+      <td>Rust (<code>cargo sanshain provide</code>)</td>
+      <td>
+        <code>--build-url</code>, <code>--change-url</code>, <code>--tickets</code>,
+        <code>--note</code>
+      </td>
+      <td>not available</td>
+    </tr>
+    <tr>
+      <td>Go</td>
+      <td>
+        <code>-build-url</code>, <code>-change-url</code>, <code>-tickets</code>,
+        <code>-note</code>, before the command (<code>sanshain-go -tickets PAY-12 provide</code>)
+      </td>
+      <td>not available</td>
+    </tr>
+    <tr>
+      <td>JavaScript CLI</td>
+      <td>
+        <code>--build-url</code>, <code>--change-url</code>, <code>--tickets</code>,
+        <code>--note</code>
+      </td>
+      <td><code>--dry-run</code> (provide, require)</td>
+    </tr>
+    <tr>
+      <td>GitHub Action</td>
+      <td>inputs <code>tickets</code> and <code>note</code>; the URLs come from GitHub itself</td>
+      <td>not available</td>
+    </tr>
+    <tr>
+      <td>Conan CLI</td>
+      <td>
+        <code>--build-url</code>, <code>--change-url</code>, <code>--tickets</code>,
+        <code>--note</code>
+      </td>
+      <td>not available</td>
+    </tr>
+    <tr>
+      <td>Conan <code>conanfile.py</code></td>
+      <td>the environment only</td>
+      <td>not available</td>
+    </tr>
+  </tbody>
+</table>
 
 <h3>The catalog push</h3>
 <p>
@@ -242,6 +361,11 @@ HTTP/1.1 410 Gone
 </p>
 
 <h2>The typical pipelines</h2>
+<p>
+  The dry runs below need a client that sends <code>dry_run</code>: Maven and the JavaScript CLI do
+  (table above); with the other clients a pull-request pipeline calls the route with
+  <code>curl</code>, as in <a href="#dry-runs-for-pull-requests">Dry runs for pull requests</a>.
+</p>
 <h3>A Producer</h3>
 <pre><code>pull request   → provide as ga with dry_run (validate the version rules)
 merge to main  → provide as ga, trunk: true (store; trunk's current version)
@@ -378,4 +502,4 @@ export SANSHAIN_TOKEN=san_xxxxxxxxxxxx</code></pre>
   <code>scripts/openapi-generator-check.sh</code>, a manual check that is not part of CI.
 </p>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.10.0.</p>

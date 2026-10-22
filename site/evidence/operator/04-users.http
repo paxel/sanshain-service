@@ -3,13 +3,14 @@ Authorization: Bearer <session token>
 
 HTTP/1.1 200 OK
 content-type: application/json
-content-length: 118
+content-length: 166
 
 [
   {
     "approved": false,
     "id": 2,
     "roles": [],
+    "service_account": false,
     "username": "maria"
   },
   {
@@ -18,6 +19,7 @@ content-length: 118
     "roles": [
       "admin"
     ],
+    "service_account": false,
     "username": "root"
   }
 ]

@@ -40,7 +40,8 @@
 <div class="recipe">
   <p>
     Find the id in <code>GET /admin/users</code>, then approve. The
-    <strong>Auto-approve users</strong> switch skips this for new registrations.
+    <strong>Auto-acknowledge new users</strong> switch (Local mode, next to Registration) skips this
+    for new registrations.
   </p>
   <pre><code>curl -s -X POST $SANSHAIN/admin/users/2/approve -H "Authorization: Bearer $SESSION"</code></pre>
   <p class="evidence-label">Recorded (<a href="story.html#step-4">story, step 4</a>)</p>

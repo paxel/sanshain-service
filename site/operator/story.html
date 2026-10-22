@@ -230,11 +230,12 @@
     <figure class="screenshot">
       <img
         src="../evidence/operator/02-login.png"
-        alt="The sign-in form with username and password fields, a Sign In button and a Sign in with SSO button"
+        alt="The sign-in card with the Sign In and Register tabs, username and password fields and a Sign In button"
         loading="lazy"
       />
       <figcaption>
-        The sign-in form; the SSO button shows because step 3 was recorded on the same instance.
+        The sign-in form as the recording ended: the Register tab shows because step 4 opened
+        registration, and there is no SSO button because OIDC is no longer the mode after step 3.
       </figcaption>
     </figure>
     <p class="evidence-label">Login</p>
@@ -275,8 +276,8 @@
   >
     <h2>3. OpenID Connect, configured</h2>
     <p>
-      People sign in through the company's identity provider. OIDC is configured through the API
-      (the admin page has no OIDC form in 2.6.0): one <code>PUT</code> with the provider's values,
+      People sign in through the company's identity provider. OIDC is configured here through the
+      API (the admin page has an OIDC form as well): one <code>PUT</code> with the provider's values,
       then a <code>GET</code> to see what is stored. No provider was reachable during the recording,
       so this is the configuration only; the login itself is described in the chapter.
     </p>
@@ -288,9 +289,9 @@
     <pre class="evidence" data-evidence="operator/03-oidc-back-to-local.http"></pre>
     <p>
       In <code>oidc</code> mode nobody can register a local account, and step 4 registers one. The
-      mode goes back to <code>local</code>; the OIDC values stay stored, which is why the sign-in
-      form of step 2 still offers <strong>Sign in with SSO</strong>, and the audit log of step 9
-      shows both changes.
+      mode goes back to <code>local</code>; the OIDC values stay stored for a later switch, the
+      sign-in form hides <strong>Sign in with SSO</strong> again, and the audit log of step 9 shows
+      both changes.
     </p>
     <p class="eyebrow">What to notice</p>
     <ul>
@@ -324,11 +325,14 @@
   >
     <h2>4. A user, a role, a maintainer scope, and the effect</h2>
     <p>
-      Maria registers herself, which an administrator has to approve. She gets the
+      Registration starts closed, so the administrator opens it first. Maria registers herself,
+      which an administrator has to approve; the answer says so (<code>"approved": false</code>). She gets the
       <code>releaser</code> role (she may publish GA and cut branches) and becomes a maintainer of
       <code>payments</code> (she may delete its versions and manage its hooks). Then she logs in and
       asks what she may do.
     </p>
+    <p class="evidence-label">Open registration</p>
+    <pre class="evidence" data-evidence="operator/04-open-registration.http"></pre>
     <p class="evidence-label">Registration</p>
     <pre class="evidence" data-evidence="operator/04-register.http"></pre>
     <p class="evidence-label">The user list, before approval</p>
@@ -700,4 +704,4 @@
   what the step expects, and overwrites <code>site/evidence/</code>.
 </p>
 
-<p class="checked">Recorded against v2.6.1.</p>
+<p class="checked">Recorded against v2.10.0.</p>

@@ -1,7 +1,8 @@
 $ curl -s https://sanshain.corp/metrics | grep '^sanshain_'
 sanshain_branches 1
+sanshain_branch_updates_total{branch="release-2026.10"} 1
 sanshain_catalog_pushes_total 1
-sanshain_mcp_result_bytes_total{tool="describe_service"} 1682
+sanshain_mcp_result_bytes_total{tool="describe_service"} 2038
 sanshain_mcp_tool_calls_total{tool="describe_service",outcome="ok"} 1
 sanshain_version_rejected_total{reason="breaking_without_major",producer="payments"} 1
 sanshain_version_rejected_total{reason="immutable_ga",producer="payments"} 1

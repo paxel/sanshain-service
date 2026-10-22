@@ -25,7 +25,6 @@ sleep 1
 # Pre-build to avoid race conditions and slow starts
 cargo build --release
 export OTEL_ENABLED="false"
-export SANSHAIN_DEV_MODE="true"
 export RUST_LOG="debug,sanshain_service=debug,tower_http=debug"
 stdbuf -oL target/release/sanshain_service > service.log 2>&1 &
 SVC_PID=$!
@@ -71,12 +70,6 @@ curl -s -X POST http://localhost:$PORT/admin/settings/registration \
   -H "Content-Type: application/json" \
   -d '{"enabled":true}' >/dev/null
 
-echo "Enabling Dev Mode for demo scripts..."
-curl -s -X POST http://localhost:$PORT/admin/settings/dev-mode \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"enabled":true}'
-sleep 2
 
 echo "Populating rich data via demo scripts..."
 # Unset token to force demo scripts to login themselves using the password

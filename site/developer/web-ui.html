@@ -55,7 +55,17 @@
   <strong>Read-only (for AI / MCP clients)</strong> box that sets the scope to
   <code>read_only</code>. The raw token is shown once. The list below shows every token you own with
   its scope, its expiry and when it last authenticated a request, to the minute, and lets you revoke
-  it. The star next to a Producer on the Producers page marks it as one of your favourites.
+  it. Holders of <code>manage_users</code> also get a <strong>For</strong> choice that issues the
+  token for a <a href="../operator/authentication.html#service-accounts">service account</a>; their
+  list then shows every service-account token too, marked <em>For jenkins · issued by alice</em>,
+  and any of them can revoke it. The star next to a Producer on the Producers page marks it as one
+  of your favourites.
+</p>
+<p>
+  Signed out, the page is the sign-in card. It follows the instance's settings: the
+  <strong>Register</strong> tab only while registration is open, a note that the account is ready
+  at once when new accounts are acknowledged automatically, <strong>Sign in with SSO</strong> only
+  while OIDC is the sign-in mode, and a notice when only administrators can sign in (Off, Dev).
 </p>
 <figure class="screenshot">
   <img

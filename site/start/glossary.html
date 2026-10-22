@@ -81,7 +81,15 @@
   <dt id="approval">Approval</dt>
   <dd>
     A locally registered user cannot log in until an administrator approves the account, unless the
-    administrator switched on <em>auto-approve</em> on the admin page.
+    administrator switched on <em>auto-acknowledge</em> on the admin page. Registration itself is a
+    switch of Local mode, off by default.
+  </dd>
+
+  <dt id="service-account">Service account</dt>
+  <dd>
+    An account an administrator creates for automation, such as <code>jenkins</code>. It has no
+    password and never signs in; holders of <code>manage_users</code> issue, see and revoke its API
+    tokens.
   </dd>
 </dl>
 
@@ -465,10 +473,17 @@
 
   <dt id="dev-mode">Developer mode</dt>
   <dd>
-    A local-only switch that bypasses authentication. It needs both the admin setting (or
-    <code>SANSHAIN_DEV_MODE</code>) and the <code>ALLOW_INSECURE_DEV_MODE=true</code> safety gate,
-    and fails closed otherwise.
+    An auth mode for a laptop: provide, require, catalog and MCP work without a token, and only
+    administrators sign in. It needs both the mode (or <code>SANSHAIN_DEV_MODE</code>) and the
+    <code>ALLOW_INSECURE_DEV_MODE=true</code> safety gate, and fails closed otherwise.
+  </dd>
+
+  <dt id="maintenance">Off (maintenance)</dt>
+  <dd>
+    The auth mode for backups, restores and directory work: the API answers <code>503</code> and
+    only administrators sign in. A fresh instance starts in it unless <code>INITIAL_AUTH_MODE</code>
+    names another mode.
   </dd>
 </dl>
 
-<p class="checked">Checked against v2.6.0.</p>
+<p class="checked">Checked against v2.10.0.</p>

@@ -503,7 +503,7 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
   <tbody>
     <tr>
       <td><code>auth_mode</code></td>
-      <td><code>local</code> (set on the first start)</td>
+      <td>Off on the first start, or <code>INITIAL_AUTH_MODE</code></td>
       <td>
         <code>GET</code>/<code>PUT /admin/auth-config</code>, <code>manage_auth_config</code>. With
         the LDAP and OIDC configurations. See <a href="authentication.html">Authentication</a>.
@@ -512,7 +512,23 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
     <tr>
       <td><code>dev_mode</code></td>
       <td>off</td>
-      <td>The <strong>Dev Mode</strong> radio of the same form; gated by the environment.</td>
+      <td>Follows the <strong>Dev</strong> mode of the same form; gated by the environment.</td>
+    </tr>
+    <tr>
+      <td><code>auth_mode_before_off</code></td>
+      <td>none</td>
+      <td>
+        Written when the mode becomes Off: the sign-in source Off keeps for administrators. Not set
+        directly.
+      </td>
+    </tr>
+    <tr>
+      <td><code>registration_enabled</code></td>
+      <td><code>false</code></td>
+      <td>
+        <code>POST /admin/settings/registration</code>, <code>manage_settings</code>. Applies in
+        Local mode only.
+      </td>
     </tr>
     <tr>
       <td><code>auto_approve_users</code></td>

@@ -1,0 +1,10 @@
+POST /admin/settings/registration HTTP/1.1
+Authorization: Bearer <session token>
+Content-Type: application/json
+
+{
+  "enabled": true
+}
+
+HTTP/1.1 200 OK
+content-length: 0

@@ -3,7 +3,7 @@ Authorization: Bearer <session token>
 
 HTTP/1.1 200 OK
 content-type: application/json
-content-length: 402
+content-length: 412
 
 {
   "name": "payments",
@@ -27,6 +27,7 @@ content-length: 402
         "type": null,
         "icon": null
       }
-    ]
+    ],
+    "tags": []
   }
 }
