@@ -137,3 +137,29 @@ test("a gated control is greyed with the permission named, a granted one is live
   );
   await expect(page.locator("#ldap-server-url")).toBeDisabled();
 });
+
+// The live updates use the stream that sends the Authorization header. The
+// former WebSocket mode put the token into the URL, which the server refuses;
+// its old switch in local storage must not bring it back.
+test("live updates authenticate with the header, never a token in the URL", async ({ page }) => {
+  const streams = [];
+  const sockets = [];
+  page.on("websocket", (ws) => sockets.push(ws.url()));
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    if (url.pathname.startsWith("/api/sse/") || url.pathname.startsWith("/api/ws/")) {
+      streams.push({ url, authorization: req.headers()["authorization"] });
+    }
+  });
+  await signIn(page, PERSONAS.plain);
+  await page.evaluate(() => localStorage.setItem("sanshain_use_ws", "true"));
+  streams.length = 0;
+  await page.goto("/");
+  await expect.poll(() => streams.length + sockets.length).toBeGreaterThan(0);
+  expect(sockets).toEqual([]);
+  for (const { url, authorization } of streams) {
+    expect(url.pathname).toBe("/api/sse/updates");
+    expect(url.search).toBe("");
+    expect(authorization).toMatch(/^Bearer \S+$/);
+  }
+});
