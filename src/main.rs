@@ -274,6 +274,16 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // A dev_user from before 2.10 carried a password written in the source;
+    // lock it whatever the mode, so it never signs in as an admin.
+    match services::lock_dev_user(&repo).await {
+        Ok(true) => tracing::warn!(
+            "Locked the password of dev_user: it was a fixed password from the source and signed in as an admin"
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::error!("Could not lock the password of dev_user: {}", e),
+    }
+
     // Carry a previously configured directory admin group into the group
     // mapping. Best effort: an instance that has never used the directory has
     // nothing to migrate, and failing to migrate must not stop the service from

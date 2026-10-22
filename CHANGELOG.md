@@ -33,6 +33,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph's Topics switch draws the channels a producer publishes that nobody requires yet.
 - Under LDAP, a local password is checked before the directory, so a user whose local and directory accounts share a name no longer locks their directory account by typing the local password.
 
+### Security
+- The `dev_user` account that dev mode creates no longer has a password: it carried a fixed one written in the source and signed in as an admin on any instance that had ever been in dev mode. An existing `dev_user` is locked on startup.
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).

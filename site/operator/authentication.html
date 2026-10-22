@@ -605,8 +605,9 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
 <p>
   <a href="../start/glossary.html#dev-mode">Developer mode</a> is for a trial on a laptop: provide,
   require, catalog and the MCP endpoint take requests without a token and act as a built-in
-  <code>dev_user</code>. The admin pages do not: they need a signed-in administrator, and only
-  administrators sign in. It needs two things at once:
+  <code>dev_user</code>, a service account with the <code>admin</code> role that never signs in (one
+  created before 2.10 had a fixed password and is locked on startup). The admin pages do not: they
+  need a signed-in administrator, and only administrators sign in. It needs two things at once:
 </p>
 <ol>
   <li>

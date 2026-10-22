@@ -242,14 +242,35 @@ pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(
     Ok(())
 }
 
+const DEV_USER: &str = "dev_user";
+
+/// The account dev mode's tokenless API calls act as. A service account: it
+/// has no password and never signs in, so an instance that was once in dev
+/// mode keeps no admin login behind.
 pub async fn ensure_dev_user(repo: &impl SpecRepository) -> Result<User, AppError> {
-    if let Some(user) = repo.find_user("dev_user").await? {
+    lock_dev_user(repo).await?;
+    if let Some(user) = repo.find_user(DEV_USER).await? {
         return Ok(user);
     }
-    let hash = hash_password("dev_user_internal")?;
-    let user = repo.create_user("dev_user", &hash, true).await?;
+    let user = repo
+        .create_user(DEV_USER, SERVICE_ACCOUNT_PASSWORD_HASH, true)
+        .await?;
     repo.grant_user_role(user.id, Role::Admin.as_str()).await?;
     Ok(user)
+}
+
+/// Lock the password of a `dev_user` created before 2.10, which carried a
+/// password written in the source and so signed in as an admin on any
+/// instance that had ever been in dev mode. Answers whether one was locked.
+pub async fn lock_dev_user(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    match repo.find_user(DEV_USER).await? {
+        Some(user) if !user.is_service_account() => {
+            repo.update_password(user.id, SERVICE_ACCOUNT_PASSWORD_HASH)
+                .await?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
 }
 
 #[instrument(skip_all)]
@@ -1240,6 +1261,40 @@ mod tests {
         assert_eq!(
             initial_admin_url(None, "127.0.0.1:3000"),
             "http://127.0.0.1:3000/admin.html"
+        );
+    }
+
+    #[tokio::test]
+    async fn dev_user_never_signs_in_and_an_old_one_is_locked() {
+        let repo = MockRepo::new();
+        let dev = ensure_dev_user(&repo).await.unwrap();
+        assert!(dev.is_service_account());
+        assert!(matches!(
+            login(&repo, "dev_user", "dev_user_internal").await,
+            Err(AppError::Unauthorized)
+        ));
+
+        // One created before 2.10, with the password from the source.
+        let repo = MockRepo::new();
+        let old = repo
+            .create_user(
+                "dev_user",
+                &hash_password("dev_user_internal").unwrap(),
+                true,
+            )
+            .await
+            .unwrap();
+        assert!(login(&repo, "dev_user", "dev_user_internal").await.is_ok());
+        assert!(lock_dev_user(&repo).await.unwrap());
+        assert!(!lock_dev_user(&repo).await.unwrap(), "only once");
+        assert!(matches!(
+            login(&repo, "dev_user", "dev_user_internal").await,
+            Err(AppError::Unauthorized)
+        ));
+        assert_eq!(
+            ensure_dev_user(&repo).await.unwrap().id,
+            old.id,
+            "same account"
         );
     }
 
