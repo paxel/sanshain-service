@@ -175,6 +175,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/settings/registration", post(admin::set_registration_enabled).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
@@ -236,6 +237,7 @@ pub fn create_app(state: AppState) -> Router {
 
         // Auth (Mixed prefix)
         .route("/auth/login", post(auth::auth_login))
+        .route("/auth/options", get(auth::auth_options))
         .route("/auth/oidc/login", get(auth::oidc_login))
         .route("/auth/oidc/callback", get(auth::oidc_callback))
         .route("/auth/logout", post(auth::auth_logout))
@@ -736,6 +738,7 @@ mod tests {
             "/auth/login",
             "/auth/oidc/login",
             "/auth/oidc/callback",
+            "/auth/options",
             "/auth/logout",
             "/auth/me",
             "/auth/register",

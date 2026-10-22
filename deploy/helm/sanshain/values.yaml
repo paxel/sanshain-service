@@ -89,6 +89,10 @@ config:
   captureLogFilter: "sanshain_service=debug,tower_http=debug"
   staticDir: "static"
   initialAdminUsername: "root"
+  # INITIAL_AUTH_MODE: the auth mode of the very first start (off, dev, local,
+  # ldap, oidc). Empty: Off, maintenance, where only the admin signs in and
+  # picks the mode. Ignored once the instance has users.
+  initialAuthMode: ""
   # Directory of additional CA certificates (*.pem) to trust for outbound TLS,
   # e.g. LDAPS against a directory server using a corporate CA. They are added
   # to the platform trust store, not substituted for it. Leave empty to disable.

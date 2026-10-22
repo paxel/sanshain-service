@@ -5,6 +5,7 @@ pub use super::catalog_service::*;
 pub use super::provide_service::*;
 pub use super::report_service::*;
 pub use super::require_service::*;
+pub use super::sign_in_service::*;
 pub use super::spec_service::*;
 pub use super::structure_service::*;
 pub use super::text_diff::*;

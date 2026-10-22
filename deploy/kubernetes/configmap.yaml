@@ -17,6 +17,9 @@ data:
   CAPTURE_LOG_FILTER: "sanshain_service=debug,tower_http=debug"
   STATIC_DIR: "static"
   INITIAL_ADMIN_USERNAME: "root"
+  # The auth mode of the very first start (off, dev, local, ldap, oidc).
+  # Unset: Off, maintenance, where only the admin signs in and picks the mode.
+  # INITIAL_AUTH_MODE: "local"
   # Directory of additional CA certificates (*.pem) to trust for outbound TLS.
   # Unset means platform certificates only. See the ca-certs mount in
   # deployment.yaml.

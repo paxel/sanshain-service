@@ -28,13 +28,15 @@ async fn resolve_dev_user(state: &AppState) -> Option<crate::domain::models::Use
 ///
 /// Returns nothing when the instance does not use the directory for
 /// authentication — there is then no directory to ask.
-async fn directory_groups_for(state: &AppState, username: &str) -> Vec<String> {
+pub(crate) async fn directory_groups_for(state: &AppState, username: &str) -> Vec<String> {
     if let Some(cached) = state.directory_roles.cached(username).await {
         return cached.as_ref().clone();
     }
 
+    // The sign-in source, not the mode: during Off the remembered LDAP still
+    // confers its administrators' roles.
     if !matches!(
-        services::get_auth_mode(&state.repo).await,
+        services::sign_in_source(&state.repo).await,
         Ok(crate::domain::models::AuthMode::Ldap)
     ) {
         return Vec::new();
@@ -94,6 +96,34 @@ async fn attach_caller(
     Ok(())
 }
 
+/// Off and Dev admit only holders of `manage_auth_config` to the web UI; a
+/// session anyone else opened before stops working.
+fn refuse_unless_admin_may_sign_in<'a>(
+    state: &'a AppState,
+    req: &Request,
+) -> impl std::future::Future<Output = Result<(), Response>> + Send + 'a {
+    // Read before the await: a request is not `Sync`, so no reference to it
+    // may be held across one.
+    let may = req
+        .extensions()
+        .get::<crate::domain::permissions::Actor>()
+        .is_some_and(|actor| {
+            actor.has_permission(crate::domain::permissions::Permission::ManageAuthConfig)
+        });
+    admins_only_gate(state, may)
+}
+
+async fn admins_only_gate(state: &AppState, may: bool) -> Result<(), Response> {
+    let mode = services::get_auth_mode(&state.repo)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    if may || !services::admins_only(&mode) {
+        Ok(())
+    } else {
+        Err(services::admins_only_refusal(&mode).into_response())
+    }
+}
+
 /// The message of an error answer, put on the response by
 /// `AppError::into_response` for [`log_errors`] to log with its request.
 #[derive(Clone, Debug)]
@@ -145,14 +175,7 @@ pub async fn authenticated_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<impl IntoResponse, StatusCode> {
-    if services::get_dev_mode(&state.repo).await.unwrap_or(false)
-        && let Some(dev_user) = resolve_dev_user(&state).await
-    {
-        let mut req = req;
-        attach_caller(&mut req, &state, dev_user).await?;
-        return Ok(next.run(req).await);
-    }
+) -> Result<Response, Response> {
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -164,13 +187,16 @@ pub async fn authenticated_auth(
             match services::validate_session(&state.repo, token).await {
                 Ok(Some((user, _session))) => {
                     let mut req = req;
-                    attach_caller(&mut req, &state, user).await?;
+                    attach_caller(&mut req, &state, user)
+                        .await
+                        .map_err(IntoResponse::into_response)?;
+                    refuse_unless_admin_may_sign_in(&state, &req).await?;
                     Ok(next.run(req).await)
                 }
-                _ => Err(StatusCode::UNAUTHORIZED),
+                _ => Err(StatusCode::UNAUTHORIZED.into_response()),
             }
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
+        _ => Err(StatusCode::UNAUTHORIZED.into_response()),
     }
 }
 
@@ -295,38 +321,35 @@ async fn permission_auth_with(
     req: Request,
     next: Next,
 ) -> Result<Response, Response> {
-    let user = if services::get_dev_mode(&state.repo).await.unwrap_or(false)
-        && let Some(dev_user) = resolve_dev_user(&state).await
-    {
-        dev_user
-    } else {
-        let token = req
-            .headers()
-            .get(header::AUTHORIZATION)
-            .and_then(|h| h.to_str().ok())
-            .and_then(|t| t.strip_prefix("Bearer "))
-            .ok_or_else(|| AppError::Unauthorized.into_response())?;
-        match services::validate_session(&state.repo, token).await {
-            Ok(Some((user, _session))) => user,
-            _ if credentials == AdminCredentials::SessionOrApiToken => {
-                match services::validate_api_token(&state.repo, token).await {
-                    Ok(Some(identity)) => {
-                        if identity.scope == crate::domain::models::ApiTokenScope::ReadOnly {
-                            return Err(read_only_admin_token_refusal().into_response());
-                        }
-                        identity.user
+    // Dev mode opens the API, not the administration: the routes behind a
+    // guard always need a signed-in caller.
+    let token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|t| t.strip_prefix("Bearer "))
+        .ok_or_else(|| AppError::Unauthorized.into_response())?;
+    let user = match services::validate_session(&state.repo, token).await {
+        Ok(Some((user, _session))) => user,
+        _ if credentials == AdminCredentials::SessionOrApiToken => {
+            match services::validate_api_token(&state.repo, token).await {
+                Ok(Some(identity)) => {
+                    if identity.scope == crate::domain::models::ApiTokenScope::ReadOnly {
+                        return Err(read_only_admin_token_refusal().into_response());
                     }
-                    _ => return Err(AppError::Unauthorized.into_response()),
+                    identity.user
                 }
+                _ => return Err(AppError::Unauthorized.into_response()),
             }
-            _ => return Err(AppError::Unauthorized.into_response()),
         }
+        _ => return Err(AppError::Unauthorized.into_response()),
     };
 
     let mut req = req;
     attach_caller(&mut req, &state, user)
         .await
         .map_err(IntoResponse::into_response)?;
+    refuse_unless_admin_may_sign_in(&state, &req).await?;
 
     let actor = req
         .extensions()

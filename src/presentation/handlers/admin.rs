@@ -527,6 +527,26 @@ pub async fn set_auto_approve_users(
     Ok(StatusCode::OK)
 }
 
+pub async fn set_registration_enabled(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<EnabledRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_registration_enabled(&state.repo, payload.enabled).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_REGISTRATION",
+            details: &format!("Set registration to {}", payload.enabled),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let mode = services::get_auth_mode(&state.repo).await?;
     let ldap = services::get_ldap_config(&state.repo).await?;
@@ -590,7 +610,12 @@ pub async fn set_auth_config(
         ));
     }
 
-    services::set_auth_mode(&state.repo, &mode).await?;
+    // Validated before anything is stored, so a refused form leaves the mode
+    // as it was.
+    if let Some(oidc) = &payload.oidc_config {
+        oidc.validate().map_err(AppError::BadRequest)?;
+    }
+    services::switch_auth_mode(&state.repo, mode).await?;
     if let Some(mut ldap) = payload.ldap_config {
         if let Some(ref pass) = ldap.bind_password
             && pass == "****"
@@ -1336,6 +1361,8 @@ pub async fn get_instance_settings(
     let stats = state.repo.cache_stats().await;
     Ok(Json(json!({
         "auto_approve_users": services::get_auto_approve_users(&state.repo).await?,
+        "registration_enabled": services::get_registration_enabled(&state.repo).await?,
+        "dev_mode_allowed": services::dev_mode_gate_open(),
         "snapshot_max_age_days": services::get_snapshot_max_age_days(&state.repo).await?,
         "dependency_max_age_days": services::get_dependency_max_age_days(&state.repo).await?,
         "trunk_max_age_days": services::get_trunk_max_age_days(&state.repo).await?,

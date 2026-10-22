@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
 use crate::domain::models::{ApiTokenScope, User};
-use crate::domain::ports::{NewAuditLog, SpecRepository};
+use crate::domain::ports::NewAuditLog;
 use axum::{
     Json,
     extract::{Query, State},
@@ -38,55 +38,50 @@ pub async fn auth_login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let mode = services::get_auth_mode(&state.repo).await?;
-
-    match mode {
-        crate::domain::models::AuthMode::Disabled => Err(AppError::Forbidden),
-        crate::domain::models::AuthMode::Ldap => {
-            if let Ok(Some(config)) = services::get_ldap_config(&state.repo).await {
-                let provider = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
-                // Try LDAP login
-                if let Ok(session) = services::login_with_provider(
-                    &state.repo,
-                    &provider,
-                    &payload.username,
-                    &payload.password,
-                )
-                .await
-                {
-                    // The local record must exist by now — the provider login
-                    // creates one — and confirming it here keeps a session from
-                    // being handed out for a user nothing else can resolve.
-                    state
-                        .repo
-                        .find_user(&payload.username)
-                        .await?
-                        .ok_or(AppError::Internal("Shadow user missing".to_string()))?;
-                    return Ok(Json(LoginResponse {
-                        token: session.token,
-                    }));
-                }
+    let directory = match services::sign_in_source(&state.repo).await? {
+        crate::domain::models::AuthMode::Ldap => services::get_ldap_config(&state.repo)
+            .await?
+            .map(crate::infrastructure::ldap_provider::LdapAuthProvider::new),
+        _ => None,
+    };
+    let verified = services::verify_password_local_first(
+        &state.repo,
+        directory.as_ref(),
+        &payload.username,
+        &payload.password,
+    )
+    .await?;
+    if services::admins_only(&mode) {
+        let existing = match &verified {
+            services::Verified::Local(user) | services::Verified::Directory(Some(user)) => {
+                Some(user)
             }
-            // Fallback to local login for root or if LDAP fails
-            let (session, _user) =
-                services::login(&state.repo, &payload.username, &payload.password).await?;
-            Ok(Json(LoginResponse {
-                token: session.token,
-            }))
-        }
-        // OIDC users log in via the /auth/oidc redirect flow; the password
-        // endpoint stays open for local/root accounts (an OIDC outage or first
-        // setup must not lock everyone out), same as the LDAP local fallback.
-        crate::domain::models::AuthMode::Local
-        | crate::domain::models::AuthMode::Dev
-        | crate::domain::models::AuthMode::Oidc => {
-            let (session, _user) =
-                services::login(&state.repo, &payload.username, &payload.password).await?;
-
-            Ok(Json(LoginResponse {
-                token: session.token,
-            }))
+            services::Verified::Directory(None) => None,
+        };
+        let groups =
+            crate::presentation::middleware::directory_groups_for(&state, &payload.username).await;
+        if !services::may_sign_in_as_admin(
+            &state.repo,
+            &state.root_users,
+            &payload.username,
+            existing,
+            &groups,
+        )
+        .await?
+        {
+            return Err(services::admins_only_refusal(&mode));
         }
     }
+    let session = services::start_session(&state.repo, &payload.username, verified).await?;
+    Ok(Json(LoginResponse {
+        token: session.token,
+    }))
+}
+
+/// What the login page offers: registration, SSO, and whether only
+/// administrators can sign in. Public, like the login itself.
+pub async fn auth_options(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::login_options(&state.repo).await?))
 }
 
 pub async fn auth_logout(
@@ -204,7 +199,7 @@ pub async fn auth_register(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    services::register_user(
+    let approved = services::register_user(
         &state.repo,
         &state.root_users,
         &payload.username,
@@ -222,7 +217,10 @@ pub async fn auth_register(
         },
     )
     .await?;
-    Ok(StatusCode::CREATED)
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "approved": approved })),
+    ))
 }
 
 pub async fn list_tokens(
@@ -418,6 +416,7 @@ pub async fn oidc_callback(
     let flow = services::OidcFlowState::decode(&raw_flow).ok_or(AppError::Unauthorized)?;
     let session = services::oidc_complete(
         &state.repo,
+        &state.root_users,
         &crate::infrastructure::oidc_provider::OidcProvider,
         code,
         &cb_state,

@@ -483,47 +483,62 @@ async function triggerDependencyCleanup() {
   } catch (_) {}
 }
 
-// --- Local Users Toggle ---
-let autoApproveUsersEnabled = false;
+// --- Local users: registration and auto-acknowledge ---
+// Two switches that save on click. They apply in Local mode only, so the
+// panel holding them shows only while Local is the selected mode.
+const localUserSwitches = {
+  registration: { url: "/admin/settings/registration", key: "registration_enabled", on: false },
+  "auto-approve": { url: "/admin/settings/auto-approve", key: "auto_approve_users", on: false },
+};
 
 async function loadAutoApproveUsers() {
   try {
     const settings = await instanceSettings();
     if (settings) {
-      autoApproveUsersEnabled = !!settings.auto_approve_users;
-      updateAutoApproveUsersUI();
+      for (const [id, sw] of Object.entries(localUserSwitches)) {
+        sw.on = !!settings[sw.key];
+        paintSwitch(id);
+      }
+      devModeAllowed = !!settings.dev_mode_allowed;
+      onAuthModeChange();
     }
   } catch (_) {}
 }
 
-function updateAutoApproveUsersUI() {
-  const toggle = document.getElementById("auto-approve-toggle");
-  const dot = document.getElementById("auto-approve-dot");
-  if (autoApproveUsersEnabled) {
-    toggle.classList.remove("bg-slate-200");
-    toggle.classList.add("bg-indigo-600");
-    dot.classList.remove("translate-x-1");
-    dot.classList.add("translate-x-6");
-  } else {
-    toggle.classList.remove("bg-indigo-600");
-    toggle.classList.add("bg-slate-200");
-    dot.classList.remove("translate-x-6");
-    dot.classList.add("translate-x-1");
+function paintSwitch(id) {
+  const on = localUserSwitches[id].on;
+  const toggle = document.getElementById(`${id}-toggle`);
+  const dot = document.getElementById(`${id}-dot`);
+  toggle.classList.toggle("bg-indigo-600", on);
+  toggle.classList.toggle("bg-slate-200", !on);
+  dot.classList.toggle("translate-x-6", on);
+  dot.classList.toggle("translate-x-1", !on);
+  toggle.setAttribute("aria-checked", String(on));
+}
+
+async function flipSwitch(id) {
+  const sw = localUserSwitches[id];
+  try {
+    const res = await apiCall(sw.url, { method: "POST", body: { enabled: !sw.on } });
+    if (!res.ok) {
+      alert("Failed to save: " + (await errorMessage(res)));
+      return;
+    }
+    sw.on = !sw.on;
+    paintSwitch(id);
+    instanceSettings(true);
+    loadUsers();
+  } catch (e) {
+    alert("Failed to save: " + e.message);
   }
 }
 
-async function toggleAutoApproveUsers() {
-  try {
-    const res = await apiCall("/admin/settings/auto-approve", {
-      method: "POST",
-      body: { enabled: !autoApproveUsersEnabled },
-    });
-    if (res.ok) {
-      autoApproveUsersEnabled = !autoApproveUsersEnabled;
-      updateAutoApproveUsersUI();
-      loadUsers();
-    }
-  } catch (_) {}
+function toggleRegistration() {
+  return flipSwitch("registration");
+}
+
+function toggleAutoApproveUsers() {
+  return flipSwitch("auto-approve");
 }
 
 // --- Roles, groups and maintainers ---
@@ -1238,6 +1253,28 @@ async function deleteClient(name) {
 }
 
 // --- Auth Config ---
+// Whether the server lets Dev mode be chosen (ALLOW_INSECURE_DEV_MODE).
+let devModeAllowed = false;
+
+const AUTH_MODE_HELP = {
+  disabled:
+    "Maintenance: the API answers 503 and only administrators sign in, through the source that was active before or a local password.",
+  dev: "Provide, require and catalog work without tokens. Only administrators sign in.",
+  local: "Local accounts with passwords. Tokens are required.",
+  ldap: "Passwords are checked against the directory; a local password is checked first. Tokens are required.",
+  oidc: "People sign in through the identity provider; local passwords keep working. Tokens are required.",
+};
+
+const OIDC_FIELDS = {
+  issuer_url: "oidc-issuer-url",
+  client_id: "oidc-client-id",
+  client_secret: "oidc-client-secret",
+  redirect_url: "oidc-redirect-url",
+  username_claim: "oidc-username-claim",
+  groups_claim: "oidc-groups-claim",
+  admin_group: "oidc-admin-group",
+};
+
 async function loadAuthConfig() {
   try {
     const res = await apiCall("/admin/auth-config");
@@ -1254,18 +1291,27 @@ async function loadAuthConfig() {
         document.getElementById("ldap-user-filter").value = data.ldap_config.user_filter || "";
         document.getElementById("ldap-admin-group").value = data.ldap_config.admin_group || "";
       }
+      if (data.oidc_config) {
+        for (const [key, id] of Object.entries(OIDC_FIELDS)) {
+          document.getElementById(id).value = data.oidc_config[key] || "";
+        }
+      }
     }
   } catch (_) {}
 }
 
 function onAuthModeChange() {
   const selected = document.querySelector('input[name="auth-mode"]:checked');
-  const form = document.getElementById("ldap-config-form");
-  if (selected && selected.value === "ldap") {
-    form.classList.remove("hidden");
-  } else {
-    form.classList.add("hidden");
-  }
+  const mode = selected ? selected.value : "";
+  document.getElementById("ldap-config-form").classList.toggle("hidden", mode !== "ldap");
+  document.getElementById("oidc-config-form").classList.toggle("hidden", mode !== "oidc");
+  document.getElementById("local-users-panel").classList.toggle("hidden", mode !== "local");
+  document.getElementById("auth-mode-help").textContent = AUTH_MODE_HELP[mode] || "";
+  const devRadio = document.querySelector('input[name="auth-mode"][value="dev"]');
+  // Dev stays selectable when it is already the mode, so the page never
+  // shows no mode at all.
+  devRadio.disabled = !devModeAllowed && !devRadio.checked;
+  document.getElementById("dev-mode-hint").classList.toggle("hidden", devModeAllowed);
 }
 
 function getLdapConfigFromForm() {
@@ -1279,6 +1325,17 @@ function getLdapConfigFromForm() {
   };
 }
 
+function getOidcConfigFromForm() {
+  const config = {};
+  for (const [key, id] of Object.entries(OIDC_FIELDS)) {
+    config[key] = document.getElementById(id).value.trim();
+  }
+  config.client_secret = config.client_secret || null;
+  if (!config.username_claim) delete config.username_claim;
+  if (!config.groups_claim) delete config.groups_claim;
+  return config;
+}
+
 async function saveAuthConfig() {
   const selected = document.querySelector('input[name="auth-mode"]:checked');
   if (!selected) return;
@@ -1286,12 +1343,15 @@ async function saveAuthConfig() {
   if (selected.value === "ldap") {
     body.ldap_config = getLdapConfigFromForm();
   }
+  if (selected.value === "oidc") {
+    body.oidc_config = getOidcConfigFromForm();
+  }
   try {
     const res = await apiCall("/admin/auth-config", { method: "PUT", body });
     if (res.ok) {
       alert("Authentication settings saved.");
     } else {
-      alert("Failed to save: " + res.status);
+      alert("Failed to save: " + (await errorMessage(res)));
     }
   } catch (e) {
     alert("Error: " + e.message);

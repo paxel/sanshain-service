@@ -103,6 +103,10 @@ async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
     services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
         .await
         .unwrap();
+    // A fresh instance starts in Off (maintenance); these tests run in Local.
+    services::set_auth_mode(&repo, &sanshain_service::domain::models::AuthMode::Local)
+        .await
+        .unwrap();
     let (session, _user) = services::login(&repo, "root", "root_password")
         .await
         .unwrap();
@@ -657,8 +661,11 @@ async fn user_registration_approval_login_and_deletion_lifecycle() {
     let (app, repo, token) = app_with_seed().await;
     let auth = format!("Bearer {}", token);
 
-    // Registration is only open in local auth mode.
+    // Registration is only open in local auth mode, with its switch on.
     services::set_auth_mode(&repo, &AuthMode::Disabled)
+        .await
+        .unwrap();
+    services::set_registration_enabled(&repo, true)
         .await
         .unwrap();
     let creds = json!({ "username": "bob", "password": "hunter2secret" });
@@ -668,8 +675,21 @@ async fn user_registration_approval_login_and_deletion_lifecycle() {
     services::set_auth_mode(&repo, &AuthMode::Local)
         .await
         .unwrap();
+    services::set_registration_enabled(&repo, false)
+        .await
+        .unwrap();
     let (status, _) = send_json(&app, "POST", "/auth/register", &auth, &creds).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the switch is off");
+
+    services::set_registration_enabled(&repo, true)
+        .await
+        .unwrap();
+    let (status, body) = send_json(&app, "POST", "/auth/register", &auth, &creds).await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        body["approved"], false,
+        "auto-approve is off: the card says wait"
+    );
     let (status, body) = send_json(&app, "POST", "/auth/register", &auth, &creds).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(body["error"], "User already exists");
@@ -716,13 +736,13 @@ async fn user_registration_approval_login_and_deletion_lifecycle() {
 async fn login_logout_and_me_roundtrip() {
     let (app, repo, _token) = app_with_seed().await;
 
-    // Login is refused while auth is disabled.
+    // Off is maintenance, and the admin still signs in to end it.
     services::set_auth_mode(&repo, &AuthMode::Disabled)
         .await
         .unwrap();
     let creds = json!({ "username": "root", "password": "root_password" });
     let (status, _) = send_json(&app, "POST", "/auth/login", "", &creds).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(status, StatusCode::OK);
 
     services::set_auth_mode(&repo, &AuthMode::Local)
         .await

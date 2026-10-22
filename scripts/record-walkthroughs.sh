@@ -128,6 +128,7 @@ fi
   export DATABASE_URL
   export BIND_ADDRESS="127.0.0.1:$PORT"
   export INITIAL_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+  export INITIAL_AUTH_MODE=local
   export PUBLIC_BASE_URL
   export WEBHOOK_WORKER_INTERVAL_SECS=1
   export OTEL_ENABLED=false
@@ -720,10 +721,12 @@ curl -sS "$BASE/admin/auth-config" -H "Authorization: Bearer $SESSION" | jq -e '
   || fail "operator/03: expected auth_mode local with the OIDC values kept"
 
 # 04 — a user, a role, a maintainer scope, and what that user may do now
+printf '{"enabled":true}' >"$TMP/body.json"
+request "$OPS" "04-open-registration" POST /admin/settings/registration session "$TMP/body.json"
+expect "operator/04-open-registration" 200
 printf '{"username":"maria","password":"%s"}' "$MARIA_PASSWORD" >"$TMP/body.json"
 request "$OPS" "04-register" POST /auth/register "" "$TMP/body.json"
-expect "operator/04-register" 201
-expect_empty "operator/04-register"
+expect "operator/04-register" 201 '.approved == false'
 request "$OPS" "04-users" GET /admin/users session ""
 expect "operator/04-users" 200 'map(select(.username == "maria")) | length == 1'
 MARIA_ID="$(jq -r '.[] | select(.username == "maria") | .id' "$LAST_BODY")"

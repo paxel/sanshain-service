@@ -17,6 +17,9 @@ data:
   CAPTURE_LOG_FILTER: {{ .Values.config.captureLogFilter | quote }}
   STATIC_DIR: {{ .Values.config.staticDir | quote }}
   INITIAL_ADMIN_USERNAME: {{ .Values.config.initialAdminUsername | quote }}
+  {{- with .Values.config.initialAuthMode }}
+  INITIAL_AUTH_MODE: {{ . | quote }}
+  {{- end }}
   {{- with .Values.config.extraCaCertsDir }}
   EXTRA_CA_CERTS_DIR: {{ . | quote }}
   {{- end }}

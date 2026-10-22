@@ -136,6 +136,12 @@
         />
         <h1 class="text-2xl font-bold text-center mb-6 text-indigo-700">Sanshain</h1>
 
+        <!-- Filled from /auth/options: maintenance or dev mode -->
+        <div
+          id="auth-notice"
+          class="hidden bg-amber-50 text-amber-800 border border-amber-200 p-3 rounded-lg mb-4 text-sm"
+        ></div>
+
         <!-- Tab switcher -->
         <div class="flex mb-6 border-b border-slate-200">
           <button
@@ -150,7 +156,7 @@
             id="tab-register"
             data-click="showTab"
             data-click-args='["register"]'
-            class="flex-1 pb-2 text-sm font-medium text-center border-b-2 border-transparent text-slate-500 hover:text-slate-600"
+            class="hidden flex-1 pb-2 text-sm font-medium text-center border-b-2 border-transparent text-slate-500 hover:text-slate-600"
           >
             Register
           </button>
@@ -198,11 +204,12 @@
               Sign In
             </button>
           </form>
-          <!-- Single sign-on (only functional when the operator has configured
-               OIDC auth mode; a plain link so it needs no inline script). -->
+          <!-- Single sign-on, shown only while OIDC is the sign-in source and
+               configured; a plain link so it needs no inline script. -->
           <a
+            id="sso-login"
             href="/auth/oidc/login"
-            class="mt-3 block w-full text-center border border-slate-300 text-slate-700 py-2 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+            class="hidden mt-3 block w-full text-center border border-slate-300 text-slate-700 py-2 rounded-lg hover:bg-slate-50 transition-colors font-medium"
             >Sign in with SSO</a
           >
         </div>
@@ -274,8 +281,8 @@
               Register
             </button>
           </form>
-          <p class="text-xs text-slate-500 mt-3 text-center">
-            After registration an admin must approve your account before you can log in.
+          <p id="register-help" class="text-xs text-slate-500 mt-3 text-center">
+            After registration an admin must approve your account before you can sign in.
           </p>
         </div>
       </div>

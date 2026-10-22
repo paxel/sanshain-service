@@ -72,6 +72,25 @@ pub async fn claim_root_usernames(
     Ok(())
 }
 
+/// The auth mode a fresh instance starts in: `INITIAL_AUTH_MODE` as
+/// configured, Off when unset or empty. Dev needs the
+/// `ALLOW_INSECURE_DEV_MODE` gate open, as it does when switched later.
+pub fn initial_auth_mode(
+    configured: Option<&str>,
+    dev_gate_open: bool,
+) -> Result<AuthMode, String> {
+    let Some(value) = configured.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(AuthMode::Disabled);
+    };
+    let mode: AuthMode = value.parse().map_err(|_| {
+        format!("INITIAL_AUTH_MODE '{value}' is not one of off, dev, local, ldap, oidc")
+    })?;
+    if mode == AuthMode::Dev && !dev_gate_open {
+        return Err("INITIAL_AUTH_MODE=dev needs ALLOW_INSECURE_DEV_MODE=true".to_string());
+    }
+    Ok(mode)
+}
+
 /// The initial admin's password: `INITIAL_ADMIN_PASSWORD` as configured, or a
 /// random one.
 ///
@@ -110,9 +129,20 @@ pub async fn ensure_initial_admin(
         // explicit grant. `SANSHAIN_ROOT_USERS` covers it as well by default,
         // but the grant is what makes it visible in the UI as an ordinary role.
         repo.grant_user_role(admin.id, Role::Admin.as_str()).await?;
-        if repo.get_setting("auth_mode").await?.is_none() {
-            repo.set_setting("auth_mode", "local").await?;
-        }
+        // A fresh instance starts in Off, where only the admin signs in and
+        // picks the mode, unless `INITIAL_AUTH_MODE` names one for automated
+        // installs. The migrations' default of `local` predates Off.
+        let mode = match initial_auth_mode(
+            std::env::var("INITIAL_AUTH_MODE").ok().as_deref(),
+            dev_mode_gate_open(),
+        ) {
+            Ok(mode) => mode,
+            Err(reason) => {
+                eprintln!("[INITIAL SETUP] {reason}; starting in Off");
+                AuthMode::Disabled
+            }
+        };
+        set_auth_mode(repo, &mode).await?;
         eprintln!(
             "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
             username, password
@@ -240,9 +270,11 @@ pub async fn register_user(
     root_users: &crate::domain::permissions::RootUsers,
     username: &str,
     password: &str,
-) -> Result<(), AppError> {
-    if get_auth_mode(repo).await? != AuthMode::Local {
-        return Err(AppError::Forbidden);
+) -> Result<bool, AppError> {
+    if !super::sign_in_service::registration_open(repo).await? {
+        return Err(AppError::ForbiddenWithReason(
+            "registration is closed on this instance".to_string(),
+        ));
     }
     // Root usernames hold every permission by pure name match, so an
     // unclaimed one must never be claimable through open registration.
@@ -259,7 +291,7 @@ pub async fn register_user(
         .unwrap_or("false".to_string())
         == "true";
     repo.create_user(username, &hash, auto_approve).await?;
-    Ok(())
+    Ok(auto_approve)
 }
 
 pub async fn list_users(repo: &impl SpecRepository) -> Result<Vec<User>, AppError> {
@@ -451,6 +483,7 @@ pub async fn oidc_begin(
     repo: &impl SpecRepository,
     provider: &impl OidcFlow,
 ) -> Result<(String, OidcFlowState), AppError> {
+    oidc_must_be_the_source(repo).await?;
     let config = get_oidc_config(repo)
         .await?
         .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
@@ -470,6 +503,7 @@ pub async fn oidc_begin(
 /// for the resolved identity.
 pub async fn oidc_complete(
     repo: &impl SpecRepository,
+    root_users: &crate::domain::permissions::RootUsers,
     provider: &impl OidcFlow,
     code: String,
     callback_state: &str,
@@ -479,13 +513,43 @@ pub async fn oidc_complete(
     if callback_state != flow.state {
         return Err(AppError::Unauthorized);
     }
+    oidc_must_be_the_source(repo).await?;
     let config = get_oidc_config(repo)
         .await?
         .ok_or_else(|| AppError::BadRequest("OIDC is not configured".to_string()))?;
     let claims = provider
         .exchange_and_verify(&config, code, flow.pkce_verifier, flow.nonce)
         .await?;
+    let mode = get_auth_mode(repo).await?;
+    if super::sign_in_service::admins_only(&mode) {
+        let existing = repo.find_user(&claims.username).await?;
+        let in_admin_group = !config.admin_group.is_empty()
+            && claims.groups.iter().any(|g| g == &config.admin_group);
+        let may = in_admin_group
+            || super::sign_in_service::may_sign_in_as_admin(
+                repo,
+                root_users,
+                &claims.username,
+                existing.as_ref(),
+                &[],
+            )
+            .await?;
+        if !may {
+            return Err(super::sign_in_service::admins_only_refusal(&mode));
+        }
+    }
     login_oidc(repo, &claims.username, &claims.groups, &config.admin_group).await
+}
+
+/// SSO signs in only while OIDC is the source: the mode, or the one Off
+/// remembers.
+async fn oidc_must_be_the_source(repo: &impl SpecRepository) -> Result<(), AppError> {
+    if super::sign_in_service::sign_in_source(repo).await? != AuthMode::Oidc {
+        return Err(AppError::ForbiddenWithReason(
+            "single sign-on is not the sign-in source of this instance".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Mint the session for a verified OIDC identity: the caller has already
@@ -776,6 +840,7 @@ mod tests {
         )
         .await
         .unwrap();
+        repo.set_setting("auth_mode", "oidc").await.unwrap();
         repo
     }
 
@@ -809,8 +874,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oidc_is_refused_while_it_is_not_the_sign_in_source() {
+        let repo = repo_with_oidc_config().await;
+        repo.set_setting("auth_mode", "local").await.unwrap();
+        assert!(matches!(
+            oidc_begin(&repo, &StubOidc).await,
+            Err(AppError::ForbiddenWithReason(_))
+        ));
+        let flow = OidcFlowState {
+            state: "st".to_string(),
+            nonce: "no".to_string(),
+            pkce_verifier: "pk".to_string(),
+        };
+        let result = oidc_complete(
+            &repo,
+            &no_root_users(),
+            &StubOidc,
+            "good".to_string(),
+            "st",
+            flow,
+        )
+        .await;
+        assert!(matches!(result, Err(AppError::ForbiddenWithReason(_))));
+        assert!(repo.find_user("alice").await.unwrap().is_none());
+    }
+
+    /// Off remembers OIDC: an administrator signs in through it, anyone else
+    /// is refused without an account being created for them.
+    #[tokio::test]
+    async fn during_off_oidc_admits_only_administrators() {
+        let repo = repo_with_oidc_config().await;
+        crate::application::sign_in_service::switch_auth_mode(&repo, AuthMode::Disabled)
+            .await
+            .unwrap();
+        let flow = || OidcFlowState {
+            state: "st".to_string(),
+            nonce: "no".to_string(),
+            pkce_verifier: "pk".to_string(),
+        };
+        let result = oidc_complete(
+            &repo,
+            &no_root_users(),
+            &StubOidc,
+            "good".to_string(),
+            "st",
+            flow(),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(AppError::ForbiddenWithReason(ref m)) if m.contains("maintenance"))
+        );
+        assert!(
+            repo.find_user("alice").await.unwrap().is_none(),
+            "no shadow account"
+        );
+
+        let alice = repo.create_user("alice", "x", true).await.unwrap();
+        repo.grant_user_role(alice.id, Role::Admin.as_str())
+            .await
+            .unwrap();
+        let session = oidc_complete(
+            &repo,
+            &no_root_users(),
+            &StubOidc,
+            "good".to_string(),
+            "st",
+            flow(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.user_id, alice.id);
+    }
+
+    #[tokio::test]
     async fn oidc_begin_without_config_is_a_bad_request() {
         let repo = MockRepo::new();
+        repo.set_setting("auth_mode", "oidc").await.unwrap();
         assert!(matches!(
             oidc_begin(&repo, &StubOidc).await,
             Err(AppError::BadRequest(_))
@@ -825,9 +964,16 @@ mod tests {
             nonce: "no".to_string(),
             pkce_verifier: "pk".to_string(),
         };
-        let session = oidc_complete(&repo, &StubOidc, "good".to_string(), "st", flow)
-            .await
-            .unwrap();
+        let session = oidc_complete(
+            &repo,
+            &no_root_users(),
+            &StubOidc,
+            "good".to_string(),
+            "st",
+            flow,
+        )
+        .await
+        .unwrap();
         assert!(!session.token.is_empty());
         assert!(repo.find_user("alice").await.unwrap().is_some());
     }
@@ -840,7 +986,15 @@ mod tests {
             nonce: "no".to_string(),
             pkce_verifier: "pk".to_string(),
         };
-        let result = oidc_complete(&repo, &StubOidc, "good".to_string(), "forged", flow).await;
+        let result = oidc_complete(
+            &repo,
+            &no_root_users(),
+            &StubOidc,
+            "good".to_string(),
+            "forged",
+            flow,
+        )
+        .await;
         assert!(matches!(result, Err(AppError::Unauthorized)));
         assert!(repo.find_user("alice").await.unwrap().is_none());
     }
@@ -932,6 +1086,9 @@ mod tests {
     async fn test_register_user_success() {
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "local").await.unwrap();
+        repo.set_setting("registration_enabled", "true")
+            .await
+            .unwrap();
         register_user(&repo, &no_root_users(), "newuser", "pass123")
             .await
             .unwrap();
@@ -945,6 +1102,9 @@ mod tests {
     async fn register_rejects_a_reserved_root_username() {
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "local").await.unwrap();
+        repo.set_setting("registration_enabled", "true")
+            .await
+            .unwrap();
         let root_users = crate::domain::permissions::RootUsers::resolve(Some("ops-root"), None);
         let err = register_user(&repo, &root_users, "ops-root", "pass123")
             .await
@@ -986,6 +1146,9 @@ mod tests {
     async fn test_register_user_duplicate() {
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "local").await.unwrap();
+        repo.set_setting("registration_enabled", "true")
+            .await
+            .unwrap();
         register_user(&repo, &no_root_users(), "dup", "pass")
             .await
             .unwrap();
@@ -1060,6 +1223,25 @@ mod tests {
         assert_eq!(
             initial_admin_url(None, "127.0.0.1:3000"),
             "http://127.0.0.1:3000/admin.html"
+        );
+    }
+
+    #[test]
+    fn initial_auth_mode_defaults_to_off_and_gates_dev() {
+        assert_eq!(initial_auth_mode(None, false), Ok(AuthMode::Disabled));
+        assert_eq!(initial_auth_mode(Some("  "), false), Ok(AuthMode::Disabled));
+        assert_eq!(initial_auth_mode(Some("local"), false), Ok(AuthMode::Local));
+        assert_eq!(initial_auth_mode(Some("ldap"), false), Ok(AuthMode::Ldap));
+        assert_eq!(initial_auth_mode(Some("dev"), true), Ok(AuthMode::Dev));
+        assert!(
+            initial_auth_mode(Some("dev"), false)
+                .unwrap_err()
+                .contains("ALLOW_INSECURE_DEV_MODE")
+        );
+        assert!(
+            initial_auth_mode(Some("kerberos"), true)
+                .unwrap_err()
+                .contains("kerberos")
         );
     }
 

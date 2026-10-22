@@ -7,7 +7,7 @@
     "lint": "cargo clippy -- -D warnings",
     "test:unit": "cargo test",
     "test:itest": "./scripts/itest.sh",
-    "test:ui": "npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/site_stepper.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js",
+    "test:ui": "npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/site_stepper.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js",
     "screenshots": "./scripts/update_screenshots.sh",
     "record-walkthroughs": "./scripts/record-walkthroughs.sh",
     "test": "cargo test",

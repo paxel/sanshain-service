@@ -2073,6 +2073,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/registration:
+    post:
+      summary: "Create or run: settings/registration"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission, like the auto-approve switch beside it.
+
+        Turns self-registration on or off (`{"enabled": true}`). Registration is offered only in Local mode; turning it off keeps every account already created.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/auto-approve:
     get:
       summary: "Read: settings/auto-approve"

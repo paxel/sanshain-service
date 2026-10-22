@@ -50,6 +50,12 @@ test.beforeAll(async ({ request }) => {
     });
     expect(res.ok(), `provide ${producer}`).toBeTruthy();
   }
+  // Registration starts closed; open it for the personas.
+  const opened = await request.post("/admin/settings/registration", {
+    headers,
+    data: { enabled: true },
+  });
+  expect(opened.ok(), "open registration").toBeTruthy();
   for (const username of Object.values(PERSONAS)) {
     await request.post("/auth/register", { data: { username, password: PASSWORD } });
   }

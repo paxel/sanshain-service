@@ -36,6 +36,35 @@ function showAuth() {
   hideLoader();
   document.getElementById("auth-screen").classList.remove("hidden");
   document.getElementById("account-dashboard").classList.add("hidden");
+  applyLoginOptions();
+}
+
+// What the sign-in card offers follows the instance's settings: the register
+// tab only while registration is open, the SSO button only while OIDC is the
+// source, and a notice while only administrators can sign in.
+let loginOptions = { registration: false, auto_approve: false, sso: false };
+
+async function applyLoginOptions() {
+  try {
+    const res = await fetch("/auth/options");
+    if (!res.ok) return;
+    loginOptions = await res.json();
+  } catch (_) {
+    return;
+  }
+  document.getElementById("tab-register").classList.toggle("hidden", !loginOptions.registration);
+  if (!loginOptions.registration) showTab("login");
+  document.getElementById("sso-login").classList.toggle("hidden", !loginOptions.sso);
+  document.getElementById("register-help").textContent = loginOptions.auto_approve
+    ? "You can sign in as soon as your account is created."
+    : "After registration an admin must approve your account before you can sign in.";
+  const notice = document.getElementById("auth-notice");
+  notice.textContent = !loginOptions.admins_only
+    ? ""
+    : loginOptions.auth_mode === "dev"
+      ? "Sanshain is in dev mode. Only administrators can sign in."
+      : "Sanshain is in maintenance. Only administrators can sign in.";
+  notice.classList.toggle("hidden", !loginOptions.admins_only);
 }
 
 function showAccount() {
@@ -61,8 +90,15 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       }),
     });
     if (!res.ok) {
+      const message = res.status === 401 ? "" : await errorMessage(res);
+      // A bare 403 is an account still waiting for approval; one with a
+      // reason (maintenance, dev mode) says it itself.
       errEl.textContent =
-        res.status === 401 ? "Invalid credentials or account not approved" : `Error: ${res.status}`;
+        res.status === 401
+          ? "Invalid username or password."
+          : message === "Forbidden"
+            ? "Your account is waiting for an admin's approval."
+            : message;
       errEl.classList.remove("hidden");
       return;
     }
@@ -104,8 +140,10 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
       }),
     });
     if (res.status === 201) {
-      successEl.textContent =
-        "Registration successful! An admin must approve your account before you can log in.";
+      const { approved } = await res.json().catch(() => ({ approved: false }));
+      successEl.textContent = approved
+        ? "Account created. You can sign in now."
+        : "Registration successful! An admin must approve your account before you can sign in.";
       successEl.classList.remove("hidden");
       document.getElementById("register-form").reset();
     } else if (res.status === 409) {

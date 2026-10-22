@@ -1,4 +1,4 @@
-<!-- page: title="Getting started" track="start" order=1 summary="Run Sanshain with Docker or from source, log in as the initial admin, approve a user, mint a token, then provide a spec and require an endpoint by hand and with a client." -->
+<!-- page: title="Getting started" track="start" order=1 summary="Run Sanshain with Docker or from source, log in as the initial admin, choose the sign-in mode, let users in, mint a token, then provide a spec and require an endpoint by hand and with a client." -->
 <p class="lede">
   Twenty minutes from nothing to a first dependency: start
   <a href="glossary.html#sanshain">Sanshain</a>, log in, mint a token, provide one spec as a
@@ -67,6 +67,14 @@ DATABASE_URL=sqlite://sanshain.db ./target/release/sanshain_service</code></pre>
 <ol>
   <li>Open <code>http://localhost:3000/</code> and sign in with those credentials.</li>
   <li>Open the account page (<code>/account.html</code>) and change the password.</li>
+  <li>
+    Open <code>/admin.html</code> and choose the sign-in mode under <strong>Authentication</strong>:
+    <strong>Local users</strong> for accounts kept by Sanshain, <strong>LDAP</strong> or
+    <strong>OIDC</strong> for your company's directory. Until then the instance is in
+    <a href="../operator/authentication.html#off">Off</a>: only the admin signs in, and the API
+    answers <code>503</code>. To start in a mode right away, set <code>INITIAL_AUTH_MODE</code> (for
+    example <code>local</code>) before the first start.
+  </li>
 </ol>
 <figure class="screenshot">
   <img
@@ -75,17 +83,20 @@ DATABASE_URL=sqlite://sanshain.db ./target/release/sanshain_service</code></pre>
     loading="lazy"
   />
   <figcaption>
-    The sign-in form. The SSO button appears when OpenID Connect is configured.
+    The sign-in form. The SSO button appears while OpenID Connect is the sign-in mode.
   </figcaption>
 </figure>
 
-<h2>Approving users</h2>
+<h2>Letting users in</h2>
 <p>
-  Colleagues register themselves on the Register tab of the same page. A new local account cannot
-  log in until an administrator approves it: on <code>/admin.html</code>, the
-  <strong>Users</strong> section lists registered users with an approve button. The
-  <strong>Auto-approve users</strong> toggle on the same page approves new registrations
-  automatically; it is off by default. See <a href="glossary.html#approval">approval</a>.
+  With LDAP or OIDC, colleagues sign in with their company account. With
+  <strong>Local users</strong>, turn on <strong>Registration</strong> below the mode: colleagues
+  then register themselves on the Register tab of the sign-in page, which is hidden while
+  registration is off. A new local account cannot log in until an administrator approves it: on
+  <code>/admin.html</code>, the <strong>Users</strong> section lists registered users with an
+  approve button. The <strong>Auto-acknowledge new users</strong> switch next to Registration
+  approves new accounts automatically, and the Register tab then says so; it is off by default. See
+  <a href="glossary.html#approval">approval</a>.
 </p>
 <figure class="screenshot">
   <img

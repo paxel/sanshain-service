@@ -20,6 +20,7 @@ tasks:
   - itest: |
       cd sanshain
       export INITIAL_ADMIN_PASSWORD=root_password
+      export INITIAL_AUTH_MODE=local
       cargo build
       cargo run &
       READY=0

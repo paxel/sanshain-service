@@ -75,11 +75,16 @@ test.describe("Sanshain UI Smoke Test", () => {
     await dismissReloadBanner();
     await page.waitForSelector("#admin-dashboard");
 
-    // Toggle Auth Mode (from Local to Dev)
-    const devModeRadio = page.locator('input[name="auth-mode"][value="dev"]');
-    await devModeRadio.click();
+    // Local shows its two switches; Dev is greyed out without the server's gate.
+    await expect(page.locator('input[name="auth-mode"][value="local"]')).toBeChecked();
+    await expect(page.locator("#registration-toggle")).toBeVisible();
+    await expect(page.locator("#auto-approve-toggle")).toBeVisible();
+    await expect(page.locator('input[name="auth-mode"][value="dev"]')).toBeDisabled();
+    await expect(page.locator("#dev-mode-hint")).toBeVisible();
 
-    // Click Save button
+    // Switch to Off (maintenance) and back; the admin stays signed in throughout.
+    await page.locator('input[name="auth-mode"][value="disabled"]').click();
+    await expect(page.locator("#local-users-panel")).toBeHidden();
     await page.locator('button:has-text("Save Authentication Settings")').click();
     await page.waitForTimeout(1000); // Wait for API call
 
@@ -89,7 +94,7 @@ test.describe("Sanshain UI Smoke Test", () => {
     // toBeChecked() auto-retries until the fetch lands.
     await page.reload();
     await page.waitForSelector("#admin-dashboard");
-    await expect(page.locator('input[name="auth-mode"][value="dev"]')).toBeChecked();
+    await expect(page.locator('input[name="auth-mode"][value="disabled"]')).toBeChecked();
 
     // Restore Local mode
     await page.locator('input[name="auth-mode"][value="local"]').click();

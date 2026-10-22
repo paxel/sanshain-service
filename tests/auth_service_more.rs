@@ -41,6 +41,9 @@ async fn auth_mode_default_disabled() {
 async fn set_auth_mode_local() {
     let repo = MockRepo::new();
     auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    repo.set_setting("registration_enabled", "true")
+        .await
+        .unwrap();
     let mode = auth::get_auth_mode(&repo).await.unwrap();
     assert!(matches!(mode, AuthMode::Local));
 }
@@ -127,6 +130,9 @@ async fn register_user_conflict() {
     let repo = MockRepo::new();
     // enable and no auto-approve just for path
     auth::set_auth_mode(&repo, &AuthMode::Local).await.unwrap();
+    repo.set_setting("registration_enabled", "true")
+        .await
+        .unwrap();
     let hash = auth::hash_password("pw").unwrap();
     repo.create_user("bob", &hash, true).await.unwrap();
     let res = auth::register_user(&repo, &no_root_users(), "bob", "pw").await;

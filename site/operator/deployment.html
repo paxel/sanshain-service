@@ -229,6 +229,15 @@ secrets:
       </td>
     </tr>
     <tr>
+      <td><code>config.initialAuthMode</code></td>
+      <td><code>""</code></td>
+      <td>
+        <code>INITIAL_AUTH_MODE</code>, rendered only when non-empty: the auth mode of the first
+        start (<code>local</code>, <code>ldap</code>, …). Empty, the instance starts in
+        <a href="authentication.html#off">Off</a> and the admin picks the mode.
+      </td>
+    </tr>
+    <tr>
       <td><code>secrets.initialAdminPassword</code></td>
       <td><code>""</code></td>
       <td>

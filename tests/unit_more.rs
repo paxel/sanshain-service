@@ -152,7 +152,7 @@ async fn register_user_forbidden_when_disabled() {
         .await
         .unwrap();
     let res = auth_service::register_user(&repo, &no_root_users(), "u", "p").await;
-    assert!(matches!(res, Err(AppError::Forbidden)));
+    assert!(matches!(res, Err(AppError::ForbiddenWithReason(_))));
 }
 
 // 12. register_user ok when enabled and auto-approve true
@@ -165,9 +165,13 @@ async fn register_user_ok_when_enabled_autoapprove() {
     auth_service::set_auto_approve_users(&repo, true)
         .await
         .unwrap();
-    auth_service::register_user(&repo, &no_root_users(), "bob", "pw")
+    sanshain_service::application::sign_in_service::set_registration_enabled(&repo, true)
         .await
         .unwrap();
+    let approved = auth_service::register_user(&repo, &no_root_users(), "bob", "pw")
+        .await
+        .unwrap();
+    assert!(approved, "auto-approve answers that the account is ready");
     let users = auth_service::list_users(&repo).await.unwrap();
     assert_eq!(users.len(), 1);
     assert_eq!(users[0].username, "bob");

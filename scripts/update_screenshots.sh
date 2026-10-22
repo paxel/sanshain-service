@@ -3,6 +3,8 @@ set -e
 
 # Configuration
 export INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-root_password}
+# A fresh instance starts in Off (maintenance) unless told otherwise.
+export INITIAL_AUTH_MODE=${INITIAL_AUTH_MODE:-local}
 export DATABASE_URL="sqlite:sanshain.db?mode=rwc"
 PORT=3000
 
@@ -62,6 +64,12 @@ if [ "$TOKEN" == "null" ] || [ -z "$TOKEN" ]; then
 fi
 
 export SANSHAIN_TOKEN=$TOKEN
+
+# The login page shows the register card only while registration is open.
+curl -s -X POST http://localhost:$PORT/admin/settings/registration \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true}' >/dev/null
 
 echo "Enabling Dev Mode for demo scripts..."
 curl -s -X POST http://localhost:$PORT/admin/settings/dev-mode \

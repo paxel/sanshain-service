@@ -239,6 +239,16 @@
       </td>
     </tr>
     <tr>
+      <td><code>INITIAL_AUTH_MODE</code></td>
+      <td>Off</td>
+      <td>
+        The auth mode of the first start, when no user exists: <code>off</code>, <code>dev</code>,
+        <code>local</code>, <code>ldap</code> or <code>oidc</code>. Unset, a fresh instance starts
+        in Off, where only the admin signs in and picks the mode. <code>dev</code> needs
+        <code>ALLOW_INSECURE_DEV_MODE=true</code>. See <a href="authentication.html#off">Off</a>.
+      </td>
+    </tr>
+    <tr>
       <td><code>SANSHAIN_ROOT_USERS</code></td>
       <td><code>INITIAL_ADMIN_USERNAME</code>, else <code>root</code></td>
       <td>

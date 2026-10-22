@@ -178,13 +178,15 @@
   </dd>
   <dt><code>POST /auth/login</code> answers <code>403</code></dt>
   <dd>
-    The account is pending approval (approve it under <strong>Users</strong>), or the mode is
-    <code>disabled</code>. Existing sessions still work on the admin routes.
+    The account is pending approval (approve it under <strong>Users</strong>), or the mode is Off or
+    Dev, where only administrators sign in: the answer then names the mode
+    (<code>Sanshain is in maintenance; only administrators can sign in</code>).
   </dd>
   <dt><code>503 Service is in Maintenance Mode / Disabled</code></dt>
   <dd>
-    Every API call while the authentication mode is OFF / Maintenance. Select another mode in the
-    Authentication section or with <code>PUT /admin/auth-config</code>.
+    Every API call while the authentication mode is Off (maintenance), which is also where a fresh
+    instance starts unless <code>INITIAL_AUTH_MODE</code> is set. An administrator signs in and selects
+    another mode in the Authentication section or with <code>PUT /admin/auth-config</code>.
   </dd>
   <dt><code>409 This username is reserved</code></dt>
   <dd>

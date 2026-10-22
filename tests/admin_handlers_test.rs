@@ -171,6 +171,10 @@ async fn app_with_seed() -> (axum::Router, SqliteSpecRepository, String) {
     services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
         .await
         .unwrap();
+    // A fresh instance starts in Off (maintenance); these tests run in Local.
+    services::set_auth_mode(&repo, &sanshain_service::domain::models::AuthMode::Local)
+        .await
+        .unwrap();
     let (session, _user) = services::login(&repo, "root", "root_password")
         .await
         .unwrap();
@@ -1257,6 +1261,9 @@ async fn audit_logs_are_admin_only() {
 
     // Register + approve + log in a non-admin user.
     auth_service::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    sanshain_service::application::sign_in_service::set_registration_enabled(&repo, true)
         .await
         .unwrap();
     auth_service::register_user(&repo, &no_root_users(), "regular-user", "password123")

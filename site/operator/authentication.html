@@ -1,4 +1,4 @@
-<!-- page: title="Authentication" track="operator" order=3 summary="The five authentication modes, local accounts and approval, the root accounts held by configuration, LDAP and Active Directory with its timeouts and CA bundle, OpenID Connect through the API, and the developer-mode gate." -->
+<!-- page: title="Authentication" track="operator" order=3 summary="The five authentication modes, Off for maintenance, local accounts with registration and approval, the root accounts held by configuration, LDAP and Active Directory with its timeouts and CA bundle, OpenID Connect, and the developer-mode gate." -->
 <p class="lede">
   Humans sign in with a password, through the directory or through an OpenID Connect provider;
   builds and scripts always use an <a href="../start/glossary.html#api-token">API token</a>. This
@@ -7,17 +7,24 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
+  <p class="eyebrow">What changed in 2.10.0</p>
   <ul>
     <li>
-      A directory that accepts the connection and never answers fails within 10 s
-      (<code>LDAP_OPERATION_TIMEOUT_SECS</code>) with a message naming the URL and the likely scheme
-      and port mismatch, instead of hanging until the ingress answers
-      <code>502</code>.
+      A fresh instance starts in <a href="#off">Off</a>, where only the admin signs in, unless
+      <code>INITIAL_AUTH_MODE</code> names a mode. Off lets administrators sign in instead of
+      refusing every login.
     </li>
     <li>
-      The image trusts public certificate authorities, so <code>ldaps://</code> against a publicly
-      signed directory needs no certificate mount.
+      Registration has its own switch and is closed by default, also on instances updated from an
+      earlier version. The sign-in page offers the register tab only while it is open.
+    </li>
+    <li>
+      Under LDAP a local password is checked first, so it never reaches the directory, where a
+      failed bind counts towards the account lockout.
+    </li>
+    <li>
+      Dev mode opens the API only; the admin pages need a signed-in administrator. OIDC has a form
+      on the admin page, and the SSO button shows only while OIDC is the sign-in source.
     </li>
   </ul>
 </div>
@@ -26,67 +33,86 @@
 <p>
   The mode is a setting (<code>auth_mode</code>), chosen in the
   <strong>Authentication</strong> section of <code>/admin.html</code> or with
-  <code>PUT /admin/auth-config</code> (<code>manage_auth_config</code>). The first start sets
-  <code>local</code>.
+  <code>PUT /admin/auth-config</code> (<code>manage_auth_config</code>). A fresh instance starts in
+  Off unless <code>INITIAL_AUTH_MODE</code> names another mode for its first start (see
+  <a href="configuration.html">Configuration</a>); an existing instance keeps the mode it has.
 </p>
 <table>
   <thead>
     <tr>
       <th>Mode</th>
       <th>Admin page</th>
-      <th>Effect</th>
+      <th>Who signs in</th>
+      <th>API</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <td><code>disabled</code></td>
-      <td>OFF / Maintenance</td>
+      <td>Off (maintenance)</td>
       <td>
-        Every Producer and Consumer API call answers <code>503</code>
-        <code>Service is in Maintenance Mode / Disabled</code>, and
-        <code>POST /auth/login</code> answers <code>403</code>. Existing sessions keep working on
-        the admin routes, which is how you switch back.
+        Administrators only, through the source that was active before Off, or a local password. See
+        <a href="#off">Off</a>.
       </td>
+      <td><code>503</code> for everyone, MCP included.</td>
     </tr>
     <tr>
       <td><code>dev</code></td>
-      <td>Dev Mode</td>
+      <td>Dev</td>
+      <td>Administrators only, by local password.</td>
       <td>
-        Requests <a href="#developer-mode">developer mode</a>; effective only with the environment
-        gate. Password login works as in <code>local</code>.
+        Provide, require and catalog without a token, when the server allows it; see
+        <a href="#developer-mode">Developer mode</a>.
       </td>
     </tr>
     <tr>
       <td><code>local</code></td>
-      <td>Local Users</td>
-      <td>Accounts in Sanshain's own database, Argon2 password hashes.</td>
+      <td>Local users</td>
+      <td>
+        Local accounts. Self-registration only while its switch is on; see
+        <a href="#local-accounts">Local accounts</a>.
+      </td>
+      <td>API token required.</td>
     </tr>
     <tr>
       <td><code>ldap</code></td>
       <td>LDAP</td>
       <td>
-        The password is checked against the directory; local accounts and root still log in when the
-        directory refuses or is down.
+        Directory users, and every local account by its local password, which is checked first.
+        Nobody registers.
       </td>
+      <td>API token required.</td>
     </tr>
     <tr>
       <td><code>oidc</code></td>
-      <td>none; API only</td>
+      <td>OIDC (single sign-on)</td>
       <td>
-        Browser login through the provider's redirect flow. The password endpoint stays open for
-        local accounts and root.
+        People through the provider's redirect flow, and every local account by its password. Nobody
+        registers.
       </td>
+      <td>API token required.</td>
     </tr>
   </tbody>
 </table>
+<p>
+  "Administrators" are the holders of <code>manage_auth_config</code>: root, the
+  <code>admin</code> role, and anyone given that permission, whether stored or conferred by a
+  directory group. While only they may sign in, everyone else's login answers <code>403</code> with
+  the reason, and sessions opened earlier stop working until the mode changes again.
+</p>
 <p>
   <code>PUT /admin/auth-config</code> accepts <code>off</code> and <code>maintenance</code> as
   spellings of <code>disabled</code>; any other mode answers <code>400</code>
   <code>Invalid auth mode: …</code>. <code>ldap</code> without an <code>ldap_config</code> in the
   same request answers <code>LDAP config required for ldap mode</code>; <code>oidc</code> without an
   <code>oidc_config</code> stored or supplied answers
-  <code>OIDC config required for oidc mode</code>. Every change is an
-  <code>UPDATE_SETTINGS</code> audit entry.
+  <code>OIDC config required for oidc mode</code>; <code>dev</code> on a server without the gate
+  answers <code>dev mode needs the server started with ALLOW_INSECURE_DEV_MODE=true</code>. A
+  refused request changes nothing. Every change is an <code>UPDATE_SETTINGS</code> audit entry.
+</p>
+<p>
+  The sign-in page asks <code>GET /auth/options</code> (no sign-in needed) what to offer: the
+  register tab, the SSO button, and a notice while only administrators can sign in.
 </p>
 <p>
   Administrative routes (<code>/admin/*</code>) take a session token from
@@ -94,19 +120,80 @@
   the backup download, which admits a <code>full</code> API token. A session lasts 7 days.
 </p>
 
-<h2>Local accounts</h2>
+<h2 id="off">Off: maintenance</h2>
 <p>
-  Anyone can register on the <strong>Register</strong> tab of the sign-in page or with
-  <code>POST /auth/register</code> (<code>{"username","password"}</code>); there is no switch that
-  closes registration. A new account is <em>pending</em> until an administrator approves it (<a
-    href="../start/glossary.html#approval"
-    >approval</a
-  >): the <strong>Users</strong> section of the admin page, or
-  <code>POST /admin/users/{id}/approve</code> (<code>manage_users</code>). A pending user's login
-  answers <code>403</code>; a wrong password <code>401</code>, and so does an empty one, refused
-  before any check. The <strong>Auto Acknowledge New Users</strong> toggle
-  (<code>auto_approve_users</code>) approves new registrations at once; it is off by default and
-  meant for a lab, not for a company. In the <strong>Users</strong> list every account carries its
+  Off is for the times nobody but the operators should touch the instance: a database backup or
+  restore, a migration, rebuilding the directory groups. Builds must not provide against an instance
+  that is about to be restored, and people must not change data that is about to be wiped. In Off:
+</p>
+<ul>
+  <li>
+    Provide, require, catalog, the reports and the MCP endpoint answer <code>503</code>
+    <code>Service is in Maintenance Mode / Disabled</code>, for every caller, administrators
+    included.
+  </li>
+  <li>
+    Only administrators sign in. Everyone else gets
+    <code>403 Sanshain is in maintenance; only administrators can sign in</code>, and the sign-in
+    page shows the same notice. A session someone else opened before Off stops working.
+  </li>
+  <li>Nobody registers.</li>
+</ul>
+<p>
+  <strong>Off remembers the mode it interrupted.</strong> Switching from LDAP to Off keeps LDAP as
+  the sign-in source: administrators whose rights come from a directory group sign in with their
+  directory password as usual, and their group still confers the rights while Off lasts. The same
+  holds for OIDC through the SSO button. Local passwords work throughout, so <code>root</code> is
+  always the way in, also when the directory is the thing under maintenance and does not answer. A
+  fresh instance has no previous mode: there only local passwords work, which on day one means the
+  initial admin.
+</p>
+<p>A typical window, backing up the database and rebuilding the directory groups:</p>
+<ol>
+  <li>
+    An administrator selects <strong>Off (maintenance)</strong> and saves. From now on CI provides
+    get <code>503</code> and retry later; people see the maintenance notice.
+  </li>
+  <li>
+    Take the backup (<a href="backup.html">Backup and restore</a>). The administrator stays signed
+    in; a second one can sign in through LDAP at any time.
+  </li>
+  <li>
+    Rebuild the groups in the directory. If the directory is down meanwhile, sign in as
+    <code>root</code> with its local password.
+  </li>
+  <li>
+    Select <strong>LDAP</strong> again and save. The API answers again, and people sign in as
+    before; the groups they are in now decide their rights.
+  </li>
+</ol>
+
+<h2 id="local-accounts">Local accounts</h2>
+<p>
+  In Local mode, the admin page shows two switches below the mode (<code>manage_settings</code>):
+</p>
+<ul>
+  <li>
+    <strong>Registration</strong> (<code>registration_enabled</code>, off by default): anyone can
+    create an account on the <strong>Register</strong> tab of the sign-in page or with
+    <code>POST /auth/register</code> (<code>{"username","password"}</code>). Closed, the tab is not
+    shown and the call answers <code>403 registration is closed on this instance</code>. Closing it
+    keeps every account it created; deleting accounts is a separate, deliberate action. An instance
+    updated from 2.9 or earlier starts with it closed.
+  </li>
+  <li>
+    <strong>Auto-acknowledge new users</strong> (<code>auto_approve_users</code>, off by default): a
+    new account can sign in at once. Off, it is <em>pending</em> until an administrator approves it
+    (<a href="../start/glossary.html#approval">approval</a>): the <strong>Users</strong> section of
+    the admin page, or <code>POST /admin/users/{id}/approve</code> (<code>manage_users</code>). The
+    register tab and the answer of <code>POST /auth/register</code> (<code
+      >{"approved": true|false}</code
+    >) say which applies, so nobody is told to wait who does not have to.
+  </li>
+</ul>
+<p>
+  A pending user's login answers <code>403</code>; a wrong password <code>401</code>, and so does an
+  empty one, refused before any check. In the <strong>Users</strong> list every account carries its
   badges: one per role it holds directly (<code>admin</code>, <code>viewer</code>, …), and
   <code>approved</code> or <code>pending</code>.
 </p>
@@ -258,6 +345,13 @@
 </figure>
 
 <h3>How a login is checked</h3>
+<p>
+  The local password comes first. When a local account of that name exists and the password matches
+  it, the user is signed in and the directory is never asked. A user whose local and directory
+  accounts share a name but not a password therefore cannot lock their directory account by typing
+  the local one: only a password that is wrong locally reaches the directory, where every failed
+  bind counts towards the lockout policy. Otherwise the directory checks it:
+</p>
 <ol>
   <li>
     Name resolution and a TCP connection to the host and port, with a 5 s limit. A failure here
@@ -290,9 +384,9 @@
   the <a href="roles.html#groups">group mapping</a>; the roles attached to matching groups apply. A
   promotion or demotion in the directory takes effect within the cache TTL, without a new login.
   When the directory is unreachable, directory roles are omitted (see
-  <a href="configuration.html#directory-group-caching">Directory group caching</a>). Password login
-  falls back to the local check when the directory refuses or fails, so root and local accounts are
-  never locked out by the directory.
+  <a href="configuration.html#directory-group-caching">Directory group caching</a>). Because the
+  local check comes first, root and local accounts are never locked out by the directory, whether it
+  refuses or is down.
 </p>
 
 <h3>Timeouts, schemes and ports</h3>
@@ -404,8 +498,8 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
 
 <h2>OpenID Connect</h2>
 <p>
-  OIDC is for people. It is configured through the API only; the admin page has no OIDC form in
-  2.6.0.
+  OIDC is for people. Select <strong>OIDC (single sign-on)</strong> in the Authentication section
+  and fill the form with the fields below, or send them with the API:
 </p>
 <pre><code>curl -X PUT $SANSHAIN/admin/auth-config \
   -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
@@ -474,8 +568,11 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
   </tbody>
 </table>
 <p>
-  The sign-in page shows <strong>Sign in with SSO</strong> (<code>GET /auth/oidc/login</code>). The
-  flow is authorization code with PKCE: state, nonce and verifier travel in a 10-minute
+  The sign-in page shows <strong>Sign in with SSO</strong> (<code>GET /auth/oidc/login</code>) while
+  OIDC is the sign-in source, which includes an Off that interrupted OIDC; otherwise the button is
+  hidden and both routes answer
+  <code>403 single sign-on is not the sign-in source of this instance</code>. The flow is
+  authorization code with PKCE: state, nonce and verifier travel in a 10-minute
   <code>HttpOnly</code> cookie; the callback (<code>GET /auth/oidc/callback</code>) exchanges the
   code, verifies the ID token (signature against the provider's JWKS, nonce, issuer, audience,
   expiry), creates or finds the shadow account (approved) and sets the session cookie, then
@@ -487,17 +584,24 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
 
 <h2>Developer mode</h2>
 <p>
-  <a href="../start/glossary.html#dev-mode">Developer mode</a> switches authentication off: API and
-  admin routes act as a built-in <code>dev_user</code>. It needs two things at once:
+  <a href="../start/glossary.html#dev-mode">Developer mode</a> is for a trial on a laptop: provide,
+  require, catalog and the MCP endpoint take requests without a token and act as a built-in
+  <code>dev_user</code>. The admin pages do not: they need a signed-in administrator, and only
+  administrators sign in. It needs two things at once:
 </p>
 <ol>
   <li>
-    A request: the <strong>Dev Mode</strong> radio (which stores <code>dev_mode=true</code>) or
+    A request: the <strong>Dev</strong> mode (which stores <code>dev_mode=true</code>) or
     <code>SANSHAIN_DEV_MODE=true</code> in the environment.
   </li>
   <li>The gate: <code>ALLOW_INSECURE_DEV_MODE=true</code> in the environment.</li>
 </ol>
-<p>A request without the gate fails closed: authentication stays enforced and startup logs</p>
+<p>
+  Without the gate the <strong>Dev</strong> option on the admin page is greyed out with a hint, and
+  <code>PUT /admin/auth-config</code> refuses it. A request that reaches the database anyway,
+  through <code>SANSHAIN_DEV_MODE</code> or configuration drift, fails closed: tokens stay required
+  and startup logs
+</p>
 <pre><code>SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced.</code></pre>
 <p>
   With both, startup logs
@@ -509,4 +613,4 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
   drift cannot open a production instance on its own.
 </p>
 
-<p class="checked">Checked against v2.6.1.</p>
+<p class="checked">Checked against v2.10.0.</p>

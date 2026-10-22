@@ -206,6 +206,21 @@ async fn snapshot_download_refuses_on_postgres_and_names_pg_dump() {
         .await
         .unwrap();
     let dev_user = services::ensure_dev_user(&repo).await.ok();
+    // Dev mode opens the API, not the administration: the backup route still
+    // needs a signed-in administrator.
+    let admin = services::list_users(&repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let session = sanshain_service::domain::ports::SpecRepository::create_session(
+        &repo,
+        admin.id,
+        "2999-01-01T00:00:00Z",
+    )
+    .await
+    .unwrap();
     let mut state = test_app_state(repo.clone(), db_url);
     state.dev_user = dev_user;
     let app = create_app(state);
@@ -215,6 +230,7 @@ async fn snapshot_download_refuses_on_postgres_and_names_pg_dump() {
             Request::builder()
                 .method("GET")
                 .uri("/admin/backup/sqlite")
+                .header("Authorization", format!("Bearer {}", session.token))
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -476,30 +476,6 @@
           </div>
         </section>
 
-        <!-- Auto Approve Users Toggle -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
-          <div class="flex justify-between items-center">
-            <div>
-              <h2 class="text-lg font-semibold text-slate-800">Auto Acknowledge New Users</h2>
-              <p class="text-sm text-slate-500 mt-1">
-                When enabled, newly registered local users are approved automatically instead of
-                waiting for manual admin approval.
-              </p>
-            </div>
-            <button
-              id="auto-approve-toggle"
-              data-click="toggleAutoApproveUsers"
-              data-needs="manage_settings"
-              class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200"
-            >
-              <span
-                id="auto-approve-dot"
-                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"
-              ></span>
-            </button>
-          </div>
-        </section>
-
         <!-- Authentication Mode -->
         <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
           <div class="mb-4">
@@ -510,7 +486,7 @@
             <div id="auth-config-locked" class="mt-1"></div>
           </div>
           <div class="space-y-3">
-            <div class="flex items-center space-x-6">
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input
                   type="radio"
@@ -520,7 +496,7 @@
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
                 />
-                <span class="text-sm text-slate-700">OFF / Maintenance</span>
+                <span class="text-sm text-slate-700">Off (maintenance)</span>
               </label>
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input
@@ -531,7 +507,7 @@
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
                 />
-                <span class="text-sm text-slate-700">Dev Mode</span>
+                <span class="text-sm text-slate-700">Dev</span>
               </label>
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input
@@ -542,7 +518,7 @@
                   data-change="onAuthModeChange"
                   class="text-indigo-600 focus:ring-indigo-500"
                 />
-                <span class="text-sm text-slate-700">Local Users</span>
+                <span class="text-sm text-slate-700">Local users</span>
               </label>
               <label class="flex items-center space-x-2 cursor-pointer">
                 <input
@@ -555,6 +531,72 @@
                 />
                 <span class="text-sm text-slate-700">LDAP</span>
               </label>
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="auth-mode"
+                  data-needs="manage_auth_config"
+                  value="oidc"
+                  data-change="onAuthModeChange"
+                  class="text-indigo-600 focus:ring-indigo-500"
+                />
+                <span class="text-sm text-slate-700">OIDC (single sign-on)</span>
+              </label>
+            </div>
+            <p id="auth-mode-help" class="text-sm text-slate-500"></p>
+            <p id="dev-mode-hint" class="hidden text-xs text-amber-700">
+              Dev mode is off limits on this server: start it with
+              <code>ALLOW_INSECURE_DEV_MODE=true</code> to allow it.
+            </p>
+            <!-- Local users: registration and auto-acknowledge -->
+            <div
+              id="local-users-panel"
+              class="hidden mt-4 space-y-4 border-t border-slate-200 pt-4"
+            >
+              <div class="flex justify-between items-center gap-4">
+                <div>
+                  <h3 class="text-sm font-semibold text-slate-800">Registration</h3>
+                  <p class="text-xs text-slate-500 mt-0.5" data-toggle-text="registration">
+                    Anyone can create a local account on the sign-in page. Turning it off keeps the
+                    accounts already created.
+                  </p>
+                </div>
+                <button
+                  id="registration-toggle"
+                  data-click="toggleRegistration"
+                  data-needs="manage_settings"
+                  role="switch"
+                  aria-checked="false"
+                  class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200"
+                >
+                  <span
+                    id="registration-dot"
+                    class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"
+                  ></span>
+                </button>
+              </div>
+              <div class="flex justify-between items-center gap-4">
+                <div>
+                  <h3 class="text-sm font-semibold text-slate-800">Auto-acknowledge new users</h3>
+                  <p class="text-xs text-slate-500 mt-0.5" data-toggle-text="auto-approve">
+                    A registered account can sign in at once instead of waiting for an admin to
+                    approve it.
+                  </p>
+                </div>
+                <button
+                  id="auto-approve-toggle"
+                  data-click="toggleAutoApproveUsers"
+                  data-needs="manage_settings"
+                  role="switch"
+                  aria-checked="false"
+                  class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200"
+                >
+                  <span
+                    id="auto-approve-dot"
+                    class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"
+                  ></span>
+                </button>
+              </div>
             </div>
             <!-- LDAP Config Form -->
             <div id="ldap-config-form" class="hidden mt-4 space-y-3 border-t border-slate-200 pt-4">
@@ -663,6 +705,111 @@
                     matches the hostname.
                   </li>
                 </ul>
+              </div>
+            </div>
+            <!-- OIDC Config Form -->
+            <div id="oidc-config-form" class="hidden mt-4 space-y-3 border-t border-slate-200 pt-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-medium text-slate-600 mb-1" for="oidc-issuer-url"
+                    >Issuer URL</label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-issuer-url"
+                    data-needs="manage_auth_config"
+                    placeholder="https://idp.example.com/realms/corp"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-600 mb-1" for="oidc-client-id"
+                    >Client ID</label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-client-id"
+                    data-needs="manage_auth_config"
+                    placeholder="sanshain"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    for="oidc-client-secret"
+                    >Client Secret</label
+                  >
+                  <input
+                    type="password"
+                    id="oidc-client-secret"
+                    data-needs="manage_auth_config"
+                    placeholder="••••••••"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    for="oidc-redirect-url"
+                    >Redirect URL
+                    <span class="font-normal text-slate-400"
+                      >(registered with the provider)</span
+                    ></label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-redirect-url"
+                    data-needs="manage_auth_config"
+                    placeholder="https://sanshain.example.com/auth/oidc/callback"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    for="oidc-username-claim"
+                    >Username claim</label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-username-claim"
+                    data-needs="manage_auth_config"
+                    placeholder="preferred_username"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    for="oidc-groups-claim"
+                    >Groups claim</label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-groups-claim"
+                    data-needs="manage_auth_config"
+                    placeholder="groups"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    for="oidc-admin-group"
+                    >Admin group
+                    <span class="font-normal text-slate-400"
+                      >(members are granted the admin role)</span
+                    ></label
+                  >
+                  <input
+                    type="text"
+                    id="oidc-admin-group"
+                    data-needs="manage_auth_config"
+                    placeholder="sanshain-admins"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
               </div>
             </div>
             <div class="pt-2">

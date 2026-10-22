@@ -48,6 +48,7 @@ jobs:
       - name: Integration Tests
         run: |
           export INITIAL_ADMIN_PASSWORD=root_password
+          export INITIAL_AUTH_MODE=local
           cargo build
           cargo run &
           PID=$!
@@ -70,6 +71,7 @@ jobs:
           ./scripts/itest.sh http://localhost:3000 root_password
         env:
           INITIAL_ADMIN_PASSWORD: root_password
+          INITIAL_AUTH_MODE: local
       - name: Install tools
         uses: taiki-e/install-action@v2
         with:
@@ -135,9 +137,10 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js
+          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js
         env:
           INITIAL_ADMIN_PASSWORD: root_password
+          INITIAL_AUTH_MODE: local
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v4
