@@ -47,11 +47,32 @@ const compareBtn = document.getElementById("compare-btn");
 
 const viewYamlBtn = document.getElementById("view-yaml-btn");
 const viewDiffBtn = document.getElementById("view-diff-btn");
+const viewStructureBtn = document.getElementById("view-structure-btn");
 const blameToggle = document.getElementById("blame-toggle");
 const blameToggleContainer = document.getElementById("blame-toggle-container");
 const copyBtn = document.getElementById("copy-btn");
 const downloadBtn = document.getElementById("download-btn");
 const viewerContainer = document.getElementById("viewer-container");
+
+// The structure view covers OpenAPI and AsyncAPI; a proto reads as text. The
+// choice between YAML and Structure is remembered in the browser.
+const STRUCTURE_PREF_KEY = "sanshain_spec_view";
+const hasStructure = apiType !== "proto";
+let isStructureMode = false;
+try {
+  isStructureMode = hasStructure && localStorage.getItem(STRUCTURE_PREF_KEY) === "structure";
+} catch (_) {
+  // Storage blocked: start in YAML.
+}
+if (!hasStructure) viewStructureBtn.classList.add("hidden");
+
+function rememberView(view) {
+  try {
+    localStorage.setItem(STRUCTURE_PREF_KEY, view);
+  } catch (_) {
+    // Storage blocked: the choice lasts until the page closes.
+  }
+}
 
 // Full-spec mode: no endpoint identity in the URL — the page shows the
 // whole stored document of each version instead of one endpoint's snippet.
@@ -315,6 +336,8 @@ function renderActiveView() {
 
   if (isDiffMode) {
     renderDiffView();
+  } else if (isStructureMode) {
+    renderStructure(activeVersion);
   } else {
     renderYamlView();
   }
@@ -322,20 +345,17 @@ function renderActiveView() {
 }
 
 function updateToolbarState() {
-  if (isDiffMode) {
-    viewYamlBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
-    viewDiffBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs";
-    blameToggleContainer.classList.add("hidden");
-  } else {
-    viewYamlBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs";
-    viewDiffBtn.className =
-      "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
-    blameToggleContainer.classList.remove("hidden");
-    blameToggle.checked = isBlameOn;
-  }
+  const active =
+    "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-white text-slate-800 shadow-xs";
+  const idle =
+    "px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all text-slate-600 hover:text-slate-800";
+  const structureShown = !isDiffMode && isStructureMode;
+  viewYamlBtn.className = !isDiffMode && !isStructureMode ? active : idle;
+  viewDiffBtn.className = isDiffMode ? active : idle;
+  viewStructureBtn.className = `${structureShown ? active : idle}${hasStructure ? "" : " hidden"}`;
+  // Blame reads lines of text: it has no place in the diff or the tree.
+  blameToggleContainer.classList.toggle("hidden", isDiffMode || isStructureMode);
+  blameToggle.checked = isBlameOn;
 
   // Disable diff tab if only 1 version exists
   if (globalVersions.length < 2) {
@@ -455,9 +475,56 @@ function renderDiffView() {
 
 viewYamlBtn.onclick = () => {
   isDiffMode = false;
+  isStructureMode = false;
+  rememberView("yaml");
   updateUrlParams();
   renderActiveView();
 };
+
+viewStructureBtn.onclick = () => {
+  if (!hasStructure) return;
+  isDiffMode = false;
+  isStructureMode = true;
+  rememberView("structure");
+  updateUrlParams();
+  renderActiveView();
+};
+
+// The structure of one version from the server: the whole document's
+// endpoints (folded, loaded when opened) or this page's endpoint.
+async function fetchStructure(version, target) {
+  const q = new URLSearchParams({ api_type: apiType, version, ...target });
+  const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/structure?${q}`);
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res.json();
+}
+
+async function renderStructure(version) {
+  if (!version) return;
+  const stillShown = () => activeVersion === version && isStructureMode && !isDiffMode;
+  if (version.yaml_content == null) {
+    viewerContainer.innerHTML = isFullSpecMode
+      ? `<div class="text-slate-400 italic">The stored document for version ${escapeHtml(version.version)} could not be loaded.</div>`
+      : `<div class="text-slate-400 italic">Version ${escapeHtml(version.version)} does not include this endpoint — a Require for it answers 410.</div>`;
+    return;
+  }
+  viewerContainer.innerHTML = `<div class="text-slate-400 italic">Loading the structure…</div>`;
+  let view;
+  try {
+    view = await fetchStructure(version.version, diffTarget());
+  } catch (e) {
+    if (stillShown()) {
+      viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load the structure: ${escapeHtml(friendlyError(e))}</div>`;
+    }
+    return;
+  }
+  if (!stillShown()) return;
+  renderStructureView(viewerContainer, view, {
+    unfold: !isFullSpecMode,
+    loadEndpoint: (path, method) => fetchStructure(version.version, { path, method }),
+    copy: copyText,
+  });
+}
 
 viewDiffBtn.onclick = () => {
   if (globalVersions.length < 2) return;
@@ -561,13 +628,13 @@ async function renderBlameView(version) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     blocks = await res.json();
   } catch (e) {
-    if (activeVersion === version && isBlameOn && !isDiffMode) {
+    if (activeVersion === version && isBlameOn && !isDiffMode && !isStructureMode) {
       viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load blame: ${escapeHtml(e.message)}</div>`;
     }
     return;
   }
   // A newer selection or mode replaced this view while the request ran.
-  if (activeVersion !== version || !isBlameOn || isDiffMode) return;
+  if (activeVersion !== version || !isBlameOn || isDiffMode || isStructureMode) return;
 
   const html = blocks
     .map((b, bi) => {

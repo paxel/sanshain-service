@@ -73,6 +73,7 @@ export default [
         redrawGraph: "readonly",
         renderFocusTags: "readonly",
         mountDiffView: "readonly",
+        renderStructureView: "readonly",
         fetchVersionDiff: "readonly",
         sanshainToken: "readonly",
         stabilityBadge: "readonly",

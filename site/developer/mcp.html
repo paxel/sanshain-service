@@ -1,4 +1,4 @@
-<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the seven tools, and the limits." -->
+<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the eight tools, and the limits." -->
 <p class="lede">
   <a href="../start/glossary.html#sanshain">Sanshain</a> exposes its catalog to AI assistants over
   the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>. An assistant with the
@@ -28,7 +28,7 @@
   <li>
     <strong>Tools</strong>: <code>list_services</code>, <code>describe_service</code>,
     <code>find_endpoint</code>, <code>get_spec</code>, <code>get_graph</code>,
-    <code>diff_versions</code>, <code>blame</code>.
+    <code>diff_versions</code>, <code>blame</code>, <code>endpoint_structure</code>.
   </li>
   <li>
     <strong>Limits</strong>: 60 tool calls per minute per token, 64 KiB per answer; larger answers
@@ -241,6 +241,22 @@
         origin. <em>Since when has this field been required, and which change made it so?</em>
       </td>
     </tr>
+    <tr>
+      <td><code>endpoint_structure</code></td>
+      <td>
+        <code>service</code>, <code>api_type</code>, <code>version?</code>, <code>path</code>,
+        <code>method</code>, <code>with_examples?</code>
+      </td>
+      <td>
+        One OpenAPI or AsyncAPI endpoint as the viewer's
+        <a href="web-ui.html#the-structure-view">structure tree</a>: parameters, request body,
+        responses or messages, every <code>$ref</code> inlined, each node with type, flags,
+        description, values and <code>changed_in</code> (with <code>inside</code> for a newer change
+        below). <code>with_examples</code> adds a JSON <code>example</code> per body.
+        <em>What does <code>POST /orders</code> need, and since when is <code>currency</code> in
+        it?</em>
+      </td>
+    </tr>
   </tbody>
 </table>
 <p>
@@ -269,6 +285,10 @@
   </li>
   <li>
     <code>blame</code> answers the blocks without their lines (<code>line_count</code> instead);
+  </li>
+  <li>
+    <code>endpoint_structure</code> answers the tree two levels deep, cut nodes marked
+    <code>children_omitted</code>;
   </li>
   <li>
     <code>list_services</code>, <code>describe_service</code> and <code>find_endpoint</code> answer

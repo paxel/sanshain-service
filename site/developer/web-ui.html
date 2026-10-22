@@ -1,4 +1,4 @@
-<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff and blame, Consumers, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
+<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff, blame and the structure view, Consumers, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
 <p class="lede">
   Everything a build records is browsable. This chapter walks the pages a developer opens: Producers
   and their <a href="../start/glossary.html#version-line">version lines</a>, the spec viewer,
@@ -172,6 +172,35 @@
   />
   <figcaption>One endpoint across its version line.</figcaption>
 </figure>
+
+<h3 id="the-structure-view">The structure view</h3>
+<p>
+  <strong>Structure</strong>, next to the YAML and the patch, shows an OpenAPI or AsyncAPI version
+  as a foldable tree instead of text: per endpoint its parameters by location (path, query,
+  header, cookie), the request body and the responses per status and media type, or for AsyncAPI
+  the messages with their headers and payload. Every <code>$ref</code> is opened in place under
+  its schema's name; <code>allOf</code> parts are merged into one member list, each member saying
+  which part it came <em>from</em>; <code>oneOf</code> and <code>anyOf</code> show one entry per
+  variant and the discriminator; a schema that contains itself stops at "↻ Name, see above".
+</p>
+<p>
+  A member shows its name, type and format, whether it is required, deprecated, nullable,
+  read-only or write-only, its description, default, example, allowed values and constraints.
+  Every node carries the version that last changed it, counted along the line up to the version
+  shown; a version chip in amber is a change made in this very version, and <em>inside: X</em> on
+  a folded node says something below it changed later than the node itself. Reformatting a spec
+  changes nothing; a renamed member counts as a new one.
+</p>
+<p>
+  Each body has an <strong>Example</strong> with a Copy button for a curl or a test: the spec's
+  own example where it has one, else one built from the members' examples, defaults, first
+  allowed values and type placeholders. A request example leaves out read-only members, a
+  response example write-only ones. The endpoint view opens the endpoint unfolded; the
+  full-document view lists every endpoint folded and loads one when it is opened.
+  <strong>Expand all</strong> and <strong>Collapse all</strong> sit above the tree. The choice
+  between YAML and Structure is remembered per browser; Blame belongs to the text and is hidden
+  here, and Copy and Download still give the YAML. Proto lines have no structure view.
+</p>
 
 <h2>Consumers</h2>
 <p>
