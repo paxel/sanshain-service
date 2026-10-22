@@ -229,6 +229,23 @@ pub async fn get_graph_scope(
     let mut producers: Vec<ScopeProducer> = Vec::new();
     for line in lines.into_values() {
         let entry = entries.get(&(line.service.clone(), line.api_type, line.version));
+        let channels = match entry {
+            Some(meta) if line.api_type == ApiType::AsyncApi => {
+                let mut channels: Vec<ScopeChannel> = repo
+                    .get_endpoints_for_version(meta.id)
+                    .await?
+                    .into_iter()
+                    .map(|e| ScopeChannel {
+                        channel: e.path,
+                        method: e.method,
+                    })
+                    .collect();
+                channels.sort_by(|a, b| (&a.channel, &a.method).cmp(&(&b.channel, &b.method)));
+                channels.dedup();
+                channels
+            }
+            _ => Vec::new(),
+        };
         let version_line = ScopeVersionLine {
             api_type: line.api_type,
             version: line.version,
@@ -238,6 +255,7 @@ pub async fn get_graph_scope(
                 line.recorded_provide.as_deref(),
                 at,
             ),
+            channels,
         };
         match producers.last_mut() {
             Some(p) if p.name == line.service => p.versions.push(version_line),
@@ -683,6 +701,7 @@ mod tests {
             version: version.parse().unwrap(),
             stability,
             last_provided_at: last.map(str::to_string),
+            channels: Vec::new(),
         }
     }
 

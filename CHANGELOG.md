@@ -23,12 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A Producer's version lists its endpoints by path, then method, instead of in the order the store happened to return them.
 - A fresh instance starts in Off, where only the admin signs in and picks the mode, instead of in Local with open registration.
 - Dev mode opens provide, require, catalog and MCP only: the admin pages need a signed-in administrator, and only administrators sign in. On a server without `ALLOW_INSECURE_DEV_MODE` the Dev option is greyed out and switching to it is refused instead of silently doing nothing.
+- Rainbow colours the graph by position, so the callers in view get colours as far apart as possible instead of mostly blue-greens, and it colours the catalog's dependsOn lines too.
 - The sign-in page shows the Register tab only while registration is open, does not promise a wait when new accounts are acknowledged automatically, shows the SSO button only while OIDC is the mode, and says when only administrators can sign in.
 
 ### Removed
 - The browser's hidden WebSocket mode for live updates (the `sanshain_use_ws` switch in local storage), which sent the session token in the URL and was always refused; the pages use the update stream with the `Authorization` header. `/api/ws/updates` stays for clients that send the header.
 
 ### Fixed
+- Domain frames in the graph no longer overlap: each domain's nodes are laid out as a block of their own.
+- The graph's Topics switch draws the channels a producer publishes that nobody requires yet.
 - Under LDAP, a local password is checked before the directory, so a user whose local and directory accounts share a name no longer locks their directory account by typing the local password.
 
 ---

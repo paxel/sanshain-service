@@ -2652,3 +2652,58 @@ async fn graph_scope_lists_the_producers_of_main_and_branches_live_and_past() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+/// The Topics switch draws channels nobody requires: the scope data carries
+/// the channels each AsyncAPI version publishes, for the version the view
+/// shows. (Subscriptions reach the graph as harvested subscriptions.)
+#[tokio::test]
+async fn graph_scope_lists_the_channels_of_the_version_each_view_shows() {
+    let ctx = setup().await;
+    let async_spec = |version: &str, channels: &[(&str, &str)]| {
+        let mut doc = format!(
+            "asyncapi: '2.6.0'\ninfo:\n  title: Notifier\n  version: {version}\nchannels:\n"
+        );
+        for (channel, operation) in channels {
+            doc.push_str(&format!(
+                "  {channel}:\n    {operation}:\n      message:\n        name: M\n        payload:\n          type: object\n"
+            ));
+        }
+        doc
+    };
+    for (version, channels, trunk) in [
+        ("1.0.0", vec![("user/signup", "publish")], true),
+        (
+            "1.1.0",
+            vec![("user/signup", "publish"), ("user/deleted", "publish")],
+            false,
+        ),
+    ] {
+        let (status, _, body) = send(
+            &ctx,
+            "POST",
+            "/provide/asyncapi",
+            Some(json!({
+                "producername": "notifier",
+                "asyncapi_yaml": async_spec(version, &channels),
+                "stability": "snapshot",
+                "trunk": trunk
+            })),
+        )
+        .await;
+        assert!(status.is_success(), "got: {body}");
+    }
+
+    let channels = |producers: &[Value]| producers[0]["versions"][0]["channels"].clone();
+    // Dev shows the newest version, main the trunk one.
+    assert_eq!(
+        channels(&scope_producers(&ctx, "dev").await),
+        json!([
+            { "channel": "user/deleted", "method": "PUB" },
+            { "channel": "user/signup", "method": "PUB" }
+        ])
+    );
+    assert_eq!(
+        channels(&scope_producers(&ctx, "main").await),
+        json!([{ "channel": "user/signup", "method": "PUB" }])
+    );
+}

@@ -266,12 +266,19 @@
   Three switches shape the drawing itself and are remembered in the browser rather than in the URL:
   <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, and
   <strong>Compact</strong> tightens the gaps between nodes and ranks for an install whose graph has
-  outgrown the screen, <strong>Rainbow</strong> gives the plain arrows one colour per Consumer, so a
-  caller's fan-out can be followed through the crossings (circular, missing, outdated and stale
-  edges keep their warning colours), and <strong>Topics</strong> draws every AsyncAPI channel as a
-  node of its own, publishers pointing at it and subscribers hanging off it, in place of the direct
-  messaging arrows; a channel nobody publishes is a dashed topic, and the topic's panel lists its
-  publishers and subscribers.
+  outgrown the screen, <strong>Rainbow</strong> gives every caller's plain arrows and catalog
+  <code>dependsOn</code> lines a colour of its own, so a fan-out can be followed through the
+  crossings: the callers in the graph, sorted by name, take colours as far apart as the hues the
+  warnings leave free (circular, missing, outdated and stale edges keep their warning colours), and
+  <strong>Topics</strong> draws every AsyncAPI channel as a node of its own, publishers pointing at
+  it and subscribers hanging off it, in place of the direct messaging arrows. A channel the producer
+  publishes that nobody requires gets its topic too, from the version the view shows; a channel
+  nobody publishes is a dashed topic, and the topic's panel lists its publishers and subscribers.
+</p>
+<p>
+  Producers that carry a domain sit in a frame per domain. Each domain's nodes are packed as a
+  block and the blocks stand side by side, so frames never overlap, however many domains a catalog
+  brings.
 </p>
 <p>
   Badges on a node show its protocols in the current view: solid badges on the top edge for what it

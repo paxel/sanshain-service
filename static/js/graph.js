@@ -46,29 +46,58 @@ function graphLayoutGaps(isLR, compact) {
 }
 window.graphLayoutGaps = graphLayoutGaps;
 
-// Rainbow: one hue per source node for the plain edges, so one Consumer's
-// fan-out can be followed through the crossings. Stable by name, and clear of
-// the warning hues (purple, orange, amber, red) that circular, missing, stale,
-// dangling and major-behind edges keep.
-const GRAPH_RAINBOW = [
-  "#2563eb", // blue
-  "#059669", // emerald
-  "#db2777", // pink
-  "#0891b2", // cyan
-  "#65a30d", // lime
-  "#4f46e5", // indigo
-  "#0d9488", // teal
-  "#92400e", // brown
+// Rainbow: one colour per source node for the plain edges, so one
+// Consumer's fan-out can be followed through the crossings. The colours go by
+// position: the drawn graph's sources sorted by name, each taking the next
+// hue of a golden-angle walk over the hues the warnings leave free (purple,
+// red, orange and amber mark circular, conflicting, missing, stale and
+// dangling edges), so neighbours in the list land far apart. Lightness steps
+// through three levels as well, which keeps sources apart once there are more
+// of them than distinguishable hues. A source keeps its colour as long as
+// the graph keeps its sources.
+const GRAPH_RAINBOW_FREE_HUES = [
+  [75, 255],
+  [305, 330],
 ];
-function graphRainbowIndex(name) {
-  let h = 5381;
-  for (const ch of name) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
-  return h % GRAPH_RAINBOW.length;
+const GRAPH_RAINBOW_LIGHTNESS = [36, 48, 28];
+
+function graphHslHex(h, s, l) {
+  const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+  const channel = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
-function graphRainbowColor(name) {
-  return GRAPH_RAINBOW[graphRainbowIndex(name)];
+
+// `count` colours for the rainbow, the first ones as far apart as possible.
+function graphRainbowPalette(count) {
+  const span = GRAPH_RAINBOW_FREE_HUES.reduce((acc, [from, to]) => acc + (to - from), 0);
+  const colours = [];
+  for (let i = 0; i < count; i++) {
+    let offset = ((i * 0.6180339887) % 1) * span;
+    let hue = GRAPH_RAINBOW_FREE_HUES[0][0];
+    for (const [from, to] of GRAPH_RAINBOW_FREE_HUES) {
+      if (offset < to - from) {
+        hue = from + offset;
+        break;
+      }
+      offset -= to - from;
+    }
+    colours.push(graphHslHex(hue, 80, GRAPH_RAINBOW_LIGHTNESS[i % 3]));
+  }
+  return colours;
 }
-window.graphRainbowColor = graphRainbowColor;
+window.graphRainbowPalette = graphRainbowPalette;
+
+// Source name -> its index into the palette, by sorted position.
+function graphRainbowIndexes(sources) {
+  return new Map([...new Set(sources)].sort().map((name, i) => [name, i]));
+}
+window.graphRainbowIndexes = graphRainbowIndexes;
 // Independent display-state highlights (never resolution inputs):
 // outdated = Pin below the line's latest GA within the same major (a Pin to a
 //   superseded Snapshot included);
@@ -507,13 +536,15 @@ window.graphUnownedChannelNode = graphUnownedChannelNode;
 // case the topic node stands unowned. The Consumer's edge keeps the pin
 // (`flag_key` names the original edge for the highlights) and its requires
 // badge (`badge_requires`); the publishing edge carries neither. Edges of
-// every other type pass through unchanged.
+// every other type pass through unchanged. `declared` are the channels the
+// drawn producers publish that nobody requires (see
+// graphDeclaredChannelEdges): already producer → topic, they join as they are.
 function graphTopicNode(channel) {
   return `topic:${channel}`;
 }
 window.graphTopicNode = graphTopicNode;
 
-function graphExplodeTopics(deps) {
+function graphExplodeTopics(deps, declared = []) {
   const out = [];
   const seen = new Set();
   const push = (edge) => {
@@ -568,8 +599,50 @@ function graphExplodeTopics(deps) {
       badge_requires: d.client,
     });
   });
+  declared.forEach(push);
   return out;
 }
+
+// The Topics switch's channels nobody requires: every channel the version a
+// view shows of a drawn producer publishes (the scope data's `channels`),
+// as a producer → topic edge. Only producers already in the graph or its
+// "(unrequired)" box, so focus and the other filters keep their say; none
+// when messaging is filtered out or only cycles are shown.
+function graphDeclaredChannelEdges(scopeData, deps, unrequired) {
+  if (window.graphProtocolFilters && window.graphProtocolFilters.asyncapi === false) return [];
+  if (window.graphRedrawMode === "circular") return [];
+  const drawn = new Set(unrequired.map((p) => p.name));
+  deps.forEach((d) => {
+    drawn.add(d.client);
+    drawn.add(d.service);
+  });
+  const edges = [];
+  ((scopeData && scopeData.producers) || []).forEach((producer) => {
+    if (!drawn.has(producer.name)) return;
+    (producer.versions || []).forEach((line) => {
+      if ((line.api_type || "").toLowerCase() !== "asyncapi") return;
+      (line.channels || []).forEach((c) => {
+        if ((c.method || "").toUpperCase() !== "PUB") return;
+        edges.push({
+          api_type: "asyncapi",
+          client: producer.name,
+          service: graphTopicNode(c.channel),
+          version: line.version,
+          stability: line.stability,
+          path: c.channel,
+          method: "PUB",
+          deprecated: false,
+          topic_edge: true,
+          declared_channel: true,
+          flag_key: null,
+          badge_requires: null,
+        });
+      });
+    });
+  });
+  return edges;
+}
+window.graphDeclaredChannelEdges = graphDeclaredChannelEdges;
 window.graphExplodeTopics = graphExplodeTopics;
 
 // The "(unrequired)" box members: producers of the scope with no service edge
@@ -1404,9 +1477,14 @@ function renderCustomGraph(report, svgElement, direction) {
   // The roles (Consumer, Producer, both) come from the edges as recorded;
   // the topic explode rewires them through topic nodes for drawing only.
   const roleDeps = report.dependency_graph || [];
-  const deps = switches.topics ? graphExplodeTopics(roleDeps) : roleDeps;
+  const declared = switches.topics
+    ? graphDeclaredChannelEdges(window.graphScopeData, roleDeps, report.unrequired || [])
+    : [];
+  const deps = switches.topics ? graphExplodeTopics(roleDeps, declared) : roleDeps;
   svgElement.dataset.topics = switches.topics ? "1" : "0";
-  const unrequired = report.unrequired || [];
+  // A producer whose published channels are drawn is connected now.
+  const publishing = new Set(declared.map((d) => d.client));
+  const unrequired = (report.unrequired || []).filter((p) => !publishing.has(p.name));
   if (deps.length === 0 && unrequired.length === 0) {
     const warningDiv = document.getElementById("graph-cycle-warning");
     if (warningDiv) warningDiv.classList.add("hidden");
@@ -1640,74 +1718,100 @@ function renderCustomGraph(report, svgElement, direction) {
   const GAP = gaps.gap; // gap between units on a rank (flow axis)
   const GROUP_GAP = gaps.groupGap; // larger gap between different roles (flow axis)
 
-  // Step 1 — group nodes by rank and calculate global lane metrics.
-  const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
-  for (const node of layoutNodes) {
-    const nd = g.node(node);
-    const key = Math.round(nd[R]);
-    if (!unitsByRank.has(key)) unitsByRank.set(key, []);
-    const w = isLR ? nd.height : nd.width;
-    unitsByRank.get(key).push({ id: node, cf: nd[F], width: w, role: nodeRole.get(node) });
-  }
+  // Step 1 — pack one block of nodes: per rank, the role lanes (Consumers,
+  // both, Producers) side by side, each lane starting at the same offset on
+  // every rank so the leftmost nodes line up. Positions are relative to the
+  // block's own start; `mid` is where dagre had the block's centre.
+  const packBlock = (nodes) => {
+    const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
+    for (const node of nodes) {
+      const nd = g.node(node);
+      const key = Math.round(nd[R]);
+      if (!unitsByRank.has(key)) unitsByRank.set(key, []);
+      const w = isLR ? nd.height : nd.width;
+      unitsByRank.get(key).push({ id: node, cf: nd[F], width: w, role: nodeRole.get(node) });
+    }
 
-  const maxGroupWidth = [0, 0, 0];
-  let sumOldMid = 0;
-  unitsByRank.forEach((units) => {
-    units.sort((a, b) => {
-      if (a.role !== b.role) return a.role - b.role;
-      return a.cf - b.cf;
+    const maxGroupWidth = [0, 0, 0];
+    let sumOldMid = 0;
+    unitsByRank.forEach((units) => {
+      units.sort((a, b) => {
+        if (a.role !== b.role) return a.role - b.role;
+        return a.cf - b.cf;
+      });
+      const roleGroups = [[], [], []];
+      units.forEach((u) => roleGroups[u.role].push(u));
+      for (let i = 0; i < 3; i++) {
+        if (roleGroups[i].length > 0) {
+          const w =
+            roleGroups[i].reduce((acc, u) => acc + u.width, 0) + (roleGroups[i].length - 1) * GAP;
+          maxGroupWidth[i] = Math.max(maxGroupWidth[i], w);
+        }
+      }
+      sumOldMid += (units[0].cf + units[units.length - 1].cf) / 2;
     });
-    const roleGroups = [[], [], []];
-    units.forEach((u) => roleGroups[u.role].push(u));
+
+    // Lane starts from the widest lane of each role.
+    let currentX = 0;
+    const laneStart = [0, 0, 0];
     for (let i = 0; i < 3; i++) {
-      if (roleGroups[i].length > 0) {
-        const w =
-          roleGroups[i].reduce((acc, u) => acc + u.width, 0) + (roleGroups[i].length - 1) * GAP;
-        maxGroupWidth[i] = Math.max(maxGroupWidth[i], w);
+      laneStart[i] = currentX;
+      if (maxGroupWidth[i] > 0) {
+        currentX += maxGroupWidth[i];
+        let hasRight = false;
+        for (let j = i + 1; j < 3; j++) if (maxGroupWidth[j] > 0) hasRight = true;
+        if (hasRight) currentX += GROUP_GAP;
       }
     }
-    sumOldMid += (units[0].cf + units[units.length - 1].cf) / 2;
-  });
 
-  // Determine lane starts based on global max widths
-  let currentX = 0;
-  const laneStart = [0, 0, 0];
-  for (let i = 0; i < 3; i++) {
-    laneStart[i] = currentX;
-    if (maxGroupWidth[i] > 0) {
-      currentX += maxGroupWidth[i];
-      let hasRight = false;
-      for (let j = i + 1; j < 3; j++) if (maxGroupWidth[j] > 0) hasRight = true;
-      if (hasRight) currentX += GROUP_GAP;
-    }
-  }
-
-  const totalLanesWidth = currentX;
-  const globalMid = unitsByRank.size > 0 ? sumOldMid / unitsByRank.size : 0;
-  const globalOffset = globalMid - totalLanesWidth / 2;
-
-  // Step 2 — assign new positions using the global lanes.
-  unitsByRank.forEach((units) => {
-    const roleGroups = [[], [], []];
-    units.forEach((u) => roleGroups[u.role].push(u));
-    for (let i = 0; i < 3; i++) {
-      // All groups of the same role across all ranks now share the same
-      // starting offset, ensuring "leftest nodes same level".
-      let cursor = laneStart[i] + globalOffset;
-      roleGroups[i].forEach((u) => {
-        u.newCf = cursor + u.width / 2;
-        cursor += u.width + GAP;
-      });
-    }
-  });
-
-  // Step 2 — apply computed positions.
-  unitsByRank.forEach((units) => {
-    units.forEach((u) => {
-      const nd = g.node(u.id);
-      nodeFOffsets.set(u.id, u.newCf - nd[F]);
+    const local = new Map();
+    unitsByRank.forEach((units) => {
+      const roleGroups = [[], [], []];
+      units.forEach((u) => roleGroups[u.role].push(u));
+      for (let i = 0; i < 3; i++) {
+        let cursor = laneStart[i];
+        roleGroups[i].forEach((u) => {
+          local.set(u.id, cursor + u.width / 2);
+          cursor += u.width + GAP;
+        });
+      }
     });
-  });
+    return {
+      local,
+      width: currentX,
+      mid: unitsByRank.size > 0 ? sumOldMid / unitsByRank.size : 0,
+    };
+  };
+
+  // Step 2 — one block per domain, and one for the nodes without a domain.
+  // Packing all nodes of a rank together ignored the domains, so a domain's
+  // nodes spread across the whole rank and the frames drawn around them
+  // overlapped. Blocks sit side by side in the order dagre placed them, with
+  // a gap wide enough for two frames' padding; without domains there is one
+  // block and the layout is the plain lane packing.
+  const DOMAIN_FRAME_PADDING = 40;
+  const blockOf = (node) => {
+    const meta = serviceMetaMap.get(node);
+    return meta && meta.domain ? `domain:${meta.domain}` : "";
+  };
+  const blockNodes = new Map();
+  for (const node of layoutNodes) {
+    const key = blockOf(node);
+    if (!blockNodes.has(key)) blockNodes.set(key, []);
+    blockNodes.get(key).push(node);
+  }
+  const blocks = [...blockNodes.entries()].map(([key, nodes]) => ({ key, ...packBlock(nodes) }));
+  blocks.sort((a, b) => a.mid - b.mid || a.key.localeCompare(b.key));
+  const BLOCK_GAP = blocks.length > 1 ? 2 * DOMAIN_FRAME_PADDING + GROUP_GAP : 0;
+  const totalWidth =
+    blocks.reduce((acc, block) => acc + block.width, 0) + (blocks.length - 1) * BLOCK_GAP;
+  const globalMid =
+    blocks.length > 0 ? blocks.reduce((acc, b) => acc + b.mid, 0) / blocks.length : 0;
+  let blockStart = globalMid - totalWidth / 2;
+  for (const block of blocks) {
+    block.local.forEach((cf, id) => nodeFOffsets.set(id, blockStart + cf - g.node(id)[F]));
+    blockStart += block.width + BLOCK_GAP;
+  }
 
   for (const node of layoutNodes) {
     const nd = g.node(node);
@@ -1735,7 +1839,7 @@ function renderCustomGraph(report, svgElement, direction) {
           cMaxY = Math.max(cMaxY, child.y + chh);
         });
         if (cMinX !== Infinity) {
-          const clusterPadding = 40;
+          const clusterPadding = DOMAIN_FRAME_PADDING;
           clusterNode.width = cMaxX - cMinX + clusterPadding * 2;
           clusterNode.height = cMaxY - cMinY + clusterPadding * 2;
           clusterNode.x = (cMinX + cMaxX) / 2;
@@ -1929,6 +2033,12 @@ function renderCustomGraph(report, svgElement, direction) {
   const vh = svgElement.clientHeight;
   svgElement.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
 
+  // The rainbow's colours, one per source of the drawn edges.
+  const rainbowIndex = graphRainbowIndexes(g.edges().map((e) => e.v));
+  const rainbowPalette = rainbow ? graphRainbowPalette(rainbowIndex.size) : [];
+  const rainbowColor = (name) => rainbowPalette[rainbowIndex.get(name)];
+  const rainbowMarker = (name) => `url(#arrow-rainbow-${rainbowIndex.get(name)})`;
+
   // Defs for arrowheads
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
   [
@@ -1936,7 +2046,7 @@ function renderCustomGraph(report, svgElement, direction) {
     ["arrow-red", "#a855f7"],
     ["arrow-orange", "#f97316"],
     ["arrow-green", "#22c55e"],
-    ...GRAPH_RAINBOW.map((color, i) => [`arrow-rainbow-${i}`, color]),
+    ...rainbowPalette.map((color, i) => [`arrow-rainbow-${i}`, color]),
   ].forEach(([id, color]) => {
     const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
     marker.setAttribute("id", id);
@@ -1970,6 +2080,7 @@ function renderCustomGraph(report, svgElement, direction) {
       cluster.setAttribute("height", node.height);
       cluster.setAttribute("rx", "12");
       cluster.setAttribute("ry", "12");
+      cluster.dataset.domain = node.label;
       cluster.setAttribute("fill", "rgba(99, 102, 241, 0.03)");
       cluster.setAttribute("stroke", "rgba(99, 102, 241, 0.15)");
       cluster.setAttribute("stroke-width", "1.5");
@@ -2089,11 +2200,12 @@ function renderCustomGraph(report, svgElement, direction) {
     let dashArray = null;
     const isPeripheral = peripheralEdges.has(key);
     if (isPeripheral) {
-      // Outside Sanshain: a thin dashed slate line, never a pin colour.
-      edgeColor = "#64748b";
+      // Outside Sanshain: a thin dashed line, slate or its source's rainbow
+      // colour, never a pin's warning colour.
+      edgeColor = rainbow ? rainbowColor(e.v) : "#64748b";
       edgeWidth = "1.5";
       dashArray = "4 3";
-      markerEnd = "url(#arrow)";
+      markerEnd = rainbow ? rainbowMarker(e.v) : "url(#arrow)";
     } else if (isCycle) {
       edgeColor = "#a855f7";
       edgeWidth = "3";
@@ -2120,7 +2232,7 @@ function renderCustomGraph(report, svgElement, direction) {
       dashArray = "3 4";
       markerEnd = "url(#arrow)";
     } else if (isBidirectionalPubSub) {
-      edgeColor = rainbow ? graphRainbowColor(e.v) : "#94a3b8";
+      edgeColor = rainbow ? rainbowColor(e.v) : "#94a3b8";
       edgeWidth = "2";
       dashArray = "6 3";
       markerEnd = "";
@@ -2130,9 +2242,9 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "3";
       markerEnd = "url(#arrow-red)";
     } else {
-      edgeColor = rainbow ? graphRainbowColor(e.v) : "#94a3b8";
+      edgeColor = rainbow ? rainbowColor(e.v) : "#94a3b8";
       edgeWidth = "2";
-      markerEnd = rainbow ? `url(#arrow-rainbow-${graphRainbowIndex(e.v)})` : "url(#arrow)";
+      markerEnd = rainbow ? rainbowMarker(e.v) : "url(#arrow)";
     }
     path.setAttribute("stroke", edgeColor);
     path.setAttribute("stroke-width", edgeWidth);

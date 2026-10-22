@@ -2147,7 +2147,7 @@ test.describe("Graph (unrequired) box", () => {
     const byFrom = new Map();
     for (const e of normal) {
       expect(e.stroke).not.toBe("#94a3b8");
-      expect(e.marker).toMatch(/^url\(#arrow-rainbow-\d\)$/);
+      expect(e.marker).toMatch(/^url\(#arrow-rainbow-\d+\)$/);
       if (byFrom.has(e.from)) expect(byFrom.get(e.from)).toBe(e.stroke);
       byFrom.set(e.from, e.stroke);
     }

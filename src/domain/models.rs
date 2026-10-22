@@ -995,6 +995,19 @@ pub struct ScopeVersionLine {
     pub version: SemVer,
     pub stability: Option<Stability>,
     pub last_provided_at: Option<String>,
+    /// The channels an AsyncAPI version publishes, for the graph's Topics
+    /// switch to draw the ones nobody requires. (Its subscriptions reach the
+    /// graph as harvested subscriptions.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<ScopeChannel>,
+}
+
+/// One channel of an AsyncAPI version and the producer's operation on it,
+/// `PUB`: only published channels are stored as endpoints.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ScopeChannel {
+    pub channel: String,
+    pub method: String,
 }
 
 /// A producer in a graph scope at the scope's instant, with its version lines
