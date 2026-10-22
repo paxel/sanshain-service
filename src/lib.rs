@@ -198,7 +198,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/cleanup/dependencies", post(admin::trigger_dependency_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/trunk-max-age", get(admin::get_trunk_max_age).post(admin::set_trunk_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/trunk", post(admin::trigger_trunk_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
-        .route("/admin/users", get(admin::admin_list_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
+        .route("/admin/users", get(admin::admin_list_users).post(admin::admin_create_service_account).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         // Webhooks (#47): global hooks and the egress allow-list are instance

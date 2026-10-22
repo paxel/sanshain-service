@@ -33,6 +33,16 @@
   <a href="../start/glossary.html#releaser">releaser</a> role, so the CI user that releases holds
   it.
 </p>
+<p>
+  The CI user is best a <strong>service account</strong>: an administrator creates it in the
+  <strong>Users</strong> section of <code>/admin.html</code> (or <code>POST /admin/users</code> with
+  <code>{"username":"jenkins"}</code>). It has no password and never signs in; on their own
+  <code>/account.html</code>, holders of <code>manage_users</code> choose it under
+  <strong>For</strong> when creating a token. Every user manager sees its tokens with who issued
+  each and can revoke them, so a leaked CI token does not wait for one particular person. It works
+  in every auth mode, LDAP and OIDC included, and gets its roles like any user.
+</p>
+<p>A token for a person's own account works the same way:</p>
 <ol>
   <li>Log in to <code>/account.html</code> as the CI user.</li>
   <li>
@@ -48,7 +58,12 @@
 
 curl -s -X POST $SANSHAIN/auth/tokens \
   -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
-  -d '{"name":"jenkins-ci","expires_in_days":365}'</code></pre>
+  -d '{"name":"jenkins-ci","expires_in_days":365}'
+
+# or, as a user manager, for the service account jenkins:
+curl -s -X POST $SANSHAIN/auth/tokens \
+  -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
+  -d '{"name":"deploy","expires_in_days":365,"for_user":"jenkins"}'</code></pre>
 <p>
   Every API call then sends <code>Authorization: Bearer san_…</code>. The header is the only place a
   token is read from; a call without it is refused with a bare <code>403</code>, an invalid token

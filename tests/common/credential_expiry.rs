@@ -33,6 +33,7 @@ pub async fn expired_credentials_are_refused_and_cleaned(repo: &impl SpecReposit
             scope: ApiTokenScope::Full,
             created_at: &now.to_rfc3339(),
             expires_at,
+            issued_by: None,
         })
         .await
         .unwrap();

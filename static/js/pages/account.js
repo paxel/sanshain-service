@@ -72,6 +72,26 @@ function showAccount() {
   document.getElementById("auth-screen").classList.add("hidden");
   document.getElementById("account-dashboard").classList.remove("hidden");
   loadTokens();
+  loadServiceAccountChoices();
+}
+
+// The "For" choice of the token form: the service accounts, for whoever may
+// list users (manage_users); hidden for everyone else and when none exist.
+async function loadServiceAccountChoices() {
+  const row = document.getElementById("token-for-row");
+  const select = document.getElementById("token-for");
+  let accounts = [];
+  try {
+    const me = await apiCall("/auth/me");
+    const user = me.ok ? await me.json() : null;
+    if (user && (user.is_root || hasPermission(user, "manage_users"))) {
+      const res = await apiCall("/admin/users");
+      if (res.ok) accounts = (await res.json()).filter((u) => u.service_account);
+    }
+  } catch (_) {}
+  select.replaceChildren(new Option("Me", ""));
+  for (const account of accounts) select.add(new Option(account.username, account.username));
+  row.classList.toggle("hidden", accounts.length === 0);
 }
 
 // --- Login ---
@@ -243,6 +263,7 @@ async function loadTokens() {
                         <div>
                             <span class="font-medium text-slate-800">${escapeHtml(t.name)}</span>
                             ${tokenScopeBadge(t.scope)}
+                            ${t.for_user ? `<div class="text-xs text-slate-600 mt-0.5" data-token-for>For <strong>${escapeHtml(t.for_user)}</strong>${t.issued_by ? ` · issued by ${escapeHtml(t.issued_by)}` : ""}</div>` : ""}
                             <div class="text-xs text-slate-500 mt-0.5">
                                 Created: ${escapeHtml(t.created_at)} · Expires: ${escapeHtml(t.expires_at)}
                                 · Last used: ${t.last_used_at ? escapeHtml(t.last_used_at) : "never"}
@@ -272,6 +293,7 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
         name: document.getElementById("token-name").value,
         expires_in_days: parseInt(document.getElementById("token-expires").value, 10),
         scope: document.getElementById("token-read-only").checked ? "read_only" : "full",
+        for_user: document.getElementById("token-for").value || null,
       },
     });
     if (res.ok) {
@@ -282,7 +304,7 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
       document.getElementById("token-expires").value = "365";
       loadTokens();
     } else {
-      errEl.textContent = `Failed to create token (${res.status}).`;
+      errEl.textContent = `Failed to create token: ${await errorMessage(res)}`;
       errEl.classList.remove("hidden");
     }
   } catch (err) {

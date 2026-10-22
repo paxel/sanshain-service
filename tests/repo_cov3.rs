@@ -117,6 +117,7 @@ async fn api_token_repo_lifecycle_validates_and_deletes_by_owner() {
         scope: ApiTokenScope::ReadOnly,
         created_at: PAST,
         expires_at: FUTURE,
+        issued_by: None,
     })
     .await
     .unwrap();
@@ -128,6 +129,7 @@ async fn api_token_repo_lifecycle_validates_and_deletes_by_owner() {
         scope: ApiTokenScope::Full,
         created_at: PAST,
         expires_at: PAST,
+        issued_by: None,
     })
     .await
     .unwrap();

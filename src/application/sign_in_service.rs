@@ -142,6 +142,10 @@ pub async fn verify_password_local_first(
         return Err(AppError::Unauthorized);
     }
     let existing = repo.find_user(username).await?;
+    if existing.as_ref().is_some_and(User::is_service_account) {
+        // Not by password, not through the directory: its tokens are all it has.
+        return Err(AppError::Unauthorized);
+    }
     let local_refusal = match &existing {
         Some(user) if !verify_password_async(password, &user.password_hash).await? => {
             AppError::Unauthorized

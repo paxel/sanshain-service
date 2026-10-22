@@ -225,10 +225,9 @@ pub async fn auth_register(
 
 pub async fn list_tokens(
     State(state): State<AppState>,
-    axum::Extension(user): axum::Extension<User>,
+    axum::Extension(actor): axum::Extension<crate::domain::permissions::Actor>,
 ) -> Result<impl IntoResponse, AppError> {
-    let tokens = services::list_api_tokens(&state.repo, user.id).await?;
-    Ok(Json(tokens))
+    Ok(Json(services::list_tokens_for(&state.repo, &actor).await?))
 }
 
 #[derive(Deserialize)]
@@ -238,6 +237,10 @@ pub struct CreateTokenRequest {
     /// Immutable after creation; `full` when omitted.
     #[serde(default)]
     pub scope: ApiTokenScope,
+    /// A service account to issue the token for (`manage_users`); the
+    /// caller's own token when absent.
+    #[serde(default)]
+    pub for_user: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -272,22 +275,30 @@ pub async fn get_csrf_token(State(state): State<AppState>) -> impl IntoResponse 
 pub async fn create_token(
     State(state): State<AppState>,
     axum::Extension(user): axum::Extension<User>,
+    axum::Extension(actor): axum::Extension<crate::domain::permissions::Actor>,
     Json(payload): Json<CreateTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (id, token) = services::create_api_token(
+    let (id, token) = services::issue_token(
         &state.repo,
-        user.id,
-        &payload.name,
-        payload.expires_in_days,
-        payload.scope,
+        &actor,
+        services::TokenRequest {
+            name: &payload.name,
+            expires_in_days: payload.expires_in_days,
+            scope: payload.scope,
+            for_user: payload.for_user.as_deref(),
+        },
     )
     .await?;
+    let details = match payload.for_user.as_deref().filter(|u| !u.is_empty()) {
+        Some(account) => format!("Issued an API token for service account '{account}'"),
+        None => "Created an API token".to_string(),
+    };
     record_audit_log(
         &state.repo,
         Some(&user),
         NewAuditLog {
             action: "CREATE_TOKEN",
-            details: "Created an API token",
+            details: &details,
             action_type: Some("ADMIN"),
             ..Default::default()
         },
@@ -304,9 +315,10 @@ pub async fn create_token(
 pub async fn revoke_token(
     State(state): State<AppState>,
     axum::Extension(user): axum::Extension<User>,
+    axum::Extension(actor): axum::Extension<crate::domain::permissions::Actor>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    if !services::revoke_api_token(&state.repo, &id, user.id).await? {
+    if !services::revoke_token_as(&state.repo, &actor, &id).await? {
         return Err(AppError::NotFound("API token not found".to_string()));
     }
     record_audit_log(

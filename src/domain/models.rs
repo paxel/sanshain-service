@@ -542,6 +542,10 @@ pub struct ApiToken {
     pub created_at: String,
     pub expires_at: String,
     pub last_used_at: Option<String>,
+    /// The administrator who issued the token for a service account; none
+    /// for a token its owner created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issued_by: Option<String>,
 }
 
 /// The caller behind a validated API token: who it belongs to and what it may
@@ -562,6 +566,18 @@ pub struct User {
     #[serde(skip_serializing, default)]
     pub password_hash: String,
     pub approved: bool,
+}
+
+/// The password hash of a service account: not a hash at all, so no password
+/// ever matches it, the way `!` locks an account in `/etc/shadow`.
+pub const SERVICE_ACCOUNT_PASSWORD_HASH: &str = "!service-account";
+
+impl User {
+    /// An account an administrator created for automation: it never signs
+    /// in, and administrators issue its API tokens.
+    pub fn is_service_account(&self) -> bool {
+        self.password_hash == SERVICE_ACCOUNT_PASSWORD_HASH
+    }
 }
 
 /// Where a Group's membership comes from.

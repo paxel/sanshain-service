@@ -197,6 +197,8 @@ pub struct NewApiToken<'a> {
     pub scope: ApiTokenScope,
     pub created_at: &'a str,
     pub expires_at: &'a str,
+    /// The administrator issuing it for a service account.
+    pub issued_by: Option<&'a str>,
 }
 
 /// A hook to store, with its secret in full (the worker signs with it) and

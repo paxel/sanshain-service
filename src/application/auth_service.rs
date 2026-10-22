@@ -166,6 +166,7 @@ pub async fn login(
     let user = repo
         .find_user(username)
         .await?
+        .filter(|user| !user.is_service_account())
         .ok_or(AppError::Unauthorized)?;
 
     if !user.approved {
@@ -570,6 +571,8 @@ pub async fn login_oidc(
     admin_group: &str,
 ) -> Result<Session, AppError> {
     let local_user = match repo.find_user(username).await? {
+        // A service account never signs in, not even under a provider's name.
+        Some(u) if u.is_service_account() => return Err(AppError::Unauthorized),
         Some(u) => u,
         None => {
             let hash = hash_password_async(&generate_random_password()).await?;
@@ -591,6 +594,19 @@ pub async fn create_api_token(
     name: &str,
     expires_in_days: u64,
     scope: ApiTokenScope,
+) -> Result<(String, String), AppError> {
+    create_api_token_issued(repo, user_id, name, expires_in_days, scope, None).await
+}
+
+/// [`create_api_token`], recording the administrator who issued it for a
+/// service account.
+pub(crate) async fn create_api_token_issued(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    name: &str,
+    expires_in_days: u64,
+    scope: ApiTokenScope,
+    issued_by: Option<&str>,
 ) -> Result<(String, String), AppError> {
     // 256 bits of CSPRNG entropy, matching session tokens. Storage and
     // validation are format-agnostic (SHA-256 of the raw string), so older
@@ -618,6 +634,7 @@ pub async fn create_api_token(
         scope,
         created_at: &created_at,
         expires_at: &expires_at,
+        issued_by,
     })
     .await?;
     Ok((id, raw_token))

@@ -106,6 +106,7 @@ struct ApiTokenRow {
     created_at: String,
     expires_at: String,
     last_used_at: Option<String>,
+    issued_by: Option<String>,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ApiTokenRow {
@@ -119,6 +120,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ApiTokenRow {
             created_at: row.try_get("created_at")?,
             expires_at: row.try_get("expires_at")?,
             last_used_at: row.try_get("last_used_at")?,
+            issued_by: row.try_get("issued_by")?,
         })
     }
 }
@@ -136,6 +138,7 @@ impl From<ApiTokenRow> for ApiToken {
             created_at: row.created_at,
             expires_at: row.expires_at,
             last_used_at: row.last_used_at,
+            issued_by: row.issued_by,
         }
     }
 }
@@ -2328,7 +2331,7 @@ impl SpecRepository for PostgresSpecRepository {
     // --- API Tokens ---
 
     async fn create_api_token(&self, token: NewApiToken<'_>) -> Result<(), RepositoryError> {
-        sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, scope, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+        sqlx::query("INSERT INTO api_tokens (id, user_id, name, token_hash, scope, created_at, expires_at, issued_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
             .bind(token.id)
             .bind(token.user_id)
             .bind(token.name)
@@ -2336,6 +2339,7 @@ impl SpecRepository for PostgresSpecRepository {
             .bind(token.scope.as_str())
             .bind(token.created_at)
             .bind(token.expires_at)
+            .bind(token.issued_by)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -2351,7 +2355,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_api_tokens(&self, user_id: i64) -> Result<Vec<ApiToken>, RepositoryError> {
         let rows: Vec<ApiTokenRow> = sqlx::query_as(
-            "SELECT id, user_id, name, token_hash, scope, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC"
+            "SELECT id, user_id, name, token_hash, scope, created_at, expires_at, last_used_at, issued_by FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC"
         )
         .bind(user_id)
         .fetch_all(&self.pool)

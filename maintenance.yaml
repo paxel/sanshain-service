@@ -3494,6 +3494,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: users"
+      x-permission: manage_users
+      x-scope: global
+      description: |
+        Requires the `manage_users` permission.
+
+        Creates a service account (`{"username": "jenkins"}`): no password, approved at once, never signs in. Holders of `manage_users` issue its API tokens on the token page (`for_user`), see them all with who issued each, and may revoke any of them. Its rights come from the roles granted to it like to any user.
+      responses:
+        "201":
+          description: Created.
+        "400":
+          description: The name is empty or contains spaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: The name is taken or reserved for root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/users/{id}:
     delete:
       summary: "Delete: users/id"

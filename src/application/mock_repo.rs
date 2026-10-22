@@ -1916,6 +1916,7 @@ impl SpecRepository for MockRepo {
             created_at: token.created_at.to_string(),
             expires_at: token.expires_at.to_string(),
             last_used_at: None,
+            issued_by: token.issued_by.map(str::to_string),
         });
         Ok(())
     }

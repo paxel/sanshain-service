@@ -218,6 +218,25 @@
   </figcaption>
 </figure>
 
+<h2 id="service-accounts">Service accounts</h2>
+<p>
+  Automation gets a service account: <strong>New service account</strong> in the
+  <strong>Users</strong> section of the admin page, or <code>POST /admin/users</code> with
+  <code>{"username":"jenkins"}</code> (<code>manage_users</code>), in any mode. It is approved at
+  once and has no password: it never signs in, not by password, not through the directory, not
+  through the provider. Its API tokens are issued by holders of <code>manage_users</code> on their
+  own <code>/account.html</code>, choosing it under <strong>For</strong> (<code
+    >POST /auth/tokens</code
+  >
+  with <code>"for_user":"jenkins"</code>); a token cannot be issued for a person this way. Every
+  holder of <code>manage_users</code> sees all service-account tokens in their list, marked
+  <em>For jenkins · issued by alice</em>, and may revoke any of them. The account's rights are the
+  roles granted to it, like any user's; the audit log records the issue as
+  <code>CREATE_TOKEN</code> naming the account, and every call made with the token as the account.
+  The name follows the rules of registration: taken names and root names are refused
+  (<code>409</code>), and it may not contain spaces (<code>400</code>).
+</p>
+
 <h2>The initial admin and root</h2>
 <p>
   On the first start, with no user in the database, Sanshain creates

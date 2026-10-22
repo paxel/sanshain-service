@@ -850,6 +850,34 @@
               </button>
             </div>
           </div>
+          <form id="service-account-form" class="flex flex-wrap items-end gap-2 mb-4">
+            <div>
+              <label
+                for="service-account-name"
+                class="block text-xs font-medium text-slate-500 mb-1"
+                >New service account</label
+              >
+              <input
+                type="text"
+                id="service-account-name"
+                required
+                data-needs="manage_users"
+                placeholder="e.g. jenkins"
+                class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              type="submit"
+              data-needs="manage_users"
+              class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-indigo-700 transition-colors"
+            >
+              Create
+            </button>
+            <p class="basis-full text-xs text-slate-500">
+              For automation such as CI: no password, never signs in. Issue its API tokens on your
+              account page with <strong>For</strong>, and grant it roles here like any user.
+            </p>
+          </form>
           <div id="users-list" class="space-y-2"></div>
           <p class="text-xs text-slate-500 mt-3">
             Roles are fixed bundles of permissions. <span id="root-note"></span>

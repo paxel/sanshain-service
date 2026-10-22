@@ -351,3 +351,82 @@ async fn dev_mode_is_refused_without_its_gate() {
         AuthMode::Disabled
     );
 }
+
+#[tokio::test]
+async fn an_admin_runs_a_service_account_end_to_end() {
+    let (app, repo) = fresh_instance().await;
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    plain_user(&repo, "bob", "bob-pass").await;
+    let (_, body) = login(&app, "root", "root_password").await;
+    let root = body["token"].as_str().unwrap().to_string();
+    let (_, body) = login(&app, "bob", "bob-pass").await;
+    let bob = body["token"].as_str().unwrap().to_string();
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/admin/users",
+        Some(&root),
+        Some(serde_json::json!({ "username": "jenkins" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (_, users) = call(&app, "GET", "/admin/users", Some(&root), None).await;
+    let jenkins = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "jenkins")
+        .unwrap();
+    assert_eq!(jenkins["service_account"], true);
+    assert_eq!(jenkins["approved"], true);
+
+    // It never signs in.
+    let (status, _) = login(&app, "jenkins", "!service-account").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Only a user manager issues its tokens.
+    let issue = serde_json::json!({ "name": "ci", "expires_in_days": 30, "for_user": "jenkins" });
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/auth/tokens",
+        Some(&bob),
+        Some(issue.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) = call(&app, "POST", "/auth/tokens", Some(&root), Some(issue)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let raw = body["token"].as_str().unwrap().to_string();
+    let token_id = body["id"].as_str().unwrap().to_string();
+
+    // The token works as jenkins on the API.
+    let spec = "openapi: 3.0.0\ninfo:\n  title: p\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n";
+    let provide = serde_json::json!({ "producername": "jenkins-built", "stability": "snapshot", "openapi_yaml": spec });
+    let (status, body) = call(&app, "POST", "/provide", Some(&raw), Some(provide.clone())).await;
+    assert!(status.is_success(), "{status} {body}");
+
+    // The admin's token page lists it, for jenkins, issued by root.
+    let (_, tokens) = call(&app, "GET", "/auth/tokens", Some(&root), None).await;
+    let listed = tokens
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == token_id.as_str())
+        .unwrap();
+    assert_eq!(listed["for_user"], "jenkins");
+    assert_eq!(listed["issued_by"], "root");
+    let (_, tokens) = call(&app, "GET", "/auth/tokens", Some(&bob), None).await;
+    assert!(tokens.as_array().unwrap().is_empty(), "not bob's to see");
+
+    let uri = format!("/auth/tokens/{token_id}");
+    let (status, _) = call(&app, "DELETE", &uri, Some(&bob), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call(&app, "DELETE", &uri, Some(&root), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(&app, "POST", "/provide", Some(&raw), Some(provide)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "revoked");
+}

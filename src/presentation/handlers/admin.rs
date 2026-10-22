@@ -852,10 +852,42 @@ pub async fn admin_list_users(
             "id": user.id,
             "username": user.username,
             "approved": user.approved,
+            "service_account": user.is_service_account(),
             "roles": roles,
         }));
     }
     Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+pub struct ServiceAccountRequest {
+    pub username: String,
+}
+
+/// Create a service account: no password, ready at once, its tokens issued by
+/// holders of `manage_users`.
+pub async fn admin_create_service_account(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<ServiceAccountRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let account =
+        services::create_service_account(&state.repo, &state.root_users, &payload.username).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "CREATE_SERVICE_ACCOUNT",
+            details: &format!("Created service account '{}'", account.username),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": account.id, "username": account.username, "service_account": true })),
+    ))
 }
 
 pub async fn admin_approve_user(

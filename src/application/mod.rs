@@ -9,6 +9,7 @@ pub mod mcp_service;
 pub mod provide_service;
 pub mod report_service;
 pub mod require_service;
+pub mod service_account_service;
 pub mod sign_in_service;
 pub mod spec_service;
 pub mod structure_service;

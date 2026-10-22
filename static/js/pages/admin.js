@@ -926,6 +926,7 @@ async function loadUsers() {
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
                             <span class="font-medium text-slate-800">${escapeHtml(u.username)}</span>
+                            ${u.service_account ? '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full" data-service-account>service account</span>' : ""}
                             ${(u.roles || []).map((r) => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(" ")}
                             ${
                               u.approved
@@ -946,6 +947,25 @@ async function loadUsers() {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
+
+document.getElementById("service-account-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("service-account-name");
+  try {
+    const res = await apiCall("/admin/users", {
+      method: "POST",
+      body: { username: input.value.trim() },
+    });
+    if (!res.ok) {
+      alert("Could not create the service account: " + (await errorMessage(res)));
+      return;
+    }
+    input.value = "";
+    loadUsers();
+  } catch (err) {
+    alert("Could not create the service account: " + err.message);
+  }
+});
 
 async function approveUser(id) {
   try {
