@@ -622,6 +622,10 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
   through <code>SANSHAIN_DEV_MODE</code> or configuration drift, fails closed: tokens stay required
   and startup logs
 </p>
+<p>
+  A stored Dev mode on a server without the gate is switched to Local on startup, which is what such
+  an instance did all along (Dev could be picked without the gate before 2.10).
+</p>
 <pre><code>SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced.</code></pre>
 <p>
   With both, startup logs

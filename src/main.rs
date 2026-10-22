@@ -274,6 +274,16 @@ pub async fn main() {
         std::process::exit(1);
     }
 
+    // Dev picked before 2.10 on a server without the gate did nothing; such an
+    // instance has run as Local, and the setting now says so.
+    match services::settle_ungated_dev_mode(&repo).await {
+        Ok(true) => tracing::warn!(
+            "The stored auth mode was Dev, but ALLOW_INSECURE_DEV_MODE is not set: switched it to Local, which is how the instance has been working"
+        ),
+        Ok(false) => {}
+        Err(e) => tracing::error!("Could not check the stored dev mode: {}", e),
+    }
+
     // A dev_user from before 2.10 carried a password written in the source;
     // lock it whatever the mode, so it never signs in as an admin.
     match services::lock_dev_user(&repo).await {

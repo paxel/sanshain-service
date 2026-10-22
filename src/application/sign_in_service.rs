@@ -71,6 +71,18 @@ pub async fn switch_auth_mode(repo: &impl SpecRepository, mode: AuthMode) -> Res
     super::auth_service::set_auth_mode(repo, &mode).await
 }
 
+/// Switch a stored Dev mode to Local when the server runs without the
+/// `ALLOW_INSECURE_DEV_MODE` gate. Before 2.10 Dev could be picked without the
+/// gate and then did nothing, so such an instance has worked as Local; the
+/// setting now says so. Answers whether it switched.
+pub async fn settle_ungated_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    if get_auth_mode(repo).await? != AuthMode::Dev || super::auth_service::dev_mode_gate_open() {
+        return Ok(false);
+    }
+    super::auth_service::set_auth_mode(repo, &AuthMode::Local).await?;
+    Ok(true)
+}
+
 pub async fn get_registration_enabled(repo: &impl SpecRepository) -> Result<bool, AppError> {
     Ok(repo.get_setting(REGISTRATION_KEY).await?.as_deref() == Some("true"))
 }
@@ -379,6 +391,25 @@ mod tests {
             matches!(err, AppError::BadRequest(ref m) if m.contains("ALLOW_INSECURE_DEV_MODE"))
         );
         assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Local);
+    }
+
+    #[tokio::test]
+    async fn a_stored_dev_mode_without_its_gate_becomes_local() {
+        assert!(!super::super::auth_service::dev_mode_gate_open());
+        let repo = MockRepo::new();
+        repo.set_setting("auth_mode", "dev").await.unwrap();
+        repo.set_setting("dev_mode", "true").await.unwrap();
+        assert!(settle_ungated_dev_mode(&repo).await.unwrap());
+        assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Local);
+        assert_eq!(
+            repo.get_setting("dev_mode").await.unwrap().as_deref(),
+            Some("false")
+        );
+        assert!(!settle_ungated_dev_mode(&repo).await.unwrap(), "only once");
+
+        repo.set_setting("auth_mode", "ldap").await.unwrap();
+        assert!(!settle_ungated_dev_mode(&repo).await.unwrap());
+        assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Ldap);
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Self-registration is closed after this update**: Local mode has a Registration switch, off by default, also on instances updated from 2.9.
 - A Producer's version lists its endpoints by path, then method, instead of in the order the store happened to return them.
 - A fresh instance starts in Off, where only the admin signs in and picks the mode, instead of in Local with open registration.
+- An instance whose stored mode is Dev but whose server runs without `ALLOW_INSECURE_DEV_MODE` is switched to Local on startup, which is how it has been working.
 - Dev mode opens provide, require, catalog and MCP only: the admin pages need a signed-in administrator, and only administrators sign in. On a server without `ALLOW_INSECURE_DEV_MODE` the Dev option is greyed out and switching to it is refused instead of silently doing nothing.
 - Rainbow colours the graph by position, so the callers in view get colours as far apart as possible instead of mostly blue-greens, and it colours the catalog's dependsOn lines too.
 - The sign-in page shows the Register tab only while registration is open, does not promise a wait when new accounts are acknowledged automatically, shows the SSO button only while OIDC is the mode, and says when only administrators can sign in.
