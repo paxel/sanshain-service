@@ -7,8 +7,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.10.0]
 
-**Self-registration is closed after this update.** Local mode now has a Registration switch, off by default, also on instances updated from 2.9. Turn it on under Authentication on the admin page if colleagues should keep registering themselves.
-
 ### Added
 - **Off** is maintenance with a way in: the API answers 503, and only holders of `manage_auth_config` sign in, through the mode Off interrupted (LDAP or OIDC) or a local password. Everyone else is refused with the reason, and their open sessions pause until Off ends.
 - `INITIAL_AUTH_MODE` (Helm: `config.initialAuthMode`) picks the auth mode of the very first start.
@@ -20,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The MCP tool `endpoint_structure` answers the same tree for one endpoint, with `with_examples` for a ready JSON body per request and response.
 
 ### Changed
+- **Self-registration is closed after this update**: Local mode has a Registration switch, off by default, also on instances updated from 2.9.
 - A Producer's version lists its endpoints by path, then method, instead of in the order the store happened to return them.
 - A fresh instance starts in Off, where only the admin signs in and picks the mode, instead of in Local with open registration.
 - Dev mode opens provide, require, catalog and MCP only: the admin pages need a signed-in administrator, and only administrators sign in. On a server without `ALLOW_INSECURE_DEV_MODE` the Dev option is greyed out and switching to it is refused instead of silently doing nothing.

@@ -128,7 +128,9 @@ test("a gated control is greyed with the permission named, a granted one is live
   await page.goto(`/producers.html?service=${OTHER}`);
   await expect(versionDelete(OTHER)).toBeDisabled({ timeout: 10000 });
 
-  // A user manager sees the real auto-approve value, greyed, and the user list live.
+  // A user manager may not change the auto-approve switch (it sits in the
+  // Local-users panel, shown to those who manage the auth configuration), and
+  // sees the user list live.
   await signIn(page, PERSONAS.usermanager);
   await page.goto("/admin.html");
   await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
