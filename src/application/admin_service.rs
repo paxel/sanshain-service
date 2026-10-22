@@ -446,11 +446,32 @@ pub async fn list_consumers(
     Ok(clients)
 }
 
+/// An endpoint a Consumer requires, with the one line the Producer wrote
+/// about it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ListedConsumerEndpoint {
+    #[serde(flatten)]
+    pub endpoint: ConsumerEndpointInfo,
+    /// The operation's `summary` or the first sentence of its `description`;
+    /// none when the pinned version no longer serves the endpoint.
+    pub summary: Option<String>,
+}
+
 pub async fn list_consumer_endpoints(
     repo: &impl SpecRepository,
     client_name: &str,
-) -> Result<Vec<ConsumerEndpointInfo>, AppError> {
-    Ok(repo.list_consumer_endpoints(client_name).await?)
+) -> Result<Vec<ListedConsumerEndpoint>, AppError> {
+    Ok(repo
+        .list_consumer_endpoints(client_name)
+        .await?
+        .into_iter()
+        .map(|endpoint| ListedConsumerEndpoint {
+            summary: endpoint.yaml_content.as_deref().and_then(|snippet| {
+                crate::descriptions::endpoint_summary(endpoint.api_type, snippet)
+            }),
+            endpoint,
+        })
+        .collect())
 }
 
 /// Upper bound for every *_max_age_days setting (~100 years): far beyond any

@@ -120,6 +120,14 @@
   asking for confirmation.
 </p>
 <p>
+  The endpoints are listed by path, then method. The filter above them matches every word typed
+  against the path, the method and the summary (<code>post cart</code> finds
+  <code>POST /carts</code>); the chips <strong>All</strong>, <strong>Used</strong> and
+  <strong>Unused</strong> narrow the list by whether a Consumer pins an endpoint, and
+  <strong>Deprecated</strong> combines with them. The filter is kept in the address, so Back from an
+  endpoint returns to the filtered list and the link can be shared.
+</p>
+<p>
   Under the Producer's title, when its build pushed a <code>catalog-info.yaml</code>, the page shows
   the catalog context: the owner (<code>team-orders (group)</code>), the description, and a row of
   chips: the repository first, labelled by the host of its source location, then the Backstage links
@@ -208,7 +216,9 @@
   and the exact pins it holds: Producer, API type, version and endpoints. The catalog context block
   and the Webhooks card work as on the Producer page; a Consumer's hooks receive the events of every
   Producer the Consumer currently requires, and are managed by a maintainer of the Producer of the
-  same name or by an administrator.
+  same name or by an administrator. The endpoints carry their summaries and have the same filter as
+  a Producer's version, with only the <strong>Deprecated</strong> chip; a group with no matching
+  endpoint is hidden.
 </p>
 <figure class="screenshot">
   <img

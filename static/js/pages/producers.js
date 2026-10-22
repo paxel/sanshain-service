@@ -562,8 +562,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
     }
 
     const summary = document.createElement("div");
-    summary.className =
-      "bg-white p-4 rounded-xl border border-slate-200 shadow-xs mb-2 flex items-center justify-between";
+    summary.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs mb-2 space-y-3";
     const usedCount = uniqueEndpoints.filter((e) => !unusedSet.has(`${e.method}:${e.path}`)).length;
     const unusedCount = uniqueEndpoints.length - usedCount;
     summary.innerHTML = `
@@ -572,9 +571,12 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                     <span class="text-green-600 font-medium">${usedCount} used</span> &middot;
                     <span class="text-amber-600 font-medium">${unusedCount} unused</span>
                     <span class="text-slate-400">(at this Pin)</span>
-                </div>`;
+                    <span class="text-indigo-700 font-medium" data-endpoint-filter-count></span>
+                </div>
+                <div data-endpoint-filter-bar></div>`;
     list.appendChild(summary);
 
+    const shownCards = [];
     for (const ep of uniqueEndpoints) {
       const key = `${ep.method}:${ep.path}`;
       const isUnused = unusedSet.has(key);
@@ -613,7 +615,36 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                         </div>
                     </div>`;
       list.appendChild(card);
+      shownCards.push({ ep: { ...ep, used: !isUnused }, card });
     }
+
+    const empty = document.createElement("div");
+    empty.innerHTML = endpointFilterEmptyHtml();
+    list.appendChild(empty);
+    const filter = endpointFilterFromUrl();
+    const count = summary.querySelector("[data-endpoint-filter-count]");
+    const apply = () => {
+      let shown = 0;
+      for (const { ep, card } of shownCards) {
+        const match = endpointFilterMatches(ep, filter);
+        card.classList.toggle("hidden", !match);
+        if (match) shown += 1;
+      }
+      count.textContent = endpointFilterActive(filter)
+        ? `· ${shown} of ${shownCards.length} shown`
+        : "";
+      empty.classList.toggle("hidden", shown > 0);
+    };
+    const control = renderEndpointFilter(
+      summary.querySelector("[data-endpoint-filter-bar]"),
+      filter,
+      ["used", "unused", "deprecated"],
+      apply,
+    );
+    empty
+      .querySelector("[data-endpoint-filter-clear]")
+      .addEventListener("click", () => control.clear());
+    apply();
   } catch (err) {
     hideLoader();
     list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;

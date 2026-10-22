@@ -375,7 +375,11 @@ pub async fn list_producer_endpoints(
     else {
         return Ok(Vec::new());
     };
-    Ok(repo.get_endpoints_for_version(entry.id).await?)
+    // By path, then method: the store keeps no order, and Postgres answers
+    // rows in any order it likes.
+    let mut endpoints = repo.get_endpoints_for_version(entry.id).await?;
+    endpoints.sort_by(|a, b| (&a.path, &a.method).cmp(&(&b.path, &b.method)));
+    Ok(endpoints)
 }
 
 /// An endpoint of a list with the one line the Producer wrote about it.

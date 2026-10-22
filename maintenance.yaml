@@ -421,7 +421,7 @@ paths:
       description: |
         Any signed-in caller.
 
-        Every endpoint the Consumer is recorded as depending on, with the pinned version and its current stability.
+        Every endpoint the Consumer is recorded as depending on, with the pinned version, its current stability and the endpoint's one-line summary.
       parameters:
         - name: name
           in: path
@@ -1707,7 +1707,7 @@ paths:
       description: |
         Any signed-in caller.
 
-        The endpoints of one version-line entry (`api_type`, `version` query parameters).
+        The endpoints of one version-line entry (`api_type`, `version` query parameters), ordered by path, then method.
       parameters:
         - name: name
           in: path

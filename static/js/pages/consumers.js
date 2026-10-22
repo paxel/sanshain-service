@@ -152,6 +152,12 @@ async function showClientDependencies(clientName) {
       return;
     }
 
+    const filterCard = document.createElement("div");
+    filterCard.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+    list.appendChild(filterCard);
+    const filterRows = [];
+    const filterSections = [];
+
     // Group by (producer, api_type, pinned version) — one Pin per group.
     const groups = new Map();
     for (const ep of endpoints) {
@@ -222,6 +228,7 @@ async function showClientDependencies(clientName) {
                           ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ""}
                           ${ep.external ? '<span class="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">external</span>' : ""}
                       </div>
+                      ${ep.summary ? `<div class="endpoint-summary text-xs text-slate-500 mt-1.5 ml-1">${escapeHtml(ep.summary)}</div>` : ""}
                       <div class="flex items-center">
                           ${
                             resolved
@@ -231,10 +238,34 @@ async function showClientDependencies(clientName) {
                       </div>
                   </div>`;
         rows.appendChild(row);
+        filterRows.push({ ep, row, section });
       }
       section.appendChild(rows);
       list.appendChild(section);
+      filterSections.push(section);
     }
+
+    // A group with no matching endpoint hides with its rows.
+    const empty = document.createElement("div");
+    empty.innerHTML = endpointFilterEmptyHtml();
+    list.appendChild(empty);
+    const filter = endpointFilterFromUrl();
+    const apply = () => {
+      const visible = new Set();
+      for (const { ep, row, section } of filterRows) {
+        const match = endpointFilterMatches(ep, filter);
+        row.classList.toggle("hidden", !match);
+        if (match) visible.add(section);
+      }
+      for (const section of filterSections)
+        section.classList.toggle("hidden", !visible.has(section));
+      empty.classList.toggle("hidden", visible.size > 0);
+    };
+    const control = renderEndpointFilter(filterCard, filter, ["deprecated"], apply);
+    empty
+      .querySelector("[data-endpoint-filter-clear]")
+      .addEventListener("click", () => control.clear());
+    apply();
     hideLoader();
   } catch (err) {
     hideLoader();

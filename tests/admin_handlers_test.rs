@@ -963,6 +963,64 @@ async fn consumer_endpoints_listing_carries_version_and_stability() {
     assert_eq!(listed[0]["stability"], "ga");
     assert_eq!(listed[0]["path"], "/hello");
     assert_eq!(listed[0]["method"], "GET");
+    assert_eq!(listed[0]["summary"], "Says hello.");
+}
+
+#[tokio::test]
+async fn producer_endpoints_listing_is_ordered_by_path_then_method() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    let spec = r#"openapi: 3.0.0
+info:
+  title: shop
+  version: 1.0.0
+paths:
+  /orders:
+    post:
+      responses:
+        '201': { description: created }
+    get:
+      responses:
+        '200': { description: ok }
+  /carts:
+    get:
+      responses:
+        '200': { description: ok }
+  /a-first:
+    delete:
+      responses:
+        '204': { description: gone }
+"#;
+    provide(&repo, "shop", spec, Stability::Snapshot).await;
+
+    let (status, endpoints) = get_json(
+        &app,
+        "/admin/producers/shop/endpoints?api_type=openapi&version=1.0.0",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{endpoints}");
+    let listed: Vec<String> = endpoints
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            format!(
+                "{} {}",
+                e["method"].as_str().unwrap(),
+                e["path"].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            "DELETE /a-first",
+            "GET /carts",
+            "GET /orders",
+            "POST /orders"
+        ]
+    );
 }
 
 // --- Snapshot cleanup configuration ---
