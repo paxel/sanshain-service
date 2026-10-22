@@ -432,12 +432,15 @@ async function fetchVersionDiff(serviceName, apiType, from, to, extra) {
 /// `undefined`, which reads as not-an-admin and silently disables the feature
 /// for everyone.
 async function checkDiscoveryAuth(onSuccess) {
-  if (window.SANSHAIN_FAST_SCREENSHOT) {
+  const token = getSanshainToken();
+  // Screenshot runs skip the wait for a sign-in, not the caller: without the
+  // user the gated controls render greyed out and the maintainer-only cards
+  // stay away, which is not what the pictures should show.
+  if (window.SANSHAIN_FAST_SCREENSHOT && !token) {
     console.log("Fast screenshot mode: bypassing auth check");
     if (onSuccess) await onSuccess(null);
     return;
   }
-  const token = getSanshainToken();
 
   // If we have a token, we always try to use it
   if (token) {
@@ -456,6 +459,7 @@ async function checkDiscoveryAuth(onSuccess) {
 
   if (window.SANSHAIN_FAST_SCREENSHOT) {
     console.log("Fast screenshot mode: skipping auth redirect");
+    if (onSuccess) await onSuccess(null);
     return;
   }
   window.location.href = "/account.html";
