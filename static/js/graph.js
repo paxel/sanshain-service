@@ -48,18 +48,24 @@ window.graphLayoutGaps = graphLayoutGaps;
 
 // Rainbow: one colour per source node for the plain edges, so one
 // Consumer's fan-out can be followed through the crossings. The colours go by
-// position: the drawn graph's sources sorted by name, each taking the next
-// hue of a golden-angle walk over the hues the warnings leave free (purple,
-// red, orange and amber mark circular, conflicting, missing, stale and
-// dangling edges), so neighbours in the list land far apart. Lightness steps
-// through three levels as well, which keeps sources apart once there are more
-// of them than distinguishable hues. A source keeps its colour as long as
-// the graph keeps its sources.
-const GRAPH_RAINBOW_FREE_HUES = [
-  [75, 255],
-  [305, 330],
+// position: the drawn graph's sources sorted by name take the hues below in
+// turn. Purple, red, orange and amber are left out (they mark circular,
+// conflicting, missing, stale and dangling edges), which leaves mostly greens
+// and blues; spreading evenly over those made neighbours look alike, so the
+// hues are a fixed order of ones that read as different colours, the most
+// distinct first. Past the end the order repeats darker, then lighter. A
+// source keeps its colour as long as the graph keeps its sources.
+const GRAPH_RAINBOW_HUES = [
+  [220, 80, 46], // blue
+  [325, 75, 50], // pink
+  [130, 70, 32], // green
+  [178, 85, 30], // teal
+  [250, 65, 56], // indigo
+  [85, 75, 34], // lime
+  [305, 60, 40], // magenta
+  [198, 90, 40], // sky
 ];
-const GRAPH_RAINBOW_LIGHTNESS = [36, 48, 28];
+const GRAPH_RAINBOW_SHADES = [0, -12, 12];
 
 function graphHslHex(h, s, l) {
   const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
@@ -73,21 +79,16 @@ function graphHslHex(h, s, l) {
   return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
 
-// `count` colours for the rainbow, the first ones as far apart as possible.
+// `count` colours for the rainbow, the first ones the most distinct.
 function graphRainbowPalette(count) {
-  const span = GRAPH_RAINBOW_FREE_HUES.reduce((acc, [from, to]) => acc + (to - from), 0);
   const colours = [];
   for (let i = 0; i < count; i++) {
-    let offset = ((i * 0.6180339887) % 1) * span;
-    let hue = GRAPH_RAINBOW_FREE_HUES[0][0];
-    for (const [from, to] of GRAPH_RAINBOW_FREE_HUES) {
-      if (offset < to - from) {
-        hue = from + offset;
-        break;
-      }
-      offset -= to - from;
-    }
-    colours.push(graphHslHex(hue, 80, GRAPH_RAINBOW_LIGHTNESS[i % 3]));
+    const [h, s, l] = GRAPH_RAINBOW_HUES[i % GRAPH_RAINBOW_HUES.length];
+    const shade =
+      GRAPH_RAINBOW_SHADES[Math.floor(i / GRAPH_RAINBOW_HUES.length) % GRAPH_RAINBOW_SHADES.length];
+    // Past every shade, nudge the hue so no two sources share a colour.
+    const turn = Math.floor(i / (GRAPH_RAINBOW_HUES.length * GRAPH_RAINBOW_SHADES.length));
+    colours.push(graphHslHex(h + turn * 7, s, l + shade));
   }
   return colours;
 }
