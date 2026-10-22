@@ -10,6 +10,7 @@ pub mod provide_service;
 pub mod report_service;
 pub mod require_service;
 pub mod spec_service;
+pub mod structure_service;
 pub mod text_diff;
 pub mod version_rules;
 pub mod webhook_delivery;

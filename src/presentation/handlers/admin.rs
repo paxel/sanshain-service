@@ -202,6 +202,45 @@ pub async fn admin_blame_version(
 }
 
 #[derive(Deserialize)]
+pub struct StructureQuery {
+    pub api_type: Option<ApiType>,
+    pub version: crate::domain::models::SemVer,
+    /// One endpoint with its children instead of the whole document; both or neither.
+    pub path: Option<String>,
+    pub method: Option<String>,
+}
+
+/// The structure view of one version: every endpoint without its children,
+/// or one endpoint with them and an example per body.
+pub async fn admin_structure_version(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<StructureQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let endpoint = match (query.path.as_deref(), query.method.as_deref()) {
+        (Some(path), Some(method)) => Some((path, method)),
+        (None, None) => None,
+        _ => {
+            return Err(AppError::BadRequest(
+                "path and method go together: give both for one endpoint, or neither".into(),
+            ));
+        }
+    };
+    let view = services::structure_version(
+        &state.repo,
+        &name,
+        services::StructureRequest {
+            api_type: query.api_type.unwrap_or(ApiType::OpenApi),
+            version: query.version,
+            endpoint,
+            with_examples: true,
+        },
+    )
+    .await?;
+    Ok(Json(view))
+}
+
+#[derive(Deserialize)]
 pub struct FullSpecQuery {
     pub api_type: Option<ApiType>,
 }

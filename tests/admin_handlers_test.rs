@@ -567,6 +567,213 @@ async fn blame_endpoint_answers_blocks_for_documents_and_endpoints() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+// The structure endpoint answers trees with the version that last changed
+// each node: every endpoint folded for the document, one endpoint unfolded
+// with an example per body.
+#[tokio::test]
+async fn structure_endpoint_answers_trees_with_last_changed_versions() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    let shop = |version: &str, extra: &str| {
+        format!(
+            r#"openapi: 3.0.0
+info:
+  title: shop
+  version: {version}
+paths:
+  /carts:
+    post:
+      summary: Open a cart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Cart'
+      responses:
+        '201':
+          description: created
+  /health:
+    get:
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    Cart:
+      type: object
+      required: [owner]
+      properties:
+        owner:
+          type: string
+          format: email
+          description: Who pays.{extra}
+"#
+        )
+    };
+    provide(&repo, "shop", &shop("1.0.0", ""), Stability::Snapshot).await;
+    let currency = "\n        currency:\n          type: string\n          default: EUR";
+    provide(&repo, "shop", &shop("1.1.0", currency), Stability::Snapshot).await;
+
+    let (status, doc) =
+        get_json(&app, "/admin/producers/shop/structure?version=1.1.0", &auth).await;
+    assert_eq!(status, StatusCode::OK, "{doc}");
+    assert_eq!(doc["version"], "1.1.0");
+    let endpoints = doc["endpoints"].as_array().unwrap();
+    let names: Vec<&str> = endpoints
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["POST /carts", "GET /health"]);
+    let carts = &endpoints[0];
+    assert!(carts.get("children").is_none());
+    assert_eq!(carts["children_omitted"], true);
+    assert_eq!(carts["changed_in"], "1.0.0");
+    assert_eq!(carts["inside"], "1.1.0");
+    assert!(endpoints[1].get("inside").is_none());
+
+    let (status, one) = get_json(
+        &app,
+        "/admin/producers/shop/structure?version=1.1.0&path=%2Fcarts&method=post",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{one}");
+    let carts = &one["endpoints"][0];
+    assert_eq!(carts["summary"], "Open a cart");
+    // The same versions as in the folded document view.
+    assert_eq!(carts["changed_in"], "1.0.0");
+    assert_eq!(carts["inside"], "1.1.0");
+    let body = &carts["children"][0]["children"][0];
+    assert_eq!(body["kind"], "body");
+    assert_eq!(body["type"], "Cart");
+    assert_eq!(body["example_generated"], true);
+    assert_eq!(
+        body["example"],
+        serde_json::json!({ "owner": "user@example.com", "currency": "EUR" })
+    );
+    let owner = &body["children"][0];
+    assert_eq!(owner["name"], "owner");
+    assert_eq!(owner["required"], true);
+    assert_eq!(owner["type"], "string (email)");
+    assert_eq!(owner["description"], "Who pays.");
+    assert_eq!(owner["changed_in"], "1.0.0");
+    assert_eq!(body["children"][1]["changed_in"], "1.1.0");
+
+    for (uri, expected) in [
+        (
+            "/admin/producers/shop/structure?version=1.0.0&path=%2Fnope&method=get",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "/admin/producers/shop/structure?version=1.1.0&path=%2Fcarts",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/admin/producers/shop/structure?version=1.1.0&api_type=proto",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/admin/producers/shop/structure?version=9.9.9",
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let (status, body) = get_json(&app, uri, &auth).await;
+        assert_eq!(status, expected, "{uri}: {body}");
+    }
+    let (status, _) = get_json(&app, "/admin/producers/shop/structure?version=1.1.0", "").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// An AsyncAPI channel goes through provide and split like any endpoint: the
+// stored snippet answers its message with headers and payload.
+#[tokio::test]
+async fn structure_endpoint_answers_an_asyncapi_channel() {
+    let (app, repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    let spec = r#"asyncapi: 2.6.0
+info:
+  title: events
+  version: 1.0.0
+channels:
+  orders/{region}:
+    parameters:
+      region:
+        schema:
+          type: string
+    publish:
+      summary: Order placed
+      message:
+        $ref: '#/components/messages/OrderPlaced'
+components:
+  messages:
+    OrderPlaced:
+      payload:
+        type: object
+        required: [orderId]
+        properties:
+          orderId:
+            type: string
+            description: The order.
+"#;
+    services::provide_spec(
+        &repo,
+        services::ProvideSpecParams {
+            producername: "events",
+            api_type: ApiType::AsyncApi,
+            content: spec,
+            stability: Stability::Snapshot,
+            dry_run: false,
+            trunk: false,
+            tag: None,
+            caller: Some(sanshain_service::domain::permissions::Actor::test_caller()),
+            require_prior_content_match: false,
+        },
+    )
+    .await
+    .expect("provide");
+
+    let (status, doc) = get_json(
+        &app,
+        "/admin/producers/events/structure?api_type=asyncapi&version=1.0.0",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{doc}");
+    let channel = &doc["endpoints"][0];
+    let (path, method) = (
+        channel["path"].as_str().unwrap().to_string(),
+        channel["method"].as_str().unwrap().to_string(),
+    );
+    assert_eq!(method, "PUB");
+    assert_eq!(channel["summary"], "Order placed");
+
+    // The folded endpoint's own path and method load it, as the viewer does.
+    let uri = format!(
+        "/admin/producers/events/structure?api_type=asyncapi&version=1.0.0&path={}&method={}",
+        path.replace('/', "%2F")
+            .replace('{', "%7B")
+            .replace('}', "%7D"),
+        method
+    );
+    let (status, one) = get_json(&app, &uri, &auth).await;
+    assert_eq!(status, StatusCode::OK, "{one}");
+    let channel = &one["endpoints"][0];
+    let message = channel["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["kind"] == "message")
+        .expect("a message");
+    assert_eq!(message["name"], "OrderPlaced");
+    let payload = &message["children"][0];
+    assert_eq!(payload["kind"], "body");
+    assert_eq!(payload["children"][0]["name"], "orderId");
+    assert_eq!(payload["children"][0]["required"], true);
+    assert_eq!(
+        payload["example"],
+        serde_json::json!({ "orderId": "string" })
+    );
+}
 // --- Delete-version: the sole escape hatch from GA immutability ---
 
 #[tokio::test]

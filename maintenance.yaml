@@ -1416,6 +1416,84 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/structure:
+    get:
+      summary: "Read: producers/name/structure"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The structure view of one OpenAPI or AsyncAPI version: `{service, api_type, version,
+        endpoints}`, each endpoint a tree of nodes (parameters by location, request body and
+        responses per media type, AsyncAPI messages with headers and payload), every local
+        `$ref` inlined, `allOf` merged with each member's `origin`, `oneOf`/`anyOf` as a
+        `variants` node with its `discriminator`, and a recursive `$ref` cut as a `cycle` node.
+        A node carries `key`, `kind`, `name` and, when present, `type`, `summary`,
+        `description`, `required`, `deprecated`, `nullable`, `read_only`, `write_only`,
+        `default`, `example`, `enum`, `constraints`, and `changed_in`: the version of the line
+        (up to this one) that last changed the node's own fields, with `inside` when something
+        below changed later. With `path` and `method` the answer is that endpoint with its
+        children, every body carrying an `example` (`example_generated` when built from the
+        schema). Without them every endpoint comes without children (`children_omitted`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [openapi, asyncapi]
+            default: openapi
+        - name: version
+          in: query
+          required: true
+          description: The version to show.
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: false
+          description: Show this endpoint with its children; needs `method`.
+          schema:
+            type: string
+        - name: method
+          in: query
+          required: false
+          description: The endpoint's method (or operation); needs `path`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The structure of the version.
+        "400":
+          description: Only one of `path`/`method`, or a proto line.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The Producer, the version or the endpoint does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/branches:
     get:
       summary: "Read: branches"

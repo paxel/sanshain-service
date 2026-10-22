@@ -447,6 +447,33 @@ pub async fn find_endpoint(
         .collect())
 }
 
+/// One endpoint's structure for `endpoint_structure`: the latest version of
+/// the line unless `version` names one.
+pub async fn endpoint_structure(
+    repo: &impl SpecRepository,
+    service: &str,
+    api_type: ApiType,
+    version: Option<SemVer>,
+    endpoint: (&str, &str),
+    with_examples: bool,
+) -> Result<super::structure_service::StructureView, AppError> {
+    let version = match version {
+        Some(v) => v,
+        None => latest_version(repo, service, api_type).await?,
+    };
+    super::structure_service::structure_version(
+        repo,
+        service,
+        super::structure_service::StructureRequest {
+            api_type,
+            version,
+            endpoint: Some(endpoint),
+            with_examples,
+        },
+    )
+    .await
+}
+
 /// The highest version of a Producer's line, for calls that omit the version.
 async fn latest_version(
     repo: &impl SpecRepository,

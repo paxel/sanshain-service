@@ -1,4 +1,4 @@
-//! The seven tools the MCP server offers (https://paxel.github.io/sanshain-service/developer/mcp.html). Their names,
+//! The eight tools the MCP server offers (https://paxel.github.io/sanshain-service/developer/mcp.html). Their names,
 //! parameters and JSON schemas are the contract AI clients are written
 //! against; the answers are compact JSON carrying the scope they were
 //! computed for, and only catalog data.
@@ -137,6 +137,24 @@ pub struct BlameParams {
     pub method: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointStructureParams {
+    /// The Producer's name.
+    pub service: String,
+    /// `openapi` or `asyncapi`; a proto reads as text through `get_spec`.
+    pub api_type: ToolApiType,
+    /// `MAJOR.MINOR.PATCH`; the line's latest version when omitted.
+    pub version: Option<String>,
+    /// The endpoint's path or channel.
+    pub path: String,
+    /// The endpoint's HTTP verb / operation (`GET`, `PUB`, ...).
+    pub method: String,
+    /// Give every body an `example` JSON, built from the schema when the
+    /// spec has none (default false).
+    pub with_examples: Option<bool>,
+}
+
 /// The tool catalog, in the order clients see it. Fails only when a
 /// parameter type's schema is not an object, which a unit test pins.
 pub fn catalog() -> Result<Vec<Tool>, String> {
@@ -217,6 +235,19 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              endpoint looked like this?\" or \"who introduced this field?\". When the text is too large \
              the blocks are answered without their lines (with `line_count`), and a hint to narrow.",
         )?,
+        tool::<EndpointStructureParams>(
+            "endpoint_structure",
+            "One endpoint of an OpenAPI or AsyncAPI version as a tree instead of YAML: its \
+             parameters by location, request body and responses per media type (AsyncAPI: its messages \
+             with headers and payload), every `$ref` inlined, `allOf` merged (`origin` names the part a \
+             member came from), `oneOf`/`anyOf` as `variants` with the `discriminator`. Each node has \
+             `name`, `type`, `description`, `required`, `default`, `enum`, `constraints`, the spec's \
+             `example`, and `changed_in`: the version that last changed it, with `inside` when \
+             something below it changed later. Use it to answer \"what does POST /orders need?\" or \
+             \"since when is `currency` in there?\". `with_examples` adds a ready JSON `example` per \
+             body for writing a curl. `version` defaults to the latest. A tree too large to answer \
+             comes back two levels deep with a hint.",
+        )?,
     ])
 }
 
@@ -294,6 +325,7 @@ pub async fn dispatch(
         "get_graph" => get_graph(state, params(tool, arguments)?).await,
         "diff_versions" => diff_versions(state, params(tool, arguments)?).await,
         "blame" => blame(state, params(tool, arguments)?).await,
+        "endpoint_structure" => endpoint_structure(state, params(tool, arguments)?).await,
         _ => Err(ToolError(format!(
             "unknown tool '{tool}' — tools/list names the available ones"
         ))),
@@ -494,12 +526,61 @@ async fn blame(state: &AppState, p: BlameParams) -> Result<ToolOutput, ToolError
     Ok(ToolOutput { body, over_budget })
 }
 
+async fn endpoint_structure(
+    state: &AppState,
+    p: EndpointStructureParams,
+) -> Result<ToolOutput, ToolError> {
+    let version = p.version.as_deref().map(self::version).transpose()?;
+    let view = mcp_service::endpoint_structure(
+        &state.repo,
+        &p.service,
+        ApiType::from(p.api_type),
+        version,
+        (&p.path, &p.method),
+        p.with_examples.unwrap_or(false),
+    )
+    .await?;
+    let stamp = ScopeStamp::dev();
+    let header = json!({
+        "scope": stamp.scope, "at": stamp.at,
+        "service": view.service, "api_type": view.api_type, "version": view.version,
+        "path": p.path, "method": p.method,
+    });
+    let mut body = header.clone();
+    body["endpoint"] = to_value(&view.endpoints.first())?;
+    let mut shallow = view.endpoints.first().cloned();
+    if let Some(node) = shallow.as_mut() {
+        cut_below(node, 2);
+    }
+    let mut over_budget = header;
+    over_budget["endpoint"] = to_value(&shallow)?;
+    over_budget["hint"] = Value::String(
+        "the tree is too large to answer whole: it is cut two levels deep (children_omitted); \
+         drop with_examples, or read one body with get_spec and path + method"
+            .to_string(),
+    );
+    Ok(ToolOutput { body, over_budget })
+}
+
+/// Keep `levels` levels of children below `node`, flagging where it cut.
+fn cut_below(node: &mut crate::structure::Node, levels: usize) {
+    if levels == 0 {
+        node.children_omitted = !node.children.is_empty();
+        node.children.clear();
+        node.example = None;
+        return;
+    }
+    for child in &mut node.children {
+        cut_below(child, levels - 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_catalog_has_the_seven_tools_with_closed_schemas() {
+    fn the_catalog_has_the_eight_tools_with_closed_schemas() {
         let tools = catalog().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
@@ -511,7 +592,8 @@ mod tests {
                 "get_spec",
                 "get_graph",
                 "diff_versions",
-                "blame"
+                "blame",
+                "endpoint_structure"
             ]
         );
         for tool in &tools {

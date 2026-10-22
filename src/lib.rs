@@ -7,6 +7,7 @@ pub mod infrastructure;
 pub mod openapi;
 pub mod presentation;
 pub mod proto;
+pub mod structure;
 
 use axum::{
     Router,
@@ -150,6 +151,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/blame", get(admin::admin_blame_version).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/structure", get(admin::admin_structure_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/branch-memberships", get(admin::admin_producer_branch_memberships).layer(require(state.clone(), RouteGuard::Authenticated)))
         // Sanshain-branches (ADR-0005): creation is release work (the cut
         // script's endpoint) — releaser-guarded; reading is open to any

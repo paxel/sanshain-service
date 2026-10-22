@@ -6,6 +6,7 @@ pub use super::provide_service::*;
 pub use super::report_service::*;
 pub use super::require_service::*;
 pub use super::spec_service::*;
+pub use super::structure_service::*;
 pub use super::text_diff::*;
 pub use super::version_rules::*;
 pub use crate::domain::models::AppError;

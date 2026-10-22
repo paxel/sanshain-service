@@ -434,7 +434,8 @@ async fn tools_list_names_the_seven_tools_with_schemas() {
             "get_spec",
             "get_graph",
             "diff_versions",
-            "blame"
+            "blame",
+            "endpoint_structure"
         ]
     );
     for tool in tools {
@@ -945,5 +946,63 @@ async fn tool_answers_are_compact_json_and_counted_in_metrics() {
     assert!(
         metrics.contains("sanshain_mcp_result_bytes_total{"),
         "{metrics}"
+    );
+}
+
+#[tokio::test]
+async fn endpoint_structure_answers_the_tree_with_last_changed_versions() {
+    let seed = seed().await;
+    let get = call_json(
+        &seed.app,
+        &seed.read_only,
+        "endpoint_structure",
+        json!({ "service": "orders", "api_type": "openapi", "path": "/orders/{id}", "method": "get" }),
+    )
+    .await;
+    assert_eq!(get["version"], "1.1.0", "the latest version by default");
+    let endpoint = &get["endpoint"];
+    assert_eq!(endpoint["name"], "GET /orders/{id}");
+    assert_eq!(endpoint["summary"], "Fetch one order");
+    assert_eq!(endpoint["changed_in"], "1.0.0", "{get}");
+    let ok = &endpoint["children"][0]["children"][0];
+    assert_eq!(ok["key"], "200");
+    assert_eq!(ok["description"], "ok");
+
+    let post = call_json(
+        &seed.app,
+        &seed.read_only,
+        "endpoint_structure",
+        json!({ "service": "orders", "api_type": "openapi", "path": "/orders", "method": "POST", "with_examples": true }),
+    )
+    .await;
+    assert_eq!(post["endpoint"]["changed_in"], "1.1.0");
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "endpoint_structure",
+        json!({ "service": "orders", "api_type": "openapi", "version": "1.0.0", "path": "/orders", "method": "post" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("has no endpoint POST /orders"),
+        "{text}"
+    );
+
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 400,
+        ..Default::default()
+    })
+    .await;
+    let cut = call_json(
+        &seed.app,
+        &seed.full,
+        "endpoint_structure",
+        json!({ "service": "orders", "api_type": "openapi", "path": "/orders/{id}", "method": "get" }),
+    )
+    .await;
+    assert!(
+        cut["hint"].as_str().unwrap().contains("two levels"),
+        "{cut}"
     );
 }

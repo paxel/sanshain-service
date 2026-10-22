@@ -556,6 +556,26 @@ pub struct BlameBlock {
     pub lines: Vec<String>,
 }
 
+/// The versions of a line up to and including `version`, oldest first: the
+/// history blame and the structure view walk. Refused when `version` itself
+/// is not stored.
+pub(crate) async fn version_line(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<Vec<SpecVersionMeta>, AppError> {
+    let (service_id, _target) = resolve_pin(repo, producername, api_type, version).await?;
+    let mut line: Vec<SpecVersionMeta> = repo
+        .list_spec_versions(service_id)
+        .await?
+        .into_iter()
+        .filter(|v| v.api_type == api_type && v.version <= version)
+        .collect();
+    line.sort_by_key(|v| v.version);
+    Ok(line)
+}
+
 /// Blame for one version of a line: its text split into blocks of lines
 /// last changed in the same version. The line is walked oldest-first up to
 /// `version` with the same `similar` diff as the diff views; in endpoint mode
@@ -569,14 +589,7 @@ pub async fn blame_version(
     version: SemVer,
     endpoint: Option<(&str, &str)>,
 ) -> Result<Vec<BlameBlock>, AppError> {
-    let (service_id, _target) = resolve_pin(repo, producername, api_type, version).await?;
-    let mut line: Vec<SpecVersionMeta> = repo
-        .list_spec_versions(service_id)
-        .await?
-        .into_iter()
-        .filter(|v| v.api_type == api_type && v.version <= version)
-        .collect();
-    line.sort_by_key(|v| v.version);
+    let line = version_line(repo, producername, api_type, version).await?;
     let mut texts = Vec::with_capacity(line.len());
     for meta in &line {
         texts.push(version_text(repo, meta.id, api_type, endpoint).await?);
