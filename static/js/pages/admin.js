@@ -1784,62 +1784,6 @@ async function testLdapConnection() {
   }
 }
 
-// --- Change Password ---
-function changePassword() {
-  document.getElementById("password-modal").classList.remove("hidden");
-  document.getElementById("password-error").classList.add("hidden");
-  document.getElementById("password-success").classList.add("hidden");
-  document.getElementById("password-form").reset();
-}
-
-function closePasswordModal() {
-  document.getElementById("password-modal").classList.add("hidden");
-}
-
-// Uses fetch directly instead of apiCall so that a 401 (wrong current
-// password) is shown as a field error rather than triggering the global
-// "session expired" logout flow.
-document.getElementById("password-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const errEl = document.getElementById("password-error");
-  const successEl = document.getElementById("password-success");
-  errEl.classList.add("hidden");
-  successEl.classList.add("hidden");
-  try {
-    if (!csrfToken) await fetchCsrfToken();
-    const headers = { "Content-Type": "application/json" };
-    if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
-    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-    const res = await fetch("/auth/change-password", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        old_password: document.getElementById("current-password").value,
-        new_password: document.getElementById("new-password").value,
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.token) {
-        sanshainToken = data.token;
-        localStorage.setItem("sanshain_token", sanshainToken);
-      }
-      successEl.textContent = "Password updated successfully.";
-      successEl.classList.remove("hidden");
-      setTimeout(closePasswordModal, 1500);
-    } else if (res.status === 401) {
-      errEl.textContent = "Current password is incorrect.";
-      errEl.classList.remove("hidden");
-    } else {
-      errEl.textContent = `Error: ${res.status}`;
-      errEl.classList.remove("hidden");
-    }
-  } catch (err) {
-    errEl.textContent = friendlyError(err);
-    errEl.classList.remove("hidden");
-  }
-});
-
 // --- Nuke Modal ---
 let nukeCallback = null;
 let nukeExpectedText = "";
