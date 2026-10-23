@@ -143,7 +143,11 @@ impl From<ApiTokenRow> for ApiToken {
     }
 }
 
+/// `user_profiles` as selected: user id, last sign-in, display name, avatar hash.
+type UserProfileRow = (i64, Option<String>, Option<String>, Option<String>);
+
 #[derive(Clone)]
+
 pub struct PostgresSpecRepository {
     pub pool: PgPool,
 }
@@ -2343,19 +2347,40 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn set_avatar_hash(
+        &self,
+        user_id: i64,
+        avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, avatar_hash) VALUES ($1, $2) \
+             ON CONFLICT (user_id) DO UPDATE SET avatar_hash = excluded.avatar_hash",
+        )
+        .bind(user_id)
+        .bind(avatar_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
-        let rows: Vec<(i64, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT user_id, last_sign_in, display_name FROM user_profiles")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<UserProfileRow> = sqlx::query_as(
+            "SELECT user_id, last_sign_in, display_name, avatar_hash FROM user_profiles",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(rows
             .into_iter()
-            .map(|(user_id, last_sign_in, display_name)| UserProfile {
-                user_id,
-                last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
-                display_name,
-            })
+            .map(
+                |(user_id, last_sign_in, display_name, avatar_hash)| UserProfile {
+                    user_id,
+                    last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
+                    display_name,
+                    avatar_hash,
+                },
+            )
             .collect())
     }
 

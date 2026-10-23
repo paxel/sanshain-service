@@ -129,11 +129,12 @@ test("a local user names themselves on the account page and the banner shows it"
   await page.fill("#display-name-input", "Root Admin");
   await page.click('#display-name-form button[type="submit"]');
   await expect(page.locator("#display-name-status")).toHaveText("Saved.");
-  await expect(page.locator("#banner-username")).toHaveText("Root Admin");
+  await expect(page.locator("#banner-username")).toContainText("Root Admin");
+  await expect(page.locator("#banner-username [data-avatar]")).toHaveText("RA");
   // Leave root as the other suites expect it.
   await page.fill("#display-name-input", "");
   await page.click('#display-name-form button[type="submit"]');
-  await expect(page.locator("#banner-username")).toHaveText("root");
+  await expect(page.locator("#banner-username [data-avatar]")).toHaveText("R");
 });
 
 // Reported from a real instance: once switched off, auto-acknowledge could not

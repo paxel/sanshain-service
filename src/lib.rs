@@ -79,7 +79,7 @@ pub struct AppState {
 /// listed. `style-src` retains `'unsafe-inline'` because the vendored Mermaid
 /// injects `<style>` elements at diagram-render time — that stays until those
 /// can be nonced or hashed. `frame-ancestors 'none'` forbids framing.
-pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-ancestors 'none';";
+pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.gravatar.com; frame-ancestors 'none';";
 
 pub fn create_app(state: AppState) -> Router {
     Router::new()
@@ -180,6 +180,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/settings/registration", post(admin::set_registration_enabled).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/gravatar", get(admin::get_gravatar_enabled).post(admin::set_gravatar_enabled).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))

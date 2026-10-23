@@ -479,6 +479,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_display_name(user_id, display_name))
     }
 
+    async fn set_avatar_hash(
+        &self,
+        user_id: i64,
+        avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_avatar_hash(user_id, avatar_hash))
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         delegate!(self, list_user_profiles())
     }

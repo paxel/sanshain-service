@@ -2140,6 +2140,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/gravatar:
+    get:
+      summary: "Read: settings/gravatar"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/gravatar"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        Switches Gravatar pictures on or off (`{"enabled": true}`). Off by default: while on, the pages load each person's picture from gravatar.com by the SHA-256 of their e-mail address; the address itself never leaves the server.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/settings/cache:
     get:
       summary: "Read: settings/cache"

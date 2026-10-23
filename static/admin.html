@@ -850,6 +850,29 @@
               </button>
             </div>
           </div>
+          <div class="flex justify-between items-center gap-4 mb-4">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800">Gravatar pictures</h3>
+              <p class="text-xs text-slate-500 mt-0.5">
+                Show each person's picture from gravatar.com, found by a hash of their e-mail
+                address. Off, everyone gets a circle with their initials and nothing is loaded from
+                outside.
+              </p>
+            </div>
+            <button
+              id="gravatar-toggle"
+              data-click="toggleGravatar"
+              data-needs="manage_settings"
+              role="switch"
+              aria-checked="false"
+              class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 bg-slate-200"
+            >
+              <span
+                id="gravatar-dot"
+                class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"
+              ></span>
+            </button>
+          </div>
           <form id="service-account-form" class="flex flex-wrap items-end gap-2 mb-4">
             <div>
               <label

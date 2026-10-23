@@ -43,6 +43,15 @@ test("an admin creates a service account and issues its token", async ({ page })
   await row.locator('button:has-text("Name")').click();
   await expect(row.locator("[data-display-name]")).toHaveText("Penguin CI build");
   await expect(row.locator("[data-username]")).toHaveText(ACCOUNT);
+  await expect(row.locator("[data-avatar]")).toHaveText("PC");
+
+  // Gravatar is off by default and switches on and off again.
+  const gravatar = page.locator("#gravatar-toggle");
+  await expect(gravatar).toHaveAttribute("aria-checked", "false");
+  await gravatar.click();
+  await expect(gravatar).toHaveAttribute("aria-checked", "true");
+  await gravatar.click();
+  await expect(gravatar).toHaveAttribute("aria-checked", "false");
 
   await page.goto("/account.html");
   await expect(page.locator("#token-for-row")).toBeVisible();

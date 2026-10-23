@@ -495,6 +495,9 @@ pub struct AuthenticatedUser {
     /// The person's name as the provider knows it (LDAP `displayName`).
     #[serde(default)]
     pub display_name: Option<String>,
+    /// Their e-mail address as the provider knows it (LDAP `mail`).
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// What an API token may do.
@@ -640,6 +643,8 @@ pub struct UserProfile {
     pub last_sign_in: Option<SignInMethod>,
     /// The name shown for them; `None` shows the username.
     pub display_name: Option<String>,
+    /// The Gravatar key of their e-mail address, if one is known.
+    pub avatar_hash: Option<String>,
 }
 
 impl UserProfile {

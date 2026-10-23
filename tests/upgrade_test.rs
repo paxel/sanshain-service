@@ -26,6 +26,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20261023000000_session_sign_in.sql",
     "20261023000001_user_profiles.sql",
     "20261023000002_user_display_name.sql",
+    "20261023000003_user_avatar_hash.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

@@ -153,8 +153,13 @@ pub async fn auth_me(
         "is_root": is_root,
         "maintains": maintains,
         "sign_in": sign_in,
-        "display_name": profile.display_name,
         "display_name_editable": !profile.display_name_from_provider(),
+        "gravatar_hash": if services::get_gravatar_enabled(&state.repo).await? {
+            profile.avatar_hash.clone()
+        } else {
+            None
+        },
+        "display_name": profile.display_name,
     })))
 }
 

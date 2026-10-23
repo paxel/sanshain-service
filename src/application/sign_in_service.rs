@@ -210,11 +210,9 @@ pub async fn start_session(
     username: &str,
     verified: Verified,
 ) -> Result<Session, AppError> {
-    let (user, method, display_name) = match verified {
+    let (user, method, identity) = match verified {
         Verified::Local(user) => (user, SignInMethod::Local, None),
-        Verified::Directory(Some(user), identity) => {
-            (user, SignInMethod::Ldap, identity.display_name)
-        }
+        Verified::Directory(Some(user), identity) => (user, SignInMethod::Ldap, Some(identity)),
         Verified::Directory(None, identity) => {
             // A directory user's privileges come from their directory groups,
             // resolved on every check; the local password is random and unusable.
@@ -222,13 +220,18 @@ pub async fn start_session(
             (
                 repo.create_user(username, &hash, true).await?,
                 SignInMethod::Ldap,
-                identity.display_name,
+                Some(identity),
             )
         }
     };
-    // The directory's name for the person, refreshed at every sign-in.
-    if let Some(name) = display_name.as_deref() {
-        repo.set_display_name(user.id, Some(name)).await?;
+    if let Some(identity) = identity {
+        super::auth_service::refresh_provider_identity(
+            repo,
+            user.id,
+            identity.display_name.as_deref(),
+            identity.email.as_deref(),
+        )
+        .await?;
     }
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
@@ -275,6 +278,7 @@ mod tests {
                 Ok(AuthenticatedUser {
                     username: username.to_string(),
                     display_name: Some(format!("{username} from the directory")),
+                    email: Some(format!(" {}@Example.com ", username.to_uppercase())),
                 })
             } else {
                 Err(AuthProviderError::InvalidCredentials)
@@ -366,6 +370,11 @@ mod tests {
             Some("dana from the directory")
         );
         assert!(profile.display_name_from_provider());
+        assert_eq!(
+            profile.avatar_hash,
+            Some(super::super::auth_service::gravatar_key("dana@example.com")),
+            "the directory's mail, trimmed and lowercased"
+        );
         let err = super::super::auth_service::set_own_display_name(&repo, &dana, "Dana")
             .await
             .unwrap_err();

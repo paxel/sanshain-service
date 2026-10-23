@@ -719,6 +719,13 @@ pub trait SpecRepository: Send + Sync {
         display_name: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Set the Gravatar key of `user_id`; `None` clears it.
+    fn set_avatar_hash(
+        &self,
+        user_id: i64,
+        avatar_hash: Option<&str>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Every stored user profile.
     fn list_user_profiles(
         &self,

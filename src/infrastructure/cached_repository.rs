@@ -1141,6 +1141,14 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.set_display_name(user_id, display_name).await
     }
 
+    async fn set_avatar_hash(
+        &self,
+        user_id: i64,
+        avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_avatar_hash(user_id, avatar_hash).await
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         self.inner.list_user_profiles().await
     }

@@ -489,6 +489,7 @@ async function triggerDependencyCleanup() {
 const localUserSwitches = {
   registration: { url: "/admin/settings/registration", key: "registration_enabled", on: false },
   "auto-approve": { url: "/admin/settings/auto-approve", key: "auto_approve_users", on: false },
+  gravatar: { url: "/admin/settings/gravatar", key: "gravatar_enabled", on: false },
 };
 
 async function loadAutoApproveUsers() {
@@ -539,6 +540,10 @@ function toggleRegistration() {
 
 function toggleAutoApproveUsers() {
   return flipSwitch("auto-approve");
+}
+
+function toggleGravatar() {
+  return flipSwitch("gravatar");
 }
 
 // --- Roles, groups and maintainers ---
@@ -940,6 +945,7 @@ async function loadUsers() {
         (u) => `
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
+                            ${avatarHtml(u)}
                             ${
                               u.display_name
                                 ? `<span class="font-medium text-slate-800" data-display-name>${escapeHtml(u.display_name)}</span>

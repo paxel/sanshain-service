@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.11.0]
 
 ### Added
+- Every person has an avatar, a circle with their initials, in the header and the user list. A **Gravatar pictures** switch (`manage_settings`, off by default) shows their picture from gravatar.com instead, keyed by the SHA-256 of the e-mail address from LDAP `mail` or the OIDC `email` claim; the address itself is not stored.
 - People have a **display name**, shown with the username in the user list, groups, maintainers, the token **For** choice, the audit log and the header: from LDAP `displayName` or the OIDC `name` claim at every sign-in, set by local users on their account page, and by user managers for service accounts.
 - The admin user list tags every account with its kind: **service account**, or how the person last signed in (**local**, **LDAP**, **OIDC**); users who have not signed in since 2.11 show **unknown** (`kind` in `GET /admin/users`).
 - The landing page is a dashboard: the number of Producers, Consumers and versions, the provides of the last 7 days and a chart of provides per day over 30 days, for everyone; a signed-in user also sees the 10 latest provides with their names.

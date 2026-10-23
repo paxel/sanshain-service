@@ -374,7 +374,7 @@ impl AuthProvider for LdapAuthProvider {
             .search_user(
                 &mut ldap,
                 username,
-                vec!["dn", "cn", "memberOf", "displayName"],
+                vec!["dn", "cn", "memberOf", "displayName", "mail"],
             )
             .await?;
 
@@ -393,6 +393,12 @@ impl AuthProvider for LdapAuthProvider {
             .and_then(|values| values.first())
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty());
+        let email = entry
+            .attrs
+            .get("mail")
+            .and_then(|values| values.first())
+            .map(|mail| mail.trim().to_string())
+            .filter(|mail| !mail.is_empty());
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
@@ -417,6 +423,7 @@ impl AuthProvider for LdapAuthProvider {
         Ok(AuthenticatedUser {
             username: username.to_string(),
             display_name,
+            email,
         })
     }
 

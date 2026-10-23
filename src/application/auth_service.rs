@@ -541,6 +541,7 @@ pub async fn oidc_complete(
         repo,
         &claims.username,
         claims.name.as_deref(),
+        claims.email.as_deref(),
         &claims.groups,
         &config.admin_group,
     )
@@ -573,6 +574,7 @@ pub async fn login_oidc(
     repo: &impl SpecRepository,
     username: &str,
     name: Option<&str>,
+    email: Option<&str>,
     groups: &[String],
     admin_group: &str,
 ) -> Result<Session, AppError> {
@@ -589,10 +591,7 @@ pub async fn login_oidc(
         repo.grant_user_role(local_user.id, Role::Admin.as_str())
             .await?;
     }
-    // The provider's name for the person, refreshed at every sign-in.
-    if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
-        repo.set_display_name(local_user.id, Some(name)).await?;
-    }
+    refresh_provider_identity(repo, local_user.id, name, email).await?;
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
     record_sign_in(repo, &session, SignInMethod::Oidc).await?;
@@ -634,6 +633,62 @@ pub async fn account_kinds(
             };
             (user.id, kind)
         })
+        .collect())
+}
+
+/// Take over what the directory or the OIDC provider says about a person at
+/// sign-in: their name to show, and the Gravatar key of their e-mail address.
+/// What the provider does not say is left as it is.
+pub(crate) async fn refresh_provider_identity(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    display_name: Option<&str>,
+    email: Option<&str>,
+) -> Result<(), AppError> {
+    if let Some(name) = display_name.map(str::trim).filter(|n| !n.is_empty()) {
+        repo.set_display_name(user_id, Some(name)).await?;
+    }
+    if let Some(email) = email.map(str::trim).filter(|e| !e.is_empty()) {
+        repo.set_avatar_hash(user_id, Some(&gravatar_key(email)))
+            .await?;
+    }
+    Ok(())
+}
+
+/// The key Gravatar files a picture under: the SHA-256 of the trimmed,
+/// lowercased address, in hex. Only this leaves the server, never the address.
+pub fn gravatar_key(email: &str) -> String {
+    hex::encode(Sha256::digest(email.trim().to_lowercase().as_bytes()))
+}
+
+/// Whether the pages load pictures from gravatar.com. Off unless an
+/// administrator switches it on: every picture is a request leaving the
+/// company.
+pub async fn get_gravatar_enabled(repo: &impl SpecRepository) -> Result<bool, AppError> {
+    Ok(repo.get_setting("gravatar_enabled").await?.as_deref() == Some("true"))
+}
+
+pub async fn set_gravatar_enabled(
+    repo: &impl SpecRepository,
+    enabled: bool,
+) -> Result<(), AppError> {
+    repo.set_setting("gravatar_enabled", if enabled { "true" } else { "false" })
+        .await?;
+    Ok(())
+}
+
+/// Every Gravatar key to show, by user id; empty while Gravatar is off.
+pub async fn gravatar_keys(
+    repo: &impl SpecRepository,
+) -> Result<std::collections::HashMap<i64, String>, AppError> {
+    if !get_gravatar_enabled(repo).await? {
+        return Ok(std::collections::HashMap::new());
+    }
+    Ok(repo
+        .list_user_profiles()
+        .await?
+        .into_iter()
+        .filter_map(|p| p.avatar_hash.map(|key| (p.user_id, key)))
         .collect())
 }
 
@@ -1179,6 +1234,34 @@ mod tests {
         assert_eq!(
             account_kinds(&repo, &users).await.unwrap()[&alice.id],
             "local"
+        );
+    }
+
+    #[test]
+    fn the_gravatar_key_is_the_sha256_of_the_normalised_address() {
+        // Gravatar's own documented example.
+        assert_eq!(
+            gravatar_key(" MyEmailAddress@example.com "),
+            "84059b07d4be67b806386c0aad8070a23f18836bbaae342275dc0a83414c32ee"
+        );
+    }
+
+    #[tokio::test]
+    async fn gravatar_keys_are_only_handed_out_while_gravatar_is_on() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        refresh_provider_identity(&repo, alice.id, None, Some("alice@example.com"))
+            .await
+            .unwrap();
+        assert!(
+            !get_gravatar_enabled(&repo).await.unwrap(),
+            "off by default"
+        );
+        assert!(gravatar_keys(&repo).await.unwrap().is_empty());
+        set_gravatar_enabled(&repo, true).await.unwrap();
+        assert_eq!(
+            gravatar_keys(&repo).await.unwrap().get(&alice.id),
+            Some(&gravatar_key("alice@example.com"))
         );
     }
 

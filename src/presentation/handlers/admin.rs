@@ -500,6 +500,36 @@ pub struct EnabledRequest {
     pub enabled: bool,
 }
 
+pub async fn get_gravatar_enabled(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let enabled = services::get_gravatar_enabled(&state.repo).await?;
+    Ok(Json(json!({ "gravatar_enabled": enabled })))
+}
+
+pub async fn set_gravatar_enabled(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<EnabledRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_gravatar_enabled(&state.repo, payload.enabled).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_GRAVATAR",
+            details: &format!(
+                "Gravatar pictures {}",
+                if payload.enabled { "on" } else { "off" }
+            ),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn get_auto_approve_users(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -847,6 +877,7 @@ pub async fn admin_list_users(
     let users = services::list_users(&state.repo).await?;
     let kinds = services::account_kinds(&state.repo, &users).await?;
     let names = services::display_names(&state.repo).await?;
+    let gravatars = services::gravatar_keys(&state.repo).await?;
     let mut out = Vec::with_capacity(users.len());
     for user in users {
         let roles = crate::application::authz::list_user_roles(&state.repo, user.id).await?;
@@ -857,6 +888,7 @@ pub async fn admin_list_users(
             "service_account": user.is_service_account(),
             "kind": kinds.get(&user.id).copied().unwrap_or("unknown"),
             "display_name": names.get(&user.id),
+            "gravatar_hash": gravatars.get(&user.id),
             "roles": roles,
         }));
     }
@@ -1409,6 +1441,7 @@ pub async fn get_instance_settings(
     Ok(Json(json!({
         "auto_approve_users": services::get_auto_approve_users(&state.repo).await?,
         "registration_enabled": services::get_registration_enabled(&state.repo).await?,
+        "gravatar_enabled": services::get_gravatar_enabled(&state.repo).await?,
         "dev_mode_allowed": services::dev_mode_gate_open(),
         "snapshot_max_age_days": services::get_snapshot_max_age_days(&state.repo).await?,
         "dependency_max_age_days": services::get_dependency_max_age_days(&state.repo).await?,

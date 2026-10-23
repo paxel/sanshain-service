@@ -125,6 +125,22 @@ function personLabel(user) {
   return user.display_name ? `${user.display_name} (${user.username})` : user.username;
 }
 
+// A person's avatar: a circle with their initials, and over it their Gravatar
+// picture when the instance shows them. Gravatar answers a transparent image
+// for an address it does not know, so the initials show through.
+function avatarInitials(user) {
+  const name = (user.display_name || user.username || "?").trim();
+  const words = name.split(/[\s._@-]+/).filter(Boolean);
+  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?")[0];
+  return letters.toUpperCase();
+}
+function avatarHtml(user, size = "h-7 w-7 text-xs") {
+  const picture = user.gravatar_hash
+    ? `<img src="https://www.gravatar.com/avatar/${encodeURIComponent(user.gravatar_hash)}?s=64&d=blank" alt="" class="absolute inset-0 h-full w-full rounded-full" loading="lazy" />`
+    : "";
+  return `<span class="relative inline-flex ${size} shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700" data-avatar>${escapeHtml(avatarInitials(user))}${picture}</span>`;
+}
+
 function updateBannerAuth(user) {
   if (user) setGateUser(user);
   const usernameEl = document.getElementById("banner-username");
@@ -142,7 +158,7 @@ function updateBannerAuth(user) {
   if (!usernameEl || !logoutEl || !signinEl) return;
 
   if (user && user.username) {
-    usernameEl.textContent = user.display_name || user.username;
+    usernameEl.innerHTML = `<span class="inline-flex items-center gap-2">${avatarHtml(user, "h-6 w-6 text-[10px]")}<span>${escapeHtml(user.display_name || user.username)}</span></span>`;
     usernameEl.title = user.username;
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");

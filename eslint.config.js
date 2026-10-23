@@ -21,6 +21,7 @@ export default [
         errorMessage: "readonly",
         escapeHtml: "readonly",
         personLabel: "readonly",
+        avatarHtml: "readonly",
         escapeAttr: "readonly",
         attrJson: "readonly",
         setActionArgs: "readonly",

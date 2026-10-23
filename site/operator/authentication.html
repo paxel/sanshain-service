@@ -233,6 +233,15 @@
   with <strong>Name</strong> in its row (<code>PUT /admin/users/{id}/display-name</code>,
   <code>manage_users</code>). Without one, the username is shown.
 </p>
+<p>
+  Next to the name sits a circle with the person's initials. The <strong>Gravatar pictures</strong>
+  switch above the user list (<code>POST /admin/settings/gravatar</code>,
+  <code>manage_settings</code>, off by default) puts their picture from gravatar.com over it. The
+  key is the SHA-256 of the e-mail address the directory (<code>mail</code>) or the OIDC provider
+  (<code>email</code>) gave at the last sign-in; Sanshain stores only that key, never the address,
+  and nothing is requested from gravatar.com while the switch is off. Someone without a picture
+  keeps their initials.
+</p>
 
 <h2 id="service-accounts">Service accounts</h2>
 <p>
