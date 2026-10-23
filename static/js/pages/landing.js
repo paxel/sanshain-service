@@ -30,17 +30,27 @@ async function loadDashboard() {
   } catch (_) {}
 }
 
+// One bar per day in a 120 x 100 drawing the SVG stretches to the card: the
+// heights are attributes of the drawing, not styles of the page.
 function renderActivityChart(days) {
   const chart = document.getElementById("activity-chart");
   const max = Math.max(1, ...days.map((d) => d.provides));
+  const slot = 120 / days.length;
+  const svg = "http://www.w3.org/2000/svg";
   chart.replaceChildren(
-    ...days.map((d) => {
-      const bar = document.createElement("div");
-      bar.className = `flex-1 rounded-t ${d.provides ? "bg-indigo-400" : "bg-slate-100"}`;
-      bar.style.height = `${Math.max(4, (d.provides / max) * 100)}%`;
-      bar.title = `${d.day}: ${d.provides} provide${d.provides === 1 ? "" : "s"}`;
+    ...days.map((d, i) => {
+      const height = Math.max(4, (d.provides / max) * 100);
+      const bar = document.createElementNS(svg, "rect");
+      bar.setAttribute("x", String(i * slot + slot * 0.1));
+      bar.setAttribute("width", String(slot * 0.8));
+      bar.setAttribute("y", String(100 - height));
+      bar.setAttribute("height", String(height));
+      bar.setAttribute("class", d.provides ? "fill-indigo-400" : "fill-slate-100");
       bar.dataset.day = d.day;
       bar.dataset.provides = d.provides;
+      const title = document.createElementNS(svg, "title");
+      title.textContent = `${d.day}: ${d.provides} provide${d.provides === 1 ? "" : "s"}`;
+      bar.appendChild(title);
       return bar;
     }),
   );

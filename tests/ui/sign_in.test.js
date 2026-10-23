@@ -103,7 +103,7 @@ test("signing in lands on the dashboard, whose names only a signed-in user sees"
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator("#stat-producers")).toHaveText(/^\d+$/);
-  await expect(page.locator("#activity-chart > div")).toHaveCount(30);
+  await expect(page.locator("#activity-chart > rect")).toHaveCount(30);
   await expect(page.locator("#recent-provides-card")).toBeHidden();
 
   await openSignIn(page);
