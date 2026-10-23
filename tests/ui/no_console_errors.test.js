@@ -98,7 +98,7 @@ test("the public landing page loads without a JavaScript error", async ({ page }
 test("admin dashboard controls fire without error", async ({ page }) => {
   const errors = watchForErrors(page);
   await login(page);
-  await page.goto("/admin.html");
+  await page.goto("/admin.html#sign-in");
   await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
 
   // A tab switch, a settings section, and an auth-mode radio each run a

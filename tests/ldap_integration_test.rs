@@ -10,6 +10,7 @@
 
 use ldap3::{Ldap, LdapConnAsync, Mod};
 use sanshain_service::domain::models::LdapConfig;
+use sanshain_service::domain::ports::DirectoryGroupSearch;
 use sanshain_service::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use sanshain_service::infrastructure::ldap_provider::LdapAuthProvider;
 use std::collections::HashSet;
@@ -140,6 +141,8 @@ async fn seed(url: &str) {
                 ("cn", attr(&["Alice"])),
                 ("sn", attr(&["Anderson"])),
                 ("uid", attr(&["alice"])),
+                ("displayName", attr(&["Alice Anderson"])),
+                ("mail", attr(&["Alice.Anderson@Example.org"])),
                 ("userPassword", attr(&["alicepw"])),
             ],
         ),
@@ -195,6 +198,26 @@ async fn ldap_plain_bind_search_groups_and_failure_modes() {
         .await
         .expect("valid credentials authenticate");
     assert_eq!(user.username, "alice");
+    assert_eq!(user.display_name.as_deref(), Some("Alice Anderson"));
+    assert_eq!(user.email.as_deref(), Some("Alice.Anderson@Example.org"));
+
+    // A group found by a part of its name, by its DN; an injected filter
+    // finds nothing instead of everything.
+    let found = provider
+        .find_groups("dmin", 20)
+        .await
+        .expect("group search");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].dn.eq_ignore_ascii_case(ADMINS_DN));
+    assert_eq!(found[0].name, "admins");
+    assert!(
+        provider
+            .find_groups("*)(cn=*", 20)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(provider.find_groups("  ", 20).await.unwrap().is_empty());
 
     // Group resolution via memberOf → the admins group.
     let groups = provider.groups_for("alice").await.expect("groups resolve");

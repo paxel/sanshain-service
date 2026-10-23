@@ -86,8 +86,75 @@ function lockedNote(elementId, permission) {
   }
 }
 
+// --- Tabs ---
+// The page is split into General, Sign-in and Users. A tab whose permissions
+// the person lacks entirely is greyed out and says which permission opens it.
+// The open tab is in the address, so it can be linked, and remembered in this
+// browser for the next visit.
+const ADMIN_TABS = ["general", "sign-in", "users"];
+const ADMIN_TAB_PERMISSIONS = {
+  "sign-in": ["manage_auth_config", "manage_settings"],
+  users: ["manage_users", "manage_roles"],
+};
+const ADMIN_TAB_KEY = "sanshain_admin_tab";
+
+function adminTabAllowed(tab) {
+  const needs = ADMIN_TAB_PERMISSIONS[tab];
+  if (!needs) return true;
+  return adminActor?.is_root || needs.some((p) => hasPermission(adminActor, p));
+}
+
+function paintAdminTabs(open) {
+  document.querySelectorAll("[data-admin-tab-button]").forEach((button) => {
+    const tab = button.dataset.adminTabButton;
+    const allowed = adminTabAllowed(tab);
+    const selected = tab === open;
+    button.disabled = !allowed;
+    button.title = allowed ? "" : `Needs ${ADMIN_TAB_PERMISSIONS[tab].join(" or ")}`;
+    button.setAttribute("aria-selected", String(selected));
+    button.className = `px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+      !allowed
+        ? "border-transparent text-slate-300 cursor-not-allowed"
+        : selected
+          ? "border-indigo-600 text-indigo-700"
+          : "border-transparent text-slate-500 hover:text-slate-800"
+    }`;
+  });
+  document.querySelectorAll("[data-admin-tab]").forEach((section) => {
+    section.hidden = section.dataset.adminTab !== open;
+  });
+}
+
+function openAdminTab(tab) {
+  if (!ADMIN_TABS.includes(tab) || !adminTabAllowed(tab)) tab = "general";
+  paintAdminTabs(tab);
+  history.replaceState(null, "", `#${tab}`);
+  try {
+    localStorage.setItem(ADMIN_TAB_KEY, tab);
+  } catch (_) {
+    // Forgotten on the next visit; the tab still opens now.
+  }
+}
+
+// A link to another tab on the open page (#users) switches to it.
+window.addEventListener("hashchange", () => {
+  const tab = location.hash.slice(1);
+  if (ADMIN_TABS.includes(tab)) openAdminTab(tab);
+});
+
+function initialAdminTab() {
+  const fromAddress = location.hash.slice(1);
+  if (ADMIN_TABS.includes(fromAddress)) return fromAddress;
+  try {
+    return localStorage.getItem(ADMIN_TAB_KEY) || "general";
+  } catch (_) {
+    return "general";
+  }
+}
+
 // --- Load All ---
 async function loadAll() {
+  openAdminTab(initialAdminTab());
   // Each section loads only what the caller may read; the rest says whose it is.
   const can = (permission) => adminActor?.is_root || hasPermission(adminActor, permission);
   if (can("manage_settings")) loadDatabaseInfo();
@@ -664,6 +731,7 @@ async function loadGroups() {
     knownGroups = data.groups || [];
     if (knownGroups.length === 0) {
       list.innerHTML = '<p class="text-sm text-slate-500 italic">No groups yet.</p>';
+      mountDirectoryGroupPicker();
       refreshMaintainerPickers();
       return;
     }
@@ -727,6 +795,7 @@ async function loadGroups() {
       })
       .join("");
     list.querySelectorAll("[data-member-picker]").forEach(mountGroupMemberPicker);
+    mountDirectoryGroupPicker();
     refreshMaintainerPickers();
   } catch (_) {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
@@ -827,8 +896,75 @@ async function deleteGroup(groupId) {
   loadGroups();
 }
 
+// Directory groups are found by searching LDAP while typing, so a team such
+// as "carla" can be added without knowing its DN. Answers for a configured
+// LDAP only; anything else leaves the search empty.
+let directoryHits = [];
+let directorySearchTimer = null;
+function searchDirectoryGroups(text, then) {
+  clearTimeout(directorySearchTimer);
+  if (text.length < 2) {
+    directoryHits = [];
+    then();
+    return;
+  }
+  directorySearchTimer = setTimeout(async () => {
+    try {
+      const res = await apiCall(`/admin/directory-groups?q=${encodeURIComponent(text)}`);
+      directoryHits = res.ok ? (await res.json()).groups || [] : [];
+    } catch (_) {
+      directoryHits = [];
+    }
+    then();
+  }, 250);
+}
+
+// The directory hits Sanshain does not know yet, as picker entries.
+function newDirectoryOptions() {
+  return directoryHits
+    .filter((hit) => hit.group_id === null)
+    .map((hit) => ({
+      value: `dn:${hit.dn}`,
+      label: `${hit.name} (directory)`,
+      group: "Directory",
+    }));
+}
+
+async function addDirectoryGroup(dn) {
+  const res = await apiCall("/admin/groups/directory", { method: "POST", body: { dn } });
+  if (!res.ok) {
+    alert("Could not add the directory group: " + (await errorMessage(res)));
+    return null;
+  }
+  const group = await res.json();
+  directoryHits = directoryHits.map((h) => (h.dn === dn ? { ...h, group_id: group.id } : h));
+  if (!knownGroups.some((g) => g.id === group.id)) {
+    knownGroups.push({ ...group, roles: [], member_ids: [] });
+  }
+  return group;
+}
+
+let directoryGroupPicker = null;
+function mountDirectoryGroupPicker() {
+  const root = document.getElementById("directory-group-picker");
+  if (!root || directoryGroupPicker) return;
+  directoryGroupPicker = createPicker(root, {
+    id: "directory-group-search",
+    placeholder: "Type a team name to search the directory…",
+    multiple: false,
+    options: newDirectoryOptions,
+    isSelected: () => false,
+    onSearch: (text) => searchDirectoryGroups(text, () => directoryGroupPicker.refresh()),
+    onPick: async (value) => {
+      if (await addDirectoryGroup(value.slice(3))) loadGroups();
+    },
+    selectedLabel: () => "",
+  });
+}
+
 // Maintainers: pick a Producer, then tick the users and groups responsible
-// for it. Each tick or untick is saved at once.
+// for it. Each tick or untick is saved at once. A directory group found by
+// typing its name is added to Sanshain on the tick.
 let maintainerData = [];
 let maintainerProducer = "";
 let maintainerProducerPicker = null;
@@ -870,13 +1006,22 @@ function refreshMaintainerPickers() {
                   group: "Groups",
                 })),
               )
+              .concat(newDirectoryOptions())
           : [],
+      onSearch: (text) => searchDirectoryGroups(text, () => maintainerSubjectPicker.refresh()),
       isSelected: (value) => {
         const [kind, id] = value.split(":");
         const m = maintainersOf(maintainerProducer);
         return (kind === "user" ? m.user_ids : m.group_ids || []).includes(Number(id));
       },
-      onToggle: (value, checked) => setMaintainer(maintainerProducer, value, checked),
+      onToggle: async (value, checked) => {
+        if (value.startsWith("dn:")) {
+          const group = await addDirectoryGroup(value.slice(3));
+          if (group) await setMaintainer(maintainerProducer, `group:${group.id}`, true);
+          return;
+        }
+        await setMaintainer(maintainerProducer, value, checked);
+      },
     });
   }
   maintainerProducerPicker.refresh();

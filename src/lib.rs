@@ -125,6 +125,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/users/{id}/roles", get(roles::list_user_roles).post(roles::grant_user_role).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/users/{id}/roles/{role}", delete(roles::revoke_user_role).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups", get(roles::list_groups).post(roles::create_group).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        .route("/admin/groups/directory", post(roles::add_directory_group).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        .route("/admin/directory-groups", get(roles::search_directory_groups).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups/{id}", put(roles::update_group).delete(roles::delete_group).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups/{id}/members", post(roles::add_group_member).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/groups/{id}/members/{user_id}", delete(roles::remove_group_member).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))

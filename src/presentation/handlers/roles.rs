@@ -132,6 +132,47 @@ pub struct CreateGroupRequest {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub struct DirectoryGroupQuery {
+    #[serde(default)]
+    pub q: String,
+}
+
+/// Search the configured LDAP directory for groups by name.
+pub async fn search_directory_groups(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<DirectoryGroupQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let config = crate::application::services::get_ldap_config(&state.repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("LDAP is not configured".to_string()))?;
+    let directory = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
+    let hits = authz::search_directory_groups(&state.repo, &directory, &query.q).await?;
+    Ok(Json(serde_json::json!({ "groups": hits })))
+}
+
+#[derive(Deserialize)]
+pub struct DirectoryGroupRequest {
+    pub dn: String,
+}
+
+/// Add a directory group by its DN; its members stay in the directory.
+pub async fn add_directory_group(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<DirectoryGroupRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let group = authz::add_directory_group(&state.repo, &payload.dn).await?;
+    record(
+        &state,
+        user,
+        "ADD_DIRECTORY_GROUP",
+        &format!("Added directory group '{}'", group.name),
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(group)))
+}
+
 pub async fn create_group(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,

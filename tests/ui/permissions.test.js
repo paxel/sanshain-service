@@ -134,17 +134,15 @@ test("a gated control is greyed with the permission named, a granted one is live
   await signIn(page, PERSONAS.usermanager);
   await page.goto("/admin.html");
   await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
-  const toggle = page.locator("#auto-approve-toggle");
-  await expect(toggle).toBeDisabled();
-  await expect(toggle).toHaveAttribute("title", /manage_settings/);
   await expect(page.locator("#snapshot-max-age-days")).toHaveValue(/\d+/);
+  // The sign-in configuration is not theirs: the whole tab is greyed out and
+  // names what opens it. The Users tab is theirs.
+  const signInTab = page.locator('[data-admin-tab-button="sign-in"]');
+  await expect(signInTab).toBeDisabled();
+  await expect(signInTab).toHaveAttribute("title", /manage_auth_config or manage_settings/);
+  await page.click('[data-admin-tab-button="users"]');
   await page.fill("#users-search", PERSONAS.plain);
   await expect(page.locator("#users-list")).toContainText(PERSONAS.plain, { timeout: 10000 });
-  // A user manager also holds manage_roles; the auth configuration is not theirs.
-  await expect(page.locator("#auth-config-locked [data-locked]")).toContainText(
-    "manage_auth_config",
-  );
-  await expect(page.locator("#ldap-server-url")).toBeDisabled();
 });
 
 // The live updates use the stream that sends the Authorization header. The

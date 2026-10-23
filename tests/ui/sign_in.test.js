@@ -156,7 +156,7 @@ test("the auto-acknowledge switch turns off and on again and keeps its state", a
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   const openAdmin = async () => {
-    await page.goto("/admin.html");
+    await page.goto("/admin.html#sign-in");
     await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
     await expect(page.locator("#local-users-panel")).toBeVisible();
   };

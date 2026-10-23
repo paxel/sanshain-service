@@ -145,8 +145,42 @@
       </header>
 
       <main class="container mx-auto p-6 space-y-8">
+        <!-- Tabs: General, Sign-in, Users. The open tab is in the address
+             (#users) and remembered per browser. -->
+        <nav id="admin-tabs" class="flex gap-1 border-b border-slate-200" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            data-admin-tab-button="general"
+            data-click="openAdminTab"
+            data-click-args='["general"]'
+          >
+            General
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-admin-tab-button="sign-in"
+            data-click="openAdminTab"
+            data-click-args='["sign-in"]'
+          >
+            Sign-in
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-admin-tab-button="users"
+            data-click="openAdminTab"
+            data-click-args='["users"]'
+          >
+            Users
+          </button>
+        </nav>
         <!-- In-Memory Cache -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">In-Memory Cache</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -207,7 +241,10 @@
         </section>
 
         <!-- Database Configuration -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div>
             <h2 class="text-lg font-semibold text-slate-800">Database Configuration</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -262,7 +299,10 @@
         </section>
 
         <!-- Sanshain-branches (ADR-0005) -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Sanshain-Branches</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -298,6 +338,7 @@
 
         <!-- Webhooks (#47) -->
         <section
+          data-admin-tab="general"
           id="webhooks-section"
           class="bg-white rounded-xl border border-slate-200 shadow-xs p-6 hidden"
         >
@@ -338,7 +379,10 @@
         </section>
 
         <!-- Trunk TTL (ADR-0004) -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Trunk Data TTL</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -376,7 +420,10 @@
         </section>
 
         <!-- Snapshot Cleanup -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Snapshot Cleanup</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -413,7 +460,10 @@
         </section>
 
         <!-- Ticket links -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Ticket Links</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -442,7 +492,10 @@
         </section>
 
         <!-- Dependency Cleanup -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Dependency Cleanup</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -478,7 +531,10 @@
         </section>
 
         <!-- Authentication Mode -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="sign-in"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="mb-4">
             <h2 class="text-lg font-semibold text-slate-800">Authentication</h2>
             <p class="text-sm text-slate-500 mt-1">
@@ -826,7 +882,10 @@
         </section>
 
         <!-- Users -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="users"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-lg font-semibold text-slate-800">Users</h2>
@@ -920,7 +979,10 @@
         </section>
 
         <!-- Groups -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="users"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-lg font-semibold text-slate-800">Groups</h2>
@@ -955,11 +1017,18 @@
               Create
             </button>
           </div>
+          <div class="flex items-center gap-2 mb-4">
+            <span class="text-sm text-slate-600 shrink-0">Add a directory group</span>
+            <div id="directory-group-picker" class="flex-1"></div>
+          </div>
           <div id="groups-list" class="space-y-2"></div>
         </section>
 
         <!-- Maintainers -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="users"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-lg font-semibold text-slate-800">Maintainers</h2>
@@ -985,6 +1054,7 @@
 
         <!-- Paste-a-spec Producer Creation -->
         <section
+          data-admin-tab="general"
           id="paste-spec-section"
           class="bg-white rounded-xl border border-indigo-300 shadow-xs p-6 hidden"
         >
@@ -1051,7 +1121,10 @@
         </section>
 
         <!-- Services -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-lg font-semibold text-slate-800">Producers</h2>
@@ -1089,7 +1162,10 @@
         </section>
 
         <!-- Clients -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center mb-4">
             <div>
               <h2 class="text-lg font-semibold text-slate-800">Consumers</h2>
@@ -1125,7 +1201,10 @@
         </section>
 
         <!-- Database Nuke -->
-        <section class="bg-white rounded-xl border border-red-300 shadow-xs p-6">
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-red-300 shadow-xs p-6"
+        >
           <div class="flex justify-between items-center">
             <div>
               <h2 class="text-lg font-semibold text-red-700">☠️ Danger Zone</h2>

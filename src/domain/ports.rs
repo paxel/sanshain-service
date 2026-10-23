@@ -46,6 +46,25 @@ pub trait DirectoryGroups: Send + Sync {
     ) -> impl Future<Output = Result<Vec<String>, AuthProviderError>> + Send;
 }
 
+/// A group found in the directory: its DN, which is how Sanshain stores it
+/// (what `memberOf` answers), and its common name to show.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct DirectoryGroup {
+    pub dn: String,
+    pub name: String,
+}
+
+/// Port for finding directory groups by name, so an administrator can add a
+/// team like `carla` without knowing its DN.
+pub trait DirectoryGroupSearch: Send + Sync {
+    /// Groups whose common name contains `text`, at most `limit` of them.
+    fn find_groups(
+        &self,
+        text: &str,
+        limit: i32,
+    ) -> impl Future<Output = Result<Vec<DirectoryGroup>, AuthProviderError>> + Send;
+}
+
 /// What an OIDC login round-trip must carry across the redirect: the provider
 /// URL to send the browser to, and the CSRF state, nonce and PKCE verifier the
 /// callback checks against.

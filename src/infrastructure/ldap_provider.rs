@@ -1,6 +1,8 @@
 use crate::domain::models::{AuthenticatedUser, LdapConfig};
 use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
-use ldap3::{LdapConnAsync, LdapConnSettings, LdapError, Scope, SearchEntry, StdStream};
+use ldap3::{
+    LdapConnAsync, LdapConnSettings, LdapError, Scope, SearchEntry, SearchOptions, StdStream,
+};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -431,6 +433,62 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
         self.unbind(&mut ldap).await;
         Ok(())
+    }
+}
+
+/// The object classes a group has: `group` in Active Directory,
+/// `groupOfNames`, `groupOfUniqueNames` or `posixGroup` in OpenLDAP.
+const GROUP_CLASSES: &str = "(|(objectClass=group)(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))";
+
+/// LDAP result code for a search that hit its size limit: the entries up to
+/// the limit are still valid.
+const SIZE_LIMIT_EXCEEDED: u32 = 4;
+
+impl crate::domain::ports::DirectoryGroupSearch for LdapAuthProvider {
+    /// Searched through the service account, under the base DN, by a
+    /// substring of the common name.
+    async fn find_groups(
+        &self,
+        text: &str,
+        limit: i32,
+    ) -> Result<Vec<crate::domain::ports::DirectoryGroup>, AuthProviderError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
+        let filter = format!("(&{GROUP_CLASSES}(cn=*{}*))", escape_ldap_filter(text));
+        let mut ldap = self.connect().await?;
+        let searched = ldap
+            .with_timeout(self.operation_timeout)
+            .with_search_options(SearchOptions::new().sizelimit(limit))
+            .search(&self.config.base_dn, Scope::Subtree, &filter, vec!["cn"])
+            .await;
+        self.unbind(&mut ldap).await;
+        let ldap3::SearchResult(entries, result) = searched.map_err(|e| {
+            self.map_operation_error(e, |e| {
+                AuthProviderError::Internal(format!("LDAP group search: {}", e))
+            })
+        })?;
+        if result.rc != 0 && result.rc != SIZE_LIMIT_EXCEEDED {
+            return Err(AuthProviderError::Internal(format!(
+                "LDAP group search failed: {}",
+                result
+            )));
+        }
+        Ok(entries
+            .into_iter()
+            .map(SearchEntry::construct)
+            .map(|entry| {
+                let name = entry
+                    .attrs
+                    .get("cn")
+                    .and_then(|values| values.first())
+                    .cloned()
+                    .unwrap_or_else(|| entry.dn.clone());
+                crate::domain::ports::DirectoryGroup { dn: entry.dn, name }
+            })
+            .take(usize::try_from(limit).unwrap_or(0))
+            .collect())
     }
 }
 

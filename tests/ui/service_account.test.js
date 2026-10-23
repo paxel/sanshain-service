@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("an admin creates a service account and issues its token", async ({ page }) => {
-  await page.goto("/admin.html");
+  await page.goto("/admin.html#users");
   await page.fill("#service-account-name", ACCOUNT);
   await page.click('#service-account-form button[type="submit"]');
   const row = page.locator("#users-list > div", { hasText: ACCOUNT });

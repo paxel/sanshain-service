@@ -6,7 +6,7 @@
 
 use crate::domain::models::{AppError, Group, GroupSource, User};
 use crate::domain::permissions::{Actor, Permission, Role, RootUsers};
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{DirectoryGroupSearch, SpecRepository};
 
 /// Build the [`Actor`] for an authenticated user.
 ///
@@ -135,6 +135,64 @@ async fn detail_for(repo: &impl SpecRepository, group: Group) -> Result<GroupDet
         roles,
         member_ids,
     })
+}
+
+/// How many directory groups one search answers.
+pub const DIRECTORY_GROUP_SEARCH_LIMIT: i32 = 20;
+
+/// A directory group found by a search, and the Sanshain group that stands
+/// for it if it was added already.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DirectoryGroupHit {
+    pub dn: String,
+    pub name: String,
+    pub group_id: Option<i64>,
+}
+
+/// Find directory groups by a part of their name, marking the ones Sanshain
+/// already knows.
+pub async fn search_directory_groups(
+    repo: &impl SpecRepository,
+    directory: &impl DirectoryGroupSearch,
+    text: &str,
+) -> Result<Vec<DirectoryGroupHit>, AppError> {
+    let hits = directory
+        .find_groups(text, DIRECTORY_GROUP_SEARCH_LIMIT)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("the directory search failed: {e}")))?;
+    let known = repo.list_groups().await?;
+    Ok(hits
+        .into_iter()
+        .map(|hit| DirectoryGroupHit {
+            group_id: known
+                .iter()
+                .find(|g| g.source == GroupSource::Ldap && g.name.eq_ignore_ascii_case(&hit.dn))
+                .map(|g| g.id),
+            dn: hit.dn,
+            name: hit.name,
+        })
+        .collect())
+}
+
+/// Add a directory group to Sanshain by its DN, so roles and maintainerships
+/// can be attached to it. Its members stay in the directory. Adding one that
+/// is known already answers the existing group.
+pub async fn add_directory_group(repo: &impl SpecRepository, dn: &str) -> Result<Group, AppError> {
+    let dn = dn.trim();
+    if dn.is_empty() {
+        return Err(AppError::BadRequest(
+            "a directory group needs its DN".to_string(),
+        ));
+    }
+    if let Some(group) = repo
+        .list_groups()
+        .await?
+        .into_iter()
+        .find(|g| g.source == GroupSource::Ldap && g.name.eq_ignore_ascii_case(dn))
+    {
+        return Ok(group);
+    }
+    Ok(repo.create_group(dn, GroupSource::Ldap).await?)
 }
 
 /// Create a Sanshain-owned group.
@@ -587,6 +645,54 @@ async fn require_native_group(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    struct Teams;
+
+    impl DirectoryGroupSearch for Teams {
+        async fn find_groups(
+            &self,
+            text: &str,
+            _limit: i32,
+        ) -> Result<
+            Vec<crate::domain::ports::DirectoryGroup>,
+            crate::domain::ports::AuthProviderError,
+        > {
+            Ok(["alva", "berta", "carla"]
+                .iter()
+                .filter(|team| team.contains(text))
+                .map(|team| crate::domain::ports::DirectoryGroup {
+                    dn: format!("cn={team},ou=teams,dc=corp,dc=com"),
+                    name: team.to_string(),
+                })
+                .collect())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_directory_team_is_found_by_name_and_added_once() {
+        let repo = MockRepo::new();
+        let hits = search_directory_groups(&repo, &Teams, "carla")
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].dn, "cn=carla,ou=teams,dc=corp,dc=com");
+        assert_eq!(hits[0].group_id, None, "not added yet");
+
+        let group = add_directory_group(&repo, &hits[0].dn).await.unwrap();
+        assert_eq!(group.source, GroupSource::Ldap);
+        let again = add_directory_group(&repo, "CN=carla,ou=teams,dc=corp,dc=com")
+            .await
+            .unwrap();
+        assert_eq!(again.id, group.id, "the DN compares without case");
+        let hits = search_directory_groups(&repo, &Teams, "carla")
+            .await
+            .unwrap();
+        assert_eq!(hits[0].group_id, Some(group.id));
+        assert!(matches!(
+            add_directory_group(&repo, " ").await,
+            Err(AppError::BadRequest(_))
+        ));
+    }
 
     /// An acting administrator for calls whose admin-role guard is not what
     /// the test is about.

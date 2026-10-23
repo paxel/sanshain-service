@@ -290,6 +290,16 @@
   </li>
 </ul>
 <p>
+  A directory group is added by searching for it: type a part of its name under
+  <strong>Add a directory group</strong> in the Groups section, or in the Maintainers picker, and
+  Sanshain searches the directory through the service account (<code>group</code>,
+  <code>groupOfNames</code>, <code>groupOfUniqueNames</code> or <code>posixGroup</code> entries whose
+  <code>cn</code> contains the text, at most 20). Picking a hit stores the group under its DN, the
+  form <code>memberOf</code> answers. So a team <code>cn=carla,ou=teams,…</code> becomes the
+  maintainer of <em>penguin</em> with one tick, and whoever joins or leaves the team in the directory
+  gains or loses that without a change in Sanshain.
+</p>
+<p>
   A native and a directory group may share a name; the UI shows the origin. The LDAP form's
   <strong>Bootstrap Admin Group</strong> is the usual first directory group: saving it creates the
   group with <code>admin</code> attached. OIDC groups are not mapped here; only the OIDC
@@ -321,6 +331,17 @@
         All groups with origin, roles and members; create a native one with
         <code>{"name": "…"}</code>.
       </td>
+    </tr>
+    <tr>
+      <td><code>GET /admin/directory-groups?q=carla</code></td>
+      <td>
+        Directory groups whose name contains the text, each with its <code>dn</code>,
+        <code>name</code> and the <code>group_id</code> it has in Sanshain, if added.
+      </td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/groups/directory</code></td>
+      <td>Add a directory group by its DN: <code>{"dn": "cn=carla,ou=teams,dc=corp,dc=com"}</code>.</td>
     </tr>
     <tr>
       <td><code>PUT</code>/<code>DELETE /admin/groups/{id}</code></td>

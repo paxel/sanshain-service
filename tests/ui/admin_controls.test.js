@@ -22,7 +22,11 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
 });
 
+// Sections live on tabs: General, Sign-in, Users.
+const openTab = (page, tab) => page.click(`[data-admin-tab-button="${tab}"]`);
+
 test("auth-mode radios reveal and hide their config forms", async ({ page }) => {
+  await openTab(page, "sign-in");
   await page.locator('input[name="auth-mode"][value="ldap"]').check();
   await expect(page.locator("#ldap-config-form")).toBeVisible();
   await page.locator('input[name="auth-mode"][value="disabled"]').check();
@@ -61,6 +65,7 @@ test("the services filter narrows the list", async ({ page }) => {
 });
 
 test("the users section loads its list without error", async ({ page }) => {
+  await openTab(page, "users");
   // loadUsers() runs on section render; the root account must appear.
   const usersHeading = page.locator("h2", { hasText: /^Users$/ });
   await usersHeading.scrollIntoViewIfNeeded();
@@ -71,7 +76,7 @@ test("the user list shows who waits for approval and finds the rest by search an
   page,
 }) => {
   const name = `chips-${Date.now().toString(36)}`;
-  await page.goto("/admin.html");
+  await page.goto("/admin.html#users");
   await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
   await page.fill("#service-account-name", name);
   await page.click('#service-account-form button[type="submit"]');
@@ -93,6 +98,7 @@ test("the user list shows who waits for approval and finds the rest by search an
 });
 
 test("pickers take effect on the tick: group members and maintainers", async ({ page }) => {
+  await openTab(page, "users");
   const run = Date.now().toString(36);
   const token = await page.evaluate(() => localStorage.getItem("sanshain_token"));
   const headers = { Authorization: `Bearer ${token}` };

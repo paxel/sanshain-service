@@ -71,7 +71,7 @@ test.describe("Sanshain UI Smoke Test", () => {
     await expect(page.locator("#banner-username")).toContainText("root");
 
     // Navigate to Admin
-    await page.goto("/admin.html");
+    await page.goto("/admin.html#sign-in");
     await dismissReloadBanner();
     await page.waitForSelector("#admin-dashboard");
 
@@ -231,7 +231,7 @@ test.describe("Role, group and maintainer management", () => {
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
-    await page.goto("/admin.html");
+    await page.goto("/admin.html#users");
     await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
   });
 

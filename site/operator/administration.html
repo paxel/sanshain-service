@@ -21,6 +21,15 @@
 
 <h2>The admin page</h2>
 <p>
+  <code>/admin.html</code> has three tabs. <strong>Sign-in</strong> holds the authentication mode,
+  the LDAP and OIDC forms, Registration and Auto-acknowledge; <strong>Users</strong> holds the
+  users, groups and maintainers; <strong>General</strong> holds everything else. The open tab is in
+  the address (<code>/admin.html#users</code>), so it can be linked, and the browser opens the tab it
+  showed last. A tab whose permissions the caller lacks entirely is greyed out, and its tooltip names
+  them (<code>manage_auth_config</code> or <code>manage_settings</code> for Sign-in,
+  <code>manage_users</code> or <code>manage_roles</code> for Users).
+</p>
+<p>
   <code>/admin.html</code> needs a signed-in session. A control the caller may not use is greyed
   out, never hidden, and its tooltip names the permission it needs (a maintainer grant on the
   Producer counts for that Producer's buttons); the same holds on the Producer page and the graph.

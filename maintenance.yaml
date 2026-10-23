@@ -489,6 +489,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/directory-groups:
+    get:
+      summary: "Read: directory-groups"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Finds groups in the configured LDAP directory whose common name contains `q` (at most 20), through the service account of the LDAP configuration. Each hit carries its `dn`, its `name` and the `group_id` of the Sanshain group that stands for it, or null when it was not added yet.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: LDAP is not configured, or the directory search failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/groups:
     get:
       summary: "Read: groups"
@@ -520,6 +556,36 @@ paths:
       responses:
         "200":
           description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/groups/directory:
+    post:
+      summary: "Create or run: groups/directory"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Adds a directory group by its DN (`{"dn": "cn=carla,ou=teams,dc=corp,dc=com"}`), so roles and maintainerships can be attached to it; its members stay in the directory. Adding one that is known already answers that group.
+      responses:
+        "201":
+          description: Created, or the group that was there already.
+        "400":
+          description: The DN is empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
