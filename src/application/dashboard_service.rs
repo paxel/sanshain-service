@@ -158,6 +158,84 @@ fn per_day(entries: &[AuditLogEntry], first: NaiveDate, days: usize) -> Vec<DayC
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::mock_repo::MockRepo;
+    use crate::domain::ports::NewAuditLog;
+
+    async fn provided(repo: &MockRepo, username: &str, producer: &str, version: &str) {
+        repo.insert_audit_log(
+            username,
+            NewAuditLog {
+                action: PROVIDE_ACTION,
+                details: "",
+                service: Some(producer),
+                version: Some(version),
+                action_type: Some("WRITE"),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_numbers_count_participants_and_todays_provides() {
+        let repo = MockRepo::new();
+        repo.ensure_service("penguin").await.unwrap();
+        repo.ensure_service("orders").await.unwrap();
+        repo.ensure_client("billing").await.unwrap();
+        provided(&repo, "ci", "penguin", "1.0.0").await;
+        provided(&repo, "ci", "orders", "2.0.0").await;
+        repo.insert_audit_log(
+            "root",
+            NewAuditLog {
+                action: "DELETE_SPEC",
+                details: "",
+                action_type: Some("WRITE"),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let stats = dashboard_stats(&repo, Utc::now()).await.unwrap();
+        assert_eq!(stats.producers, 2);
+        assert_eq!(stats.consumers, 1);
+        assert_eq!(stats.versions, 0);
+        assert_eq!(stats.provides_last_7_days, 2);
+        assert_eq!(stats.provides_per_day.len(), ACTIVITY_DAYS);
+        assert_eq!(
+            stats.provides_per_day.last(),
+            Some(&DayCount {
+                day: Utc::now().format("%Y-%m-%d").to_string(),
+                provides: 2
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_latest_provides_come_newest_first_with_names_and_the_external_mark() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        repo.set_display_name(alice.id, Some("Alice"))
+            .await
+            .unwrap();
+        repo.ensure_service("stripe").await.unwrap();
+        repo.set_producer_external("stripe", true).await.unwrap();
+        for minor in 0..RECENT_PROVIDES {
+            provided(&repo, "ci", "penguin", &format!("1.{minor}.0")).await;
+        }
+        provided(&repo, "alice", "stripe", "3.0.0").await;
+
+        let recent = recent_provides(&repo).await.unwrap();
+        assert_eq!(recent.len(), RECENT_PROVIDES);
+        assert_eq!(recent[0].producer.as_deref(), Some("stripe"));
+        assert!(recent[0].external);
+        assert_eq!(recent[0].username, "alice");
+        assert_eq!(recent[0].display_name.as_deref(), Some("Alice"));
+        assert_eq!(recent[1].version.as_deref(), Some("1.9.0"));
+        assert!(!recent[1].external);
+        assert_eq!(recent[1].display_name, None);
+    }
 
     fn entry(action: &str, timestamp: &str) -> AuditLogEntry {
         AuditLogEntry {
