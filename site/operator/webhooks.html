@@ -213,7 +213,8 @@
         <code>{"against": "&lt;previous GA&gt;", "impact": "none|patch|minor|major"}</code> on a GA
         provide with a previous GA), <code>origin</code> (<code>build_url</code>,
         <code>change_url</code>, <code>tickets</code>, <code>note</code>, each absent when the build
-        said nothing).
+        said nothing, and <code>trunk_build</code>, true when the build link came from the trunk
+        build).
       </td>
     </tr>
     <tr>
@@ -302,7 +303,8 @@
       "build_url": "https://ci.acme.corp/job/orders/42",
       "change_url": "https://github.com/acme/orders/pull/7",
       "tickets": ["ORD-7"],
-      "note": "Ship the orders API v2"
+      "note": "Ship the orders API v2",
+      "trunk_build": true
     }
   },
   "links": {

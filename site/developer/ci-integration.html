@@ -108,6 +108,14 @@ curl -s -X POST $SANSHAIN/auth/tokens \
   template. A raw <code>curl</code> pipeline sends the fields itself.
 </p>
 <p>
+  The <strong>build</strong> link is shown only when it came from the trunk build
+  (<code>trunk=true</code>): CI servers such as Jenkins delete a branch's builds after the merge, so
+  a branch build's link ends on an error page. When the trunk build after the merge provides the
+  same content, its build link replaces the branch build's and fills fields the branch build left
+  empty; the pull request, tickets and note of the branch build stay. Origins stored before 2.11
+  count as branch builds' and show no build link until their trunk build comes along.
+</p>
+<p>
   The clients fill the two URLs from the runner's own variables; tickets and the note are intent and
   never come from the runner:
 </p>

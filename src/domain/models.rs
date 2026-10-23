@@ -879,6 +879,11 @@ pub struct VersionOrigin {
     #[serde(default)]
     pub tickets: Vec<String>,
     pub note: Option<String>,
+    /// The build that sent it was the trunk build (`trunk=true`). Only then
+    /// is the build link worth showing: branch builds are deleted after the
+    /// merge. Set by the service, never by the request.
+    #[serde(default)]
+    pub trunk_build: bool,
 }
 
 impl VersionOrigin {
@@ -963,6 +968,7 @@ impl VersionOrigin {
             change_url: url("change_url", &self.change_url)?,
             tickets,
             note,
+            trunk_build: self.trunk_build,
         })
     }
 }

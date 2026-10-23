@@ -17,7 +17,7 @@ function originText(origin) {
   const parts = [];
   if (origin.note) parts.push(origin.note);
   if (origin.change_url) parts.push(`change: ${origin.change_url}`);
-  if (origin.build_url) parts.push(`build: ${origin.build_url}`);
+  if (origin.build_url && origin.trunk_build) parts.push(`build: ${origin.build_url}`);
   if ((origin.tickets || []).length) parts.push(`tickets: ${origin.tickets.join(", ")}`);
   return parts.join(" · ");
 }

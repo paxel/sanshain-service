@@ -227,6 +227,38 @@ async fn record_version_rejection(
     }
 }
 
+/// What a provide of content the version already holds does to its origin.
+/// With nothing stored, the new origin is taken. A trunk build's origin over
+/// a branch build's takes over only the build link, which the branch build's
+/// Jenkins job deletes after the merge, and fills empty fields; the change
+/// link, tickets and note from the branch build stay. Anything else leaves the
+/// stored origin alone. `None` means: write nothing.
+fn origin_for_identical_provide(
+    stored: Option<VersionOrigin>,
+    incoming: &VersionOrigin,
+    trunk: bool,
+) -> Option<VersionOrigin> {
+    let trunk_link = trunk && incoming.build_url.is_some();
+    match stored {
+        None => Some(VersionOrigin {
+            trunk_build: trunk_link,
+            ..incoming.clone()
+        }),
+        Some(stored) if trunk_link && !stored.trunk_build => Some(VersionOrigin {
+            build_url: incoming.build_url.clone(),
+            change_url: stored.change_url.or_else(|| incoming.change_url.clone()),
+            tickets: if stored.tickets.is_empty() {
+                incoming.tickets.clone()
+            } else {
+                stored.tickets
+            },
+            note: stored.note.or_else(|| incoming.note.clone()),
+            trunk_build: true,
+        }),
+        Some(_) => None,
+    }
+}
+
 /// A Provide without an origin: what every caller but the HTTP handlers uses.
 #[instrument(skip_all)]
 pub async fn provide_spec(
@@ -418,10 +450,14 @@ async fn provide_spec_inner(
             reconcile_harvest(repo, producername, trunk, &harvest_inputs).await?;
         }
         // The bytes are known; the origin may be news (CI rebuilding what a
-        // laptop provided). It fills an empty slot and never replaces one.
-        if !dry_run && !origin.is_empty() && repo.get_version_origin(entry.id).await?.is_none() {
-            repo.set_version_origin(entry.id, origin, &now_iso())
-                .await?;
+        // laptop provided, the trunk build after a merge). See
+        // `origin_for_identical_provide`.
+        if !dry_run && !origin.is_empty() {
+            let stored = repo.get_version_origin(entry.id).await?;
+            if let Some(merged) = origin_for_identical_provide(stored, origin, trunk) {
+                repo.set_version_origin(entry.id, &merged, &now_iso())
+                    .await?;
+            }
         }
         return Ok(ProvideResponse {
             version,
@@ -719,7 +755,11 @@ async fn provide_spec_inner(
     // page's Promote to GA): releasing the snapshot keeps its why, like it
     // keeps its provider.
     if !(promoting && origin.is_empty()) {
-        repo.set_version_origin(entry_id, origin, &now_iso())
+        let origin = VersionOrigin {
+            trunk_build: trunk && origin.build_url.is_some(),
+            ..origin.clone()
+        };
+        repo.set_version_origin(entry_id, &origin, &now_iso())
             .await?;
     }
 
@@ -1112,5 +1152,90 @@ fn new_contract(msg: &asyncapi::PubMessage, service_id: i64) -> ChannelMessageCo
         message_name: msg.message_name.clone(),
         owner_service_id: service_id,
         payload_yaml: msg.payload_yaml.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn origin(build: Option<&str>, change: Option<&str>, trunk_build: bool) -> VersionOrigin {
+        VersionOrigin {
+            build_url: build.map(str::to_string),
+            change_url: change.map(str::to_string),
+            tickets: Vec::new(),
+            note: None,
+            trunk_build,
+        }
+    }
+
+    #[test]
+    fn the_trunk_build_takes_over_only_the_build_link_of_a_branch_origin() {
+        let branch = VersionOrigin {
+            tickets: vec!["ORD-7".to_string()],
+            note: Some("Ship it".to_string()),
+            ..origin(Some("https://ci/branch/9"), Some("https://git/pr/3"), false)
+        };
+        let trunk = VersionOrigin {
+            tickets: vec!["OTHER-1".to_string()],
+            ..origin(
+                Some("https://ci/main/41"),
+                Some("https://git/commit/abc"),
+                false,
+            )
+        };
+        let merged = origin_for_identical_provide(Some(branch), &trunk, true).unwrap();
+        assert_eq!(merged.build_url.as_deref(), Some("https://ci/main/41"));
+        assert_eq!(
+            merged.change_url.as_deref(),
+            Some("https://git/pr/3"),
+            "the PR stays"
+        );
+        assert_eq!(merged.tickets, vec!["ORD-7".to_string()]);
+        assert_eq!(merged.note.as_deref(), Some("Ship it"));
+        assert!(merged.trunk_build);
+
+        // Empty fields are filled from the trunk build.
+        let bare = origin(Some("https://ci/branch/9"), None, false);
+        let merged = origin_for_identical_provide(Some(bare), &trunk, true).unwrap();
+        assert_eq!(merged.change_url.as_deref(), Some("https://git/commit/abc"));
+        assert_eq!(merged.tickets, vec!["OTHER-1".to_string()]);
+    }
+
+    #[test]
+    fn a_trunk_origin_stays_and_a_branch_never_replaces_one() {
+        let stored = origin(Some("https://ci/main/41"), None, true);
+        let branch = origin(Some("https://ci/branch/10"), None, false);
+        assert_eq!(
+            origin_for_identical_provide(Some(stored.clone()), &branch, false),
+            None
+        );
+        let trunk_again = origin(Some("https://ci/main/42"), None, false);
+        assert_eq!(
+            origin_for_identical_provide(Some(stored), &trunk_again, true),
+            None
+        );
+        // A trunk build without a build link has nothing to take over.
+        let branch_stored = origin(Some("https://ci/branch/9"), None, false);
+        let linkless = origin(None, Some("https://git/commit/abc"), false);
+        assert_eq!(
+            origin_for_identical_provide(Some(branch_stored), &linkless, true),
+            None
+        );
+    }
+
+    #[test]
+    fn an_empty_slot_takes_the_origin_marked_by_the_build_it_came_from() {
+        let incoming = origin(Some("https://ci/main/41"), None, false);
+        assert!(
+            origin_for_identical_provide(None, &incoming, true)
+                .unwrap()
+                .trunk_build
+        );
+        assert!(
+            !origin_for_identical_provide(None, &incoming, false)
+                .unwrap()
+                .trunk_build
+        );
     }
 }

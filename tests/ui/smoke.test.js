@@ -324,6 +324,43 @@ test.describe("One-click promote", () => {
     });
   });
 
+  test("only the trunk build's link is shown: a branch build's is deleted after the merge", async ({
+    page,
+    request,
+  }) => {
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+    const producer = `${SERVICE}-ci`;
+    const provide = (extra) =>
+      request.post("/provide", {
+        headers,
+        data: { producername: producer, stability: "snapshot", openapi_yaml: SPEC, ...extra },
+      });
+    expect((await provide({ build_url: "https://ci.acme.corp/job/PR-3/1" })).ok()).toBeTruthy();
+
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${producer}`);
+    const card = page.locator(".endpoint-card", { hasText: "1.0.0" });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(card.locator('[data-context-link="build"]')).toHaveCount(0);
+
+    expect(
+      (await provide({ trunk: true, build_url: "https://ci.acme.corp/job/main/41" })).ok(),
+    ).toBeTruthy();
+    await page.reload();
+    await expect(card.locator('[data-context-link="build"]')).toHaveAttribute(
+      "href",
+      "https://ci.acme.corp/job/main/41",
+    );
+  });
+
   test("a version row shows the origin of its build with the ticket linked", async ({ page }) => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });

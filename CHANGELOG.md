@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph's **Periphery** switch is remembered in the browser like direction, Compact, Rainbow and Topics; a link that hides protocols still decides it.
 
 ### Fixed
+- A version's **build** link is shown only when it came from the trunk build, whose builds the CI server keeps; a branch build's link went to a deleted build. The trunk build after the merge takes over the build link of a branch build's origin and keeps its pull request, tickets and note. Origins stored before 2.11 show no build link until their trunk build provides again (`trunk_build` on the origin).
 - An endpoint's summary on a Producer's page sits under its path instead of floating between the path and the clients badge.
 
 ---

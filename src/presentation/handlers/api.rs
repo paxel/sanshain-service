@@ -376,6 +376,7 @@ pub async fn provide(
                 change_url: payload.change_url.clone(),
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
+                trunk_build: false,
             },
         },
     )
@@ -438,6 +439,7 @@ pub async fn provide_asyncapi(
                 change_url: payload.change_url.clone(),
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
+                trunk_build: false,
             },
         },
     )
@@ -500,6 +502,7 @@ pub async fn provide_proto(
                 change_url: payload.change_url.clone(),
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
+                trunk_build: false,
             },
         },
     )

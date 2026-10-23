@@ -536,18 +536,19 @@ impl SpecRepository for PostgresSpecRepository {
         }
         sqlx::query(
             "INSERT INTO spec_version_origin \
-                   (spec_version_id, build_url, change_url, tickets_json, note, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6) \
+                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
                  ON CONFLICT (spec_version_id) DO UPDATE SET \
                    build_url = EXCLUDED.build_url, change_url = EXCLUDED.change_url, \
                    tickets_json = EXCLUDED.tickets_json, note = EXCLUDED.note, \
-                   updated_at = EXCLUDED.updated_at",
+                   trunk_build = EXCLUDED.trunk_build, updated_at = EXCLUDED.updated_at",
         )
         .bind(spec_version_id)
         .bind(origin.build_url.as_deref())
         .bind(origin.change_url.as_deref())
         .bind(tickets_json(origin)?)
         .bind(origin.note.as_deref())
+        .bind(origin.trunk_build)
         .bind(now_iso)
         .execute(&self.pool)
         .await
@@ -560,7 +561,7 @@ impl SpecRepository for PostgresSpecRepository {
         spec_version_id: i64,
     ) -> Result<Option<VersionOrigin>, RepositoryError> {
         let row: Option<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
              FROM spec_version_origin WHERE spec_version_id = $1",
         )
         .bind(spec_version_id)
@@ -573,7 +574,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
         let rows: Vec<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
              FROM spec_version_origin",
         )
         .fetch_all(&self.pool)

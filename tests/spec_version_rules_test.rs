@@ -1359,7 +1359,7 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
     let ctx = setup().await;
     let axel = seeded_token(&ctx, "axel", &[]).await;
     let ci = seeded_token(&ctx, "ci", &[]).await;
-    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null});
+    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false});
 
     // A laptop build says nothing.
     let (status, _) = provide_with(&ctx, &axel, &spec_two_endpoints("1.3.0"), json!({})).await;
@@ -1383,6 +1383,7 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
             "change_url": "https://github.com/acme/svc/pull/7",
             "tickets": ["ORD-7", "ORD-9"],
             "note": "Adds the users endpoint.",
+            "trunk_build": false,
         })
     );
     // Another no-op with other references changes nothing: filled is filled.
@@ -2019,4 +2020,45 @@ async fn a_dry_run_rejection_is_previewed_but_not_audited() {
             .await
             .unwrap();
     assert_eq!(count.0, 0, "a dry run is a preview and records nothing");
+}
+
+// Jenkins deletes a branch build after the merge, so only the trunk build's
+// link is worth showing. The trunk build after the merge provides the same
+// bytes: it takes over the build link and keeps the branch build's PR and
+// tickets.
+#[tokio::test]
+async fn the_trunk_build_after_the_merge_takes_over_the_build_link() {
+    let ctx = setup().await;
+    let ci = seeded_token(&ctx, "ci", &[]).await;
+    let (status, body) = provide_with(
+        &ctx,
+        &ci,
+        &spec_two_endpoints("1.4.0"),
+        json!({
+            "build_url": "https://ci.acme.corp/job/svc/PR-7/3",
+            "change_url": "https://github.com/acme/svc/pull/7",
+            "tickets": ["ORD-7"],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(origin_of(&ctx, "1.4.0").await["trunk_build"], false);
+
+    let (status, body) = provide_with(
+        &ctx,
+        &ci,
+        &spec_two_endpoints("1.4.0"),
+        json!({
+            "trunk": true,
+            "build_url": "https://ci.acme.corp/job/svc/main/41",
+            "change_url": "https://github.com/acme/svc/commit/abc",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let origin = origin_of(&ctx, "1.4.0").await;
+    assert_eq!(origin["build_url"], "https://ci.acme.corp/job/svc/main/41");
+    assert_eq!(origin["change_url"], "https://github.com/acme/svc/pull/7");
+    assert_eq!(origin["tickets"], json!(["ORD-7"]));
+    assert_eq!(origin["trunk_build"], true);
 }

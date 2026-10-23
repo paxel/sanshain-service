@@ -954,7 +954,10 @@ function originHtml(origin, template, dark) {
     );
   }
   const chips = [];
-  if (origin.build_url) chips.push(linkChip(origin.build_url, "build", "build", chip));
+  // Only the trunk build's link: branch builds are deleted after the merge.
+  if (origin.build_url && origin.trunk_build) {
+    chips.push(linkChip(origin.build_url, "build", "build", chip));
+  }
   if (origin.change_url) chips.push(linkChip(origin.change_url, "change", "change", chip));
   for (const id of origin.tickets || []) {
     const url = ticketUrl(template, id);

@@ -1316,6 +1316,7 @@ mod tests {
                 change_url: None,
                 tickets: vec!["ORD-7".to_string()],
                 note: Some("Ship v2".to_string()),
+                trunk_build: false,
             },
         });
         assert_eq!(
@@ -1326,7 +1327,7 @@ mod tests {
                 "compatibility": {"against": "1.4.0", "impact": "major"},
                 "origin": {
                     "build_url": "https://ci.acme.corp/job/orders/42", "change_url": null,
-                    "tickets": ["ORD-7"], "note": "Ship v2",
+                    "tickets": ["ORD-7"], "note": "Ship v2", "trunk_build": false,
                 },
             })
         );
