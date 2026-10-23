@@ -32,18 +32,19 @@ test("an admin creates a service account and issues its token", async ({ page })
   await page.click('#service-account-form button[type="submit"]');
   const row = page.locator("#users-list > div", { hasText: ACCOUNT });
   await expect(row.locator("[data-service-account]")).toHaveText("service account");
-  // Every row says what kind of account it is; root just signed in locally.
-  const root = page.locator("#users-list > div", {
-    has: page.locator("span.font-medium", { hasText: /^root$/ }),
-  });
-  await expect(root.locator("[data-account-kind]")).toHaveText("local");
-
   // A service account gets a readable name from whoever manages users.
   page.dialogAnswers.push("Penguin CI build");
   await row.locator('button:has-text("Name")').click();
   await expect(row.locator("[data-display-name]")).toHaveText("Penguin CI build");
   await expect(row.locator("[data-username]")).toHaveText(ACCOUNT);
   await expect(row.locator("[data-avatar]")).toHaveText("PC");
+
+  // Every row says what kind of account it is; root just signed in locally.
+  await page.fill("#users-search", "root");
+  const root = page.locator("#users-list > div", {
+    has: page.locator("[data-username]", { hasText: /^root$/ }),
+  });
+  await expect(root.locator("[data-account-kind]")).toHaveText("local");
 
   // Gravatar is off by default and switches on and off again.
   const gravatar = page.locator("#gravatar-toggle");

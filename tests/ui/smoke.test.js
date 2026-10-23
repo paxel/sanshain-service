@@ -265,6 +265,7 @@ test.describe("Role, group and maintainer management", () => {
   });
 
   test("the root account shows its admin role and offers no delete", async ({ page }) => {
+    await page.fill("#users-search", "root");
     const row = page.locator("#users-list > div", { hasText: "root" });
     await expect(row).toBeVisible();
     await expect(row).toContainText("admin");

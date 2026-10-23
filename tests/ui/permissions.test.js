@@ -138,6 +138,7 @@ test("a gated control is greyed with the permission named, a granted one is live
   await expect(toggle).toBeDisabled();
   await expect(toggle).toHaveAttribute("title", /manage_settings/);
   await expect(page.locator("#snapshot-max-age-days")).toHaveValue(/\d+/);
+  await page.fill("#users-search", PERSONAS.plain);
   await expect(page.locator("#users-list")).toContainText(PERSONAS.plain, { timeout: 10000 });
   // A user manager also holds manage_roles; the auth configuration is not theirs.
   await expect(page.locator("#auth-config-locked [data-locked]")).toContainText(

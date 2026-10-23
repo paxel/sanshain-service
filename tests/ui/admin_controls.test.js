@@ -66,3 +66,28 @@ test("the users section loads its list without error", async ({ page }) => {
   await usersHeading.scrollIntoViewIfNeeded();
   await expect(page.locator("body")).toContainText("root", { timeout: 10000 });
 });
+
+test("the user list shows who waits for approval and finds the rest by search and chips", async ({
+  page,
+}) => {
+  const name = `chips-${Date.now().toString(36)}`;
+  await page.goto("/admin.html");
+  await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
+  await page.fill("#service-account-name", name);
+  await page.click('#service-account-form button[type="submit"]');
+  await expect(page.locator("#users-list > div", { hasText: name })).toBeVisible();
+
+  // Nothing searched, no chip: approved accounts stay out, the count says so.
+  await page.fill("#users-search", "");
+  await expect(page.locator("#users-list > div", { hasText: name })).toHaveCount(0);
+  await expect(page.locator("#users-more")).toContainText("search or pick a filter");
+
+  // Kind narrows to service accounts; adding the pending status narrows further.
+  await page.click('[data-user-chip="kind:service"]');
+  await expect(page.locator("#users-list > div", { hasText: name })).toBeVisible();
+  await page.click('[data-user-chip="status:pending"]');
+  await expect(page.locator("#users-list > div", { hasText: name })).toHaveCount(0);
+  // A second chip of the same kind widens again.
+  await page.click('[data-user-chip="status:approved"]');
+  await expect(page.locator("#users-list > div", { hasText: name })).toBeVisible();
+});

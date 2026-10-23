@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The landing page is a dashboard: the number of Producers, Consumers and versions, the provides of the last 7 days and a chart of provides per day over 30 days, for everyone; a signed-in user also sees the 10 latest provides with their names.
 
 ### Changed
+- The admin user list shows the accounts waiting for approval and a count of the others; a search by username or display name and chips for kind, status and role find the rest.
 - The account page offers **Change Password** only after a sign-in with a Sanshain password, not after an LDAP or OIDC sign-in; `/auth/me` reports how the session signed in (`sign_in`).
 - Signing in, locally or through OIDC, lands on the dashboard instead of the account page.
 - The graph's **Periphery** switch is remembered in the browser like direction, Compact, Rainbow and Topics; a link that hides protocols still decides it.

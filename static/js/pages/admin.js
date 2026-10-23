@@ -934,15 +934,97 @@ async function loadUsers() {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    const users = await res.json();
-    knownUsers = users;
-    if (users.length === 0) {
-      list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
-      return;
-    }
-    list.innerHTML = users
-      .map(
-        (u) => `
+    knownUsers = await res.json();
+    renderUsers();
+  } catch (_) {
+    list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
+  }
+}
+
+// --- The user list: search, chips, and pending first ---
+// Hundreds of accounts are no list to scroll. With nothing searched and no
+// chip set, only the accounts waiting for approval show, plus how many more
+// there are. Chips of different kinds narrow together; chips of one kind widen.
+const userFilter = { text: "", kind: new Set(), status: new Set(), role: new Set() };
+const USER_KIND_CHIPS = ["service", "local", "ldap", "oidc", "unknown"];
+
+function userMatches(u) {
+  const text = userFilter.text.toLowerCase();
+  if (
+    text &&
+    !u.username.toLowerCase().includes(text) &&
+    !(u.display_name || "").toLowerCase().includes(text)
+  ) {
+    return false;
+  }
+  if (userFilter.kind.size && !userFilter.kind.has(u.kind)) return false;
+  const status = u.approved ? "approved" : "pending";
+  if (userFilter.status.size && !userFilter.status.has(status)) return false;
+  if (userFilter.role.size && !(u.roles || []).some((r) => userFilter.role.has(r))) return false;
+  return true;
+}
+
+function userFilterActive() {
+  return Boolean(
+    userFilter.text || userFilter.kind.size || userFilter.status.size || userFilter.role.size,
+  );
+}
+
+function renderUserChips() {
+  const chip = (group, value, label) => {
+    const on = userFilter[group].has(value);
+    return `<button type="button" data-click="toggleUserChip" data-click-args="${attrJson([group, value])}" data-user-chip="${group}:${escapeAttr(value)}" aria-pressed="${on}"
+      class="text-xs px-2 py-0.5 rounded-full border ${on ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}">${escapeHtml(label)}</button>`;
+  };
+  const roles = [...new Set(knownUsers.flatMap((u) => u.roles || []))].sort();
+  const group = (title, chips) =>
+    `<span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 ml-1">${title}</span>${chips.join("")}`;
+  document.getElementById("users-chips").innerHTML = [
+    group(
+      "Kind",
+      USER_KIND_CHIPS.map((k) => chip("kind", k, ACCOUNT_KIND_TAGS[k][0])),
+    ),
+    group("Status", [chip("status", "pending", "pending"), chip("status", "approved", "approved")]),
+    roles.length
+      ? group(
+          "Role",
+          roles.map((r) => chip("role", r, r)),
+        )
+      : "",
+  ].join("");
+}
+
+function toggleUserChip(group, value) {
+  const set = userFilter[group];
+  if (set.has(value)) set.delete(value);
+  else set.add(value);
+  renderUsers();
+}
+
+function renderUsers() {
+  const list = document.getElementById("users-list");
+  const more = document.getElementById("users-more");
+  renderUserChips();
+  if (knownUsers.length === 0) {
+    list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
+    more.classList.add("hidden");
+    return;
+  }
+  const shown = userFilterActive()
+    ? knownUsers.filter(userMatches)
+    : knownUsers.filter((u) => !u.approved);
+  list.innerHTML = shown.length
+    ? shown.map(userRow).join("")
+    : `<p class="text-sm text-slate-500 italic">${userFilterActive() ? "No user matches." : "Nobody is waiting for approval."}</p>`;
+  const hidden = knownUsers.length - shown.length;
+  more.textContent = userFilterActive()
+    ? `${shown.length} of ${knownUsers.length} users.`
+    : `${hidden} more user${hidden === 1 ? "" : "s"}: search or pick a filter.`;
+  more.classList.toggle("hidden", hidden === 0 && !userFilterActive());
+}
+
+function userRow(u) {
+  return `
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
                             ${avatarHtml(u)}
@@ -967,13 +1049,13 @@ async function loadUsers() {
                             ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-needs="manage_users" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
                         </div>
                     </div>
-                `,
-      )
-      .join("");
-  } catch (_) {
-    list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
-  }
+                `;
 }
+
+document.getElementById("users-search").addEventListener("input", (e) => {
+  userFilter.text = e.target.value.trim();
+  renderUsers();
+});
 
 document.getElementById("service-account-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -987,6 +1069,10 @@ document.getElementById("service-account-form").addEventListener("submit", async
       alert("Could not create the service account: " + (await errorMessage(res)));
       return;
     }
+    // Show the new account: it is approved, so the default view would hide it.
+    const search = document.getElementById("users-search");
+    search.value = input.value.trim();
+    userFilter.text = search.value;
     input.value = "";
     loadUsers();
   } catch (err) {
