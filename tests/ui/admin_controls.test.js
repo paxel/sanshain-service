@@ -135,6 +135,13 @@ test("pickers take effect on the tick: group members and maintainers", async ({ 
   await option.click();
   await expect(option).toHaveAttribute("aria-checked", "false");
   await expect(page.locator(`[data-maintained="${producer}"]`)).toHaveCount(0);
+
+  // Tick it again and take it off with the ✕ in the list instead.
+  await option.click();
+  const maintained = page.locator(`[data-maintained="${producer}"]`);
+  await expect(maintained).toContainText(group);
+  await maintained.locator("button", { hasText: group }).click();
+  await expect(maintained).toHaveCount(0);
 });
 
 test("a Producer provided on the admin page is external, tagged and drawn grey", async ({

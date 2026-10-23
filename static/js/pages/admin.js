@@ -1056,12 +1056,12 @@ function renderMaintainers() {
     .map((p) => {
       const users = (p.user_ids || []).map((id) => {
         const u = knownUsers.find((x) => x.id === id);
-        return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "users", id])}"
+        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `user:${id}`, false])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + id)}</button>`;
       });
       const groups = (p.group_ids || []).map((id) => {
         const g = knownGroups.find((x) => x.id === id);
-        return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "groups", id])}"
+        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `group:${id}`, false])}"
                                 class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
       });
       return `
@@ -1097,18 +1097,6 @@ async function setMaintainer(producer, subject, assign) {
       : (m[key] || []).filter((x) => x !== Number(id));
   }
   renderMaintainers();
-}
-
-async function unassignMaintainer(producer, kind, id) {
-  const res = await apiCall(
-    `/admin/producers/${encodeURIComponent(producer)}/maintainers/${kind}/${id}`,
-    { method: "DELETE" },
-  );
-  if (!res.ok) {
-    alert("Failed to unassign: " + (await errorMessage(res)));
-    return;
-  }
-  loadMaintainers();
 }
 
 // --- Users ---
