@@ -9,6 +9,37 @@
  * - Zoom and pan
  */
 
+// The view switches of the custom renderer (direction, Compact, Rainbow) are
+// taste, not meaning, so they are remembered per browser and never in the URL.
+// Periphery is remembered too, but stays in the URL as well: a shared link
+// that hides it still does.
+// Storage can be unavailable (private window, blocked site data): then every
+// visit starts from the defaults.
+const GRAPH_VIEW_KEYS = {
+  direction: "sanshain_graph_direction",
+  compact: "sanshain_graph_compact",
+  rainbow: "sanshain_graph_rainbow",
+  topics: "sanshain_graph_topics",
+  periphery: "sanshain_graph_periphery",
+};
+function readGraphViewPref(name) {
+  try {
+    return localStorage.getItem(GRAPH_VIEW_KEYS[name]);
+  } catch {
+    return null;
+  }
+}
+function writeGraphViewPref(name, value) {
+  try {
+    localStorage.setItem(GRAPH_VIEW_KEYS[name], value);
+  } catch {
+    // Forgotten on the next visit; the switch still works now.
+  }
+}
+
+// The Focus picker, created by the page script once the toolbar exists.
+let graphFocusPicker = null;
+
 window.graphRedrawMode = "all"; // 'all' or 'circular'
 window.graphFocusTags = []; // focus filter (multi-service tag cloud)
 window.graphProtocolFilters = {
@@ -1111,7 +1142,7 @@ function removeFocusTag(name) {
 window.removeFocusTag = removeFocusTag;
 
 function renderFocusTags() {
-  if (window.graphFocusPicker) window.graphFocusPicker.refresh();
+  if (graphFocusPicker) graphFocusPicker.refresh();
   const container = document.getElementById("focus-tags-container");
   if (!container) return;
   container.innerHTML = "";
@@ -1139,8 +1170,8 @@ window.graphFitToView = graphFitToView;
 
 function toggleProtocolFilter(protocol) {
   window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];
-  if (protocol === "periphery" && window.writeGraphViewPref) {
-    window.writeGraphViewPref("periphery", window.graphProtocolFilters.periphery ? "1" : "0");
+  if (protocol === "periphery") {
+    writeGraphViewPref("periphery", window.graphProtocolFilters.periphery ? "1" : "0");
   }
 
   const btn = document.getElementById(`filter-${protocol}`);

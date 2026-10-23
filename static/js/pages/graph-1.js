@@ -13,34 +13,6 @@ let lastGraphReport = null;
 let lastMermaidCode = "";
 let currentGraphMode = "custom";
 
-// The view switches of the custom renderer (direction, Compact, Rainbow) are
-// taste, not meaning, so they are remembered per browser and never in the URL.
-// Periphery is remembered too, but stays in the URL as well: a shared link
-// that hides it still does.
-// Storage can be unavailable (private window, blocked site data): then every
-// visit starts from the defaults.
-const GRAPH_VIEW_KEYS = {
-  direction: "sanshain_graph_direction",
-  compact: "sanshain_graph_compact",
-  rainbow: "sanshain_graph_rainbow",
-  topics: "sanshain_graph_topics",
-  periphery: "sanshain_graph_periphery",
-};
-function readGraphViewPref(name) {
-  try {
-    return localStorage.getItem(GRAPH_VIEW_KEYS[name]);
-  } catch {
-    return null;
-  }
-}
-function writeGraphViewPref(name, value) {
-  try {
-    localStorage.setItem(GRAPH_VIEW_KEYS[name], value);
-  } catch {
-    // Forgotten on the next visit; the switch still works now.
-  }
-}
-window.writeGraphViewPref = writeGraphViewPref;
 let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
 window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
@@ -791,7 +763,6 @@ window.addEventListener("sanshain-update", async () => {
 // The Focus picker: tick services to spotlight them, untick to let go. Text
 // that names no service (such as `tag:payments`) is taken with Enter.
 let graphFocusServices = [];
-let graphFocusPicker = null;
 function initGraphFocusPicker() {
   const root = document.getElementById("graph-focus-picker");
   if (!root) return;
@@ -808,7 +779,6 @@ function initGraphFocusPicker() {
       checked ? window.addFocusTag(value) : window.removeFocusTag(value),
     onFreeText: (text) => window.addFocusTag(text),
   });
-  window.graphFocusPicker = graphFocusPicker;
 }
 
 function initGraph() {

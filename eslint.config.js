@@ -94,6 +94,9 @@ export default [
         currentGraphDirection: "writable",
         renderGraph: "readonly",
         getCustomGraphSVG: "readonly",
+        readGraphViewPref: "readonly",
+        writeGraphViewPref: "readonly",
+        graphFocusPicker: "writable",
       },
     },
     rules: {
