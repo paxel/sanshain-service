@@ -520,6 +520,52 @@ call_api GET "/admin/settings/dependency-max-age"
 assert_status 200 "Get dependency max age"
 assert_json ".days | type" "number" "Dependency max age is numeric"
 
+# 2.11: dashboard, account view, user list, admin provide
+header "Dashboard, Account and Admin Provide Tests"
+
+call_api GET "/api/dashboard" "" false
+assert_status 200 "Dashboard numbers are public"
+assert_json ".provides_per_day | length" "30" "Dashboard covers 30 days"
+
+call_api GET "/api/dashboard/recent" "" false
+if [ "$LAST_STATUS" -eq 401 ] || [ "$LAST_STATUS" -eq 403 ]; then
+    log_success "Latest provides need a sign-in (Status: $LAST_STATUS)"
+else
+    log_failure "Latest provides need a sign-in (Expected 401/403, got $LAST_STATUS)"
+fi
+call_api GET "/api/dashboard/recent"
+assert_status 200 "Latest provides for a signed-in user"
+
+call_api GET "/auth/me"
+assert_json ".sign_in" "local" "Session signed in with a Sanshain password"
+
+call_api PUT "/auth/display-name" '{"display_name":"Root Admin"}'
+assert_status 200 "Set own display name"
+call_api GET "/auth/me"
+assert_json ".display_name" "Root Admin" "Display name shown"
+call_api PUT "/auth/display-name" '{"display_name":""}'
+assert_status 200 "Clear own display name"
+
+call_api GET "/admin/users"
+assert_json "map(select(.username == \"$ADMIN_USER\"))[0].kind" "local" "User list tags the account kind"
+
+EXT_SVC="itest-external-$(date +%s)"
+EXT_SPEC=$(jq -n --arg n "$EXT_SVC" '{producername: $n, api_type: "openapi", stability: "snapshot",
+    content: ("openapi: 3.0.0\ninfo:\n  title: " + $n + "\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": { description: ok }\n")}')
+call_api POST "/admin/producers/provide" "$EXT_SPEC"
+assert_status 202 "Admin provide publishes a new Producer"
+call_api GET "/admin/producers"
+assert_json "map(select(.name == \"$EXT_SVC\"))[0].external" "true" "Admin provide marks the new Producer external"
+call_api PUT "/admin/producers/$EXT_SVC/external" '{"external":false}'
+assert_status 200 "Mark the Producer as our own"
+call_api GET "/admin/producers"
+assert_json "map(select(.name == \"$EXT_SVC\"))[0].external" "false" "External mark cleared"
+
+call_api POST "/admin/settings/gravatar" '{"enabled":true}'
+assert_status 200 "Switch Gravatar pictures on"
+call_api POST "/admin/settings/gravatar" '{"enabled":false}'
+assert_status 200 "Switch Gravatar pictures off"
+
 # Real Database Nuke (Factory Reset)
 header "Database Nuke (Factory Reset) Tests"
 
