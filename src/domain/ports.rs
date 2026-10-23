@@ -786,6 +786,12 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<Vec<UserProfile>, RepositoryError>> + Send;
 
+    /// One user's stored profile; `None` when nothing was stored for them yet.
+    fn get_user_profile(
+        &self,
+        user_id: i64,
+    ) -> impl Future<Output = Result<Option<UserProfile>, RepositoryError>> + Send;
+
     /// Record how the session behind `token` signed in.
     fn set_session_sign_in(
         &self,

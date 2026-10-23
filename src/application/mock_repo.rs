@@ -2117,6 +2117,15 @@ impl SpecRepository for MockRepo {
             .collect())
     }
 
+    async fn get_user_profile(&self, user_id: i64) -> Result<Option<UserProfile>, RepositoryError> {
+        Ok(self
+            .user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&user_id)
+            .cloned())
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,

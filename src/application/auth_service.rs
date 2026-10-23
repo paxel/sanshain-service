@@ -701,10 +701,8 @@ pub async fn user_profile(
     user_id: i64,
 ) -> Result<UserProfile, AppError> {
     Ok(repo
-        .list_user_profiles()
+        .get_user_profile(user_id)
         .await?
-        .into_iter()
-        .find(|p| p.user_id == user_id)
         .unwrap_or(UserProfile {
             user_id,
             ..UserProfile::default()

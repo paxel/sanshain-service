@@ -109,6 +109,27 @@ async fn merges_everything_and_keeps_what_the_target_has(repo: &impl SpecReposit
     );
 }
 
+/// One profile is read on its own, the way `/auth/me` reads it on every page.
+#[cfg(test)]
+async fn reads_one_profile(repo: &impl SpecRepository) {
+    let alice = repo.create_user("alice", "hash", true).await.unwrap();
+    let bob = repo.create_user("bob", "hash", true).await.unwrap();
+    assert!(repo.get_user_profile(alice.id).await.unwrap().is_none());
+    repo.set_display_name(alice.id, Some("Alice"))
+        .await
+        .unwrap();
+    repo.set_display_name(bob.id, Some("Bob")).await.unwrap();
+    repo.set_directory_id(alice.id, "uuid:a").await.unwrap();
+    let profile = repo
+        .get_user_profile(alice.id)
+        .await
+        .unwrap()
+        .expect("stored");
+    assert_eq!(profile.user_id, alice.id);
+    assert_eq!(profile.display_name.as_deref(), Some("Alice"));
+    assert_eq!(profile.directory_id.as_deref(), Some("uuid:a"));
+}
+
 #[tokio::test]
 async fn sqlite_folds_one_account_into_another() {
     let pool = SqlitePoolOptions::new()
@@ -118,6 +139,7 @@ async fn sqlite_folds_one_account_into_another() {
     let repo = SqliteSpecRepository::new(pool);
     repo.run_migrations().await.unwrap();
     merges_everything_and_keeps_what_the_target_has(&repo).await;
+    reads_one_profile(&repo).await;
 }
 
 #[tokio::test]
@@ -135,4 +157,5 @@ async fn postgres_folds_one_account_into_another() {
     let repo = PostgresSpecRepository::new(pool);
     repo.run_migrations().await.expect("migrations run");
     merges_everything_and_keeps_what_the_target_has(&repo).await;
+    reads_one_profile(&repo).await;
 }

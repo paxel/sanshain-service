@@ -152,6 +152,18 @@ type UserProfileRow = (
     Option<String>,
 );
 
+fn user_profile_from_row(
+    (user_id, last_sign_in, display_name, avatar_hash, directory_id): UserProfileRow,
+) -> UserProfile {
+    UserProfile {
+        user_id,
+        last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
+        display_name,
+        avatar_hash,
+        directory_id,
+    }
+}
+
 #[derive(Clone)]
 
 pub struct SqliteSpecRepository {
@@ -2509,18 +2521,18 @@ impl SpecRepository for SqliteSpecRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(user_id, last_sign_in, display_name, avatar_hash, directory_id)| UserProfile {
-                    user_id,
-                    last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
-                    display_name,
-                    avatar_hash,
-                    directory_id,
-                },
-            )
-            .collect())
+        Ok(rows.into_iter().map(user_profile_from_row).collect())
+    }
+
+    async fn get_user_profile(&self, user_id: i64) -> Result<Option<UserProfile>, RepositoryError> {
+        let row: Option<UserProfileRow> = sqlx::query_as(
+            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id FROM user_profiles WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(user_profile_from_row))
     }
 
     async fn set_session_sign_in(

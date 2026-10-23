@@ -522,6 +522,10 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_user_profiles())
     }
 
+    async fn get_user_profile(&self, user_id: i64) -> Result<Option<UserProfile>, RepositoryError> {
+        delegate!(self, get_user_profile(user_id))
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,

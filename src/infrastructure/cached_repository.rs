@@ -1197,6 +1197,10 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_user_profiles().await
     }
 
+    async fn get_user_profile(&self, user_id: i64) -> Result<Option<UserProfile>, RepositoryError> {
+        self.inner.get_user_profile(user_id).await
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,
