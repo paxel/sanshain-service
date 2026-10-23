@@ -179,6 +179,8 @@ pub async fn login(
 
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
+    repo.set_session_sign_in(&session.token, SignInMethod::Local)
+        .await?;
     Ok((session, user))
 }
 
@@ -199,6 +201,9 @@ pub async fn change_password(
         repo.delete_session(token).await?;
         let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
         let session = repo.create_session(user.id, &expires_at).await?;
+        // The old password was just checked here, so this is a local sign-in.
+        repo.set_session_sign_in(&session.token, SignInMethod::Local)
+            .await?;
         return Ok(Some(session));
     }
 
@@ -437,6 +442,8 @@ pub async fn login_with_provider(
 
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
+    repo.set_session_sign_in(&session.token, SignInMethod::Ldap)
+        .await?;
     Ok(session)
 }
 
@@ -577,7 +584,18 @@ pub async fn login_oidc(
             .await?;
     }
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
-    Ok(repo.create_session(local_user.id, &expires_at).await?)
+    let session = repo.create_session(local_user.id, &expires_at).await?;
+    repo.set_session_sign_in(&session.token, SignInMethod::Oidc)
+        .await?;
+    Ok(session)
+}
+
+/// How the session behind `token` signed in, if Sanshain recorded it.
+pub async fn session_sign_in(
+    repo: &impl SpecRepository,
+    token: &str,
+) -> Result<Option<SignInMethod>, AppError> {
+    Ok(repo.session_sign_in(token).await?)
 }
 
 #[instrument(skip_all)]
@@ -986,6 +1004,10 @@ mod tests {
         .unwrap();
         assert!(!session.token.is_empty());
         assert!(repo.find_user("alice").await.unwrap().is_some());
+        assert_eq!(
+            repo.session_sign_in(&session.token).await.unwrap(),
+            Some(SignInMethod::Oidc)
+        );
     }
 
     #[tokio::test]

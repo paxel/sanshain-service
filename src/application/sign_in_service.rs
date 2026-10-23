@@ -13,7 +13,7 @@ use super::auth_service::{
     generate_random_password, get_auth_mode, get_auto_approve_users, get_oidc_config,
     hash_password_async, verify_password_async,
 };
-use crate::domain::models::{AppError, AuthMode, Session, User};
+use crate::domain::models::{AppError, AuthMode, Session, SignInMethod, User};
 use crate::domain::permissions::{Actor, Permission, RootUsers};
 use crate::domain::ports::{AuthProvider, SpecRepository};
 use tracing::instrument;
@@ -209,17 +209,23 @@ pub async fn start_session(
     username: &str,
     verified: Verified,
 ) -> Result<Session, AppError> {
-    let user = match verified {
-        Verified::Local(user) | Verified::Directory(Some(user)) => user,
+    let (user, method) = match verified {
+        Verified::Local(user) => (user, SignInMethod::Local),
+        Verified::Directory(Some(user)) => (user, SignInMethod::Ldap),
         Verified::Directory(None) => {
             // A directory user's privileges come from their directory groups,
             // resolved on every check; the local password is random and unusable.
             let hash = hash_password_async(&generate_random_password()).await?;
-            repo.create_user(username, &hash, true).await?
+            (
+                repo.create_user(username, &hash, true).await?,
+                SignInMethod::Ldap,
+            )
         }
     };
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
-    Ok(repo.create_session(user.id, &expires_at).await?)
+    let session = repo.create_session(user.id, &expires_at).await?;
+    repo.set_session_sign_in(&session.token, method).await?;
+    Ok(session)
 }
 
 #[cfg(test)]
@@ -307,6 +313,21 @@ mod tests {
             .unwrap();
         assert!(matches!(verified, Verified::Directory(Some(ref u)) if u.username == "axel"));
         assert_eq!(directory.binds(), 1);
+        let session = start_session(&repo, "axel", verified).await.unwrap();
+        assert_eq!(
+            repo.session_sign_in(&session.token).await.unwrap(),
+            Some(SignInMethod::Ldap),
+            "the same account, signed in through the directory"
+        );
+
+        let verified = verify_password_local_first(&repo, Some(&directory), "axel", "local-pass")
+            .await
+            .unwrap();
+        let session = start_session(&repo, "axel", verified).await.unwrap();
+        assert_eq!(
+            repo.session_sign_in(&session.token).await.unwrap(),
+            Some(SignInMethod::Local)
+        );
     }
 
     #[tokio::test]
@@ -318,10 +339,14 @@ mod tests {
             .unwrap();
         assert!(matches!(verified, Verified::Directory(None)));
         assert!(repo.find_user("dana").await.unwrap().is_none());
-        start_session(&repo, "dana", verified).await.unwrap();
+        let session = start_session(&repo, "dana", verified).await.unwrap();
         assert!(
             repo.find_user("dana").await.unwrap().is_some(),
             "created on the session"
+        );
+        assert_eq!(
+            repo.session_sign_in(&session.token).await.unwrap(),
+            Some(SignInMethod::Ldap)
         );
     }
 

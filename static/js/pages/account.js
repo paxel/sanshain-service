@@ -73,6 +73,20 @@ function showAccount() {
   document.getElementById("account-dashboard").classList.remove("hidden");
   loadTokens();
   loadServiceAccountChoices();
+  showPasswordChangeForLocalSignIns();
+}
+
+// A session that signed in through LDAP or OIDC has no Sanshain password to
+// change. A session from before the sign-in was recorded keeps the form.
+async function showPasswordChangeForLocalSignIns() {
+  try {
+    const res = await apiCall("/auth/me");
+    if (!res.ok) return;
+    const me = await res.json();
+    document
+      .getElementById("change-password-section")
+      .classList.toggle("hidden", Boolean(me.sign_in) && me.sign_in !== "local");
+  } catch (_) {}
 }
 
 // The "For" choice of the token form: the service accounts, for whoever may

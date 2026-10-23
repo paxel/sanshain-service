@@ -104,6 +104,7 @@ pub async fn auth_logout(
 /// enforces. `roles` is reported for display only.
 pub async fn auth_me(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     axum::Extension(user): axum::Extension<User>,
     actor: Option<axum::Extension<crate::domain::permissions::Actor>>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -131,6 +132,16 @@ pub async fn auth_me(
         }
         None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
     };
+    // How this session signed in, so the pages offer a password change only
+    // where the password was Sanshain's own. Null for an older session.
+    let sign_in = match headers
+        .get("Authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    {
+        Some(token) => services::session_sign_in(&state.repo, token).await?,
+        None => None,
+    };
 
     Ok(Json(serde_json::json!({
         "id": user.id,
@@ -140,6 +151,7 @@ pub async fn auth_me(
         "permissions": permissions,
         "is_root": is_root,
         "maintains": maintains,
+        "sign_in": sign_in,
     })))
 }
 

@@ -1125,6 +1125,18 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.delete_session(token).await
     }
 
+    async fn set_session_sign_in(
+        &self,
+        token: &str,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_session_sign_in(token, method).await
+    }
+
+    async fn session_sign_in(&self, token: &str) -> Result<Option<SignInMethod>, RepositoryError> {
+        self.inner.session_sign_in(token).await
+    }
+
     // Settings are read by the auth middleware on every request; cached with
     // write-through invalidation like `effective_stored_roles`, so a change
     // through this repository takes effect immediately and the TTL only bounds

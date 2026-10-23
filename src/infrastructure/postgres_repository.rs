@@ -2309,6 +2309,32 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn set_session_sign_in(
+        &self,
+        token: &str,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE sessions SET sign_in = $1 WHERE token = $2")
+            .bind(method.as_str())
+            .bind(hash_session_token(token))
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn session_sign_in(&self, token: &str) -> Result<Option<SignInMethod>, RepositoryError> {
+        let row: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT sign_in FROM sessions WHERE token = $1")
+                .bind(hash_session_token(token))
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row
+            .and_then(|(value,)| value)
+            .and_then(|value| SignInMethod::parse(&value)))
+    }
+
     async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = $1")
             .bind(key)

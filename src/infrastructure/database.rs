@@ -463,6 +463,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_session(token))
     }
 
+    async fn set_session_sign_in(
+        &self,
+        token: &str,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_session_sign_in(token, method))
+    }
+
+    async fn session_sign_in(&self, token: &str) -> Result<Option<SignInMethod>, RepositoryError> {
+        delegate!(self, session_sign_in(token))
+    }
+
     async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {
         delegate!(self, get_setting(key))
     }

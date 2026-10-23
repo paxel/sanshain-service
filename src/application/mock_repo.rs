@@ -103,6 +103,7 @@ pub struct MockRepo {
     pub next_id: Mutex<i64>,
     pub users: Mutex<Vec<User>>,
     pub sessions: Mutex<Vec<Session>>,
+    pub session_sign_ins: Mutex<HashMap<String, SignInMethod>>,
     pub settings: Mutex<HashMap<String, String>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
@@ -187,6 +188,7 @@ impl MockRepo {
             next_id: Mutex::new(1),
             users: Mutex::new(Vec::new()),
             sessions: Mutex::new(Vec::new()),
+            session_sign_ins: Mutex::new(HashMap::new()),
             settings: Mutex::new(settings),
             service_tags: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
@@ -1878,6 +1880,27 @@ impl SpecRepository for MockRepo {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions.retain(|s| s.token != token);
         Ok(())
+    }
+
+    async fn set_session_sign_in(
+        &self,
+        token: &str,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        self.session_sign_ins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(token.to_string(), method);
+        Ok(())
+    }
+
+    async fn session_sign_in(&self, token: &str) -> Result<Option<SignInMethod>, RepositoryError> {
+        Ok(self
+            .session_sign_ins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(token)
+            .copied())
     }
 
     async fn get_setting(&self, key: &str) -> Result<Option<String>, RepositoryError> {

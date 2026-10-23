@@ -198,6 +198,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261022000000_api_token_issued_by.sql",
         "ca95e49c4b46d176ac37350e9f5dfd0b00a493d3560c48272efdc92e2f756895",
     ),
+    (
+        "20261023000000_session_sign_in.sql",
+        "c61ab52d70f116fd2c60d704bcc2341816287e1a0cc9b5d9493cb7798d07c182",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -348,6 +352,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261022000000_api_token_issued_by.sql",
         "ca95e49c4b46d176ac37350e9f5dfd0b00a493d3560c48272efdc92e2f756895",
+    ),
+    (
+        "20261023000000_session_sign_in.sql",
+        "c61ab52d70f116fd2c60d704bcc2341816287e1a0cc9b5d9493cb7798d07c182",
     ),
 ];
 

@@ -23,6 +23,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20261021000000_system_context_tags.sql",
     "20261021000001_version_origin.sql",
     "20261022000000_api_token_issued_by.sql",
+    "20261023000000_session_sign_in.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

@@ -170,8 +170,12 @@ async fn a_fresh_instance_starts_in_off_and_only_the_admin_gets_in() {
     let (status, body) = login(&app, "root", "root_password").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let token = body["token"].as_str().unwrap().to_string();
-    let (status, _) = call(&app, "GET", "/auth/me", Some(&token), None).await;
+    let (status, me) = call(&app, "GET", "/auth/me", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        me["sign_in"], "local",
+        "the account page offers a password change"
+    );
 
     // The API is closed while in maintenance, for the admin too.
     let (status, _) = call(

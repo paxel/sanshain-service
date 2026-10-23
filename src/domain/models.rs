@@ -627,6 +627,36 @@ pub struct Session {
     pub expires_at: String,
 }
 
+/// How a person proved who they are: a password Sanshain checks itself, the
+/// directory, or an OpenID Connect provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SignInMethod {
+    Local,
+    Ldap,
+    Oidc,
+}
+
+impl SignInMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SignInMethod::Local => "local",
+            SignInMethod::Ldap => "ldap",
+            SignInMethod::Oidc => "oidc",
+        }
+    }
+
+    /// The stored form back; anything else is unknown.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(SignInMethod::Local),
+            "ldap" => Some(SignInMethod::Ldap),
+            "oidc" => Some(SignInMethod::Oidc),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointRecord {
     pub id: Option<i64>,

@@ -291,8 +291,12 @@
     <!-- Account Dashboard (logged in) -->
     <div id="account-dashboard" class="hidden">
       <main class="container mx-auto p-6 space-y-8">
-        <!-- Change Password -->
-        <section class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <!-- Change Password: only for a session that signed in with a local
+             password; a directory or OIDC password is changed there. -->
+        <section
+          id="change-password-section"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
           <h2 class="text-lg font-semibold text-slate-800 mb-4">Change Password</h2>
           <div
             id="pw-error"

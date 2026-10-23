@@ -703,6 +703,20 @@ pub trait SpecRepository: Send + Sync {
         token: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Record how the session behind `token` signed in.
+    fn set_session_sign_in(
+        &self,
+        token: &str,
+        method: SignInMethod,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// How the session behind `token` signed in: `None` for an unknown token
+    /// or a session started before this was recorded.
+    fn session_sign_in(
+        &self,
+        token: &str,
+    ) -> impl Future<Output = Result<Option<SignInMethod>, RepositoryError>> + Send;
+
     /// Remove sessions and API tokens whose `expires_at` has passed. Validation
     /// already refuses them, so this reclaims storage and keeps the credential
     /// tables from being an ever-growing record of every login. Returns how
