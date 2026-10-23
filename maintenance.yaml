@@ -1208,6 +1208,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/provide:
+    post:
+      summary: "Create or run: producers/provide"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        The admin page's provide: publishes a pasted specification under the same rules as `POST /provide` and its siblings, and answers the same way. A Producer this call creates is someone else's API and is marked external in the same request. Body: `producername`, `api_type` (`openapi`, `asyncapi` or `proto`), `content`, `stability` and optional `dry_run`.
+      responses:
+        "202":
+          description: Accepted, as from `POST /provide`.
+        "400":
+          description: The specification was refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}:
     get:
       summary: "Read: producers/name"
@@ -1833,7 +1863,7 @@ paths:
       description: |
         Requires the `manage_producers` permission.
 
-        Marks a Producer as external, an outside API the company does not maintain (`{"external": true}`), or as the company's own again (`false`). An administrator's provide on the admin page marks a Producer it creates. External Producers are drawn with a light grey fill in the graph and tagged in the lists (`external` on each Producer).
+        Marks a Producer as external, an outside API the company does not maintain (`{"external": true}`), or as the company's own again (`false`). A provide on the admin page (`POST /admin/producers/provide`) marks a Producer it creates. External Producers are drawn with a light grey fill in the graph and tagged in the lists (`external` on each Producer).
       parameters:
         - name: name
           in: path

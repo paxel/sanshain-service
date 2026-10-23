@@ -152,9 +152,12 @@ test("a Producer provided on the admin page is external, tagged and drawn grey",
   await expect(row.locator("[data-external]")).toHaveText("external");
 
   // Corrected by hand, and back.
-  await row.locator('button:has-text("Mark as ours")').click();
+  const external = row.getByRole("switch", { name: "External" });
+  await expect(external).toHaveAttribute("aria-checked", "true");
+  await external.click();
   await expect(row.locator("[data-external]")).toHaveCount(0);
-  await row.locator('button:has-text("Mark external")').click();
+  await expect(external).toHaveAttribute("aria-checked", "false");
+  await external.click();
   await expect(row.locator("[data-external]")).toHaveText("external");
 
   // Nobody requires it yet: a chip in the (unrequired) box, grey all the same.

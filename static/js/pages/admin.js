@@ -1314,9 +1314,9 @@ async function deleteUser(id) {
 }
 
 // --- Paste-a-spec Producer Creation ---
-// The same /provide* endpoints every client uses: no placeholder
-// content, no side door. The signed-in admin is the authenticated
-// Actor, so attribution lands on their name.
+// The same publish every client gets: no placeholder content, no side
+// door. The signed-in admin is the authenticated Actor, so attribution
+// lands on their name.
 document.getElementById("paste-spec-ga").addEventListener("change", (e) => {
   document.getElementById("paste-spec-ga-warning").classList.toggle("hidden", !e.target.checked);
 });
@@ -1341,32 +1341,20 @@ async function pasteSpecSubmit(dryRun) {
     return;
   }
 
-  const route =
-    apiType === "asyncapi"
-      ? "/provide/asyncapi"
-      : apiType === "proto"
-        ? "/provide/grpc"
-        : "/provide";
-  const field =
-    apiType === "asyncapi"
-      ? "asyncapi_yaml"
-      : apiType === "proto"
-        ? "proto_content"
-        : "openapi_yaml";
+  // The admin route publishes like any client and marks a Producer it
+  // creates as external in the same request (#65).
   const body = {
     producername: name,
+    api_type: apiType,
+    content,
     stability: ga ? "ga" : "snapshot",
     dry_run: dryRun,
   };
-  body[field] = content;
 
-  // A Producer this provide creates is someone else's API: mark it external.
-  const isNew = !allServices.some((s) => (s.name || s) === name);
   try {
-    const res = await apiCall(route, { method: "POST", body });
+    const res = await apiCall("/admin/producers/provide", { method: "POST", body });
     if (res.ok) {
       const data = await res.json();
-      if (!dryRun && isNew) await setProducerExternal(name, true);
       const c = data.changes || {};
       show(
         "text-green-600",
@@ -1435,8 +1423,13 @@ function renderServices(services) {
                             ${externalTag(svcObj)}
                         </div>
                         <div class="flex items-center space-x-3">
-                            <button data-click="setProducerExternal" data-needs="manage_producers" data-click-args="${attrJson([svc, !svcObj.external])}"
-                                class="text-slate-500 hover:text-slate-800 text-sm">${svcObj.external ? "Mark as ours" : "Mark external"}</button>
+                            <label class="flex items-center gap-2 text-sm text-slate-500">External
+                                <button data-click="setProducerExternal" data-needs="manage_producers" data-click-args="${attrJson([svc, !svcObj.external])}"
+                                    role="switch" aria-checked="${svcObj.external ? "true" : "false"}" aria-label="External"
+                                    class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-500 ${svcObj.external ? "bg-indigo-600" : "bg-slate-200"}">
+                                    <span class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${svcObj.external ? "translate-x-5" : "translate-x-1"}"></span>
+                                </button>
+                            </label>
                             <button data-click="openMetadataModal" data-needs="manage_producers" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
                             <button data-click="confirmDeleteService" data-needs="manage_producers" data-needs-producer="${escapeHtml(svc)}" data-click-args="${attrJson([svc])}"

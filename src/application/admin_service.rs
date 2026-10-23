@@ -430,7 +430,20 @@ pub async fn update_producer_metadata(
     Ok(())
 }
 
+/// Whether a provide on the admin page creates its Producer, which then is
+/// someone else's API and gets marked external (#65). A dry run creates
+/// nothing.
+#[tracing::instrument(skip(repo))]
+pub async fn provide_creates_producer(
+    repo: &impl SpecRepository,
+    producername: &str,
+    dry_run: bool,
+) -> Result<bool, AppError> {
+    Ok(!dry_run && repo.find_service(producername).await?.is_none())
+}
+
 /// Mark a Producer as external (not maintained by the company) or not.
+#[tracing::instrument(skip(repo))]
 pub async fn set_producer_external(
     repo: &impl SpecRepository,
     service_name: &str,
@@ -699,6 +712,44 @@ mod tests {
         repo.ensure_service("svc-b").await.unwrap();
         let svcs = list_producers(&repo).await.unwrap();
         assert_eq!(svcs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn only_a_real_provide_of_an_unknown_name_creates_a_producer() {
+        let repo = MockRepo::new();
+        repo.ensure_service("known").await.unwrap();
+        assert!(provide_creates_producer(&repo, "new", false).await.unwrap());
+        assert!(!provide_creates_producer(&repo, "new", true).await.unwrap());
+        assert!(
+            !provide_creates_producer(&repo, "known", false)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn marking_external_sets_and_clears_the_flag_and_refuses_unknown_producers() {
+        let repo = MockRepo::new();
+        repo.ensure_service("stripe").await.unwrap();
+        set_producer_external(&repo, "stripe", true).await.unwrap();
+        let external = |svcs: Vec<ProducerSummary>| {
+            svcs.into_iter()
+                .find(|s| s.name == "stripe")
+                .map(|s| s.external)
+        };
+        assert_eq!(
+            external(list_producers_detailed(&repo, None).await.unwrap()),
+            Some(true)
+        );
+        set_producer_external(&repo, "stripe", false).await.unwrap();
+        assert_eq!(
+            external(list_producers_detailed(&repo, None).await.unwrap()),
+            Some(false)
+        );
+        assert!(matches!(
+            set_producer_external(&repo, "nobody", true).await,
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[tokio::test]

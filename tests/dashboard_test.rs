@@ -218,3 +218,74 @@ async fn an_external_producer_is_marked_in_the_lists() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn a_provide_on_the_admin_page_marks_only_the_producer_it_creates() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(&ctx.token),
+        Some(json!({ "producername": "ours", "stability": "snapshot", "openapi_yaml": SPEC })),
+    )
+    .await;
+    assert!(status.is_success(), "{status} {body}");
+
+    // A dry run creates nothing, so it marks nothing.
+    let admin_provide = |name: &str, dry_run: bool| {
+        json!({
+            "producername": name,
+            "api_type": "openapi",
+            "content": SPEC,
+            "stability": "snapshot",
+            "dry_run": dry_run,
+        })
+    };
+    for (name, dry_run) in [("penguin", true), ("penguin", false), ("ours", false)] {
+        let (status, _, body) = send(
+            &ctx,
+            "POST",
+            "/admin/producers/provide",
+            Some(&ctx.token),
+            Some(admin_provide(name, dry_run)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{name} {dry_run}: {body}");
+    }
+
+    let (_, _, body) = send(&ctx, "GET", "/admin/producers", Some(&ctx.token), None).await;
+    let external: HashMap<String, bool> = as_json(&body)
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["name"].as_str().unwrap().to_string(),
+                p["external"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        external,
+        HashMap::from([("ours".to_string(), false), ("penguin".to_string(), true)])
+    );
+
+    // A refused spec creates nothing and marks nothing.
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/producers/provide",
+        Some(&ctx.token),
+        Some(json!({
+            "producername": "broken",
+            "api_type": "openapi",
+            "content": "not a spec",
+            "stability": "snapshot",
+        })),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status}");
+    let (_, _, body) = send(&ctx, "GET", "/admin/producers", Some(&ctx.token), None).await;
+    assert_eq!(as_json(&body).as_array().unwrap().len(), 2);
+}

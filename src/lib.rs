@@ -133,6 +133,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/maintainers", get(roles::list_all_maintainers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         // Split so a maintainer can see who shares responsibility for their own
         // Producer, while changing the assignment stays who-may-do-what work.
+        .route("/admin/producers/provide", post(admin::admin_provide).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
         .route("/admin/producers/{name}/external", put(admin::admin_set_producer_external).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
         .route("/admin/producers/{name}/maintainers", get(roles::list_maintainers).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/{name}/maintainers", post(roles::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))

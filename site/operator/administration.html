@@ -305,13 +305,14 @@
   <li>
     <strong>Provide a Spec for a Producer</strong>: a provide from the browser, for a one-off upload
     by an administrator, with the same rules as the API. A Producer it creates is an outside API, so
-    it is marked <strong>external</strong>.
+    it is marked <strong>external</strong> in the same request
+    (<code>POST /admin/producers/provide</code>, <code>manage_producers</code>).
   </li>
   <li>
     <strong>External Producers</strong>: an API the company does not maintain. The graph draws it
     with a light grey fill (the legend says <em>External Producer</em>), and the Producers list,
-    the admin list and the dashboard tag it <strong>external</strong>. <strong>Mark external</strong>
-    and <strong>Mark as ours</strong> in the admin list correct it by hand
+    the admin list and the dashboard tag it <strong>external</strong>. The <strong>External</strong>
+    switch on each row of the admin list corrects it by hand
     (<code>PUT /admin/producers/{name}/external</code>, <code>manage_producers</code>).
   </li>
 </ul>

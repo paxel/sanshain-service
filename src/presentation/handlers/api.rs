@@ -68,20 +68,20 @@ pub struct ProvideRequest {
     pub note: Option<String>,
 }
 
-struct ProvideCommon<'a> {
-    api_type: ApiType,
-    producername: &'a str,
-    content: Option<&'a str>,
+pub(crate) struct ProvideCommon<'a> {
+    pub(crate) api_type: ApiType,
+    pub(crate) producername: &'a str,
+    pub(crate) content: Option<&'a str>,
     /// The name of the body field on *this* endpoint's payload, so a request
     /// that omits it is refused in its own vocabulary rather than a generic one.
-    content_field: &'static str,
-    stability: Option<Stability>,
-    dry_run: bool,
-    trunk: bool,
-    tag: Option<&'a str>,
-    retired: bool,
+    pub(crate) content_field: &'static str,
+    pub(crate) stability: Option<Stability>,
+    pub(crate) dry_run: bool,
+    pub(crate) trunk: bool,
+    pub(crate) tag: Option<&'a str>,
+    pub(crate) retired: bool,
     /// What the build says about why: build URL, change URL, tickets, note.
-    origin: VersionOrigin,
+    pub(crate) origin: VersionOrigin,
 }
 
 /// The rejection a missing field produced when the deserializer still required
@@ -131,7 +131,7 @@ fn ascii_header_text(text: &str) -> String {
     out
 }
 
-async fn provide_common(
+pub(crate) async fn provide_common(
     state: &AppState,
     user: Option<axum::Extension<crate::domain::models::User>>,
     caller: Option<axum::Extension<crate::domain::permissions::Actor>>,

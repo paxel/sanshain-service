@@ -1206,6 +1206,68 @@ pub struct UpdateProducerMetadataRequest {
     pub domain: Option<String>,
 }
 
+/// The admin page's provide (#65): the paste form's body, one shape for all
+/// three families.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminProvideRequest {
+    pub producername: String,
+    pub api_type: ApiType,
+    pub content: String,
+    pub stability: crate::domain::models::Stability,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// Provide from the admin page. The same publish as `POST /provide` and its
+/// siblings; a Producer it creates is an outside API and is marked external
+/// before the answer goes back, so the mark cannot be lost on the way.
+pub async fn admin_provide(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    caller: Option<axum::Extension<crate::domain::permissions::Actor>>,
+    Json(payload): Json<AdminProvideRequest>,
+) -> Result<axum::response::Response, AppError> {
+    let creates =
+        services::provide_creates_producer(&state.repo, &payload.producername, payload.dry_run)
+            .await?;
+    let response = super::api::provide_common(
+        &state,
+        user.clone(),
+        caller,
+        super::api::ProvideCommon {
+            api_type: payload.api_type,
+            producername: &payload.producername,
+            content: Some(&payload.content),
+            content_field: "content",
+            stability: Some(payload.stability),
+            dry_run: payload.dry_run,
+            trunk: false,
+            tag: None,
+            retired: false,
+            origin: crate::domain::models::VersionOrigin::default(),
+        },
+    )
+    .await?;
+    if creates && response.status() == StatusCode::ACCEPTED {
+        services::set_producer_external(&state.repo, &payload.producername, true).await?;
+        let _ = state.spec_updated_tx.send(());
+        record_audit_log(
+            &state.repo,
+            user,
+            NewAuditLog {
+                action: "SET_PRODUCER_EXTERNAL",
+                details: &format!("Marked Producer '{}' as external", payload.producername),
+                service: Some(&payload.producername),
+                action_type: Some("WRITE"),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    Ok(response)
+}
+
 #[derive(Deserialize)]
 pub struct ExternalRequest {
     pub external: bool,
