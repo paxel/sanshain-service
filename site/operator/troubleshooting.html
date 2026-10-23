@@ -92,21 +92,13 @@
   </dd>
   <dt>
     <code
-      >SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to
-      'true'. Refusing to enable dev mode - authentication stays enforced.</code
-    >
-    (stderr), and in the log
-    <code
-      >SECURITY: dev_mode is requested (SANSHAIN_DEV_MODE or persisted dev_mode setting) but the
-      ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode -
-      authentication stays enforced. Set ALLOW_INSECURE_DEV_MODE=true only on a trusted local
-      machine to enable it.</code
+      >SANSHAIN_DEV_MODE is ignored: dev mode is the Dev auth mode, picked on the admin page or with
+      INITIAL_AUTH_MODE=dev</code
     >
   </dt>
   <dd>
-    Developer mode is wanted (<code>SANSHAIN_DEV_MODE=true</code> or a stored Dev mode) without the
-    gate; a stored Dev mode is switched to Local on such a start. Expected in production; on a laptop set <code>ALLOW_INSECURE_DEV_MODE=true</code>. See
-    <a href="authentication.html#developer-mode">Developer mode</a>.
+    The server still sets <code>SANSHAIN_DEV_MODE</code>, which no longer does anything. Remove it;
+    see <a href="authentication.html#developer-mode">Developer mode</a>.
   </dd>
   <dt>
     <code

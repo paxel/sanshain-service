@@ -279,11 +279,14 @@ cargo sanshain require       # writes generated/orders/…</code></pre>
 <h2>A shortcut for a local trial</h2>
 <p>
   <a href="glossary.html#dev-mode">Developer mode</a> switches authentication off. It needs both the
-  switch and the safety gate, and it belongs on a laptop only:
+  Dev mode and the safety gate, and it belongs on a laptop only:
 </p>
-<pre><code>docker run -p 3000:3000 -e ALLOW_INSECURE_DEV_MODE=true -e SANSHAIN_DEV_MODE=true \
+<pre><code>docker run -p 3000:3000 -e ALLOW_INSECURE_DEV_MODE=true -e INITIAL_AUTH_MODE=dev \
   ghcr.io/paxel/sanshain-service:latest</code></pre>
-<p>Without the gate the service logs a refusal and keeps authentication enforced.</p>
+<p>
+  <code>INITIAL_AUTH_MODE</code> only picks the mode of a fresh instance. Without the gate the
+  service refuses to start in Dev.
+</p>
 
 <h2>Where next</h2>
 <ul>

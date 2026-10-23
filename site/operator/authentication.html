@@ -611,22 +611,21 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
 </p>
 <ol>
   <li>
-    A request: the <strong>Dev</strong> mode (which stores <code>dev_mode=true</code>) or
-    <code>SANSHAIN_DEV_MODE=true</code> in the environment.
+    The mode: <strong>Dev</strong>, picked on the admin page or with
+    <code>INITIAL_AUTH_MODE=dev</code> on a fresh instance.
   </li>
   <li>The gate: <code>ALLOW_INSECURE_DEV_MODE=true</code> in the environment.</li>
 </ol>
 <p>
   Without the gate the <strong>Dev</strong> option on the admin page is greyed out with a hint, and
-  <code>PUT /admin/auth-config</code> refuses it. A request that reaches the database anyway,
-  through <code>SANSHAIN_DEV_MODE</code> or configuration drift, fails closed: tokens stay required
-  and startup logs
+  <code>PUT /admin/auth-config</code> refuses it. A stored Dev mode on a server without the gate is
+  switched to Local on startup, which is what such an instance did all along (Dev could be picked
+  without the gate before 2.10).
 </p>
 <p>
-  A stored Dev mode on a server without the gate is switched to Local on startup, which is what such
-  an instance did all along (Dev could be picked without the gate before 2.10).
+  <code>SANSHAIN_DEV_MODE</code> no longer does anything. Before 2.10 it opened the API whatever the
+  sign-in mode was; a server that still sets it logs that it is ignored.
 </p>
-<pre><code>SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced.</code></pre>
 <p>
   With both, startup logs
   <code

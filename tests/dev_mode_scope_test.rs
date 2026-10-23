@@ -189,3 +189,41 @@ async fn dev_mode_opens_the_api_but_not_the_administration() {
     let (status, _) = call(&app, "GET", "/admin/users", Some(&root), None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+// SANSHAIN_DEV_MODE once made the API tokenless whatever the auth mode was, so
+// a server started with it ran without tokens while the admin page showed
+// Local. Dev mode is the Dev auth mode now; the variable is ignored.
+#[tokio::test]
+async fn sanshain_dev_mode_does_not_open_the_api_outside_dev() {
+    unsafe {
+        std::env::set_var("ALLOW_INSECURE_DEV_MODE", "true");
+        std::env::set_var("SANSHAIN_DEV_MODE", "true");
+    }
+    let repo = fresh_repo().await;
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    // A dev_mode setting left behind by an older version counts for nothing.
+    repo.set_setting("dev_mode", "true").await.unwrap();
+    assert!(!services::get_dev_mode(&repo).await.unwrap());
+    let app = create_app(test_state(repo.clone()));
+
+    let spec = "openapi: 3.0.0\ninfo:\n  title: q\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n";
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/provide",
+        None,
+        Some(serde_json::json!({ "producername": "q", "stability": "snapshot", "openapi_yaml": spec })),
+    )
+    .await;
+    assert!(
+        status.is_client_error(),
+        "a tokenless provide is refused outside dev mode: {status} {body}"
+    );
+
+    services::set_auth_mode(&repo, &AuthMode::Dev)
+        .await
+        .unwrap();
+    assert!(services::get_dev_mode(&repo).await.unwrap());
+}

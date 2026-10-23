@@ -398,13 +398,8 @@ mod tests {
         assert!(!super::super::auth_service::dev_mode_gate_open());
         let repo = MockRepo::new();
         repo.set_setting("auth_mode", "dev").await.unwrap();
-        repo.set_setting("dev_mode", "true").await.unwrap();
         assert!(settle_ungated_dev_mode(&repo).await.unwrap());
         assert_eq!(get_auth_mode(&repo).await.unwrap(), AuthMode::Local);
-        assert_eq!(
-            repo.get_setting("dev_mode").await.unwrap().as_deref(),
-            Some("false")
-        );
         assert!(!settle_ungated_dev_mode(&repo).await.unwrap(), "only once");
 
         repo.set_setting("auth_mode", "ldap").await.unwrap();

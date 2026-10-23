@@ -307,14 +307,15 @@ pub async fn main() {
     }
 
     // Dev mode lets any caller reach protected endpoints without a token and
-    // must never be left enabled in production. It only takes effect when
-    // explicitly requested AND permitted by the `ALLOW_INSECURE_DEV_MODE` safety
-    // gate; a requested-but-ungated dev mode fails closed so configuration drift
-    // cannot silently disable authentication.
-    let dev_mode_requested = services::is_dev_mode_requested(&repo)
-        .await
-        .unwrap_or(false);
-    let dev_user = if dev_mode_requested && services::dev_mode_gate_open() {
+    // must never be left enabled in production. It is on only while the auth
+    // mode is Dev and the `ALLOW_INSECURE_DEV_MODE` safety gate is open; a
+    // stored Dev without the gate was switched to Local above.
+    if std::env::var("SANSHAIN_DEV_MODE").is_ok() {
+        tracing::warn!(
+            "SANSHAIN_DEV_MODE is ignored: dev mode is the Dev auth mode, picked on the admin page or with INITIAL_AUTH_MODE=dev"
+        );
+    }
+    let dev_user = if services::get_dev_mode(&repo).await.unwrap_or(false) {
         tracing::warn!(
             "SECURITY WARNING: dev_mode is ENABLED - API endpoints accept unauthenticated requests. Disable it in production."
         );
@@ -329,14 +330,6 @@ pub async fn main() {
             }
         }
     } else {
-        if dev_mode_requested {
-            tracing::error!(
-                "SECURITY: dev_mode is requested (SANSHAIN_DEV_MODE or persisted dev_mode setting) but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced. Set ALLOW_INSECURE_DEV_MODE=true only on a trusted local machine to enable it."
-            );
-            eprintln!(
-                "SECURITY: dev_mode is requested but the ALLOW_INSECURE_DEV_MODE safety gate is not set to 'true'. Refusing to enable dev mode - authentication stays enforced."
-            );
-        }
         None
     };
 

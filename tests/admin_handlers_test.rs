@@ -1146,23 +1146,19 @@ async fn test_favorites_api_endpoints() {
     assert!(favs["services"].as_array().unwrap().is_empty());
 }
 
-// The dev-mode toggle (persisted via the auth-config surface) records intent,
-// not the gated effective value: `is_dev_mode_requested` reads back `true`
-// even though the ALLOW_INSECURE_DEV_MODE gate is closed in this test process,
-// while the effective `get_dev_mode` stays `false`.
+// A stored Dev auth mode stays ineffective while the ALLOW_INSECURE_DEV_MODE
+// gate is closed in this test process.
 #[tokio::test]
-async fn dev_mode_setting_records_intent_but_stays_gated() {
+async fn a_stored_dev_mode_stays_gated() {
     let (_app, repo, _token) = app_with_seed().await;
     assert!(
         !services::dev_mode_gate_open(),
         "gate must be closed for this test to be meaningful"
     );
 
-    services::set_dev_mode(&repo, true).await.unwrap();
-    assert!(
-        services::is_dev_mode_requested(&repo).await.unwrap(),
-        "the persisted intent must read back"
-    );
+    services::set_auth_mode(&repo, &sanshain_service::domain::models::AuthMode::Dev)
+        .await
+        .unwrap();
     assert!(
         !services::get_dev_mode(&repo).await.unwrap(),
         "the closed gate must keep dev mode ineffective"

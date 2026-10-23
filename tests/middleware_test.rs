@@ -164,8 +164,8 @@ async fn csrf_bypasses_with_authorization_header() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-// A persisted `dev_mode=true` (as configuration drift would leave behind) must
-// NOT bypass authentication unless the ALLOW_INSECURE_DEV_MODE safety gate is
+// A stored Dev auth mode (as configuration drift would leave behind) must NOT
+// bypass authentication unless the ALLOW_INSECURE_DEV_MODE safety gate is
 // open. The gate is an env var and is not set in the test process, so an
 // unauthenticated request to a protected route must still be rejected.
 #[tokio::test]
@@ -178,13 +178,13 @@ async fn dev_mode_requested_but_ungated_still_requires_auth() {
     repo.run_migrations().await.unwrap();
     let state = test_state(repo);
 
-    // Persist the dev-mode request, then confirm it is requested but not active.
-    auth_service::set_dev_mode(&state.repo, true).await.unwrap();
-    assert!(
-        auth_service::is_dev_mode_requested(&state.repo)
-            .await
-            .unwrap()
-    );
+    // Store Dev, then confirm it is not active.
+    auth_service::set_auth_mode(
+        &state.repo,
+        &sanshain_service::domain::models::AuthMode::Dev,
+    )
+    .await
+    .unwrap();
     assert!(!auth_service::get_dev_mode(&state.repo).await.unwrap());
 
     let app = Router::new().route(

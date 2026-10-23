@@ -206,40 +206,19 @@ pub async fn change_password(
 }
 
 /// The production safety gate for dev mode. Dev mode only takes effect when the
-/// `ALLOW_INSECURE_DEV_MODE` environment variable is set to `true`, so a stray
-/// `SANSHAIN_DEV_MODE` env var or a persisted `dev_mode=true` setting cannot
-/// silently disable authentication through configuration drift.
+/// `ALLOW_INSECURE_DEV_MODE` environment variable is set to `true`; without it
+/// Dev cannot be picked as the auth mode, so authentication cannot be switched
+/// off by accident.
 pub fn dev_mode_gate_open() -> bool {
     std::env::var("ALLOW_INSECURE_DEV_MODE").unwrap_or_default() == "true"
 }
 
-/// Whether dev mode has been *requested* — via the `SANSHAIN_DEV_MODE`
-/// environment variable or the persisted `dev_mode` setting — irrespective of
-/// the safety gate. Startup uses this to distinguish "requested but refused"
-/// from "not requested"; request-handling paths should use [`get_dev_mode`].
-pub async fn is_dev_mode_requested(repo: &impl SpecRepository) -> Result<bool, AppError> {
-    if std::env::var("SANSHAIN_DEV_MODE").unwrap_or_default() == "true" {
-        return Ok(true);
-    }
-    let val = repo
-        .get_setting("dev_mode")
-        .await?
-        .unwrap_or("false".to_string());
-    Ok(val == "true")
-}
-
-/// Whether dev mode is *effective*: requested (see [`is_dev_mode_requested`])
-/// **and** explicitly permitted by the [`dev_mode_gate_open`] safety gate. Fails
-/// closed — a requested-but-ungated dev mode resolves to `false`, so protected
-/// endpoints keep enforcing authentication.
+/// Whether dev mode is *effective*: the auth mode is Dev **and** the
+/// [`dev_mode_gate_open`] safety gate is open. Fails closed: a stored Dev
+/// without the gate resolves to `false`, so protected endpoints keep enforcing
+/// authentication.
 pub async fn get_dev_mode(repo: &impl SpecRepository) -> Result<bool, AppError> {
-    Ok(is_dev_mode_requested(repo).await? && dev_mode_gate_open())
-}
-
-pub async fn set_dev_mode(repo: &impl SpecRepository, enabled: bool) -> Result<(), AppError> {
-    repo.set_setting("dev_mode", if enabled { "true" } else { "false" })
-        .await?;
-    Ok(())
+    Ok(get_auth_mode(repo).await? == AuthMode::Dev && dev_mode_gate_open())
 }
 
 const DEV_USER: &str = "dev_user";
@@ -365,13 +344,6 @@ pub async fn get_auth_mode(repo: &impl SpecRepository) -> Result<AuthMode, AppEr
 pub async fn set_auth_mode(repo: &impl SpecRepository, mode: &AuthMode) -> Result<(), AppError> {
     let val = mode.as_str();
     repo.set_setting("auth_mode", val).await?;
-
-    let dev_mode_val = if matches!(mode, AuthMode::Dev) {
-        "true"
-    } else {
-        "false"
-    };
-    repo.set_setting("dev_mode", dev_mode_val).await?;
     Ok(())
 }
 

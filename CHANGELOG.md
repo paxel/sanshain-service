@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Under LDAP, a local password is checked before the directory, so a user whose local and directory accounts share a name no longer locks their directory account by typing the local password.
 
 ### Security
+- `SANSHAIN_DEV_MODE` no longer opens the API: with `ALLOW_INSECURE_DEV_MODE` set it made provide, require, catalog and MCP tokenless whatever the auth mode was, while the admin page showed Local, LDAP or OIDC. Dev mode is the Dev auth mode only; a server that still sets the variable logs that it is ignored.
 - The `dev_user` account that dev mode creates no longer has a password: it carried a fixed one written in the source and signed in as an admin on any instance that had ever been in dev mode. An existing `dev_user` is locked on startup.
 
 ---
