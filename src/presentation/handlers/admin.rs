@@ -886,7 +886,10 @@ pub async fn admin_list_users(
             "username": user.username,
             "approved": user.approved,
             "service_account": user.is_service_account(),
-            "kind": kinds.get(&user.id).copied().unwrap_or("unknown"),
+            "kind": kinds
+                .get(&user.id)
+                .copied()
+                .unwrap_or(crate::domain::models::AccountKind::Unknown),
             "display_name": names.get(&user.id),
             "gravatar_hash": gravatars.get(&user.id),
             "roles": roles,

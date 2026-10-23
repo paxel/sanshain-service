@@ -1147,7 +1147,7 @@ async function loadUsers() {
 // chip set, only the accounts waiting for approval show, plus how many more
 // there are. Chips of different kinds narrow together; chips of one kind widen.
 const userFilter = { text: "", kind: new Set(), status: new Set(), role: new Set() };
-const USER_KIND_CHIPS = ["service", "local", "ldap", "oidc", "unknown"];
+const USER_KIND_CHIPS = Object.keys(ACCOUNT_KIND_TAGS);
 
 function userMatches(u) {
   const text = userFilter.text.toLowerCase();

@@ -699,6 +699,28 @@ impl SignInMethod {
     }
 }
 
+/// What kind of account a row of the user list is: a service account, or how
+/// the person last signed in; `Unknown` before their first recorded sign-in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountKind {
+    Service,
+    Local,
+    Ldap,
+    Oidc,
+    Unknown,
+}
+
+impl From<SignInMethod> for AccountKind {
+    fn from(method: SignInMethod) -> Self {
+        match method {
+            SignInMethod::Local => AccountKind::Local,
+            SignInMethod::Ldap => AccountKind::Ldap,
+            SignInMethod::Oidc => AccountKind::Oidc,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointRecord {
     pub id: Option<i64>,

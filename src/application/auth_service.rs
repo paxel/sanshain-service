@@ -610,13 +610,12 @@ pub(crate) async fn record_sign_in(
     Ok(())
 }
 
-/// The kind of each account for the user list: `service` for a service
-/// account, otherwise how the person last signed in (`local`, `ldap`,
-/// `oidc`), or `unknown` before their first sign-in since 2.11.
+/// The kind of each account for the user list.
+#[instrument(skip_all)]
 pub async fn account_kinds(
     repo: &impl SpecRepository,
     users: &[User],
-) -> Result<std::collections::HashMap<i64, &'static str>, AppError> {
+) -> Result<std::collections::HashMap<i64, AccountKind>, AppError> {
     let last: std::collections::HashMap<i64, SignInMethod> = repo
         .list_user_profiles()
         .await?
@@ -627,9 +626,10 @@ pub async fn account_kinds(
         .iter()
         .map(|user| {
             let kind = if user.is_service_account() {
-                "service"
+                AccountKind::Service
             } else {
-                last.get(&user.id).map_or("unknown", SignInMethod::as_str)
+                last.get(&user.id)
+                    .map_or(AccountKind::Unknown, |&m| AccountKind::from(m))
             };
             (user.id, kind)
         })
@@ -1254,9 +1254,9 @@ mod tests {
             .unwrap();
         let users = vec![alice.clone(), bob.clone(), jenkins.clone()];
         let kinds = account_kinds(&repo, &users).await.unwrap();
-        assert_eq!(kinds[&alice.id], "ldap");
-        assert_eq!(kinds[&bob.id], "unknown");
-        assert_eq!(kinds[&jenkins.id], "service");
+        assert_eq!(kinds[&alice.id], AccountKind::Ldap);
+        assert_eq!(kinds[&bob.id], AccountKind::Unknown);
+        assert_eq!(kinds[&jenkins.id], AccountKind::Service);
         assert_eq!(
             repo.session_sign_in(&session.token).await.unwrap(),
             Some(SignInMethod::Ldap)
@@ -1269,7 +1269,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             account_kinds(&repo, &users).await.unwrap()[&alice.id],
-            "local"
+            AccountKind::Local
         );
     }
 
