@@ -1,8 +1,9 @@
 # Default values for sanshain.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
-
-replicaCount: 1
+#
+# Sanshain runs as exactly one instance (a StatefulSet with one replica), on
+# SQLite and on PostgreSQL alike; there is no replicaCount or autoscaling.
 
 image:
   repository: ghcr.io/paxel/sanshain-service
@@ -59,15 +60,6 @@ resources:
   requests:
     cpu: 100m
     memory: 128Mi
-
-# A HorizontalPodAutoscaler (autoscaling/v2) on the Deployment. Only for
-# PostgreSQL: SQLite needs a single replica.
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
 
 nodeSelector: {}
 

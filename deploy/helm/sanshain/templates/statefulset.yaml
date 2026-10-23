@@ -1,13 +1,25 @@
+{{- /*
+Sanshain runs as exactly one instance: each process keeps its own caches and
+its own live-update stream, so a second pod would serve stale data. A
+StatefulSet stops the old pod before it starts the new one, so the two never
+share the data volume during an upgrade.
+*/ -}}
+{{- if hasKey .Values "replicaCount" }}
+{{- fail "replicaCount was removed: Sanshain runs as exactly one instance (see the Scaling section of the deployment guide)" }}
+{{- end }}
+{{- if hasKey .Values "autoscaling" }}
+{{- fail "autoscaling was removed: Sanshain runs as exactly one instance (see the Scaling section of the deployment guide)" }}
+{{- end }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "sanshain.fullname" . }}
   labels:
     {{- include "sanshain.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
+  replicas: 1
+  serviceName: {{ include "sanshain.fullname" . }}
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels:
       {{- include "sanshain.selectorLabels" . | nindent 6 }}
@@ -73,6 +85,8 @@ spec:
       {{- if or .Values.persistence.enabled .Values.extraVolumes }}
       volumes:
         {{- if .Values.persistence.enabled }}
+        {{- /* Mounted by name, not through volumeClaimTemplates, so an
+        installation that ran as a Deployment keeps its data on upgrade. */}}
         - name: data
           persistentVolumeClaim:
             claimName: {{ if .Values.persistence.createPvc }}{{ include "sanshain.fullname" . }}-data{{ else }}{{ .Values.persistence.existingClaim }}{{ end }}

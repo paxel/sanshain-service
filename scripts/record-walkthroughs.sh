@@ -826,15 +826,15 @@ SNAPSHOT_NAME="$(grep -i '^content-disposition:' "$LAST_HEADERS" | sed -E 's/.*f
 cat >"$OPS/08-restore.txt" <<EOF
 # Not recorded against a cluster: the restore procedure from Backup and restore,
 # with the snapshot the CronJob fetched above (${SNAPSHOT_NAME:-sanshain-backup.db}).
-\$ kubectl scale deployment sanshain --replicas=0
-deployment.apps/sanshain scaled
+\$ kubectl scale statefulset sanshain --replicas=0
+statefulset.apps/sanshain scaled
 \$ kubectl run restore --rm -it --image=busybox --overrides='{"spec":{"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"sanshain-data"}},{"name":"backup","persistentVolumeClaim":{"claimName":"sanshain-backup"}}],"containers":[{"name":"restore","image":"busybox","command":["sh"],"stdin":true,"tty":true,"volumeMounts":[{"name":"data","mountPath":"/data"},{"name":"backup","mountPath":"/backup"}]}]}}' -- sh
 / # cp /backup/${SNAPSHOT_NAME:-sanshain-backup.db} /data/sanshain.db
 / # rm -f /data/sanshain.db-wal /data/sanshain.db-shm
 / # exit
-\$ kubectl scale deployment sanshain --replicas=1
-deployment.apps/sanshain scaled
-\$ kubectl logs deployment/sanshain | grep -i migrations
+\$ kubectl scale statefulset sanshain --replicas=1
+statefulset.apps/sanshain scaled
+\$ kubectl logs statefulset/sanshain | grep -i migrations
 INFO sanshain_service::infrastructure::sqlite_repository: Running SQLite migrations...
 EOF
 

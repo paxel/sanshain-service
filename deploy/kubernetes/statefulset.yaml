@@ -1,15 +1,17 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: sanshain
   labels:
     app: sanshain
 spec:
-  # Keep at 1 with the default SQLite backend: the ReadWriteOnce PVC below can
-  # only be mounted by a single pod, and concurrent writers would corrupt the
-  # SQLite file. To scale above 1, switch to PostgreSQL (set DATABASE_URL to a
-  # postgres:// URL in the secret) and remove the SQLite PVC mount.
+  # Sanshain runs as exactly one instance, on SQLite and on PostgreSQL alike:
+  # each process keeps its own caches and its own live-update stream, so a
+  # second pod would serve stale data. A StatefulSet stops the old pod before
+  # it starts the new one, so the two never share the data volume.
   replicas: 1
+  serviceName: sanshain
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels:
       app: sanshain
@@ -63,6 +65,8 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
       volumes:
+      # The claim is mounted by name, not through volumeClaimTemplates, so an
+      # installation that ran as a Deployment keeps its data.
       - name: data
         persistentVolumeClaim:
           claimName: sanshain-data

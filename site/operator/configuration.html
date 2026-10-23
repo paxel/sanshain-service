@@ -53,7 +53,7 @@
     <tr>
       <td><code>MAX_POSTGRES_CONNECTIONS</code></td>
       <td><code>20</code></td>
-      <td>Pool size per replica on PostgreSQL.</td>
+      <td>Pool size on PostgreSQL.</td>
     </tr>
     <tr>
       <td><code>MAX_SQLITE_CONNECTIONS</code></td>
@@ -333,7 +333,7 @@
     <tr>
       <td><code>WEBHOOK_WORKER_INTERVAL_SECS</code></td>
       <td><code>5</code></td>
-      <td>How often each replica's worker looks for due deliveries. Must be greater than 0.</td>
+      <td>How often the webhook worker looks for due deliveries. Must be greater than 0.</td>
     </tr>
     <tr>
       <td><code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code></td>
@@ -431,9 +431,8 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
 <p>
   Every data cache (resolved endpoints, endpoint lists per version, spec content, reports, Producer
   and Consumer lists, version metadata) holds an entry for at most 10 seconds. The value is fixed. A
-  write through one process invalidates that process's caches immediately, so a single replica never
-  notices the limit; it exists for several replicas sharing one PostgreSQL database, where it bounds
-  how long one can serve what another has replaced. See
+  write invalidates the caches at once, and Sanshain runs as one instance, so the limit is never
+  noticed; it is also why a second instance would serve stale data. See
   <a href="deployment.html#scaling">Scaling</a>.
 </p>
 <p>
@@ -488,9 +487,9 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
 
 <h2>Settings in the database</h2>
 <p>
-  These are changed on the admin page or through <code>/admin/settings/*</code>, survive a restart
-  and are the same for every replica. Each route needs a signed-in session; API tokens are not
-  accepted on administrative routes.
+  These are changed on the admin page or through <code>/admin/settings/*</code> and survive a
+  restart. Each route needs a signed-in session; API tokens are not accepted on administrative
+  routes.
 </p>
 <table>
   <thead>

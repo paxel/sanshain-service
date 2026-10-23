@@ -416,7 +416,7 @@ fn default_render_has_no_env_and_no_dead_keys() {
 }
 
 #[test]
-fn no_hpa_unless_autoscaling_is_enabled() {
+fn renders_one_statefulset_on_the_existing_data_claim() {
     if !helm_available() {
         eprintln!("skipping: helm is not installed");
         return;
@@ -424,58 +424,45 @@ fn no_hpa_unless_autoscaling_is_enabled() {
 
     let rendered = render(&[]).expect("chart renders with default values");
 
+    // One instance: a StatefulSet stops the old pod before it starts the new
+    // one, so two processes never share the data volume during an upgrade.
+    assert!(rendered.contains("kind: StatefulSet"), "got:\n{rendered}");
+    assert!(!rendered.contains("kind: Deployment"), "got:\n{rendered}");
     assert!(
         !rendered.contains("HorizontalPodAutoscaler"),
-        "an untouched installation gets no HPA"
+        "got:\n{rendered}"
     );
     assert!(
-        rendered.contains("replicas: 1"),
-        "the Deployment keeps its replica count without an HPA"
+        rendered.contains(
+            "replicas: 1\n  serviceName: t-sanshain\n  podManagementPolicy: OrderedReady"
+        ),
+        "got:\n{rendered}"
+    );
+    // The claim an earlier Deployment used, by name, so its data survives.
+    assert!(
+        rendered.contains("claimName: t-sanshain-data"),
+        "got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("volumeClaimTemplates"),
+        "got:\n{rendered}"
     );
 }
 
 #[test]
-fn autoscaling_renders_an_hpa_from_the_values() {
+fn removed_scaling_values_fail_the_render() {
     if !helm_available() {
         eprintln!("skipping: helm is not installed");
         return;
     }
 
-    let rendered = render(&[
-        "--set",
-        "autoscaling.enabled=true",
-        "--set",
-        "autoscaling.minReplicas=2",
-        "--set",
-        "autoscaling.maxReplicas=6",
-        "--set",
-        "autoscaling.targetCPUUtilizationPercentage=70",
-        "--set",
-        "autoscaling.targetMemoryUtilizationPercentage=85",
-    ])
-    .expect("chart renders with autoscaling enabled");
-
-    assert!(
-        rendered.contains("apiVersion: autoscaling/v2"),
-        "got:\n{rendered}"
-    );
-    assert!(rendered.contains("kind: HorizontalPodAutoscaler"));
-    assert!(
-        rendered.contains("name: t-sanshain\n  minReplicas: 2\n  maxReplicas: 6"),
-        "the HPA targets the Deployment with the configured bounds, got:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("name: cpu\n        target:\n          type: Utilization\n          averageUtilization: 70"),
-        "the CPU target, got:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("name: memory\n        target:\n          type: Utilization\n          averageUtilization: 85"),
-        "the memory target, got:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("replicas: 1"),
-        "the Deployment leaves the replica count to the HPA"
-    );
+    for value in ["replicaCount=2", "autoscaling.enabled=true"] {
+        let err = render(&["--set", value]).expect_err("a removed scaling value must not render");
+        assert!(
+            err.contains("was removed: Sanshain runs as exactly one instance"),
+            "{value}: got {err}"
+        );
+    }
 }
 
 #[test]

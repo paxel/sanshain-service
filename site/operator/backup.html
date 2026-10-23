@@ -152,7 +152,7 @@
 
 <h3>Restore</h3>
 <ol>
-  <li>Scale Sanshain to zero (<code>kubectl scale deployment sanshain --replicas=0</code>).</li>
+  <li>Scale Sanshain to zero (<code>kubectl scale statefulset sanshain --replicas=0</code>).</li>
   <li>
     On the data volume replace <code>sanshain.db</code> with the snapshot and delete
     <code>sanshain.db-wal</code> and <code>sanshain.db-shm</code> if present.

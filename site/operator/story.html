@@ -27,7 +27,7 @@
         The instance and what the operator attaches to it, step by step
       </title>
       <desc id="fig-ops-desc">
-        The Sanshain deployment with its database and backup CronJob in the middle; on the left the
+        The Sanshain StatefulSet with its database and backup CronJob in the middle; on the left the
         root administrator, the OpenID Connect provider and the user maria; on the right the
         payments and orders catalog, the webhook receiver, the snapshot file, the audit log and the
         metrics endpoint. The parts that exist at the current step are drawn; the ones that changed
@@ -50,7 +50,7 @@
       <g data-g="sanshain" class="sg-node">
         <rect x="250" y="96" width="170" height="44" rx="6" class="sg-box" />
         <text x="335" y="114" text-anchor="middle" class="sg-label">sanshain</text>
-        <text x="335" y="130" text-anchor="middle" class="sg-muted">Deployment, sanshain.corp</text>
+        <text x="335" y="130" text-anchor="middle" class="sg-muted">StatefulSet, sanshain.corp</text>
       </g>
       <g data-g="db" class="sg-node sg-resource">
         <path d="M300 140 V172" class="sg-line" />
@@ -168,7 +168,7 @@
     id="step-1"
     data-graph="sanshain,db,cronjob"
     data-graph-highlight="sanshain,db,cronjob"
-    data-graph-caption="Step 1: the chart renders the Deployment, its Secret and ConfigMap, the Ingress and a backup CronJob."
+    data-graph-caption="Step 1: the chart renders the StatefulSet, its Secret and ConfigMap, the Ingress and a backup CronJob."
   >
     <h2>1. The Helm install</h2>
     <p>
@@ -190,6 +190,10 @@
         <code>persistence.createPvc=false</code> drops it) and <code>sanshain-backup</code> for the
         CronJob. With the <code>postgres://</code> URL the CronJob runs <code>pg_dump</code>; with
         SQLite it would download the snapshot of step 8.
+      </li>
+      <li>
+        One StatefulSet with one replica: Sanshain runs as one instance, also on PostgreSQL. See
+        <a href="deployment.html#scaling">Deployment: Scaling</a>.
       </li>
       <li>Both probes, liveness and readiness, are <code>GET /health</code>.</li>
       <li>

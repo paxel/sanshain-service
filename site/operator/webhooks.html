@@ -449,10 +449,10 @@ def verify(headers, raw_body: bytes, secret: str) -&gt; bool:
     <title id="fig-outbox-title">From a fact to a delivery</title>
     <desc id="fig-outbox-desc">
       A request handler writes the fact and the event's outbox rows in one transaction; fan-out is
-      decided then. A worker in every replica claims due deliveries with a lease every 5 seconds and
-      POSTs each to its receiver. A 2xx answer is delivered. Anything else is a failed attempt,
-      retried after 30 seconds, doubling, at most one hour apart, until 24 hours after the event,
-      then dead. Redeliver resets a delivery, a dead one included, for one more attempt.
+      decided then. The worker claims due deliveries with a lease every 5 seconds and POSTs each to
+      its receiver. A 2xx answer is delivered. Anything else is a failed attempt, retried after 30
+      seconds, doubling, at most one hour apart, until 24 hours after the event, then dead.
+      Redeliver resets a delivery, a dead one included, for one more attempt.
     </desc>
     <defs>
       <marker
@@ -510,7 +510,7 @@ def verify(headers, raw_body: bytes, secret: str) -&gt; bool:
     <path d="M454 80H496" class="d-line-accent" marker-end="url(#arr-ob-accent)" />
     <text x="475" y="70" text-anchor="middle" class="d-accent">claim</text>
 
-    <text x="500" y="22" class="d-muted">every replica</text>
+    <text x="500" y="22" class="d-muted">in the service</text>
     <rect x="500" y="34" width="212" height="92" rx="6" class="d-box" />
     <text x="512" y="56" class="d-text d-strong">worker</text>
     <text x="512" y="76" class="d-text d-mono">every 5 s, batch of 50</text>
@@ -556,12 +556,12 @@ def verify(headers, raw_body: bytes, secret: str) -&gt; bool:
   so enabling it later does not replay a backlog.
 </p>
 <p>
-  A worker in each replica runs one pass every <code>WEBHOOK_WORKER_INTERVAL_SECS</code> (5): it
-  claims up to 50 due deliveries with a lease sized for the worst-case pass (50 × the delivery
-  timeout + 60 s), so a pass that dies mid-send loses nothing for good and a slow one is never
-  overtaken, and an outcome is recorded only while the row still carries that pass's lease. On
-  PostgreSQL the claim is <code>FOR UPDATE SKIP LOCKED</code>, which is what makes two replicas
-  safe; SQLite has one writer. The log says <code>Webhook pass: 3 delivered, 1 failed, 0 dead</code>
+  The worker runs one pass every <code>WEBHOOK_WORKER_INTERVAL_SECS</code> (5): it claims up to 50
+  due deliveries with a lease sized for the worst-case pass (50 × the delivery timeout + 60 s), so a
+  pass that dies mid-send loses nothing for good and a slow one is never overtaken, and an outcome
+  is recorded only while the row still carries that pass's lease. On PostgreSQL the claim is
+  <code>FOR UPDATE SKIP LOCKED</code>, so two processes never claim one delivery; SQLite has one
+  writer. The log says <code>Webhook pass: 3 delivered, 1 failed, 0 dead</code>
   after a pass that did something.
 </p>
 
@@ -623,7 +623,7 @@ def verify(headers, raw_body: bytes, secret: str) -&gt; bool:
     <tr>
       <td><code>WEBHOOK_WORKER_INTERVAL_SECS</code></td>
       <td><code>5</code></td>
-      <td>Seconds between worker passes, per replica.</td>
+      <td>Seconds between worker passes.</td>
     </tr>
     <tr>
       <td><code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code></td>

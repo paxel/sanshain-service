@@ -22,5 +22,5 @@ data:
   # INITIAL_AUTH_MODE: "local"
   # Directory of additional CA certificates (*.pem) to trust for outbound TLS.
   # Unset means platform certificates only. See the ca-certs mount in
-  # deployment.yaml.
+  # statefulset.yaml.
   # EXTRA_CA_CERTS_DIR: "/certs"

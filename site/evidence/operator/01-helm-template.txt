@@ -112,9 +112,9 @@ spec:
     app.kubernetes.io/name: sanshain
     app.kubernetes.io/instance: sanshain
 ---
-# Source: sanshain/templates/deployment.yaml
+# Source: sanshain/templates/statefulset.yaml
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: sanshain
   labels:
@@ -125,6 +125,8 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
+  serviceName: sanshain
+  podManagementPolicy: OrderedReady
   selector:
     matchLabels:
       app.kubernetes.io/name: sanshain

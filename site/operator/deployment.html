@@ -1,4 +1,4 @@
-<!-- page: title="Deployment" track="operator" order=1 summary="The container image, Docker and Compose, Kubernetes with Kustomize or the Helm chart, SQLite or PostgreSQL, scaling and session affinity, probes, upgrades and migrations, and how to verify a release's signature and SBOM." -->
+<!-- page: title="Deployment" track="operator" order=1 summary="The container image, Docker and Compose, Kubernetes with Kustomize or the Helm chart, SQLite or PostgreSQL, why it runs as one instance, probes, upgrades and migrations, and how to verify a release's signature and SBOM." -->
 <p class="lede">
   <a href="../start/glossary.html#sanshain">Sanshain</a> is one binary, one database and one port.
   This chapter is how to run it: the image, Docker and Compose for a single host, Kustomize or the
@@ -23,8 +23,9 @@
       the released image. See <a href="#verifying-a-release">Verifying a release</a>.
     </li>
     <li>
-      Every data cache expires its entries after 10 s, which bounds what a second replica can serve
-      stale. See <a href="#scaling">Scaling</a>.
+      Sanshain runs as exactly one instance: the chart and the manifests render a StatefulSet with
+      one replica, and <code>replicaCount</code> and <code>autoscaling</code> are gone. See
+      <a href="#scaling">Scaling</a>.
     </li>
   </ul>
 </div>
@@ -106,12 +107,14 @@
       <td>A 1 Gi <code>ReadWriteOnce</code> claim mounted at <code>/data</code> for SQLite.</td>
     </tr>
     <tr>
-      <td><code>deployment.yaml</code></td>
+      <td><code>statefulset.yaml</code></td>
       <td>
-        One replica of <code>ghcr.io/paxel/sanshain-service:v2.6.0</code>, <code>envFrom</code> the
-        ConfigMap and the Secret, UID 1000, <code>100m</code>/<code>128Mi</code> requests and
-        <code>500m</code>/<code>512Mi</code> limits, liveness on <code>/health</code> and readiness
-        on <code>/ready</code> every 10 s.
+        A StatefulSet with one replica of <code>ghcr.io/paxel/sanshain-service:v2.10.0</code>,
+        <code>envFrom</code> the ConfigMap and the Secret, UID 1000, <code>100m</code>/<code
+          >128Mi</code
+        >
+        requests and <code>500m</code>/<code>512Mi</code> limits, liveness on
+        <code>/health</code> and readiness on <code>/ready</code> every 10 s.
       </td>
     </tr>
     <tr>
@@ -132,7 +135,7 @@ echo -n "postgres://user:pass@db:5432/sanshain" | base64   # into secret.yaml
 kubectl apply -k deploy/kubernetes -n sanshain</code></pre>
 <h2>The Helm chart</h2>
 <p>
-  <code>deploy/helm/sanshain</code>, chart version 2.6.0, <code>appVersion</code> 2.6.0. The image
+  <code>deploy/helm/sanshain</code>, chart version 2.10.0, <code>appVersion</code> 2.10.0. The image
   tag defaults to <code>v</code> plus the <code>appVersion</code>.
 </p>
 <pre><code>helm install sanshain deploy/helm/sanshain -n sanshain --create-namespace</code></pre>
@@ -165,11 +168,6 @@ secrets:
   </thead>
   <tbody>
     <tr>
-      <td><code>replicaCount</code></td>
-      <td><code>1</code></td>
-      <td>Pods. Stay at 1 on SQLite; see <a href="#scaling">Scaling</a>.</td>
-    </tr>
-    <tr>
       <td><code>image.repository</code>, <code>image.tag</code></td>
       <td><code>ghcr.io/paxel/sanshain-service</code>, <code>""</code></td>
       <td>An empty tag means <code>v&lt;appVersion&gt;</code>.</td>
@@ -194,17 +192,6 @@ secrets:
         <code>100m</code>/<code>128Mi</code> requests, <code>500m</code>/<code>512Mi</code> limits
       </td>
       <td>The container's resources.</td>
-    </tr>
-    <tr>
-      <td><code>autoscaling.enabled</code></td>
-      <td><code>false</code></td>
-      <td>
-        Renders an <code>autoscaling/v2</code> HorizontalPodAutoscaler on the Deployment from
-        <code>minReplicas</code> (<code>1</code>), <code>maxReplicas</code> (<code>10</code>),
-        <code>targetCPUUtilizationPercentage</code> (<code>80</code>) and, when set,
-        <code>targetMemoryUtilizationPercentage</code>; the Deployment then omits
-        <code>replicas:</code>. PostgreSQL only, see <a href="#scaling">Scaling</a>.
-      </td>
     </tr>
     <tr>
       <td><code>config.*</code></td>
@@ -337,9 +324,9 @@ extraEnv:
     a volume that only one process mounts.
   </li>
   <li>
-    <strong>PostgreSQL</strong> uses a pool of <code>MAX_POSTGRES_CONNECTIONS</code> (20) per
-    replica. It is the backend for more than one replica and for backups with the database's own
-    tooling.
+    <strong>PostgreSQL</strong> uses a pool of <code>MAX_POSTGRES_CONNECTIONS</code> (20). Choose it
+    for durability and for backups with the database's own tooling; it does not let Sanshain run
+    more than one instance (see <a href="#scaling">Scaling</a>).
   </li>
 </ul>
 <p>
@@ -351,25 +338,25 @@ extraEnv:
 
 <h2>Scaling</h2>
 <p>
-  The default deployments run one replica because the SQLite file sits on a
-  <code>ReadWriteOnce</code> claim and concurrent writers would corrupt it. To run more, switch to
-  PostgreSQL, disable the data volume and raise <code>replicas</code> (Kustomize) or
-  <code>replicaCount</code> (Helm).
+  Sanshain runs as <strong>exactly one instance</strong>, on SQLite and on PostgreSQL alike. The
+  Helm chart and the Kustomize manifests render a StatefulSet with one replica; the chart refuses to
+  render when <code>replicaCount</code> or <code>autoscaling</code> is set, because both were
+  removed in 2.10.0.
 </p>
 <p>
-  Each replica keeps its own in-memory caches (<code>CACHE_MEMORY_MB</code>). A write invalidates
-  the caches of the replica that handled it at once; every other replica sees it within
-  <strong>10 seconds</strong>, when its entries expire. A build that provides a
-  <a href="../start/glossary.html#version">version</a> on one replica and requires it on another
-  inside that window can be answered with the previous content, "version not found" or the previous
-  report. Two ways to close the window: session affinity on the ingress for the API routes
-  (<code>/provide*</code>, <code>/require*</code>, <code>/require-bundle</code>,
-  <code>/catalog/*</code>, <code>/producers/*</code>), so one build talks to one replica, or a 10 s
-  pause in the pipeline between the provide and the first require.
+  The reason is in the process, not the database. Each instance keeps its own in-memory caches
+  (<code>CACHE_MEMORY_MB</code>), and a write clears only the caches of the instance that handled
+  it; a second instance would answer from its own cache for up to 10 seconds. Live updates in the
+  web UI reach only the browsers connected to the instance that took the upload, and the cleanup job
+  runs in every instance. Running several instances needs that state shared first; until then, give
+  the one pod more <code>resources</code> instead of more replicas.
 </p>
 <p>
-  The <a href="webhooks.html">webhook</a> worker runs in every replica; on PostgreSQL the outbox
-  claim (<code>FOR UPDATE SKIP LOCKED</code>) keeps two replicas from sending one delivery twice.
+  A StatefulSet stops the old pod before it starts the new one, so on an upgrade two processes never
+  hold the data volume at once. The data claim keeps its name (<code>&lt;release&gt;-data</code>, or
+  <code>sanshain-data</code> with Kustomize), so an installation that ran as a Deployment keeps its
+  data: on the upgrade to 2.10.0 the Deployment is deleted and the StatefulSet starts on the same
+  claim, with one restart.
 </p>
 
 <h2>Health, readiness and version</h2>
@@ -415,9 +402,8 @@ extraEnv:
     configures.
   </li>
   <li>
-    Change the image tag and roll. Migrations run on the first start of the new version, before the
-    listener binds; on PostgreSQL with several replicas the migrator takes an advisory lock, so the
-    first pod runs them and the others wait.
+    Change the image tag and roll. The StatefulSet stops the old pod first; migrations run on the
+    first start of the new version, before the listener binds.
   </li>
 </ol>
 <p>

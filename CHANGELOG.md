@@ -25,8 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dev mode opens provide, require, catalog and MCP only: the admin pages need a signed-in administrator, and only administrators sign in. On a server without `ALLOW_INSECURE_DEV_MODE` the Dev option is greyed out and switching to it is refused instead of silently doing nothing.
 - Rainbow colours the graph by position, so the callers in view get colours as far apart as possible instead of mostly blue-greens, and it colours the catalog's dependsOn lines too.
 - The sign-in page shows the Register tab only while registration is open, does not promise a wait when new accounts are acknowledged automatically, shows the SSO button only while OIDC is the mode, and says when only administrators can sign in.
+- The Helm chart and the Kubernetes manifests run Sanshain as a StatefulSet with one replica instead of a Deployment, so an upgrade stops the old pod before the new one opens the same data volume; the data claim keeps its name.
 
 ### Removed
+- The Helm chart's `replicaCount` and `autoscaling` values and its HorizontalPodAutoscaler: Sanshain runs as exactly one instance, also on PostgreSQL, and the chart refuses to render when either value is set.
 - The browser's hidden WebSocket mode for live updates (the `sanshain_use_ws` switch in local storage), which sent the session token in the URL and was always refused; the pages use the update stream with the `Authorization` header. `/api/ws/updates` stays for clients that send the header.
 
 ### Fixed

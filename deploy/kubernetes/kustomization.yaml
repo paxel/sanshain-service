@@ -4,7 +4,7 @@ resources:
   - configmap.yaml
   - secret.yaml
   - pvc.yaml
-  - deployment.yaml
+  - statefulset.yaml
   - service.yaml
   - ingress.yaml
   # Scheduled backups are opt-in: see backup-cronjob-sqlite.yaml and

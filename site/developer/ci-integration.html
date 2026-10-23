@@ -15,11 +15,6 @@
       every new dependency, every branch cut and catalog push. Registering receivers and verifying
       the signature is <a href="../operator/webhooks.html">Webhooks</a>.
     </li>
-    <li>
-      On a multi-replica PostgreSQL install, a provide handled by one replica is visible on the
-      others within 10 s (the data cache's expiry). A pipeline that provides and immediately
-      requires the same version from another replica should expect at most that delay.
-    </li>
   </ul>
 </div>
 

@@ -246,9 +246,8 @@
 <ul>
   <li>
     <strong>PostgreSQL</strong>, managed, instead of the default SQLite: more concurrent writers and
-    the backups you already have. With more than one replica read the
-    <a href="../operator/deployment.html#scaling">Scaling</a> section: caches expire within 10 s and
-    session affinity is recommended.
+    the backups you already have. Sanshain still runs as one instance; see
+    <a href="../operator/deployment.html#scaling">Scaling</a>.
   </li>
   <li>
     <strong>Backups</strong>: the Helm chart renders a CronJob that stores a <code>pg_dump</code>,
