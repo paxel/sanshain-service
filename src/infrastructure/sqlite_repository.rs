@@ -142,8 +142,15 @@ impl From<ApiTokenRow> for ApiToken {
     }
 }
 
-/// `user_profiles` as selected: user id, last sign-in, display name, avatar hash.
-type UserProfileRow = (i64, Option<String>, Option<String>, Option<String>);
+/// `user_profiles` as selected: user id, last sign-in, display name, avatar
+/// hash, directory id.
+type UserProfileRow = (
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 #[derive(Clone)]
 
@@ -2386,9 +2393,118 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn set_directory_id(
+        &self,
+        user_id: i64,
+        directory_id: &str,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, directory_id) VALUES (?, ?) \
+             ON CONFLICT (user_id) DO UPDATE SET directory_id = excluded.directory_id",
+        )
+        .bind(user_id)
+        .bind(directory_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn find_user_by_directory_id(
+        &self,
+        directory_id: &str,
+    ) -> Result<Option<User>, RepositoryError> {
+        let row: Option<(i64, String, String, bool)> = sqlx::query_as(
+            "SELECT u.id, u.username, u.password_hash, u.approved FROM users u \
+             JOIN user_profiles p ON p.user_id = u.id WHERE p.directory_id = ?",
+        )
+        .bind(directory_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.map(|(id, username, password_hash, approved)| User {
+            id,
+            username,
+            password_hash,
+            approved,
+        }))
+    }
+
+    async fn rename_user(&self, user_id: i64, username: &str) -> Result<(), RepositoryError> {
+        sqlx::query("UPDATE users SET username = ? WHERE id = ?")
+            .bind(username)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn merge_user_into(&self, from: i64, into: i64) -> Result<(), RepositoryError> {
+        let mut tx = self.write_tx().await?;
+        sqlx::query(
+            "UPDATE user_roles SET user_id = ? WHERE user_id = ? \
+             AND role NOT IN (SELECT role FROM user_roles WHERE user_id = ?)",
+        )
+        .bind(into)
+        .bind(from)
+        .bind(into)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE user_group_members SET user_id = ? WHERE user_id = ? \
+             AND group_id NOT IN (SELECT group_id FROM user_group_members WHERE user_id = ?)",
+        )
+        .bind(into)
+        .bind(from)
+        .bind(into)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE producer_user_maintainers SET user_id = ? WHERE user_id = ? \
+             AND service_id NOT IN (SELECT service_id FROM producer_user_maintainers WHERE user_id = ?)",
+        )
+        .bind(into)
+        .bind(from)
+        .bind(into)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "UPDATE user_favorites SET user_id = ? WHERE user_id = ? \
+             AND NOT EXISTS (SELECT 1 FROM user_favorites f WHERE f.user_id = ? \
+             AND f.item_type = user_favorites.item_type AND f.item_name = user_favorites.item_name)",
+        )
+        .bind(into)
+        .bind(from)
+        .bind(into)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for table in ["api_tokens", "sessions"] {
+            sqlx::query(&format!("UPDATE {table} SET user_id = ? WHERE user_id = ?"))
+                .bind(into)
+                .bind(from)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(from)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         let rows: Vec<UserProfileRow> = sqlx::query_as(
-            "SELECT user_id, last_sign_in, display_name, avatar_hash FROM user_profiles",
+            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id FROM user_profiles",
         )
         .fetch_all(&self.pool)
         .await
@@ -2396,11 +2512,12 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(rows
             .into_iter()
             .map(
-                |(user_id, last_sign_in, display_name, avatar_hash)| UserProfile {
+                |(user_id, last_sign_in, display_name, avatar_hash, directory_id)| UserProfile {
                     user_id,
                     last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
                     display_name,
                     avatar_hash,
+                    directory_id,
                 },
             )
             .collect())

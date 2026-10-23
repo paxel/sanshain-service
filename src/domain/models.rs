@@ -411,6 +411,11 @@ pub struct LdapConfig {
     pub admin_group: String,
     #[serde(default)]
     pub use_tls: bool,
+    /// The attribute of the found entry that becomes the Sanshain username.
+    /// Empty: `sAMAccountName` if the entry has one, else `uid`, else the
+    /// name that was typed.
+    #[serde(default)]
+    pub username_attribute: String,
 }
 
 impl LdapConfig {
@@ -498,6 +503,9 @@ pub struct AuthenticatedUser {
     /// Their e-mail address as the provider knows it (LDAP `mail`).
     #[serde(default)]
     pub email: Option<String>,
+    /// The entry's immutable ID (LDAP `objectGUID` or `entryUUID`).
+    #[serde(default)]
+    pub directory_id: Option<String>,
 }
 
 /// What an API token may do.
@@ -645,6 +653,9 @@ pub struct UserProfile {
     pub display_name: Option<String>,
     /// The Gravatar key of their e-mail address, if one is known.
     pub avatar_hash: Option<String>,
+    /// The directory's immutable ID of the person, if they signed in
+    /// through LDAP.
+    pub directory_id: Option<String>,
 }
 
 impl UserProfile {
@@ -1916,6 +1927,7 @@ mod tests {
             group_filter: String::new(),
             admin_group: String::new(),
             use_tls: false,
+            username_attribute: String::new(),
         })
         .unwrap();
 
@@ -1934,6 +1946,7 @@ mod tests {
                 group_filter: String::new(),
                 admin_group: String::new(),
                 use_tls: false,
+                username_attribute: String::new(),
             };
 
             assert!(config.validate().is_ok());
@@ -1951,6 +1964,7 @@ mod tests {
             group_filter: String::new(),
             admin_group: String::new(),
             use_tls: false,
+            username_attribute: String::new(),
         };
 
         let mut config = valid.clone();

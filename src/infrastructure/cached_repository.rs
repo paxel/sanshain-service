@@ -1164,6 +1164,35 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.set_avatar_hash(user_id, avatar_hash).await
     }
 
+    async fn set_directory_id(
+        &self,
+        user_id: i64,
+        directory_id: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_directory_id(user_id, directory_id).await
+    }
+
+    async fn find_user_by_directory_id(
+        &self,
+        directory_id: &str,
+    ) -> Result<Option<User>, RepositoryError> {
+        self.inner.find_user_by_directory_id(directory_id).await
+    }
+
+    async fn rename_user(&self, user_id: i64, username: &str) -> Result<(), RepositoryError> {
+        self.inner.rename_user(user_id, username).await
+    }
+
+    // Roles and maintainerships move to another account: what was cached for
+    // either is stale.
+    async fn merge_user_into(&self, from: i64, into: i64) -> Result<(), RepositoryError> {
+        self.inner.merge_user_into(from, into).await?;
+        if !self.is_disabled() {
+            self.effective_roles_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         self.inner.list_user_profiles().await
     }

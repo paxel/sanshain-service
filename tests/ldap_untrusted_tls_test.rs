@@ -107,6 +107,7 @@ async fn ldaps_against_an_untrusted_ca_is_rejected() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     });
 
     // The TLS handshake must fail (CA does not chain) → ConnectionFailed, before

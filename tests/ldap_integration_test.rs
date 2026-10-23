@@ -174,6 +174,7 @@ fn config(url: &str) -> LdapConfig {
         group_filter: String::new(),
         admin_group: ADMINS_DN.to_string(),
         use_tls: false,
+        username_attribute: String::new(),
     }
 }
 
@@ -199,6 +200,26 @@ async fn ldap_plain_bind_search_groups_and_failure_modes() {
         .expect("valid credentials authenticate");
     assert_eq!(user.username, "alice");
     assert_eq!(user.display_name.as_deref(), Some("Alice Anderson"));
+    let id = user.directory_id.clone().expect("entryUUID read");
+    assert!(id.starts_with("uuid:"), "{id}");
+
+    // A filter that also accepts the e-mail address: either name signs in as
+    // the same person, under the uid, with the same directory ID.
+    let mut either = config(&url);
+    either.user_filter = "(|(uid={username})(mail={username}))".to_string();
+    let by_mail = LdapAuthProvider::new(either.clone())
+        .authenticate("Alice.Anderson@Example.org", "alicepw")
+        .await
+        .expect("the e-mail address signs in");
+    assert_eq!(by_mail.username, "alice");
+    assert_eq!(by_mail.directory_id.as_deref(), Some(id.as_str()));
+    // A configured attribute wins over uid.
+    either.username_attribute = "mail".to_string();
+    let named_by_mail = LdapAuthProvider::new(either)
+        .authenticate("alice", "alicepw")
+        .await
+        .expect("signs in");
+    assert_eq!(named_by_mail.username, "Alice.Anderson@Example.org");
     assert_eq!(user.email.as_deref(), Some("Alice.Anderson@Example.org"));
 
     // A group found by a part of its name, by its DN; an injected filter

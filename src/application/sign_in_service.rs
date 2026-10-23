@@ -207,22 +207,16 @@ pub async fn may_sign_in_as_admin(
 /// refused sign-in leaves neither an account nor a session behind.
 pub async fn start_session(
     repo: &impl SpecRepository,
-    username: &str,
+    root_users: &RootUsers,
     verified: Verified,
 ) -> Result<Session, AppError> {
     let (user, method, identity) = match verified {
         Verified::Local(user) => (user, SignInMethod::Local, None),
-        Verified::Directory(Some(user), identity) => (user, SignInMethod::Ldap, Some(identity)),
-        Verified::Directory(None, identity) => {
-            // A directory user's privileges come from their directory groups,
-            // resolved on every check; the local password is random and unusable.
-            let hash = hash_password_async(&generate_random_password()).await?;
-            (
-                repo.create_user(username, &hash, true).await?,
-                SignInMethod::Ldap,
-                Some(identity),
-            )
-        }
+        Verified::Directory(existing, identity) => (
+            directory_account(repo, root_users, existing, &identity).await?,
+            SignInMethod::Ldap,
+            Some(identity),
+        ),
     };
     if let Some(identity) = identity {
         super::auth_service::refresh_provider_identity(
@@ -237,6 +231,125 @@ pub async fn start_session(
     let session = repo.create_session(user.id, &expires_at).await?;
     super::auth_service::record_sign_in(repo, &session, method).await?;
     Ok(session)
+}
+
+/// The one account of a directory entry. The directory says who the person
+/// is: their username (the username attribute) and their immutable ID. Every
+/// account that belongs to the entry (found by that ID, by the username, by
+/// the name that was typed, or by the entry's e-mail address, the usual
+/// alternative sign-in name) is folded into one, which takes the username
+/// and the ID. A rename in the directory renames the account. Root names are
+/// held by configuration: such an account is neither renamed nor merged.
+async fn directory_account(
+    repo: &impl SpecRepository,
+    root_users: &RootUsers,
+    typed: Option<User>,
+    identity: &AuthenticatedUser,
+) -> Result<User, AppError> {
+    let canonical = identity.username.as_str();
+    let mut candidates: Vec<User> = Vec::new();
+    let mut consider = |user: Option<User>| {
+        if let Some(user) = user
+            && !user.is_service_account()
+            && !candidates.iter().any(|c| c.id == user.id)
+        {
+            candidates.push(user);
+        }
+    };
+    if let Some(id) = identity.directory_id.as_deref() {
+        consider(repo.find_user_by_directory_id(id).await?);
+    }
+    consider(repo.find_user(canonical).await?);
+    consider(typed);
+    if let Some(email) = identity.email.as_deref() {
+        consider(repo.find_user(email.trim()).await?);
+    }
+
+    let Some(target) = candidates
+        .iter()
+        .find(|u| u.username == canonical)
+        .or_else(|| candidates.first())
+        .cloned()
+    else {
+        // A first sign-in: privileges come from the directory groups, resolved
+        // on every check; the local password is random and unusable.
+        let hash = hash_password_async(&generate_random_password()).await?;
+        let user = repo.create_user(canonical, &hash, true).await?;
+        if let Some(id) = identity.directory_id.as_deref() {
+            repo.set_directory_id(user.id, id).await?;
+        }
+        return Ok(user);
+    };
+
+    for other in candidates.iter().filter(|u| u.id != target.id) {
+        if root_users.contains(&other.username) || root_users.contains(&target.username) {
+            continue;
+        }
+        repo.merge_user_into(other.id, target.id).await?;
+        audit(
+            repo,
+            &target.username,
+            "MERGE_USER",
+            &format!(
+                "Merged '{}' into '{}': both are the directory entry of '{canonical}'",
+                other.username, target.username
+            ),
+        )
+        .await?;
+    }
+
+    let mut target = target;
+    let name_taken = repo
+        .find_user(canonical)
+        .await?
+        .is_some_and(|u| u.id != target.id);
+    if target.username != canonical
+        && !name_taken
+        && !root_users.contains(&target.username)
+        && !root_users.contains(canonical)
+    {
+        repo.rename_user(target.id, canonical).await?;
+        audit(
+            repo,
+            canonical,
+            "RENAME_USER",
+            &format!(
+                "Renamed '{}' to '{canonical}' as the directory names them",
+                target.username
+            ),
+        )
+        .await?;
+        target.username = canonical.to_string();
+    }
+
+    if let Some(id) = identity.directory_id.as_deref()
+        && repo
+            .find_user_by_directory_id(id)
+            .await?
+            .is_none_or(|holder| holder.id == target.id)
+    {
+        repo.set_directory_id(target.id, id).await?;
+    }
+    Ok(target)
+}
+
+async fn audit(
+    repo: &impl SpecRepository,
+    username: &str,
+    action: &str,
+    details: &str,
+) -> Result<(), AppError> {
+    repo.insert_audit_log(
+        username,
+        crate::domain::ports::NewAuditLog {
+            action,
+            details,
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -267,6 +380,111 @@ mod tests {
         }
     }
 
+    fn roots() -> RootUsers {
+        RootUsers::resolve(Some("root"), None)
+    }
+
+    fn entry(username: &str, id: &str, email: &str) -> AuthenticatedUser {
+        AuthenticatedUser {
+            username: username.to_string(),
+            display_name: None,
+            email: Some(email.to_string()),
+            directory_id: Some(id.to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_e_mail_sign_in_lands_on_the_account_of_the_short_name_and_folds_the_duplicate() {
+        let repo = repo_with("axel", "x", true).await;
+        let axel = repo.find_user("axel").await.unwrap().unwrap();
+        // Before 2.11 the e-mail sign-in made a second account.
+        let dup = repo
+            .create_user("a.smart@alva.com", "hash", true)
+            .await
+            .unwrap();
+        repo.grant_user_role(dup.id, "releaser").await.unwrap();
+
+        let session = start_session(
+            &repo,
+            &roots(),
+            Verified::Directory(
+                Some(dup.clone()),
+                entry("axel", "uuid:1", "a.smart@alva.com"),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.user_id, axel.id, "one account: the short name's");
+        assert!(repo.find_user("a.smart@alva.com").await.unwrap().is_none());
+        assert_eq!(
+            repo.list_user_roles(axel.id).await.unwrap(),
+            vec!["releaser".to_string()],
+            "the duplicate's roles came along"
+        );
+        let logs = repo.audit_logs.lock().unwrap().clone();
+        assert!(logs.iter().any(|l| l.action == "MERGE_USER"));
+
+        // The short name later: same account, found by the directory ID.
+        let session = start_session(
+            &repo,
+            &roots(),
+            Verified::Directory(
+                Some(axel.clone()),
+                entry("axel", "uuid:1", "a.smart@alva.com"),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.user_id, axel.id);
+    }
+
+    #[tokio::test]
+    async fn a_rename_in_the_directory_renames_the_account() {
+        let repo = MockRepo::new();
+        let first = start_session(
+            &repo,
+            &roots(),
+            Verified::Directory(None, entry("axel", "uuid:7", "axel@alva.com")),
+        )
+        .await
+        .unwrap();
+        let session = start_session(
+            &repo,
+            &roots(),
+            Verified::Directory(None, entry("axel.dumb", "uuid:7", "axel.dumb@alva.com")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            session.user_id, first.user_id,
+            "recognised by the directory ID"
+        );
+        assert!(repo.find_user("axel").await.unwrap().is_none());
+        let renamed = repo.find_user("axel.dumb").await.unwrap().unwrap();
+        assert_eq!(renamed.id, first.user_id);
+        let logs = repo.audit_logs.lock().unwrap().clone();
+        assert!(logs.iter().any(|l| l.action == "RENAME_USER"));
+    }
+
+    #[tokio::test]
+    async fn a_root_name_is_neither_renamed_nor_merged() {
+        let repo = repo_with("root", "x", true).await;
+        let root = repo.find_user("root").await.unwrap().unwrap();
+        let session = start_session(
+            &repo,
+            &roots(),
+            Verified::Directory(Some(root.clone()), entry("rsmith", "uuid:9", "r@alva.com")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(session.user_id, root.id);
+        assert!(
+            repo.find_user("root").await.unwrap().is_some(),
+            "still root"
+        );
+        assert!(repo.find_user("rsmith").await.unwrap().is_none());
+    }
+
     impl AuthProvider for Directory {
         async fn authenticate(
             &self,
@@ -279,6 +497,7 @@ mod tests {
                     username: username.to_string(),
                     display_name: Some(format!("{username} from the directory")),
                     email: Some(format!(" {}@Example.com ", username.to_uppercase())),
+                    directory_id: None,
                 })
             } else {
                 Err(AuthProviderError::InvalidCredentials)
@@ -326,7 +545,7 @@ mod tests {
             .unwrap();
         assert!(matches!(verified, Verified::Directory(Some(ref u), _) if u.username == "axel"));
         assert_eq!(directory.binds(), 1);
-        let session = start_session(&repo, "axel", verified).await.unwrap();
+        let session = start_session(&repo, &roots(), verified).await.unwrap();
         assert_eq!(
             repo.session_sign_in(&session.token).await.unwrap(),
             Some(SignInMethod::Ldap),
@@ -336,7 +555,7 @@ mod tests {
         let verified = verify_password_local_first(&repo, Some(&directory), "axel", "local-pass")
             .await
             .unwrap();
-        let session = start_session(&repo, "axel", verified).await.unwrap();
+        let session = start_session(&repo, &roots(), verified).await.unwrap();
         assert_eq!(
             repo.session_sign_in(&session.token).await.unwrap(),
             Some(SignInMethod::Local)
@@ -352,7 +571,7 @@ mod tests {
             .unwrap();
         assert!(matches!(verified, Verified::Directory(None, _)));
         assert!(repo.find_user("dana").await.unwrap().is_none());
-        let session = start_session(&repo, "dana", verified).await.unwrap();
+        let session = start_session(&repo, &roots(), verified).await.unwrap();
         assert!(
             repo.find_user("dana").await.unwrap().is_some(),
             "created on the session"

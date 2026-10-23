@@ -372,13 +372,22 @@ impl AuthProvider for LdapAuthProvider {
         let mut ldap = self.connect().await?;
 
         // Search for the user
-        let rs = self
-            .search_user(
-                &mut ldap,
-                username,
-                vec!["dn", "cn", "memberOf", "displayName", "mail"],
-            )
-            .await?;
+        let configured = self.config.username_attribute.trim();
+        let mut attrs = vec![
+            "dn",
+            "cn",
+            "memberOf",
+            "displayName",
+            "mail",
+            "sAMAccountName",
+            "uid",
+            "objectGUID",
+            "entryUUID",
+        ];
+        if !configured.is_empty() {
+            attrs.push(configured);
+        }
+        let rs = self.search_user(&mut ldap, username, attrs).await?;
 
         if rs.is_empty() {
             self.unbind(&mut ldap).await;
@@ -401,6 +410,8 @@ impl AuthProvider for LdapAuthProvider {
             .and_then(|values| values.first())
             .map(|mail| mail.trim().to_string())
             .filter(|mail| !mail.is_empty());
+        let canonical = canonical_username(&entry, configured, username);
+        let directory_id = directory_id(&entry);
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
@@ -423,9 +434,10 @@ impl AuthProvider for LdapAuthProvider {
         // check — not captured now and frozen, which is what used to leave a
         // promotion or demotion in the directory with no effect.
         Ok(AuthenticatedUser {
-            username: username.to_string(),
+            username: canonical,
             display_name,
             email,
+            directory_id,
         })
     }
 
@@ -434,6 +446,52 @@ impl AuthProvider for LdapAuthProvider {
         self.unbind(&mut ldap).await;
         Ok(())
     }
+}
+
+/// The Sanshain username of a found entry: the configured attribute, or,
+/// without one, `sAMAccountName` (Active Directory), then `uid` (OpenLDAP).
+/// The name that was typed is the last resort, so nobody is locked out by an
+/// entry that lacks the attribute.
+fn canonical_username(entry: &SearchEntry, configured: &str, typed: &str) -> String {
+    let first = |attr: &str| {
+        entry
+            .attrs
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(attr))
+            .and_then(|(_, values)| values.first())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let candidates: Vec<&str> = if configured.is_empty() {
+        vec!["sAMAccountName", "uid"]
+    } else {
+        vec![configured]
+    };
+    candidates
+        .into_iter()
+        .find_map(first)
+        .unwrap_or_else(|| typed.to_string())
+}
+
+/// The entry's immutable ID: `objectGUID` (binary, in Active Directory) as
+/// hex, or `entryUUID` (OpenLDAP). Survives a rename of the person.
+fn directory_id(entry: &SearchEntry) -> Option<String> {
+    if let Some(guid) = entry
+        .bin_attrs
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("objectGUID"))
+        .and_then(|(_, values)| values.first())
+    {
+        return Some(format!("guid:{}", hex::encode(guid)));
+    }
+    entry
+        .attrs
+        .iter()
+        .find(|(name, _)| {
+            name.eq_ignore_ascii_case("entryUUID") || name.eq_ignore_ascii_case("objectGUID")
+        })
+        .and_then(|(_, values)| values.first())
+        .map(|id| format!("uuid:{}", id.trim().to_lowercase()))
 }
 
 /// The object classes a group has: `group` in Active Directory,

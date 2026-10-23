@@ -114,6 +114,7 @@ async fn ldap_config_roundtrip_tls() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: true,
+        username_attribute: String::new(),
     };
     auth::set_ldap_config(&repo, &cfg).await.unwrap();
     let got = auth::get_ldap_config(&repo).await.unwrap().unwrap();

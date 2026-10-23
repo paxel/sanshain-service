@@ -1664,6 +1664,8 @@ async function loadAuthConfig() {
         document.getElementById("ldap-bind-password").value = data.ldap_config.bind_password || "";
         document.getElementById("ldap-base-dn").value = data.ldap_config.base_dn || "";
         document.getElementById("ldap-user-filter").value = data.ldap_config.user_filter || "";
+        document.getElementById("ldap-username-attribute").value =
+          data.ldap_config.username_attribute || "";
         document.getElementById("ldap-admin-group").value = data.ldap_config.admin_group || "";
       }
       if (data.oidc_config) {
@@ -1696,6 +1698,7 @@ function getLdapConfigFromForm() {
     bind_password: document.getElementById("ldap-bind-password").value || null,
     base_dn: document.getElementById("ldap-base-dn").value,
     user_filter: document.getElementById("ldap-user-filter").value || "(uid={username})",
+    username_attribute: document.getElementById("ldap-username-attribute").value.trim(),
     admin_group: document.getElementById("ldap-admin-group").value,
   };
 }

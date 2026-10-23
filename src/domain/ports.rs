@@ -752,6 +752,35 @@ pub trait SpecRepository: Send + Sync {
         avatar_hash: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Record the directory ID of `user_id`.
+    fn set_directory_id(
+        &self,
+        user_id: i64,
+        directory_id: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// The user carrying this directory ID, if any.
+    fn find_user_by_directory_id(
+        &self,
+        directory_id: &str,
+    ) -> impl Future<Output = Result<Option<User>, RepositoryError>> + Send;
+
+    /// Give `user_id` a new username.
+    fn rename_user(
+        &self,
+        user_id: i64,
+        username: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Fold `from` into `into` in one transaction: roles, group memberships,
+    /// maintainerships, favourites, API tokens and sessions move over (what
+    /// `into` has already stays), then `from` is deleted.
+    fn merge_user_into(
+        &self,
+        from: i64,
+        into: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Every stored user profile.
     fn list_user_profiles(
         &self,

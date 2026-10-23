@@ -39,6 +39,7 @@ async fn ldap_config_roundtrip() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     };
     auth_service::set_ldap_config(&repo, &cfg).await.unwrap();
     let got = auth_service::get_ldap_config(&repo).await.unwrap().unwrap();
@@ -60,6 +61,7 @@ fn ldap_validate_ok() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: true,
+        username_attribute: String::new(),
     };
     assert!(cfg.validate().is_ok());
 }
@@ -76,6 +78,7 @@ fn ldap_validate_bad_url() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     };
     assert!(cfg.validate().is_err());
 }
@@ -91,6 +94,7 @@ fn ldap_validate_empty_bind_dn() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     };
     assert!(cfg.validate().is_err());
 }
@@ -106,6 +110,7 @@ fn ldap_validate_empty_base_dn() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     };
     assert!(cfg.validate().is_err());
 }
@@ -121,6 +126,7 @@ fn ldap_validate_bad_host() {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls: false,
+        username_attribute: String::new(),
     };
     assert!(cfg.validate().is_err());
 }

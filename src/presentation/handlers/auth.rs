@@ -72,7 +72,7 @@ pub async fn auth_login(
             return Err(services::admins_only_refusal(&mode));
         }
     }
-    let session = services::start_session(&state.repo, &payload.username, verified).await?;
+    let session = services::start_session(&state.repo, &state.root_users, verified).await?;
     Ok(Json(LoginResponse {
         token: session.token,
     }))

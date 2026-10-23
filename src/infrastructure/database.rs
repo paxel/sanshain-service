@@ -495,6 +495,29 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_avatar_hash(user_id, avatar_hash))
     }
 
+    async fn set_directory_id(
+        &self,
+        user_id: i64,
+        directory_id: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_directory_id(user_id, directory_id))
+    }
+
+    async fn find_user_by_directory_id(
+        &self,
+        directory_id: &str,
+    ) -> Result<Option<User>, RepositoryError> {
+        delegate!(self, find_user_by_directory_id(directory_id))
+    }
+
+    async fn rename_user(&self, user_id: i64, username: &str) -> Result<(), RepositoryError> {
+        delegate!(self, rename_user(user_id, username))
+    }
+
+    async fn merge_user_into(&self, from: i64, into: i64) -> Result<(), RepositoryError> {
+        delegate!(self, merge_user_into(from, into))
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         delegate!(self, list_user_profiles())
     }

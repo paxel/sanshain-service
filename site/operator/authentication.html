@@ -340,6 +340,18 @@
       <td><code>(uid={username})</code></td>
     </tr>
     <tr>
+      <td>Username attribute (<code>username_attribute</code>)</td>
+      <td>
+        The attribute of the found entry that names the Sanshain account, whatever the person typed.
+        Empty: <code>sAMAccountName</code> when the entry has one, else <code>uid</code>, else the
+        typed name. A filter such as <code>(|(uid={username})(mail={username}))</code> then lets
+        <code>axel</code> and <code>a.smart@alva.com</code> sign in as the same account. The user
+        filter must find the entry by this attribute too, because group lookups search by the
+        account's name.
+      </td>
+      <td>empty</td>
+    </tr>
+    <tr>
       <td>Bootstrap Admin Group (<code>admin_group</code>)</td>
       <td>
         A directory group whose members get the <code>admin</code> role. Saving it creates (or
@@ -375,6 +387,7 @@
       "bind_password": "secret",
       "base_dn": "dc=example,dc=com",
       "user_filter": "(uid={username})",
+      "username_attribute": "",
       "admin_group": "cn=admins,ou=groups,dc=example,dc=com",
       "use_tls": false
     }
@@ -437,6 +450,22 @@
   <a href="configuration.html#directory-group-caching">Directory group caching</a>). Because the
   local check comes first, root and local accounts are never locked out by the directory, whether it
   refuses or is down.
+</p>
+
+<h3>One account per person</h3>
+<p>
+  At every LDAP sign-in Sanshain also reads the entry's immutable ID, <code>objectGUID</code> in
+  Active Directory or <code>entryUUID</code> in OpenLDAP, and keeps it with the account. The
+  accounts that belong to the same entry are folded into one: the one found by that ID, the one
+  named by the username attribute, the one named as typed and the one named by the entry's
+  <code>mail</code>. Roles, group memberships, maintainerships, favourites, API tokens and sessions
+  move to the account that carries the username; the audit log records each merge
+  (<code>MERGE_USER</code>). So two accounts created before 2.11, one by the short name and one by
+  the e-mail address, become one the next time the person signs in. When the directory renames the
+  person (<code>axel</code> becomes <code>axel.dumb</code>), the ID still matches, and the account
+  is renamed (<code>RENAME_USER</code>) instead of a new one being made. Accounts named in
+  <code>SANSHAIN_ROOT_USERS</code> are never renamed or merged, and service accounts never take
+  part.
 </p>
 
 <h3>Timeouts, schemes and ports</h3>

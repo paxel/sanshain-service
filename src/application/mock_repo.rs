@@ -1966,6 +1966,147 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn set_directory_id(
+        &self,
+        user_id: i64,
+        directory_id: &str,
+    ) -> Result<(), RepositoryError> {
+        self.user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(user_id)
+            .or_insert_with(|| UserProfile {
+                user_id,
+                ..UserProfile::default()
+            })
+            .directory_id = Some(directory_id.to_string());
+        Ok(())
+    }
+
+    async fn find_user_by_directory_id(
+        &self,
+        directory_id: &str,
+    ) -> Result<Option<User>, RepositoryError> {
+        let owner = self
+            .user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .find(|p| p.directory_id.as_deref() == Some(directory_id))
+            .map(|p| p.user_id);
+        Ok(owner.and_then(|id| {
+            self.users
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|u| u.id == id)
+                .cloned()
+        }))
+    }
+
+    async fn rename_user(&self, user_id: i64, username: &str) -> Result<(), RepositoryError> {
+        if let Some(user) = self
+            .users
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .find(|u| u.id == user_id)
+        {
+            user.username = username.to_string();
+        }
+        Ok(())
+    }
+
+    async fn merge_user_into(&self, from: i64, into: i64) -> Result<(), RepositoryError> {
+        fn moved<K: PartialEq + Clone>(
+            rows: &mut Vec<K>,
+            user_of: impl Fn(&K) -> i64,
+            with_user: impl Fn(&K, i64) -> K,
+            from: i64,
+            into: i64,
+        ) {
+            let mut out: Vec<K> = Vec::new();
+            for row in rows.iter() {
+                let row = if user_of(row) == from {
+                    with_user(row, into)
+                } else {
+                    row.clone()
+                };
+                if !out.contains(&row) {
+                    out.push(row);
+                }
+            }
+            *rows = out;
+        }
+        moved(
+            &mut self
+                .user_roles
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+            |r| r.0,
+            |r, u| (u, r.1.clone()),
+            from,
+            into,
+        );
+        moved(
+            &mut self
+                .group_members
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+            |r| r.1,
+            |r, u| (r.0, u),
+            from,
+            into,
+        );
+        moved(
+            &mut self
+                .user_maintainers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+            |r| r.1,
+            |r, u| (r.0, u),
+            from,
+            into,
+        );
+        moved(
+            &mut self
+                .user_favorites
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+            |r| r.0,
+            |r, u| (u, r.1.clone(), r.2.clone()),
+            from,
+            into,
+        );
+        for token in self
+            .api_tokens
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .filter(|t| t.user_id == from)
+        {
+            token.user_id = into;
+        }
+        for session in self
+            .sessions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_mut()
+            .filter(|s| s.user_id == from)
+        {
+            session.user_id = into;
+        }
+        self.user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&from);
+        self.users
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|u| u.id != from);
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         Ok(self
             .user_profiles

@@ -710,6 +710,22 @@
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-slate-600 mb-1"
+                    >Username attribute</label
+                  >
+                  <input
+                    type="text"
+                    id="ldap-username-attribute"
+                    data-needs="manage_auth_config"
+                    placeholder="sAMAccountName, else uid"
+                    class="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="text-xs text-slate-500 mt-1">
+                    Names the Sanshain account, whichever name the person signed in with. The user
+                    filter must find the entry by it too.
+                  </p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-600 mb-1"
                     >Bootstrap Admin Group
                     <span class="font-normal text-slate-400"
                       >(directory group granted the admin role)</span

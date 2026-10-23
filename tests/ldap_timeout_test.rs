@@ -106,6 +106,7 @@ fn config(url: &str, use_tls: bool) -> LdapConfig {
         group_filter: String::new(),
         admin_group: String::new(),
         use_tls,
+        username_attribute: String::new(),
     }
 }
 

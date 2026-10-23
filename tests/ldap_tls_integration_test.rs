@@ -205,6 +205,7 @@ fn config(server_url: &str, use_tls: bool) -> LdapConfig {
         group_filter: String::new(),
         admin_group: ADMINS_DN.to_string(),
         use_tls,
+        username_attribute: String::new(),
     }
 }
 

@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph's **Periphery** switch is remembered in the browser like direction, Compact, Rainbow and Topics; a link that hides protocols still decides it.
 
 ### Fixed
+- An LDAP user who could sign in with both a short name and an e-mail address got two accounts. The account is now named by the entry's **Username attribute** (new in the LDAP form; empty means `sAMAccountName`, else `uid`), recognised by its `objectGUID` or `entryUUID`, and renamed when the directory renames the person; existing duplicates are merged at the next sign-in, with their roles, group memberships, maintainerships, tokens and sessions, and the audit log records it.
 - A version's **build** link is shown only when it came from the trunk build, whose builds the CI server keeps; a branch build's link went to a deleted build. The trunk build after the merge takes over the build link of a branch build's origin and keeps its pull request, tickets and note. Origins stored before 2.11 show no build link until their trunk build provides again (`trunk_build` on the origin).
 - An endpoint's summary on a Producer's page sits under its path instead of floating between the path and the clients badge.
 

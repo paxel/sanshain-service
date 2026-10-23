@@ -222,6 +222,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261023000005_version_origin_trunk_build.sql",
         "6f977f534b43c4df53ebde5c5d7837accf3930fa686cb76d3f39e8918da2741f",
     ),
+    (
+        "20261023000006_user_directory_id.sql",
+        "e3bbc9f7ac5cca64cb73b579f0b2e60f081abf7bbbe62d351566c0b9ad80b4d8",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -396,6 +400,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261023000005_version_origin_trunk_build.sql",
         "99f030eb60b21de7b811e186ca459db98cc7226e4d2c28528b4e60047ef5c3ef",
+    ),
+    (
+        "20261023000006_user_directory_id.sql",
+        "e3bbc9f7ac5cca64cb73b579f0b2e60f081abf7bbbe62d351566c0b9ad80b4d8",
     ),
 ];
 
