@@ -55,7 +55,8 @@ function renderRecentProvides(provides) {
       .map(
         (p) => `<li class="py-2 flex justify-between gap-3">
           <span><a class="text-indigo-700 hover:underline" href="/producers.html?service=${encodeURIComponent(p.producer || "")}">${escapeHtml(p.producer || "")}</a>
-            <span class="font-mono text-slate-600">${escapeHtml(p.version || "")}</span></span>
+            <span class="font-mono text-slate-600">${escapeHtml(p.version || "")}</span>
+            ${externalTag(p)}</span>
           <span class="text-xs text-slate-400">${escapeHtml(p.username)} · ${escapeHtml(new Date(p.timestamp).toLocaleString())}</span>
         </li>`,
       )

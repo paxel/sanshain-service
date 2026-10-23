@@ -1022,6 +1022,21 @@ impl SpecRepository for CachedSpecRepository {
         Ok(())
     }
 
+    async fn set_producer_external(
+        &self,
+        service_name: &str,
+        external: bool,
+    ) -> Result<bool, RepositoryError> {
+        let found = self
+            .inner
+            .set_producer_external(service_name, external)
+            .await?;
+        if !self.is_disabled() {
+            self.services_cache.invalidate_all();
+        }
+        Ok(found)
+    }
+
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         let sentinel = "_all_".to_string();
         if !self.is_disabled()

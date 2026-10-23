@@ -2117,13 +2117,15 @@ function renderCustomGraph(report, svgElement, direction) {
       chipG.setAttribute("class", "graph-unrequired-chip");
       chipG.dataset.chip = chip.name;
       chipG.style.cursor = "pointer";
+      const chipExternal = !!serviceMetaMap.get(chip.name)?.external;
+      if (chipExternal) chipG.dataset.external = "1";
       const r = document.createElementNS(ns, "rect");
       r.setAttribute("x", chip.x);
       r.setAttribute("y", chip.y);
       r.setAttribute("width", chip.w);
       r.setAttribute("height", chip.h);
       r.setAttribute("rx", "6");
-      r.setAttribute("fill", "#e0e7ff");
+      r.setAttribute("fill", chipExternal ? "#e5e7eb" : "#e0e7ff");
       r.setAttribute("stroke", "#6366f1");
       r.setAttribute("stroke-width", "1");
       chipG.appendChild(r);
@@ -2313,9 +2315,14 @@ function renderCustomGraph(report, svgElement, direction) {
       stroke = "#14b8a6";
       textColor = "#115e59";
     }
+    // An external Producer (not the company's own) keeps the border of its
+    // role but gets a light grey fill: "none of us".
+    const isExternal = !!serviceMetaMap.get(node)?.external;
+    if (isExternal) fill = "#e5e7eb";
 
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.setAttribute("class", "graph-node");
+    if (isExternal) group.dataset.external = "1";
     group.dataset.node = node;
     group.dataset.provides = badges.provides.join(",");
     group.dataset.requires = badges.requires.join(",");

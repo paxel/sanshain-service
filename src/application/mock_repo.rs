@@ -92,6 +92,7 @@ pub struct MockTrunkMember {
 pub struct MockRepo {
     pub services: Mutex<HashMap<String, i64>>,
     pub producer_metadata: Mutex<HashMap<String, ProducerMetadata>>,
+    pub external_producers: Mutex<std::collections::HashSet<String>>,
     pub spec_versions: Mutex<Vec<MockSpecVersion>>,
     pub dependencies: Mutex<Vec<MockDependency>>,
     pub trunk_pins: Mutex<Vec<MockTrunkPin>>,
@@ -178,6 +179,7 @@ impl MockRepo {
         Self {
             services: Mutex::new(HashMap::new()),
             producer_metadata: Mutex::new(HashMap::new()),
+            external_producers: Mutex::new(std::collections::HashSet::new()),
             spec_versions: Mutex::new(Vec::new()),
             dependencies: Mutex::new(Vec::new()),
             trunk_pins: Mutex::new(Vec::new()),
@@ -1571,6 +1573,10 @@ impl SpecRepository for MockRepo {
             .producer_metadata
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        let external = self
+            .external_producers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let mut result: Vec<ProducerSummary> = services
             .keys()
             .map(|name| {
@@ -1581,6 +1587,7 @@ impl SpecRepository for MockRepo {
                     is_favorite: false,
                     icon,
                     domain,
+                    external: external.contains(name),
                 }
             })
             .collect();
@@ -1602,6 +1609,30 @@ impl SpecRepository for MockRepo {
                 (icon.map(|i| i.to_string()), domain.map(|d| d.to_string())),
             );
         Ok(())
+    }
+
+    async fn set_producer_external(
+        &self,
+        service_name: &str,
+        external: bool,
+    ) -> Result<bool, RepositoryError> {
+        let exists = self
+            .services
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(service_name);
+        if exists {
+            let mut marked = self
+                .external_producers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if external {
+                marked.insert(service_name.to_string());
+            } else {
+                marked.remove(service_name);
+            }
+        }
+        Ok(exists)
     }
 
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {

@@ -614,13 +614,18 @@ document.getElementById("graph-download-png").onclick = () => {
 
     const [type, value] = filter.split(":");
 
-    if (type === "node-role" || type === "node-badge") {
+    if (type === "node-role" || type === "node-badge" || type === "node-external") {
       // node-badge:<kind> matches nodes that provide or require that kind.
       const hasBadge = (el) =>
         `${el.dataset.provides || ""},${el.dataset.requires || ""}`.split(",").includes(value);
       const matchedNodes = new Set();
       nodes.forEach((el, name) => {
-        const match = type === "node-role" ? el.dataset.role === value : hasBadge(el);
+        const match =
+          type === "node-role"
+            ? el.dataset.role === value
+            : type === "node-external"
+              ? el.dataset.external === value
+              : hasBadge(el);
         el.style.opacity = match ? "1" : "0.12";
         el.style.transition = "opacity 0.2s";
         if (match) matchedNodes.add(name);

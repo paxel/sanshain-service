@@ -125,6 +125,13 @@ function personLabel(user) {
   return user.display_name ? `${user.display_name} (${user.username})` : user.username;
 }
 
+// The tag of a Producer the company does not maintain.
+function externalTag(producer) {
+  return producer && producer.external
+    ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase" data-external title="Not maintained by us: an outside API whose spec was provided here">external</span>'
+    : "";
+}
+
 // A person's avatar: a circle with their initials, and over it their Gravatar
 // picture when the instance shows them. Gravatar answers a transparent image
 // for an address it does not know, so the initials show through.

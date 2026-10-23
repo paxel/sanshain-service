@@ -380,6 +380,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, update_producer_metadata(service_name, icon, domain))
     }
 
+    async fn set_producer_external(
+        &self,
+        service_name: &str,
+        external: bool,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, set_producer_external(service_name, external))
+    }
+
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_consumers())
     }

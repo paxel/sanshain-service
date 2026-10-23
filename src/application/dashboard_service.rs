@@ -41,6 +41,8 @@ pub struct DashboardStats {
 pub struct RecentProvide {
     pub timestamp: String,
     pub producer: Option<String>,
+    /// The Producer is not the company's own.
+    pub external: bool,
     pub version: Option<String>,
     pub username: String,
 }
@@ -100,12 +102,20 @@ pub async fn recent_provides(repo: &impl SpecRepository) -> Result<Vec<RecentPro
             limit: 500,
         })
         .await?;
+    let external: std::collections::HashSet<String> = repo
+        .list_producers_detailed()
+        .await?
+        .into_iter()
+        .filter(|p| p.external)
+        .map(|p| p.name)
+        .collect();
     Ok(entries
         .into_iter()
         .filter(|e| e.action == PROVIDE_ACTION)
         .take(RECENT_PROVIDES)
         .map(|e| RecentProvide {
             timestamp: e.timestamp,
+            external: e.service.as_ref().is_some_and(|s| external.contains(s)),
             producer: e.service,
             version: e.version,
             username: e.username,

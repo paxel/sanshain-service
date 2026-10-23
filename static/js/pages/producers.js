@@ -99,6 +99,7 @@ function renderServiceList(allServicesIn) {
                             <div class="flex items-center gap-2">
                                 <h3 class="font-bold text-lg text-slate-800">${escapeHtml(name)}</h3>
                                 ${domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(domain)}</span>` : ""}
+                                ${externalTag(svc)}
                                 <button type="button" data-toggle-favorite class="text-amber-400 hover:text-amber-500 p-1 focus:outline-hidden rounded-sm transition-colors" title="${isFav ? "Remove from favorites" : "Mark as favorite"}">
                                     ${
                                       isFav

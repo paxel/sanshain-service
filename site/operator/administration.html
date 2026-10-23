@@ -39,10 +39,10 @@
   allow-list, the database URL, users, groups and maintainers show "Visible to holders of the …
   permission" to whoever lacks it, and the page does not ask for them. Roles and permissions are
   described in <a href="roles.html">Roles and permissions</a>, and every route behind it is in the
-  generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. Top to
-  bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL,
-  Snapshot Cleanup, Ticket Links, Dependency Cleanup, Authentication, Users, Groups, Maintainers,
-  Provide a Spec for a Producer, Producers, Consumers, Danger Zone. Administrative routes accept
+  generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. General,
+  top to bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data
+  TTL, Snapshot Cleanup, Ticket Links, Dependency Cleanup, Provide a Spec for a Producer, Producers,
+  Consumers, Danger Zone; Sign-in: Authentication; Users: Users, Groups, Maintainers. Administrative routes accept
   session tokens only, so a script that administers logs in first (<code>POST /auth/login</code>);
   the one exception is the backup download, which takes a <code>full</code> API token.
 </p>
@@ -304,7 +304,15 @@
   </li>
   <li>
     <strong>Provide a Spec for a Producer</strong>: a provide from the browser, for a one-off upload
-    by an administrator, with the same rules as the API.
+    by an administrator, with the same rules as the API. A Producer it creates is an outside API, so
+    it is marked <strong>external</strong>.
+  </li>
+  <li>
+    <strong>External Producers</strong>: an API the company does not maintain. The graph draws it
+    with a light grey fill (the legend says <em>External Producer</em>), and the Producers list,
+    the admin list and the dashboard tag it <strong>external</strong>. <strong>Mark external</strong>
+    and <strong>Mark as ours</strong> in the admin list correct it by hand
+    (<code>PUT /admin/producers/{name}/external</code>, <code>manage_producers</code>).
   </li>
 </ul>
 

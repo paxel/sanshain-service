@@ -638,6 +638,13 @@ pub trait SpecRepository: Send + Sync {
         domain: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Mark a Producer as external or not. Answers whether it exists.
+    fn set_producer_external(
+        &self,
+        service_name: &str,
+        external: bool,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
     /// List all clients.
     fn list_consumers(&self) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 

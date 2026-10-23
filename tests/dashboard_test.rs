@@ -176,4 +176,45 @@ async fn the_numbers_are_public_and_the_names_need_a_sign_in() {
     assert_eq!(recent[0]["producer"], "penguin");
     assert_eq!(recent[0]["version"], "1.0.0");
     assert_eq!(recent[0]["username"], "root");
+    assert_eq!(recent[0]["external"], false);
+}
+
+#[tokio::test]
+async fn an_external_producer_is_marked_in_the_lists() {
+    let ctx = setup().await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(&ctx.token),
+        Some(json!({ "producername": "penguin", "stability": "snapshot", "openapi_yaml": SPEC })),
+    )
+    .await;
+    assert!(status.is_success(), "{status} {body}");
+
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/producers/penguin/external",
+        Some(&ctx.token),
+        Some(json!({ "external": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, _, body) = send(&ctx, "GET", "/admin/producers", Some(&ctx.token), None).await;
+    let producers = as_json(&body);
+    assert_eq!(producers[0]["name"], "penguin");
+    assert_eq!(producers[0]["external"], true);
+    let (_, _, body) = send(&ctx, "GET", "/api/dashboard/recent", Some(&ctx.token), None).await;
+    assert_eq!(as_json(&body)[0]["external"], true);
+
+    let (status, _, _) = send(
+        &ctx,
+        "PUT",
+        "/admin/producers/nobody/external",
+        Some(&ctx.token),
+        Some(json!({ "external": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

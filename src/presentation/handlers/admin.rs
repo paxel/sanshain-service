@@ -1206,6 +1206,43 @@ pub struct UpdateProducerMetadataRequest {
     pub domain: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ExternalRequest {
+    pub external: bool,
+}
+
+/// Mark a Producer as external, or as the company's own again.
+pub async fn admin_set_producer_external(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+    Json(payload): Json<ExternalRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    services::set_producer_external(&state.repo, &name, payload.external).await?;
+    let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_PRODUCER_EXTERNAL",
+            details: &format!(
+                "Marked Producer '{}' as {}",
+                name,
+                if payload.external {
+                    "external"
+                } else {
+                    "the company's own"
+                }
+            ),
+            service: Some(&name),
+            action_type: Some("WRITE"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn admin_update_producer_metadata(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,

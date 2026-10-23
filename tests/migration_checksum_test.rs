@@ -214,6 +214,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261023000003_user_avatar_hash.sql",
         "8954c49d38e5eb516429ad7849b8dd4eb9fbc2bc107645c6d3714d19edd4bdd3",
     ),
+    (
+        "20261023000004_producer_external.sql",
+        "a6ad948b8f831cec0f8e643eab6eb7fbf24eceaffa910eb8eccd4a30c85d4f6f",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -380,6 +384,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261023000003_user_avatar_hash.sql",
         "8954c49d38e5eb516429ad7849b8dd4eb9fbc2bc107645c6d3714d19edd4bdd3",
+    ),
+    (
+        "20261023000004_producer_external.sql",
+        "2277e7f6ca0c5ea848a2fbbcaaf3bfcaaac9510a58a748f9d8b52d8d95531ad3",
     ),
 ];
 

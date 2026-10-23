@@ -136,3 +136,30 @@ test("pickers take effect on the tick: group members and maintainers", async ({ 
   await expect(option).toHaveAttribute("aria-checked", "false");
   await expect(page.locator(`[data-maintained="${producer}"]`)).toHaveCount(0);
 });
+
+test("a Producer provided on the admin page is external, tagged and drawn grey", async ({
+  page,
+}) => {
+  const name = `outside-${Date.now().toString(36)}`;
+  await page.fill("#paste-spec-name", name);
+  await page.fill(
+    "#paste-spec-content",
+    `openapi: 3.0.0\ninfo:\n  title: ${name}\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n`,
+  );
+  await page.click('button:has-text("Publish")');
+  await expect(page.locator("#paste-spec-result")).toContainText("Published");
+  const row = page.locator("#services-list > div", { hasText: name });
+  await expect(row.locator("[data-external]")).toHaveText("external");
+
+  // Corrected by hand, and back.
+  await row.locator('button:has-text("Mark as ours")').click();
+  await expect(row.locator("[data-external]")).toHaveCount(0);
+  await row.locator('button:has-text("Mark external")').click();
+  await expect(row.locator("[data-external]")).toHaveText("external");
+
+  // Nobody requires it yet: a chip in the (unrequired) box, grey all the same.
+  await page.goto("/graph.html");
+  await expect(
+    page.locator(`#custom-graph g.graph-unrequired-chip[data-chip="${name}"]`),
+  ).toHaveAttribute("data-external", "1", { timeout: 20000 });
+});

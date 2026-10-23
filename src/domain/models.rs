@@ -1330,6 +1330,10 @@ pub struct ProducerSummary {
     pub is_favorite: bool,
     pub icon: Option<String>,
     pub domain: Option<String>,
+    /// Not maintained by the company: an outside API whose spec an
+    /// administrator provided.
+    #[serde(default)]
+    pub external: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

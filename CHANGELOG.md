@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.11.0]
 
 ### Added
+- Producers can be **external**, an outside API the company does not maintain: an admin's provide of a new Producer marks it, **Mark external** / **Mark as ours** corrects it, the graph draws it with a light grey fill, and the Producers list, the admin list and the dashboard tag it.
 - Directory groups are added by searching LDAP for a part of their name, in the Groups section or right in the Maintainers picker, so a team like `carla` can maintain a Producer without knowing its DN (`GET /admin/directory-groups`, `POST /admin/groups/directory`).
 - Every person has an avatar, a circle with their initials, in the header and the user list. A **Gravatar pictures** switch (`manage_settings`, off by default) shows their picture from gravatar.com instead, keyed by the SHA-256 of the e-mail address from LDAP `mail` or the OIDC `email` claim; the address itself is not stored.
 - People have a **display name**, shown with the username in the user list, groups, maintainers, the token **For** choice, the audit log and the header: from LDAP `displayName` or the OIDC `name` claim at every sign-in, set by local users on their account page, and by user managers for service accounts.

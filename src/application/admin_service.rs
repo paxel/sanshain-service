@@ -430,6 +430,20 @@ pub async fn update_producer_metadata(
     Ok(())
 }
 
+/// Mark a Producer as external (not maintained by the company) or not.
+pub async fn set_producer_external(
+    repo: &impl SpecRepository,
+    service_name: &str,
+    external: bool,
+) -> Result<(), AppError> {
+    if !repo.set_producer_external(service_name, external).await? {
+        return Err(AppError::NotFound(format!(
+            "Producer '{service_name}' not found"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn list_consumers(
     repo: &impl SpecRepository,
     user_id: Option<i64>,

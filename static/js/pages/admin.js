@@ -1360,10 +1360,13 @@ async function pasteSpecSubmit(dryRun) {
   };
   body[field] = content;
 
+  // A Producer this provide creates is someone else's API: mark it external.
+  const isNew = !allServices.some((s) => (s.name || s) === name);
   try {
     const res = await apiCall(route, { method: "POST", body });
     if (res.ok) {
       const data = await res.json();
+      if (!dryRun && isNew) await setProducerExternal(name, true);
       const c = data.changes || {};
       show(
         "text-green-600",
@@ -1429,8 +1432,11 @@ function renderServices(services) {
                             <button data-click="toggleVersions" data-click-args="${attrJson(["$this", svc])}" class="text-slate-500 hover:text-slate-600 text-sm">▶</button>
                             <span class="font-medium text-slate-800">${escapeHtml(svc)}</span>
                             ${svcObj.domain ? `<span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100 font-bold uppercase">${escapeHtml(svcObj.domain)}</span>` : ""}
+                            ${externalTag(svcObj)}
                         </div>
                         <div class="flex items-center space-x-3">
+                            <button data-click="setProducerExternal" data-needs="manage_producers" data-click-args="${attrJson([svc, !svcObj.external])}"
+                                class="text-slate-500 hover:text-slate-800 text-sm">${svcObj.external ? "Mark as ours" : "Mark external"}</button>
                             <button data-click="openMetadataModal" data-needs="manage_producers" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
                             <button data-click="confirmDeleteService" data-needs="manage_producers" data-needs-producer="${escapeHtml(svc)}" data-click-args="${attrJson([svc])}"
@@ -1440,6 +1446,23 @@ function renderServices(services) {
                     <div class="versions-container hidden mt-3 ml-8 space-y-1"></div>
                 `;
     list.appendChild(div);
+  }
+}
+
+// External: an outside API the company does not maintain.
+async function setProducerExternal(name, external) {
+  try {
+    const res = await apiCall(`/admin/producers/${encodeURIComponent(name)}/external`, {
+      method: "PUT",
+      body: { external },
+    });
+    if (!res.ok) {
+      alert("Failed to save: " + (await errorMessage(res)));
+      return;
+    }
+    loadServices();
+  } catch (e) {
+    alert("Failed to save: " + e.message);
   }
 }
 

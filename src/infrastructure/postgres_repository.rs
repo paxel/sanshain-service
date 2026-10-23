@@ -1915,20 +1915,21 @@ impl SpecRepository for PostgresSpecRepository {
     }
 
     async fn list_producers_detailed(&self) -> Result<Vec<ProducerSummary>, RepositoryError> {
-        let rows: Vec<(String, Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT name, icon, domain FROM services ORDER BY name")
+        let rows: Vec<(String, Option<String>, Option<String>, bool)> =
+            sqlx::query_as("SELECT name, icon, domain, external FROM services ORDER BY name")
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         Ok(rows
             .into_iter()
-            .map(|(name, icon, domain)| ProducerSummary {
+            .map(|(name, icon, domain, external)| ProducerSummary {
                 name,
                 versions: Vec::new(),
                 is_favorite: false,
                 icon,
                 domain,
+                external,
             })
             .collect())
     }
@@ -1947,6 +1948,20 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn set_producer_external(
+        &self,
+        service_name: &str,
+        external: bool,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query("UPDATE services SET external = $1 WHERE name = $2")
+            .bind(external)
+            .bind(service_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn list_consumers(&self) -> Result<Vec<String>, RepositoryError> {

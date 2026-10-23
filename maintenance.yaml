@@ -1825,6 +1825,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/external:
+    put:
+      summary: "Update: producers/name/external"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        Marks a Producer as external, an outside API the company does not maintain (`{"external": true}`), or as the company's own again (`false`). An administrator's provide on the admin page marks a Producer it creates. External Producers are drawn with a light grey fill in the graph and tagged in the lists (`external` on each Producer).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}/maintainers:
     get:
       summary: "Read: producers/name/maintainers"
