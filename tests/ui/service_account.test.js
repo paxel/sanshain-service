@@ -57,7 +57,9 @@ test("an admin creates a service account and issues its token", async ({ page })
   await page.goto("/account.html");
   await expect(page.locator("#token-for-row")).toBeVisible();
   await page.fill("#token-name", "deploy");
-  await page.selectOption("#token-for", ACCOUNT);
+  await page.click("#token-for-input");
+  await page.click(`[data-picker-option="${ACCOUNT}"]`);
+  await expect(page.locator("#token-for-input")).toHaveValue(/Penguin CI build/);
   await page.click('#token-form button[type="submit"]');
   await expect(page.locator("#token-created-value")).toContainText("san_");
   const token = page.locator("#tokens-list > div", { hasText: ACCOUNT });

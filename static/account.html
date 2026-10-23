@@ -7,6 +7,7 @@
     <title>Sanshain - Account</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
+    <script src="/js/picker.js"></script>
     <style>
       .fade-in {
         animation: fadeIn 0.2s ease-in;
@@ -472,12 +473,8 @@
                 class="hidden flex items-center gap-2 text-sm text-slate-600"
               >
                 <span>For</span>
-                <select
-                  id="token-for"
-                  class="px-2 py-1 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">Me</option>
-                </select>
+                <input type="hidden" id="token-for" value="" />
+                <div id="token-for-picker" class="w-56"></div>
                 <span class="text-xs text-slate-500"
                   >A service account's tokens are visible to every user manager.</span
                 >

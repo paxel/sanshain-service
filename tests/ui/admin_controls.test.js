@@ -91,3 +91,42 @@ test("the user list shows who waits for approval and finds the rest by search an
   await page.click('[data-user-chip="status:approved"]');
   await expect(page.locator("#users-list > div", { hasText: name })).toBeVisible();
 });
+
+test("pickers take effect on the tick: group members and maintainers", async ({ page }) => {
+  const run = Date.now().toString(36);
+  const token = await page.evaluate(() => localStorage.getItem("sanshain_token"));
+  const headers = { Authorization: `Bearer ${token}` };
+  const producer = `picked-${run}`;
+  const spec = `openapi: 3.0.0\ninfo:\n  title: ${producer}\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n`;
+  const provided = await page.request.post("/provide", {
+    headers,
+    data: { producername: producer, stability: "snapshot", openapi_yaml: spec },
+  });
+  expect(provided.ok()).toBeTruthy();
+  const group = `team-${run}`;
+  expect((await page.request.post("/admin/groups", { headers, data: { name: group } })).ok());
+  await page.reload();
+  await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
+
+  // Tick root into the new group: saved at once, the chip appears.
+  const groupRow = page.locator("#groups-list > div", { hasText: group });
+  await groupRow.locator("input[role=combobox]").click();
+  await groupRow.locator("input[role=combobox]").fill("root");
+  await groupRow.locator("[role=option]", { hasText: "root" }).first().click();
+  await expect(groupRow.locator("[data-member-chips]")).toContainText("root");
+
+  // Pick the Producer, tick the group as its maintainer, untick it again.
+  await page.click("#maintainer-producer");
+  await page.fill("#maintainer-producer", producer);
+  await page.click(`[data-picker-option="${producer}"]`);
+  await expect(page.locator("#maintainer-producer")).toHaveValue(producer);
+  await page.click("#maintainer-subject");
+  await page.fill("#maintainer-subject", group);
+  const option = page.locator("#maintainer-subject-picker [role=option]", { hasText: group });
+  await option.click();
+  await expect(option).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator(`[data-maintained="${producer}"]`)).toContainText(group);
+  await option.click();
+  await expect(option).toHaveAttribute("aria-checked", "false");
+  await expect(page.locator(`[data-maintained="${producer}"]`)).toHaveCount(0);
+});

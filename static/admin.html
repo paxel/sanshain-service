@@ -7,6 +7,7 @@
     <title>Sanshain - Admin Dashboard</title>
     <link rel="stylesheet" href="/css/app.css" />
     <script src="/js/common.js"></script>
+    <script src="/js/picker.js"></script>
     <script src="/js/webhooks.js"></script>
     <style>
       .fade-in {
@@ -976,23 +977,8 @@
             </button>
           </div>
           <div class="flex items-center gap-2 mb-4">
-            <select
-              id="maintainer-producer"
-              data-needs="manage_roles"
-              class="flex-1 rounded-lg border-slate-200 text-sm"
-            ></select>
-            <select
-              id="maintainer-subject"
-              data-needs="manage_roles"
-              class="flex-1 rounded-lg border-slate-200 text-sm"
-            ></select>
-            <button
-              data-click="assignMaintainer"
-              data-needs="manage_roles"
-              class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
-            >
-              Assign
-            </button>
+            <div id="maintainer-producer-picker" class="flex-1"></div>
+            <div id="maintainer-subject-picker" class="flex-1"></div>
           </div>
           <div id="maintainers-list" class="space-y-2"></div>
         </section>

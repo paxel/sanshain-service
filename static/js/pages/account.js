@@ -116,9 +116,10 @@ document.getElementById("display-name-form").addEventListener("submit", async (e
 
 // The "For" choice of the token form: the service accounts, for whoever may
 // list users (manage_users); hidden for everyone else and when none exist.
+let tokenForAccounts = [];
+let tokenForPicker = null;
 async function loadServiceAccountChoices() {
   const row = document.getElementById("token-for-row");
-  const select = document.getElementById("token-for");
   let accounts = [];
   try {
     const me = await apiCall("/auth/me");
@@ -128,8 +129,28 @@ async function loadServiceAccountChoices() {
       if (res.ok) accounts = (await res.json()).filter((u) => u.service_account);
     }
   } catch (_) {}
-  select.replaceChildren(new Option("Me", ""));
-  for (const account of accounts) select.add(new Option(personLabel(account), account.username));
+  tokenForAccounts = accounts;
+  if (!tokenForPicker) {
+    const chosen = document.getElementById("token-for");
+    tokenForPicker = createPicker(document.getElementById("token-for-picker"), {
+      id: "token-for-input",
+      placeholder: "Me",
+      multiple: false,
+      options: () =>
+        [{ value: "", label: "Me" }].concat(
+          tokenForAccounts.map((a) => ({ value: a.username, label: personLabel(a) })),
+        ),
+      isSelected: (value) => chosen.value === value,
+      onPick: (value) => {
+        chosen.value = value;
+      },
+      selectedLabel: () => {
+        const account = tokenForAccounts.find((a) => a.username === chosen.value);
+        return account ? personLabel(account) : "Me";
+      },
+    });
+  }
+  tokenForPicker.refresh();
   row.classList.toggle("hidden", accounts.length === 0);
 }
 
@@ -341,6 +362,9 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
       createdEl.classList.remove("hidden");
       document.getElementById("token-form").reset();
       document.getElementById("token-expires").value = "365";
+      // A hidden field keeps its value through a reset: back to "Me" by hand.
+      document.getElementById("token-for").value = "";
+      if (tokenForPicker) tokenForPicker.refresh();
       loadTokens();
     } else {
       errEl.textContent = `Failed to create token: ${await errorMessage(res)}`;

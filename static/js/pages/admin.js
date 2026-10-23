@@ -693,23 +693,7 @@ async function loadGroups() {
         const members = directory
           ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
           : `<span class="text-xs text-slate-500">${memberIds.length} member(s)</span>`;
-        const memberChips = directory
-          ? ""
-          : memberIds
-              .map((id) => {
-                const u = knownUsers.find((x) => x.id === id);
-                const label = u ? personLabel(u) : `user #${id}`;
-                return `<button data-click="removeGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id, id])}"
-                                title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
-                                class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
-              })
-              .join(" ");
-        const addableMembers = directory
-          ? ""
-          : knownUsers
-              .filter((u) => !memberIds.includes(u.id))
-              .map((u) => `<option value="${u.id}">${escapeHtml(personLabel(u))}</option>`)
-              .join("");
+        const memberChips = directory ? "" : groupMemberChips(g);
         return `
                     <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex justify-between items-center">
@@ -735,24 +719,60 @@ async function loadGroups() {
                           directory
                             ? ""
                             : `<div class="mt-2 flex flex-wrap items-center gap-2">
-                            ${memberChips || '<span class="text-xs text-slate-400 italic">no members</span>'}
-                            ${
-                              addableMembers
-                                ? `<select id="group-member-${g.id}" class="text-xs rounded-sm border-slate-200">
-                                <option value="">add member…</option>${addableMembers}
-                            </select>
-                            <button data-click="addGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
-                                : ""
-                            }
+                            <span class="flex flex-wrap gap-2" data-member-chips="${g.id}">${memberChips}</span>
+                            <div class="w-56" data-member-picker="${g.id}"></div>
                         </div>`
                         }
                     </div>`;
       })
       .join("");
+    list.querySelectorAll("[data-member-picker]").forEach(mountGroupMemberPicker);
     refreshMaintainerPickers();
   } catch (_) {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
+}
+
+function groupMemberChips(g) {
+  const chips = (g.member_ids || []).map((id) => {
+    const u = knownUsers.find((x) => x.id === id);
+    const label = u ? personLabel(u) : `user #${id}`;
+    return `<button data-click="removeGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id, id])}"
+                                title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
+                                class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
+  });
+  return chips.join(" ") || '<span class="text-xs text-slate-400 italic">no members</span>';
+}
+
+// Members are ticked into a Sanshain group and unticked out of it, each tick
+// saved at once.
+function mountGroupMemberPicker(root) {
+  const groupId = Number(root.dataset.memberPicker);
+  const group = () => knownGroups.find((g) => g.id === groupId);
+  createPicker(root, {
+    id: `group-member-${groupId}`,
+    placeholder: "Add or remove members…",
+    multiple: true,
+    options: () => knownUsers.map((u) => ({ value: u.id, label: personLabel(u) })),
+    isSelected: (id) => (group()?.member_ids || []).includes(id),
+    onToggle: async (id, checked) => {
+      const res = checked
+        ? await apiCall(`/admin/groups/${groupId}/members`, {
+            method: "POST",
+            body: { user_id: id },
+          })
+        : await apiCall(`/admin/groups/${groupId}/members/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        alert(`Failed to ${checked ? "add" : "remove"} member: ${await errorMessage(res)}`);
+        return;
+      }
+      const g = group();
+      g.member_ids = checked
+        ? [...(g.member_ids || []), id]
+        : (g.member_ids || []).filter((x) => x !== id);
+      document.querySelector(`[data-member-chips="${groupId}"]`).innerHTML = groupMemberChips(g);
+    },
+  });
 }
 
 async function createGroup() {
@@ -765,21 +785,6 @@ async function createGroup() {
     return;
   }
   input.value = "";
-  loadGroups();
-}
-
-async function addGroupMember(groupId) {
-  const select = document.getElementById(`group-member-${groupId}`);
-  const userId = select ? parseInt(select.value, 10) : NaN;
-  if (!userId) return;
-  const res = await apiCall(`/admin/groups/${groupId}/members`, {
-    method: "POST",
-    body: { user_id: userId },
-  });
-  if (!res.ok) {
-    alert("Failed to add member: " + (await errorMessage(res)));
-    return;
-  }
   loadGroups();
 }
 
@@ -822,17 +827,60 @@ async function deleteGroup(groupId) {
   loadGroups();
 }
 
+// Maintainers: pick a Producer, then tick the users and groups responsible
+// for it. Each tick or untick is saved at once.
+let maintainerData = [];
+let maintainerProducer = "";
+let maintainerProducerPicker = null;
+let maintainerSubjectPicker = null;
+
+function maintainersOf(producer) {
+  return maintainerData.find((p) => p.producer === producer) || { user_ids: [], group_ids: [] };
+}
+
 function refreshMaintainerPickers() {
-  const subject = document.getElementById("maintainer-subject");
-  if (!subject) return;
-  const users = knownUsers.map(
-    (u) => `<option value="user:${u.id}">user: ${escapeHtml(personLabel(u))}</option>`,
-  );
-  const groups = knownGroups.map(
-    (g) =>
-      `<option value="group:${g.id}">group: ${escapeHtml(g.name)}${g.source === "ldap" ? " (directory)" : ""}</option>`,
-  );
-  subject.innerHTML = users.concat(groups).join("");
+  const producerRoot = document.getElementById("maintainer-producer-picker");
+  const subjectRoot = document.getElementById("maintainer-subject-picker");
+  if (!producerRoot || !subjectRoot) return;
+  if (!maintainerProducerPicker) {
+    maintainerProducerPicker = createPicker(producerRoot, {
+      id: "maintainer-producer",
+      placeholder: "Pick a Producer…",
+      multiple: false,
+      options: () => maintainerData.map((p) => ({ value: p.producer, label: p.producer })),
+      isSelected: (value) => value === maintainerProducer,
+      onPick: (value) => {
+        maintainerProducer = value;
+        maintainerSubjectPicker.refresh();
+      },
+      selectedLabel: () => maintainerProducer,
+    });
+    maintainerSubjectPicker = createPicker(subjectRoot, {
+      id: "maintainer-subject",
+      placeholder: "Tick users and groups…",
+      multiple: true,
+      options: () =>
+        maintainerProducer
+          ? knownUsers
+              .map((u) => ({ value: `user:${u.id}`, label: personLabel(u), group: "Users" }))
+              .concat(
+                knownGroups.map((g) => ({
+                  value: `group:${g.id}`,
+                  label: g.source === "ldap" ? `${g.name} (directory)` : g.name,
+                  group: "Groups",
+                })),
+              )
+          : [],
+      isSelected: (value) => {
+        const [kind, id] = value.split(":");
+        const m = maintainersOf(maintainerProducer);
+        return (kind === "user" ? m.user_ids : m.group_ids || []).includes(Number(id));
+      },
+      onToggle: (value, checked) => setMaintainer(maintainerProducer, value, checked),
+    });
+  }
+  maintainerProducerPicker.refresh();
+  maintainerSubjectPicker.refresh();
 }
 
 // One request fills the whole section: /admin/maintainers answers for
@@ -840,8 +888,7 @@ function refreshMaintainerPickers() {
 // round-trips for 25 Producers.
 async function loadMaintainers() {
   const list = document.getElementById("maintainers-list");
-  const picker = document.getElementById("maintainer-producer");
-  if (!list || !picker) return;
+  if (!list) return;
   try {
     const res = await apiCall("/admin/maintainers");
     if (!res.ok) {
@@ -849,53 +896,62 @@ async function loadMaintainers() {
       return;
     }
     const data = await res.json();
-    const producers = data.producers || [];
-    picker.innerHTML = producers
-      .map((p) => `<option value="${escapeHtml(p.producer)}">${escapeHtml(p.producer)}</option>`)
-      .join("");
-
-    const rows = producers
-      .filter((p) => (p.user_ids || []).length || (p.group_ids || []).length)
-      .map((p) => {
-        const users = (p.user_ids || []).map((id) => {
-          const u = knownUsers.find((x) => x.id === id);
-          return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "users", id])}"
-                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + id)}</button>`;
-        });
-        const groups = (p.group_ids || []).map((id) => {
-          const g = knownGroups.find((x) => x.id === id);
-          return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "groups", id])}"
-                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
-        });
-        return `
-                        <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
-                            <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
-                            <span class="ml-3 space-x-2">${users.concat(groups).join(" ")}</span>
-                        </div>`;
-      });
-    list.innerHTML = rows.length
-      ? rows.join("")
-      : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';
+    maintainerData = data.producers || [];
+    refreshMaintainerPickers();
+    renderMaintainers();
   } catch (_) {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
 
-async function assignMaintainer() {
-  const producer = document.getElementById("maintainer-producer").value;
-  const subject = document.getElementById("maintainer-subject").value;
-  if (!producer || !subject) return;
+function renderMaintainers() {
+  const list = document.getElementById("maintainers-list");
+  const rows = maintainerData
+    .filter((p) => (p.user_ids || []).length || (p.group_ids || []).length)
+    .map((p) => {
+      const users = (p.user_ids || []).map((id) => {
+        const u = knownUsers.find((x) => x.id === id);
+        return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "users", id])}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + id)}</button>`;
+      });
+      const groups = (p.group_ids || []).map((id) => {
+        const g = knownGroups.find((x) => x.id === id);
+        return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "groups", id])}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
+      });
+      return `
+                        <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in" data-maintained="${escapeAttr(p.producer)}">
+                            <span class="font-medium text-slate-800">${escapeHtml(p.producer)}</span>
+                            <span class="ml-3 space-x-2">${users.concat(groups).join(" ")}</span>
+                        </div>`;
+    });
+  list.innerHTML = rows.length
+    ? rows.join("")
+    : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';
+}
+
+async function setMaintainer(producer, subject, assign) {
   const [kind, id] = subject.split(":");
-  const body = kind === "user" ? { user_id: Number(id) } : { group_id: Number(id) };
-  const res = await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers`, {
-    method: "POST",
-    body,
-  });
+  const res = assign
+    ? await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers`, {
+        method: "POST",
+        body: kind === "user" ? { user_id: Number(id) } : { group_id: Number(id) },
+      })
+    : await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers/${kind}s/${id}`, {
+        method: "DELETE",
+      });
   if (!res.ok) {
-    alert("Failed to assign: " + (await errorMessage(res)));
+    alert(`Failed to ${assign ? "assign" : "unassign"}: ${await errorMessage(res)}`);
     return;
   }
-  loadMaintainers();
+  const m = maintainerData.find((p) => p.producer === producer);
+  if (m) {
+    const key = kind === "user" ? "user_ids" : "group_ids";
+    m[key] = assign
+      ? [...(m[key] || []), Number(id)]
+      : (m[key] || []).filter((x) => x !== Number(id));
+  }
+  renderMaintainers();
 }
 
 async function unassignMaintainer(producer, kind, id) {

@@ -225,20 +225,13 @@ async function loadGraph() {
 
     lastGraphReport = report;
 
-    const datalist = document.getElementById("graph-services-list");
-    if (datalist) {
-      const services = new Set();
-      report.dependency_graph.forEach((d) => {
-        services.add(d.client);
-        services.add(d.service);
-      });
-      datalist.innerHTML = "";
-      [...services].sort().forEach((s) => {
-        const opt = document.createElement("option");
-        opt.value = s;
-        datalist.appendChild(opt);
-      });
-    }
+    const services = new Set();
+    report.dependency_graph.forEach((d) => {
+      services.add(d.client);
+      services.add(d.service);
+    });
+    graphFocusServices = [...services].sort();
+    if (graphFocusPicker) graphFocusPicker.refresh();
 
     const anyProducer = ((window.graphScopeData && window.graphScopeData.producers) || []).length;
     if (report.dependency_graph.length === 0 && !anyProducer) {
@@ -790,7 +783,31 @@ window.addEventListener("sanshain-update", async () => {
   await loadGraph();
 });
 
+// The Focus picker: tick services to spotlight them, untick to let go. Text
+// that names no service (such as `tag:payments`) is taken with Enter.
+let graphFocusServices = [];
+let graphFocusPicker = null;
+function initGraphFocusPicker() {
+  const root = document.getElementById("graph-focus-picker");
+  if (!root) return;
+  graphFocusPicker = createPicker(root, {
+    id: "graph-service-filter",
+    placeholder: "Add service...",
+    multiple: true,
+    options: () => {
+      const extra = window.graphFocusTags.filter((t) => !graphFocusServices.includes(t));
+      return graphFocusServices.concat(extra).map((s) => ({ value: s, label: s }));
+    },
+    isSelected: (value) => window.graphFocusTags.includes(value),
+    onToggle: (value, checked) =>
+      checked ? window.addFocusTag(value) : window.removeFocusTag(value),
+    onFreeText: (text) => window.addFocusTag(text),
+  });
+  window.graphFocusPicker = graphFocusPicker;
+}
+
 function initGraph() {
+  initGraphFocusPicker();
   syncGraphViewButtons();
   checkDiscoveryAuth(() => showGraph());
 }

@@ -1111,6 +1111,7 @@ function removeFocusTag(name) {
 window.removeFocusTag = removeFocusTag;
 
 function renderFocusTags() {
+  if (window.graphFocusPicker) window.graphFocusPicker.refresh();
   const container = document.getElementById("focus-tags-container");
   if (!container) return;
   container.innerHTML = "";
@@ -1125,15 +1126,6 @@ function renderFocusTags() {
 }
 window.renderFocusTags = renderFocusTags;
 
-function applyGraphFocus() {
-  const input = document.getElementById("graph-service-filter");
-  if (!input) return;
-  const val = input.value.trim();
-  input.value = "";
-  if (val) addFocusTag(val);
-}
-window.applyGraphFocus = applyGraphFocus;
-
 // Fit-to-view is bound to a closure created only once the graph has rendered
 // (it captures the current pan/scale). Expose a stable top-level entry point so
 // the toolbar button's data-click resolves at page load; it forwards to the
@@ -1144,15 +1136,6 @@ function graphFitToView() {
   if (_graphFitToView) _graphFitToView();
 }
 window.graphFitToView = graphFitToView;
-
-// Enter in the focus input applies it — replaces the inline keydown handler.
-function applyGraphFocusOnEnter(event) {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    applyGraphFocus();
-  }
-}
-window.applyGraphFocusOnEnter = applyGraphFocusOnEnter;
 
 function toggleProtocolFilter(protocol) {
   window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];

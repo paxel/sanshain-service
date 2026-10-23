@@ -22,6 +22,7 @@ export default [
         escapeHtml: "readonly",
         personLabel: "readonly",
         avatarHtml: "readonly",
+        createPicker: "readonly",
         escapeAttr: "readonly",
         attrJson: "readonly",
         setActionArgs: "readonly",
