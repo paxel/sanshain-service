@@ -804,6 +804,16 @@ test.describe("Endpoint card navigation", () => {
     const card = page.locator(".endpoint-card").first();
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card.locator(".endpoint-summary")).toHaveText("Reads one widget.");
+    // Under the path, starting at the card's left edge, not floating
+    // between the path and the clients badge.
+    const path = await card.locator("span.font-mono").boundingBox();
+    const summary = await card.locator(".endpoint-summary").boundingBox();
+    const badge = await card
+      .locator(".client-badge-wrapper, :text('unused')")
+      .first()
+      .boundingBox();
+    expect(summary.y).toBeGreaterThanOrEqual(path.y + path.height - 1);
+    expect(summary.x + summary.width).toBeLessThan(badge.x);
   });
 
   test("clicking an endpoint card opens that endpoint, not a URL of undefineds", async ({

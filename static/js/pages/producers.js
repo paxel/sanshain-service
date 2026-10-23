@@ -591,18 +591,20 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       card.dataset.click = "openEndpointYaml";
       setActionArgs(card, "click", [serviceName, apiType, version, ep.path, ep.method]);
       card.innerHTML = `
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center">
-                            <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
-                                ${escapeHtml(ep.api_type || "REST")}
-                            </span>
-                            <span class="px-2 py-1 rounded-sm text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
-                                ${escapeHtml(ep.method)}
-                            </span>
-                            <span class="font-mono text-sm text-slate-700">${escapeHtml(ep.path)}</span>
-                            ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ""}
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="flex items-center">
+                                <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
+                                    ${escapeHtml(ep.api_type || "REST")}
+                                </span>
+                                <span class="px-2 py-1 rounded-sm text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
+                                    ${escapeHtml(ep.method)}
+                                </span>
+                                <span class="font-mono text-sm text-slate-700 break-all">${escapeHtml(ep.path)}</span>
+                                ${ep.deprecated ? '<span class="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter ml-2">deprecated</span>' : ""}
+                            </div>
+                            ${ep.summary ? `<div class="endpoint-summary text-xs text-slate-400 mt-1">${escapeHtml(ep.summary)}</div>` : ""}
                         </div>
-                        ${ep.summary ? `<div class="endpoint-summary text-xs text-slate-500 mt-1.5 ml-1">${escapeHtml(ep.summary)}</div>` : ""}
                         <div class="flex items-center">
                             ${
                               isUnused
