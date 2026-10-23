@@ -57,7 +57,7 @@ function renderRecentProvides(provides) {
           <span><a class="text-indigo-700 hover:underline" href="/producers.html?service=${encodeURIComponent(p.producer || "")}">${escapeHtml(p.producer || "")}</a>
             <span class="font-mono text-slate-600">${escapeHtml(p.version || "")}</span>
             ${externalTag(p)}</span>
-          <span class="text-xs text-slate-400">${escapeHtml(p.username)} · ${escapeHtml(new Date(p.timestamp).toLocaleString())}</span>
+          <span class="text-xs text-slate-400">${escapeHtml(personLabel(p))} · ${escapeHtml(new Date(p.timestamp).toLocaleString())}</span>
         </li>`,
       )
       .join("");

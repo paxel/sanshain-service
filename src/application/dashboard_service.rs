@@ -45,6 +45,8 @@ pub struct RecentProvide {
     pub external: bool,
     pub version: Option<String>,
     pub username: String,
+    /// `None` when the person has none, or the account is gone.
+    pub display_name: Option<String>,
 }
 
 /// The public numbers of the dashboard, counted up to `now`.
@@ -109,6 +111,7 @@ pub async fn recent_provides(repo: &impl SpecRepository) -> Result<Vec<RecentPro
         .filter(|p| p.external)
         .map(|p| p.name)
         .collect();
+    let names = super::auth_service::display_names_by_username(repo).await?;
     Ok(entries
         .into_iter()
         .filter(|e| e.action == PROVIDE_ACTION)
@@ -118,6 +121,7 @@ pub async fn recent_provides(repo: &impl SpecRepository) -> Result<Vec<RecentPro
             external: e.service.as_ref().is_some_and(|s| external.contains(s)),
             producer: e.service,
             version: e.version,
+            display_name: names.get(&e.username).cloned(),
             username: e.username,
         })
         .collect())

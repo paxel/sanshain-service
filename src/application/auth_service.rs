@@ -732,18 +732,25 @@ pub struct AuditLogView {
     pub display_name: Option<String>,
 }
 
+/// Every display name, keyed by username: what an audit entry names.
+pub async fn display_names_by_username(
+    repo: &impl SpecRepository,
+) -> Result<std::collections::HashMap<String, String>, AppError> {
+    let names = display_names(repo).await?;
+    Ok(repo
+        .list_users()
+        .await?
+        .into_iter()
+        .filter_map(|u| names.get(&u.id).map(|name| (u.username, name.clone())))
+        .collect())
+}
+
 /// Attach the current display name of each entry's user.
 pub async fn with_display_names(
     repo: &impl SpecRepository,
     entries: Vec<AuditLogEntry>,
 ) -> Result<Vec<AuditLogView>, AppError> {
-    let names = display_names(repo).await?;
-    let by_username: std::collections::HashMap<String, String> = repo
-        .list_users()
-        .await?
-        .into_iter()
-        .filter_map(|u| names.get(&u.id).map(|name| (u.username, name.clone())))
-        .collect();
+    let by_username = display_names_by_username(repo).await?;
     Ok(entries
         .into_iter()
         .map(|entry| AuditLogView {

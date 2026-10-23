@@ -176,7 +176,20 @@ async fn the_numbers_are_public_and_the_names_need_a_sign_in() {
     assert_eq!(recent[0]["producer"], "penguin");
     assert_eq!(recent[0]["version"], "1.0.0");
     assert_eq!(recent[0]["username"], "root");
+    assert!(recent[0]["display_name"].is_null());
     assert_eq!(recent[0]["external"], false);
+
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/auth/display-name",
+        Some(&ctx.token),
+        Some(json!({ "display_name": "Root Admin" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, _, body) = send(&ctx, "GET", "/api/dashboard/recent", Some(&ctx.token), None).await;
+    assert_eq!(as_json(&body)[0]["display_name"], "Root Admin");
 }
 
 #[tokio::test]
