@@ -600,6 +600,7 @@ pub async fn login_oidc(
 
 /// Note a sign-in: on the session, so the pages know what it may change, and
 /// on the person, so the user list shows where they come from.
+#[tracing::instrument(skip(repo, session))]
 pub(crate) async fn record_sign_in(
     repo: &impl SpecRepository,
     session: &Session,
@@ -731,6 +732,7 @@ pub struct AuditLogView {
 }
 
 /// Every display name, keyed by username: what an audit entry names.
+#[tracing::instrument(skip_all)]
 pub async fn display_names_by_username(
     repo: &impl SpecRepository,
 ) -> Result<std::collections::HashMap<String, String>, AppError> {
@@ -744,6 +746,7 @@ pub async fn display_names_by_username(
 }
 
 /// Attach the current display name of each entry's user.
+#[tracing::instrument(skip_all)]
 pub async fn with_display_names(
     repo: &impl SpecRepository,
     entries: Vec<AuditLogEntry>,
@@ -772,6 +775,7 @@ fn clean_display_name(name: &str) -> Result<Option<String>, AppError> {
 /// A person sets their own display name. Refused for someone whose name comes
 /// from the directory or the OIDC provider: it would be overwritten at their
 /// next sign-in.
+#[tracing::instrument(skip_all, fields(user_id = user.id))]
 pub async fn set_own_display_name(
     repo: &impl SpecRepository,
     user: &User,
@@ -792,6 +796,7 @@ pub async fn set_own_display_name(
 
 /// An administrator sets the display name of a service account. Answers the
 /// account's username, for the audit entry, and the name as stored.
+#[tracing::instrument(skip(repo, name))]
 pub async fn set_service_account_display_name(
     repo: &impl SpecRepository,
     user_id: i64,

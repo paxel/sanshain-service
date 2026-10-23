@@ -182,6 +182,7 @@ pub async fn search_directory_groups<D: DirectoryGroupSearch>(
 /// Add a directory group to Sanshain by its DN, so roles and maintainerships
 /// can be attached to it. Its members stay in the directory. Adding one that
 /// is known already answers the existing group.
+#[tracing::instrument(skip(repo))]
 pub async fn add_directory_group(repo: &impl SpecRepository, dn: &str) -> Result<Group, AppError> {
     let dn = dn.trim();
     if dn.is_empty() {

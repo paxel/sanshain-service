@@ -50,6 +50,7 @@ pub struct RecentProvide {
 }
 
 /// The public numbers of the dashboard, counted up to `now`.
+#[tracing::instrument(skip(repo))]
 pub async fn dashboard_stats(
     repo: &impl SpecRepository,
     now: DateTime<Utc>,
@@ -90,6 +91,7 @@ pub async fn dashboard_stats(
 }
 
 /// The latest provides that changed a spec, newest first.
+#[tracing::instrument(skip_all)]
 pub async fn recent_provides(repo: &impl SpecRepository) -> Result<Vec<RecentProvide>, AppError> {
     // Other actions are interleaved; read enough to find ten provides.
     let entries = repo

@@ -205,6 +205,7 @@ pub async fn may_sign_in_as_admin(
 /// Start the session for a verified sign-in, creating the shadow account of a
 /// first directory login. Called only after any admins-only check, so a
 /// refused sign-in leaves neither an account nor a session behind.
+#[tracing::instrument(skip_all)]
 pub async fn start_session(
     repo: &impl SpecRepository,
     root_users: &RootUsers,
@@ -240,6 +241,7 @@ pub async fn start_session(
 /// alternative sign-in name) is folded into one, which takes the username
 /// and the ID. A rename in the directory renames the account. Root names are
 /// held by configuration: such an account is neither renamed nor merged.
+#[tracing::instrument(skip_all)]
 async fn directory_account(
     repo: &impl SpecRepository,
     root_users: &RootUsers,
