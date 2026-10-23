@@ -94,3 +94,48 @@ test("in maintenance the card says so and refuses everyone but administrators", 
   await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
   expect((await authMode(request, "local")).ok()).toBeTruthy();
 });
+
+// Reported from a real instance: once switched off, auto-acknowledge could not
+// be switched on again. Each click must reach the server, and the switch must
+// show the stored value after a reload.
+test("the auto-acknowledge switch turns off and on again and keeps its state", async ({
+  page,
+  request,
+}) => {
+  expect((await authMode(request, "local")).ok()).toBeTruthy();
+  await post(request, "/admin/settings/auto-approve", { enabled: true });
+  const stored = async () =>
+    (await (await request.get("/admin/settings/auto-approve", { headers })).json())
+      .auto_approve_users;
+
+  await openSignIn(page);
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  const openAdmin = async () => {
+    await page.goto("/admin.html");
+    await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
+    await expect(page.locator("#local-users-panel")).toBeVisible();
+  };
+  await openAdmin();
+
+  const toggle = page.locator("#auto-approve-toggle");
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  expect(await stored()).toBe(false);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  expect(await stored()).toBe(true);
+
+  await openAdmin();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await openAdmin();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  expect(await stored()).toBe(true);
+});
