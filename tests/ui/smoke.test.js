@@ -2167,6 +2167,24 @@ test.describe("Graph (unrequired) box", () => {
     }
   });
 
+  test("the Periphery switch is remembered, and a link that hides protocols still wins", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    const periphery = page.locator("#filter-periphery");
+    await expect(periphery).toHaveClass(/bg-indigo-600/);
+    await periphery.click();
+    await expect(periphery).toHaveClass(/bg-white/);
+
+    await page.goto("/graph.html");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    await expect(periphery).toHaveClass(/bg-white/);
+
+    await page.goto("/graph.html?hide_protocols=proto");
+    await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    await expect(periphery).toHaveClass(/bg-indigo-600/);
+  });
+
   test("islands pack into empty space without growing the graph", async ({ page }) => {
     await openGraph(page);
     await expect(node(page, ISLAND)).toHaveCount(1, { timeout: 20000 });

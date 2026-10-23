@@ -1156,6 +1156,9 @@ window.applyGraphFocusOnEnter = applyGraphFocusOnEnter;
 
 function toggleProtocolFilter(protocol) {
   window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];
+  if (protocol === "periphery" && window.writeGraphViewPref) {
+    window.writeGraphViewPref("periphery", window.graphProtocolFilters.periphery ? "1" : "0");
+  }
 
   const btn = document.getElementById(`filter-${protocol}`);
   if (btn) {

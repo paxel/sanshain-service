@@ -15,6 +15,8 @@ let currentGraphMode = "custom";
 
 // The view switches of the custom renderer (direction, Compact, Rainbow) are
 // taste, not meaning, so they are remembered per browser and never in the URL.
+// Periphery is remembered too, but stays in the URL as well: a shared link
+// that hides it still does.
 // Storage can be unavailable (private window, blocked site data): then every
 // visit starts from the defaults.
 const GRAPH_VIEW_KEYS = {
@@ -22,6 +24,7 @@ const GRAPH_VIEW_KEYS = {
   compact: "sanshain_graph_compact",
   rainbow: "sanshain_graph_rainbow",
   topics: "sanshain_graph_topics",
+  periphery: "sanshain_graph_periphery",
 };
 function readGraphViewPref(name) {
   try {
@@ -37,6 +40,7 @@ function writeGraphViewPref(name, value) {
     // Forgotten on the next visit; the switch still works now.
   }
 }
+window.writeGraphViewPref = writeGraphViewPref;
 let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
 window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
@@ -747,7 +751,11 @@ function restoreGraphFiltersFromUrl() {
     openapi: !hiddenSet.has("openapi"),
     asyncapi: !hiddenSet.has("asyncapi"),
     proto: !hiddenSet.has("proto"),
-    periphery: !hiddenSet.has("periphery"),
+    // A link that says which protocols it hides wins; a plain visit takes
+    // the browser's remembered Periphery switch, shown unless switched off.
+    periphery: hide_protocols
+      ? !hiddenSet.has("periphery")
+      : readGraphViewPref("periphery") !== "0",
     unrequired: !hiddenSet.has("unrequired"),
   };
 
