@@ -689,7 +689,7 @@ pub async fn gravatar_keys(
         .list_user_profiles()
         .await?
         .into_iter()
-        .filter_map(|p| p.avatar_hash.map(|key| (p.user_id, key)))
+        .filter_map(|p| p.gravatar_key().map(|key| (p.user_id, key.to_string())))
         .collect())
 }
 
@@ -829,6 +829,11 @@ pub struct AccountView {
     pub display_name_editable: bool,
     /// Only while Gravatar pictures are switched on.
     pub gravatar_hash: Option<String>,
+    /// Whether they chose their own picture address.
+    pub own_gravatar: bool,
+    /// Whether Gravatar pictures are switched on, so the account page offers
+    /// the picture address.
+    pub gravatar_enabled: bool,
 }
 
 /// The person's account view, for the session behind `session_token`.
@@ -843,17 +848,49 @@ pub async fn account_view(
         Some(token) => repo.session_sign_in(token).await?,
         None => None,
     };
-    let gravatar_hash = if get_gravatar_enabled(repo).await? {
-        profile.avatar_hash.clone()
+    let gravatar_enabled = get_gravatar_enabled(repo).await?;
+    let gravatar_hash = if gravatar_enabled {
+        profile.gravatar_key().map(str::to_string)
     } else {
         None
     };
     Ok(AccountView {
         sign_in,
+        gravatar_enabled,
         display_name_editable: !profile.display_name_from_provider(),
+        own_gravatar: profile.own_avatar_hash.is_some(),
         display_name: profile.display_name,
         gravatar_hash,
     })
+}
+
+/// A person chooses the address their Gravatar picture is found by; blank
+/// goes back to the provider's address. Only its key is stored, never the
+/// address. Refused while Gravatar pictures are off.
+#[instrument(skip_all, fields(user_id = user.id))]
+pub async fn set_own_gravatar_email(
+    repo: &impl SpecRepository,
+    user: &User,
+    email: &str,
+) -> Result<bool, AppError> {
+    if !get_gravatar_enabled(repo).await? {
+        return Err(AppError::BadRequest(
+            "Gravatar pictures are switched off".to_string(),
+        ));
+    }
+    let email = email.trim();
+    if email.is_empty() {
+        repo.set_own_avatar_hash(user.id, None).await?;
+        return Ok(false);
+    }
+    if !email.contains('@') || email.chars().any(char::is_whitespace) {
+        return Err(AppError::BadRequest(
+            "that is not an e-mail address".to_string(),
+        ));
+    }
+    repo.set_own_avatar_hash(user.id, Some(&gravatar_key(email)))
+        .await?;
+    Ok(true)
 }
 
 #[instrument(skip_all)]
@@ -1328,12 +1365,65 @@ mod tests {
                 display_name: Some("Alice".to_string()),
                 display_name_editable: false,
                 gravatar_hash: None,
+                own_gravatar: false,
+                gravatar_enabled: false,
             }
         );
         set_gravatar_enabled(&repo, true).await.unwrap();
         let view = account_view(&repo, alice.id, None).await.unwrap();
         assert_eq!(view.sign_in, None, "no session, no sign-in method");
         assert_eq!(view.gravatar_hash, Some(gravatar_key("alice@example.com")));
+    }
+
+    #[tokio::test]
+    async fn an_own_picture_address_wins_over_the_providers_and_survives_sign_in() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        refresh_provider_identity(&repo, alice.id, None, Some("alice@corp.example"))
+            .await
+            .unwrap();
+        assert!(
+            matches!(
+                set_own_gravatar_email(&repo, &alice, "alice@home.example").await,
+                Err(AppError::BadRequest(_))
+            ),
+            "refused while Gravatar pictures are off"
+        );
+        set_gravatar_enabled(&repo, true).await.unwrap();
+        assert!(matches!(
+            set_own_gravatar_email(&repo, &alice, "not an address").await,
+            Err(AppError::BadRequest(_))
+        ));
+
+        assert!(
+            set_own_gravatar_email(&repo, &alice, " Alice@Home.example ")
+                .await
+                .unwrap()
+        );
+        let own = gravatar_key("alice@home.example");
+        let view = account_view(&repo, alice.id, None).await.unwrap();
+        assert_eq!(view.gravatar_hash.as_deref(), Some(own.as_str()));
+        assert!(view.own_gravatar);
+        // The next sign-in refreshes the provider's key, not the own one.
+        refresh_provider_identity(&repo, alice.id, None, Some("alice@corp.example"))
+            .await
+            .unwrap();
+        assert_eq!(gravatar_keys(&repo).await.unwrap()[&alice.id], own);
+        let profile = user_profile(&repo, alice.id).await.unwrap();
+        assert_ne!(profile.avatar_hash.as_deref(), Some(own.as_str()));
+
+        // Blank goes back to the provider's address.
+        assert!(!set_own_gravatar_email(&repo, &alice, " ").await.unwrap());
+        assert_eq!(
+            gravatar_keys(&repo).await.unwrap()[&alice.id],
+            gravatar_key("alice@corp.example")
+        );
+        assert!(
+            !account_view(&repo, alice.id, None)
+                .await
+                .unwrap()
+                .own_gravatar
+        );
     }
 
     #[tokio::test]

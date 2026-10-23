@@ -651,14 +651,25 @@ pub struct UserProfile {
     pub last_sign_in: Option<SignInMethod>,
     /// The name shown for them; `None` shows the username.
     pub display_name: Option<String>,
-    /// The Gravatar key of their e-mail address, if one is known.
+    /// The Gravatar key of the e-mail address their provider gave at sign-in.
     pub avatar_hash: Option<String>,
+    /// The Gravatar key of an address they chose themselves; wins over
+    /// `avatar_hash`.
+    pub own_avatar_hash: Option<String>,
     /// The directory's immutable ID of the person, if they signed in
     /// through LDAP.
     pub directory_id: Option<String>,
 }
 
 impl UserProfile {
+    /// The key their picture is found by: their own choice, else the
+    /// provider's.
+    pub fn gravatar_key(&self) -> Option<&str> {
+        self.own_avatar_hash
+            .as_deref()
+            .or(self.avatar_hash.as_deref())
+    }
+
     /// Whether the display name comes from the directory or the OIDC provider
     /// (refreshed at every sign-in) rather than from the person themselves.
     pub fn display_name_from_provider(&self) -> bool {

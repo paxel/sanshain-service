@@ -495,6 +495,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, set_avatar_hash(user_id, avatar_hash))
     }
 
+    async fn set_own_avatar_hash(
+        &self,
+        user_id: i64,
+        own_avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_own_avatar_hash(user_id, own_avatar_hash))
+    }
+
     async fn set_directory_id(
         &self,
         user_id: i64,

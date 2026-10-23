@@ -92,8 +92,42 @@ async function showPasswordChangeForLocalSignIns() {
     document.getElementById("display-name-from-provider").classList.toggle("hidden", editable);
     document.getElementById("display-name-input").value = me.display_name || "";
     document.getElementById("display-name-value").textContent = me.display_name || me.username;
+    renderGravatarSection(me);
   } catch (_) {}
 }
+
+// The picture address: shown only while Gravatar pictures are on. Only its
+// hash is kept, so the field never shows a saved address.
+function renderGravatarSection(me) {
+  document.getElementById("gravatar-section").classList.toggle("hidden", !me.gravatar_enabled);
+  document.getElementById("gravatar-preview").innerHTML = avatarHtml(me, "h-16 w-16 text-xl");
+  document.getElementById("gravatar-own").classList.toggle("hidden", !me.own_gravatar);
+}
+
+async function saveGravatarEmail(email) {
+  const status = document.getElementById("gravatar-status");
+  try {
+    if (!csrfToken) await fetchCsrfToken();
+    const res = await apiCall("/auth/gravatar", { method: "PUT", body: { email } });
+    const ok = res.ok;
+    status.textContent = ok ? (email ? "Saved." : "Removed.") : await errorMessage(res);
+    status.className = `text-sm ${ok ? "text-green-600" : "text-red-600"}`;
+    if (ok) {
+      document.getElementById("gravatar-email").value = "";
+      await showPasswordChangeForLocalSignIns();
+      await renderBanner();
+    }
+  } catch (err) {
+    status.textContent = friendlyError(err);
+    status.className = "text-sm text-red-600";
+  }
+}
+
+document.getElementById("gravatar-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  saveGravatarEmail(document.getElementById("gravatar-email").value);
+});
+document.getElementById("gravatar-remove").addEventListener("click", () => saveGravatarEmail(""));
 
 document.getElementById("display-name-form").addEventListener("submit", async (e) => {
   e.preventDefault();

@@ -255,6 +255,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/me", get(auth::auth_me).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/change-password", post(auth::auth_change_password).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/display-name", put(auth::auth_set_display_name).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/auth/gravatar", put(auth::auth_set_gravatar_email).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens", get(auth::list_tokens).post(auth::create_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens/{id}", delete(auth::revoke_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/favorites", get(auth::get_favorites).layer(from_fn_with_state(state.clone(), authenticated_auth)))
@@ -745,6 +746,7 @@ mod tests {
             // Browser session, account, and CSRF endpoints for the UI
             "/auth/change-password",
             "/auth/display-name",
+            "/auth/gravatar",
             "/auth/favorites",
             "/auth/favorites/{item_type}/{item_name}",
             "/auth/login",

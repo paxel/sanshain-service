@@ -321,6 +321,51 @@
           <p id="display-name-status" class="hidden text-sm mt-2"></p>
         </section>
 
+        <!-- Picture: an address of one's own for Gravatar, only while the
+             administrator has Gravatar pictures switched on. -->
+        <section
+          id="gravatar-section"
+          class="hidden bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
+          <h2 class="text-lg font-semibold text-slate-800 mb-4">Picture</h2>
+          <div class="flex items-start gap-4">
+            <div id="gravatar-preview"></div>
+            <div class="flex-1 space-y-3">
+              <form id="gravatar-form" class="flex gap-2 max-w-md">
+                <input
+                  type="email"
+                  id="gravatar-email"
+                  placeholder="The address your Gravatar picture belongs to"
+                  autocomplete="email"
+                  class="flex-1 px-3 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="submit"
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Use for Gravatar
+                </button>
+              </form>
+              <p class="text-xs text-slate-500 max-w-xl">
+                Sanshain keeps only an unreadable fingerprint of this address (its SHA-256 hash),
+                which is all gravatar.com needs to find your picture. The address itself is never
+                stored, so the field empties after saving. To change it, type the new address.
+              </p>
+              <p id="gravatar-own" class="hidden text-sm text-slate-600">
+                Your own picture address is set.
+                <button
+                  type="button"
+                  id="gravatar-remove"
+                  class="text-red-600 hover:text-red-700 font-medium ml-1"
+                >
+                  Remove
+                </button>
+              </p>
+              <p id="gravatar-status" class="hidden text-sm"></p>
+            </div>
+          </div>
+        </section>
+
         <!-- Change Password: only for a session that signed in with a local
              password; a directory or OIDC password is changed there. -->
         <section

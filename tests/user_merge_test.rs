@@ -128,6 +128,20 @@ async fn reads_one_profile(repo: &impl SpecRepository) {
     assert_eq!(profile.user_id, alice.id);
     assert_eq!(profile.display_name.as_deref(), Some("Alice"));
     assert_eq!(profile.directory_id.as_deref(), Some("uuid:a"));
+
+    // The own picture key sits beside the provider's and wins over it.
+    repo.set_avatar_hash(alice.id, Some("provider"))
+        .await
+        .unwrap();
+    repo.set_own_avatar_hash(alice.id, Some("own"))
+        .await
+        .unwrap();
+    let profile = repo.get_user_profile(alice.id).await.unwrap().unwrap();
+    assert_eq!(profile.avatar_hash.as_deref(), Some("provider"));
+    assert_eq!(profile.gravatar_key(), Some("own"));
+    repo.set_own_avatar_hash(alice.id, None).await.unwrap();
+    let profile = repo.get_user_profile(alice.id).await.unwrap().unwrap();
+    assert_eq!(profile.gravatar_key(), Some("provider"));
 }
 
 #[tokio::test]

@@ -212,6 +212,43 @@ async fn a_fresh_instance_starts_in_off_and_only_the_admin_gets_in() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
+    // A picture address of one's own: refused while Gravatar is off, then
+    // only its key comes back.
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/auth/gravatar",
+        Some(&token),
+        Some(serde_json::json!({ "email": "root@home.example" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/admin/settings/gravatar",
+        Some(&token),
+        Some(serde_json::json!({ "enabled": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &app,
+        "PUT",
+        "/auth/gravatar",
+        Some(&token),
+        Some(serde_json::json!({ "email": "root@home.example" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, me) = call(&app, "GET", "/auth/me", Some(&token), None).await;
+    assert_eq!(me["own_gravatar"], true);
+    assert_eq!(
+        me["gravatar_hash"],
+        services::gravatar_key("root@home.example")
+    );
+    assert!(!me.to_string().contains("root@home.example"));
+
     // Naming a service account is an administrative act and leaves a trace.
     let (status, jenkins) = call(
         &app,

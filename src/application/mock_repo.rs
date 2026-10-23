@@ -1966,6 +1966,23 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn set_own_avatar_hash(
+        &self,
+        user_id: i64,
+        own_avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(user_id)
+            .or_insert_with(|| UserProfile {
+                user_id,
+                ..UserProfile::default()
+            })
+            .own_avatar_hash = own_avatar_hash.map(str::to_string);
+        Ok(())
+    }
+
     async fn set_directory_id(
         &self,
         user_id: i64,

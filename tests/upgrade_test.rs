@@ -30,6 +30,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20261023000004_producer_external.sql",
     "20261023000005_version_origin_trunk_build.sql",
     "20261023000006_user_directory_id.sql",
+    "20261023000007_user_own_avatar_hash.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —

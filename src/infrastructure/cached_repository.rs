@@ -1164,6 +1164,16 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.set_avatar_hash(user_id, avatar_hash).await
     }
 
+    async fn set_own_avatar_hash(
+        &self,
+        user_id: i64,
+        own_avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .set_own_avatar_hash(user_id, own_avatar_hash)
+            .await
+    }
+
     async fn set_directory_id(
         &self,
         user_id: i64,

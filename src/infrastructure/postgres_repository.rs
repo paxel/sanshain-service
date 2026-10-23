@@ -144,9 +144,10 @@ impl From<ApiTokenRow> for ApiToken {
 }
 
 /// `user_profiles` as selected: user id, last sign-in, display name, avatar
-/// hash, directory id.
+/// hash, directory id, own avatar hash.
 type UserProfileRow = (
     i64,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -154,13 +155,14 @@ type UserProfileRow = (
 );
 
 fn user_profile_from_row(
-    (user_id, last_sign_in, display_name, avatar_hash, directory_id): UserProfileRow,
+    (user_id, last_sign_in, display_name, avatar_hash, directory_id, own_avatar_hash): UserProfileRow,
 ) -> UserProfile {
     UserProfile {
         user_id,
         last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
         display_name,
         avatar_hash,
+        own_avatar_hash,
         directory_id,
     }
 }
@@ -2399,6 +2401,23 @@ impl SpecRepository for PostgresSpecRepository {
         Ok(())
     }
 
+    async fn set_own_avatar_hash(
+        &self,
+        user_id: i64,
+        own_avatar_hash: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, own_avatar_hash) VALUES ($1, $2) \
+             ON CONFLICT (user_id) DO UPDATE SET own_avatar_hash = excluded.own_avatar_hash",
+        )
+        .bind(user_id)
+        .bind(own_avatar_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn set_directory_id(
         &self,
         user_id: i64,
@@ -2516,7 +2535,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         let rows: Vec<UserProfileRow> = sqlx::query_as(
-            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id FROM user_profiles",
+            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id, own_avatar_hash FROM user_profiles",
         )
         .fetch_all(&self.pool)
         .await
@@ -2526,7 +2545,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn get_user_profile(&self, user_id: i64) -> Result<Option<UserProfile>, RepositoryError> {
         let row: Option<UserProfileRow> = sqlx::query_as(
-            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id FROM user_profiles WHERE user_id = $1",
+            "SELECT user_id, last_sign_in, display_name, avatar_hash, directory_id, own_avatar_hash FROM user_profiles WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)

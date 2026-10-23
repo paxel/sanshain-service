@@ -3,6 +3,7 @@
 // accounts are acknowledged automatically, the SSO button only while OIDC
 // is the source, and a maintenance notice while only administrators get in.
 import { test, expect } from "@playwright/test";
+import { createHash } from "node:crypto";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const USER = `signin-${Date.now().toString(36)}`;
@@ -146,6 +147,47 @@ test("a local user names themselves on the account page and the banner shows it"
   await page.fill("#display-name-input", "");
   await page.click('#display-name-form button[type="submit"]');
   await expect(page.locator("#banner-username [data-avatar]")).toHaveText("R");
+});
+
+test("a person picks their own Gravatar address, and only its key is kept", async ({
+  page,
+  request,
+}) => {
+  expect((await authMode(request, "local")).ok()).toBeTruthy();
+  await openSignIn(page);
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await page.waitForURL((url) => url.pathname === "/");
+
+  // Off: the account page offers nothing.
+  expect((await post(request, "/admin/settings/gravatar", { enabled: false })).ok()).toBeTruthy();
+  await page.goto("/account.html");
+  await expect(page.locator("#display-name-form")).toBeVisible();
+  await expect(page.locator("#gravatar-section")).toBeHidden();
+
+  expect((await post(request, "/admin/settings/gravatar", { enabled: true })).ok()).toBeTruthy();
+  try {
+    await page.reload();
+    await expect(page.locator("#gravatar-section")).toBeVisible();
+    await expect(page.locator("#gravatar-section")).toContainText("never stored");
+    await page.fill("#gravatar-email", "Root@Home.example");
+    await page.click('#gravatar-form button[type="submit"]');
+    await expect(page.locator("#gravatar-status")).toHaveText("Saved.");
+    await expect(page.locator("#gravatar-email")).toHaveValue("");
+    await expect(page.locator("#gravatar-own")).toBeVisible();
+    const key = createHash("sha256").update("root@home.example").digest("hex");
+    await expect(page.locator("#gravatar-preview img")).toHaveAttribute(
+      "src",
+      new RegExp(`/avatar/${key}\\?`),
+    );
+
+    await page.click("#gravatar-remove");
+    await expect(page.locator("#gravatar-status")).toHaveText("Removed.");
+    await expect(page.locator("#gravatar-own")).toBeHidden();
+  } finally {
+    await post(request, "/admin/settings/gravatar", { enabled: false });
+  }
 });
 
 // Reported from a real instance: once switched off, auto-acknowledge could not

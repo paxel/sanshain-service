@@ -249,6 +249,13 @@
   and nothing is requested from gravatar.com while the switch is off. Someone without a picture
   keeps their initials.
 </p>
+<p>
+  While the switch is on, everyone can pick their own picture address in <strong>Picture</strong>
+  on the account page (<code>PUT /auth/gravatar</code>, <code>{"email": "…"}</code>; blank
+  removes it). It wins over the provider's address and no sign-in overwrites it; a local user
+  gets a picture only this way. Here too only the key is stored, so the field empties after
+  saving and the page says that the address is set, not which one.
+</p>
 
 <h2 id="service-accounts">Service accounts</h2>
 <p>

@@ -752,6 +752,13 @@ pub trait SpecRepository: Send + Sync {
         avatar_hash: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Set the Gravatar key of the address `user_id` chose; `None` clears it.
+    fn set_own_avatar_hash(
+        &self,
+        user_id: i64,
+        own_avatar_hash: Option<&str>,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Record the directory ID of `user_id`.
     fn set_directory_id(
         &self,

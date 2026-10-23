@@ -143,6 +143,8 @@ pub async fn auth_me(
         "sign_in": account.sign_in,
         "display_name_editable": account.display_name_editable,
         "gravatar_hash": account.gravatar_hash,
+        "own_gravatar": account.own_gravatar,
+        "gravatar_enabled": account.gravatar_enabled,
         "display_name": account.display_name,
     })))
 }
@@ -162,6 +164,22 @@ pub async fn auth_set_display_name(
     let display_name =
         services::set_own_display_name(&state.repo, &user, &payload.display_name).await?;
     Ok(Json(serde_json::json!({ "display_name": display_name })))
+}
+
+#[derive(Deserialize)]
+pub struct GravatarEmailRequest {
+    pub email: String,
+}
+
+/// Choose the address the caller's Gravatar picture is found by; blank goes
+/// back to the provider's. Only its key is kept.
+pub async fn auth_set_gravatar_email(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<User>,
+    Json(payload): Json<GravatarEmailRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let own_gravatar = services::set_own_gravatar_email(&state.repo, &user, &payload.email).await?;
+    Ok(Json(serde_json::json!({ "own_gravatar": own_gravatar })))
 }
 
 #[derive(Deserialize)]
