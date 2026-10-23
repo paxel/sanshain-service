@@ -15,7 +15,7 @@ use super::auth_service::{
 };
 use crate::domain::models::{AppError, AuthMode, AuthenticatedUser, Session, SignInMethod, User};
 use crate::domain::permissions::{Actor, Permission, RootUsers};
-use crate::domain::ports::{AuthProvider, SpecRepository};
+use crate::domain::ports::{AuthProvider, NewAuditLog, SpecRepository};
 use tracing::instrument;
 
 const BEFORE_OFF_KEY: &str = "auth_mode_before_off";
@@ -286,14 +286,17 @@ async fn directory_account(
             continue;
         }
         repo.merge_user_into(other.id, target.id).await?;
-        audit(
-            repo,
+        repo.insert_audit_log(
             &target.username,
-            "MERGE_USER",
-            &format!(
-                "Merged '{}' into '{}': both are the directory entry of '{canonical}'",
-                other.username, target.username
-            ),
+            NewAuditLog {
+                action: "MERGE_USER",
+                details: &format!(
+                    "Merged '{}' into '{}': both are the directory entry of '{canonical}'",
+                    other.username, target.username
+                ),
+                action_type: Some("ADMIN"),
+                ..Default::default()
+            },
         )
         .await?;
     }
@@ -309,14 +312,17 @@ async fn directory_account(
         && !root_users.contains(canonical)
     {
         repo.rename_user(target.id, canonical).await?;
-        audit(
-            repo,
+        repo.insert_audit_log(
             canonical,
-            "RENAME_USER",
-            &format!(
-                "Renamed '{}' to '{canonical}' as the directory names them",
-                target.username
-            ),
+            NewAuditLog {
+                action: "RENAME_USER",
+                details: &format!(
+                    "Renamed '{}' to '{canonical}' as the directory names them",
+                    target.username
+                ),
+                action_type: Some("ADMIN"),
+                ..Default::default()
+            },
         )
         .await?;
         target.username = canonical.to_string();
@@ -331,25 +337,6 @@ async fn directory_account(
         repo.set_directory_id(target.id, id).await?;
     }
     Ok(target)
-}
-
-async fn audit(
-    repo: &impl SpecRepository,
-    username: &str,
-    action: &str,
-    details: &str,
-) -> Result<(), AppError> {
-    repo.insert_audit_log(
-        username,
-        crate::domain::ports::NewAuditLog {
-            action,
-            details,
-            action_type: Some("ADMIN"),
-            ..Default::default()
-        },
-    )
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]
