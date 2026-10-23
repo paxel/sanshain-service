@@ -638,20 +638,20 @@ pub async fn account_kinds(
 
 /// Take over what the directory or the OIDC provider says about a person at
 /// sign-in: their name to show, and the Gravatar key of their e-mail address.
-/// What the provider does not say is left as it is.
+/// The provider is the only source for both, so what it no longer says is
+/// cleared.
+#[tracing::instrument(skip(repo, display_name, email))]
 pub(crate) async fn refresh_provider_identity(
     repo: &impl SpecRepository,
     user_id: i64,
     display_name: Option<&str>,
     email: Option<&str>,
 ) -> Result<(), AppError> {
-    if let Some(name) = display_name.map(str::trim).filter(|n| !n.is_empty()) {
-        repo.set_display_name(user_id, Some(name)).await?;
-    }
-    if let Some(email) = email.map(str::trim).filter(|e| !e.is_empty()) {
-        repo.set_avatar_hash(user_id, Some(&gravatar_key(email)))
-            .await?;
-    }
+    let display_name = display_name.map(str::trim).filter(|n| !n.is_empty());
+    repo.set_display_name(user_id, display_name).await?;
+    let email = email.map(str::trim).filter(|e| !e.is_empty());
+    repo.set_avatar_hash(user_id, email.map(gravatar_key).as_deref())
+        .await?;
     Ok(())
 }
 
@@ -1270,6 +1270,30 @@ mod tests {
             gravatar_keys(&repo).await.unwrap().get(&alice.id),
             Some(&gravatar_key("alice@example.com"))
         );
+    }
+
+    #[tokio::test]
+    async fn what_the_provider_no_longer_says_is_cleared_at_the_next_sign_in() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        refresh_provider_identity(
+            &repo,
+            alice.id,
+            Some(" Alice Liddell "),
+            Some("alice@example.com"),
+        )
+        .await
+        .unwrap();
+        let profile = user_profile(&repo, alice.id).await.unwrap();
+        assert_eq!(profile.display_name.as_deref(), Some("Alice Liddell"));
+        assert_eq!(profile.avatar_hash, Some(gravatar_key("alice@example.com")));
+
+        refresh_provider_identity(&repo, alice.id, Some("  "), None)
+            .await
+            .unwrap();
+        let profile = user_profile(&repo, alice.id).await.unwrap();
+        assert_eq!(profile.display_name, None);
+        assert_eq!(profile.avatar_hash, None);
     }
 
     #[tokio::test]

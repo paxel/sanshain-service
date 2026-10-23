@@ -234,7 +234,8 @@
   People are shown by their <strong>display name</strong>, with the username beside it, in the
   user list, the groups and maintainers, the token <strong>For</strong> choice, the audit log and the
   header. LDAP users get it from <code>displayName</code> and OIDC users from the
-  <code>name</code> claim, refreshed at every sign-in and not editable in Sanshain. Local users set
+  <code>name</code> claim, refreshed at every sign-in (and cleared when the provider no longer
+  sends one) and not editable in Sanshain. Local users set
   their own on the account page (<code>PUT /auth/display-name</code>); a service account's is set
   with <strong>Name</strong> in its row (<code>PUT /admin/users/{id}/display-name</code>,
   <code>manage_users</code>). Without one, the username is shown.
@@ -244,7 +245,7 @@
   switch above the user list (<code>POST /admin/settings/gravatar</code>,
   <code>manage_settings</code>, off by default) puts their picture from gravatar.com over it. The
   key is the SHA-256 of the e-mail address the directory (<code>mail</code>) or the OIDC provider
-  (<code>email</code>) gave at the last sign-in; Sanshain stores only that key, never the address,
+  (<code>email</code>) gave at the last sign-in, and none when it gave none; Sanshain stores only that key, never the address,
   and nothing is requested from gravatar.com while the switch is off. Someone without a picture
   keeps their initials.
 </p>
