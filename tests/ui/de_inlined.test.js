@@ -39,7 +39,7 @@ async function login(page) {
   await page.fill("#login-username", "root");
   await page.fill("#login-password", adminPassword);
   await page.click('#login-panel button[type="submit"]');
-  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
 
 test.beforeAll(() => {

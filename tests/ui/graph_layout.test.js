@@ -128,7 +128,7 @@ const openGraph = async (page) => {
   await page.fill("#login-username", "root");
   await page.fill("#login-password", adminPassword);
   await page.click('#login-panel button[type="submit"]');
-  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   await page.goto("/graph.html");
   await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
 };

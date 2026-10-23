@@ -60,7 +60,7 @@ test.describe("Sanshain UI Smoke Test", () => {
 
     // Wait for redirect or UI change with better error info
     try {
-      await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+      await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     } catch (e) {
       const errorText = await page.locator("#login-error").textContent();
       if (errorText && errorText.trim().length > 0) {
@@ -126,7 +126,7 @@ test.describe("Sanshain UI Smoke Test", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/producers.html");
     await expect(page.locator("#nav-audit-link")).toBeVisible();
@@ -206,7 +206,7 @@ test.describe("Endpoint viewer", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto(YAML_URL);
     const card = page.locator("#versions-list-container .version-card", { hasText: "1.0.0" });
@@ -230,7 +230,7 @@ test.describe("Role, group and maintainer management", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/admin.html");
     await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
   });
@@ -329,7 +329,7 @@ test.describe("One-click promote", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}`);
     const card = page.locator(".endpoint-card", { hasText: "1.0.0" });
     await expect(card).toBeVisible({ timeout: 10000 });
@@ -361,7 +361,7 @@ test.describe("One-click promote", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto(`/producers.html?service=${SERVICE}`);
     const card = page.locator(".endpoint-card", { hasText: "1.0.0" });
@@ -387,7 +387,7 @@ test.describe("One-click promote", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/admin.html");
     await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
@@ -421,7 +421,7 @@ test.describe("Snapshot cleanup settings", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/admin.html");
     await expect(page.locator("#admin-dashboard")).toBeVisible({ timeout: 10000 });
@@ -476,7 +476,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
@@ -512,7 +512,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
@@ -551,7 +551,7 @@ test.describe("Sanshain-branches admin (ADR-0005)", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/admin.html");
     await expect(page.locator("#branches-list")).toBeVisible({ timeout: 10000 });
@@ -658,7 +658,7 @@ test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
     await page.click("#stream-main");
@@ -799,7 +799,7 @@ test.describe("Endpoint card navigation", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}&api_type=openapi&version=1.0.0`);
     const card = page.locator(".endpoint-card").first();
     await expect(card).toBeVisible({ timeout: 10000 });
@@ -825,7 +825,7 @@ test.describe("Endpoint card navigation", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto(`/producers.html?service=${SERVICE}&api_type=openapi&version=1.0.0`);
     const card = page.locator(".endpoint-card").first();
@@ -914,7 +914,7 @@ test.describe("Graph node navigation", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/graph.html");
     await expect(page.locator(`[data-node="${CONSUMER}"]`).first()).toBeVisible({ timeout: 20000 });
@@ -999,7 +999,7 @@ test.describe("Diff views", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.evaluate(() => localStorage.removeItem("sanshain.diffLayout"));
   };
 
@@ -1239,7 +1239,7 @@ test.describe("Blame blocks", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   };
 
   test("the full-spec blame shows one block per run of lines from the same version", async ({
@@ -1346,7 +1346,7 @@ test.describe("Graph without the BROKER node", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
@@ -1582,7 +1582,7 @@ test.describe("Graph provides/requires badges", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
@@ -1960,7 +1960,7 @@ test.describe("Graph (unrequired) box", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/graph.html${query}`);
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
@@ -2365,7 +2365,7 @@ test.describe("Superseded snapshots", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   };
 
   test("the Producers page marks a snapshot below the latest GA as superseded", async ({
@@ -2421,7 +2421,7 @@ test.describe("Graph toolbar layout", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#graph-download-png")).toBeVisible({ timeout: 10000 });
   };
@@ -2461,7 +2461,7 @@ test.describe("Observability log lines", () => {
     await page.fill('input[id="login-username"]', "root");
     await page.fill('input[id="login-password"]', adminPassword);
     await page.click('#login-panel button[type="submit"]');
-    await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/observability.html");
     const line = page.locator("#log-container .log-line").first();
     await expect(line).toBeVisible({ timeout: 20000 });

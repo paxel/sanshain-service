@@ -17,6 +17,47 @@ body %}
     </p>
   </div>
 
+  <!-- Dashboard: counts and activity for everyone; the names of what was
+       provided only for a signed-in user. -->
+  <section id="dashboard" class="max-w-5xl mx-auto mb-12">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-4 text-center">
+        <div id="stat-producers" class="text-3xl font-bold text-indigo-700">–</div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 mt-1">Producers</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-4 text-center">
+        <div id="stat-consumers" class="text-3xl font-bold text-indigo-700">–</div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 mt-1">Consumers</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-4 text-center">
+        <div id="stat-versions" class="text-3xl font-bold text-indigo-700">–</div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 mt-1">Versions</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-4 text-center">
+        <div id="stat-provides-week" class="text-3xl font-bold text-indigo-700">–</div>
+        <div class="text-xs uppercase tracking-wider text-slate-500 mt-1">Provides, 7 days</div>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-4 mt-4">
+      <div class="flex justify-between items-baseline mb-3">
+        <h3 class="text-sm font-semibold text-slate-700">Provides per day</h3>
+        <span class="text-xs text-slate-400">last 30 days</span>
+      </div>
+      <div
+        id="activity-chart"
+        class="flex items-end gap-1 h-24"
+        aria-label="Provides per day"
+      ></div>
+    </div>
+    <div
+      id="recent-provides-card"
+      class="hidden bg-white rounded-xl border border-slate-200 shadow-xs p-4 mt-4"
+    >
+      <h3 class="text-sm font-semibold text-slate-700 mb-3">Latest provides</h3>
+      <ul id="recent-provides" class="divide-y divide-slate-100 text-sm"></ul>
+    </div>
+  </section>
+
   <div class="max-w-5xl mx-auto mt-8 mb-16">
     <div class="grid md:grid-cols-3 gap-8 relative">
       <!-- Connecting lines for desktop -->

@@ -1031,6 +1031,20 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
+/// The landing page's public numbers: counts and provides per day, no names.
+pub async fn dashboard_stats(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::dashboard_stats(&state.repo, chrono::Utc::now()).await?,
+    ))
+}
+
+/// The latest provides with their Producer and version, for a signed-in caller.
+pub async fn dashboard_recent(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::recent_provides(&state.repo).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

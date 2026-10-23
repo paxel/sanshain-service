@@ -86,7 +86,7 @@ async function signIn(page, username) {
   await page.fill('input[id="login-username"]', username);
   await page.fill('input[id="login-password"]', username === "root" ? adminPassword : PASSWORD);
   await page.click('#login-panel button[type="submit"]');
-  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
 
 for (const [persona, username] of Object.entries(PERSONAS)) {

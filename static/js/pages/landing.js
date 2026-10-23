@@ -5,6 +5,64 @@
 
 hideLoader();
 renderBanner();
+loadDashboard();
+
+// The dashboard: numbers for everyone, the latest provides with names only
+// for a signed-in user (the endpoint refuses everyone else).
+async function loadDashboard() {
+  try {
+    const res = await fetch("/api/dashboard");
+    if (!res.ok) return;
+    const stats = await res.json();
+    document.getElementById("stat-producers").textContent = stats.producers;
+    document.getElementById("stat-consumers").textContent = stats.consumers;
+    document.getElementById("stat-versions").textContent = stats.versions;
+    document.getElementById("stat-provides-week").textContent = stats.provides_last_7_days;
+    renderActivityChart(stats.provides_per_day);
+  } catch (_) {
+    // The landing page works without its numbers.
+  }
+  if (!getSanshainToken()) return;
+  try {
+    const res = await apiCall("/api/dashboard/recent");
+    if (!res.ok) return;
+    renderRecentProvides(await res.json());
+  } catch (_) {}
+}
+
+function renderActivityChart(days) {
+  const chart = document.getElementById("activity-chart");
+  const max = Math.max(1, ...days.map((d) => d.provides));
+  chart.replaceChildren(
+    ...days.map((d) => {
+      const bar = document.createElement("div");
+      bar.className = `flex-1 rounded-t ${d.provides ? "bg-indigo-400" : "bg-slate-100"}`;
+      bar.style.height = `${Math.max(4, (d.provides / max) * 100)}%`;
+      bar.title = `${d.day}: ${d.provides} provide${d.provides === 1 ? "" : "s"}`;
+      bar.dataset.day = d.day;
+      bar.dataset.provides = d.provides;
+      return bar;
+    }),
+  );
+}
+
+function renderRecentProvides(provides) {
+  const list = document.getElementById("recent-provides");
+  if (provides.length === 0) {
+    list.innerHTML = '<li class="py-2 text-slate-400 italic">Nothing provided yet.</li>';
+  } else {
+    list.innerHTML = provides
+      .map(
+        (p) => `<li class="py-2 flex justify-between gap-3">
+          <span><a class="text-indigo-700 hover:underline" href="/producers.html?service=${encodeURIComponent(p.producer || "")}">${escapeHtml(p.producer || "")}</a>
+            <span class="font-mono text-slate-600">${escapeHtml(p.version || "")}</span></span>
+          <span class="text-xs text-slate-400">${escapeHtml(p.username)} · ${escapeHtml(new Date(p.timestamp).toLocaleString())}</span>
+        </li>`,
+      )
+      .join("");
+  }
+  document.getElementById("recent-provides-card").classList.remove("hidden");
+}
 
 // Lazy format detection: suggest the matching button as the user
 // pastes — detection preselects, the click decides.

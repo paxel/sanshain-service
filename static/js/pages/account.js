@@ -125,8 +125,8 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     const data = await res.json();
     sanshainToken = data.token;
     localStorage.setItem("sanshain_token", sanshainToken);
-    await renderBanner();
-    showAccount();
+    // Signed in: on to the dashboard, like an OIDC sign-in.
+    window.location.href = "/";
   } catch (err) {
     errEl.textContent = friendlyError(err);
     errEl.classList.remove("hidden");

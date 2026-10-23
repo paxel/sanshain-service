@@ -113,6 +113,10 @@ pub fn create_app(state: AppState) -> Router {
         // only, so API tokens cannot read it — deliberate, and safe because this
         // route is outside `api.yaml`.
         .route("/api/audit/timeline", get(api::audit_timeline).layer(require(state.clone(), RouteGuard::Global(Permission::ViewAudit))))
+        // The landing page's dashboard: numbers for everyone, names only
+        // for a signed-in caller.
+        .route("/api/dashboard", get(api::dashboard_stats))
+        .route("/api/dashboard/recent", get(api::dashboard_recent).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/api/sse/updates", get(api::sse_updates).layer(from_fn_with_state(state.clone(), api_auth)))
         .route("/api/ws/updates", get(api::ws_updates).layer(from_fn_with_state(state.clone(), api_auth)))
 
@@ -746,6 +750,8 @@ mod tests {
             "/tokens",
             "/tokens/{id}",
             // Reports, live updates, and other UI-facing read APIs
+            "/api/dashboard",
+            "/api/dashboard/recent",
             // JSON-RPC for AI clients (https://paxel.github.io/sanshain-service/developer/mcp.html), not REST
             "/mcp",
         ];

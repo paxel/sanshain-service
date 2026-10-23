@@ -595,7 +595,7 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
   <code>HttpOnly</code> cookie; the callback (<code>GET /auth/oidc/callback</code>) exchanges the
   code, verifies the ID token (signature against the provider's JWKS, nonce, issuer, audience,
   expiry), creates or finds the shadow account (approved) and sets the session cookie, then
-  redirects to <code>/account.html</code>. Without a configuration both routes answer
+  redirects to the dashboard (<code>/</code>), where a local sign-in lands too. Without a configuration both routes answer
   <code>400 OIDC is not configured</code>; a callback without its cookie answers
   <code>400 no OIDC login in progress</code>; a provider that cannot be reached at discovery answers
   <code>500 OIDC discovery failed: …</code>.

@@ -91,8 +91,28 @@ test("in maintenance the card says so and refuses everyone but administrators", 
   await page.fill("#login-username", "root");
   await page.fill("#login-password", adminPassword);
   await page.click('#login-panel button[type="submit"]');
-  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   expect((await authMode(request, "local")).ok()).toBeTruthy();
+});
+
+test("signing in lands on the dashboard, whose names only a signed-in user sees", async ({
+  page,
+}) => {
+  expect((await authMode(page.request, "local")).ok()).toBeTruthy();
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator("#stat-producers")).toHaveText(/^\d+$/);
+  await expect(page.locator("#activity-chart > div")).toHaveCount(30);
+  await expect(page.locator("#recent-provides-card")).toBeHidden();
+
+  await openSignIn(page);
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await page.waitForURL((url) => url.pathname === "/");
+  await expect(page.locator("#stat-versions")).toHaveText(/^\d+$/);
+  await expect(page.locator("#recent-provides-card")).toBeVisible();
 });
 
 // Reported from a real instance: once switched off, auto-acknowledge could not
@@ -112,7 +132,7 @@ test("the auto-acknowledge switch turns off and on again and keeps its state", a
   await page.fill("#login-username", "root");
   await page.fill("#login-password", adminPassword);
   await page.click('#login-panel button[type="submit"]');
-  await expect(page.locator("#account-dashboard")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   const openAdmin = async () => {
     await page.goto("/admin.html");
     await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });

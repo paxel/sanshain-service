@@ -7,7 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.11.0]
 
+### Added
+- The landing page is a dashboard: the number of Producers, Consumers and versions, the provides of the last 7 days and a chart of provides per day over 30 days, for everyone; a signed-in user also sees the 10 latest provides with their names.
+
 ### Changed
+- Signing in, locally or through OIDC, lands on the dashboard instead of the account page.
 - The graph's **Periphery** switch is remembered in the browser like direction, Compact, Rainbow and Topics; a link that hides protocols still decides it.
 
 ### Fixed

@@ -24,7 +24,14 @@
 
 <h2>The landing page and the validator</h2>
 <p>
-  <code>/</code> needs no login. Its <strong>Try it</strong> form is the
+  <code>/</code> needs no login, and it is where a sign-in lands. Its dashboard shows how many
+  Producers, Consumers and versions the instance holds, the provides of the last 7 days, and a bar
+  per day of the last 30 days, without naming anything. A signed-in user also sees the 10 latest
+  provides with Producer, version, who provided it and when. The numbers are
+  <code>GET /api/dashboard</code>, the list <code>GET /api/dashboard/recent</code>.
+</p>
+<p>
+  Its <strong>Try it</strong> form is the
   <a href="../start/glossary.html#validator">validator</a>: paste an OpenAPI, AsyncAPI or Protobuf
   document and Sanshain runs exactly the provide-side checks, version extraction and endpoint
   splitting, and shows the version it read and a preview of the endpoints it would store. Nothing is

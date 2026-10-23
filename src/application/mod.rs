@@ -4,6 +4,7 @@ pub mod authz;
 pub mod background;
 pub mod branch_service;
 pub mod catalog_service;
+pub mod dashboard_service;
 pub mod directory_roles;
 pub mod mcp_service;
 pub mod provide_service;

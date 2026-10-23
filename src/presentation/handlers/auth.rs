@@ -443,7 +443,7 @@ pub async fn oidc_callback(
         session.token
     );
     let clear = format!("{OIDC_FLOW_COOKIE}=; Path=/; HttpOnly; Max-Age=0");
-    let mut response = Redirect::to("/account.html").into_response();
+    let mut response = Redirect::to("/").into_response();
     let h = response.headers_mut();
     h.append(
         header::SET_COOKIE,
