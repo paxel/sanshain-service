@@ -88,10 +88,7 @@ pub async fn auth_logout(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
-    if let Some(auth_header) = headers.get("Authorization")
-        && let Ok(auth_str) = auth_header.to_str()
-        && let Some(token) = auth_str.strip_prefix("Bearer ")
-    {
+    if let Some(token) = super::bearer_token(&headers) {
         services::logout(&state.repo, token).await?;
     }
     Ok(StatusCode::OK)
@@ -132,17 +129,8 @@ pub async fn auth_me(
         }
         None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
     };
-    let profile = services::user_profile(&state.repo, user.id).await?;
-    // How this session signed in, so the pages offer a password change only
-    // where the password was Sanshain's own. Null for an older session.
-    let sign_in = match headers
-        .get("Authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-    {
-        Some(token) => services::session_sign_in(&state.repo, token).await?,
-        None => None,
-    };
+    let account =
+        services::account_view(&state.repo, user.id, super::bearer_token(&headers)).await?;
 
     Ok(Json(serde_json::json!({
         "id": user.id,
@@ -152,14 +140,10 @@ pub async fn auth_me(
         "permissions": permissions,
         "is_root": is_root,
         "maintains": maintains,
-        "sign_in": sign_in,
-        "display_name_editable": !profile.display_name_from_provider(),
-        "gravatar_hash": if services::get_gravatar_enabled(&state.repo).await? {
-            profile.avatar_hash.clone()
-        } else {
-            None
-        },
-        "display_name": profile.display_name,
+        "sign_in": account.sign_in,
+        "display_name_editable": account.display_name_editable,
+        "gravatar_hash": account.gravatar_hash,
+        "display_name": account.display_name,
     })))
 }
 
@@ -192,10 +176,7 @@ pub async fn auth_change_password(
     axum::Extension(user): axum::Extension<User>,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let current_token = headers
-        .get("Authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
+    let current_token = super::bearer_token(&headers);
 
     let session = services::change_password(
         &state.repo,

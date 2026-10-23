@@ -15,6 +15,14 @@ pub(super) fn actor_or_dev_mode(user: Option<&crate::domain::models::User>) -> S
         .unwrap_or_else(|| DEV_MODE_ACTOR.to_string())
 }
 
+/// The token of an `Authorization: Bearer …` header, if the request has one.
+pub(super) fn bearer_token(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get("Authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
 /// Record an audit entry attributed to the request's caller, given the plain
 /// user the handler already holds.
 pub(super) async fn record_audit_log_for(

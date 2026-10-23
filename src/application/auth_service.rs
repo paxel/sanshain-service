@@ -815,12 +815,42 @@ pub async fn set_service_account_display_name(
     Ok((account.username, name))
 }
 
-/// How the session behind `token` signed in, if Sanshain recorded it.
-pub async fn session_sign_in(
+/// What the pages show about the signed-in person beyond their permissions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccountView {
+    /// How this session signed in, so the pages offer a password change only
+    /// where the password was Sanshain's own. `None` for an older session.
+    pub sign_in: Option<SignInMethod>,
+    pub display_name: Option<String>,
+    /// `false` when the name comes from the directory or the OIDC provider.
+    pub display_name_editable: bool,
+    /// Only while Gravatar pictures are switched on.
+    pub gravatar_hash: Option<String>,
+}
+
+/// The person's account view, for the session behind `session_token`.
+#[instrument(skip(repo, session_token))]
+pub async fn account_view(
     repo: &impl SpecRepository,
-    token: &str,
-) -> Result<Option<SignInMethod>, AppError> {
-    Ok(repo.session_sign_in(token).await?)
+    user_id: i64,
+    session_token: Option<&str>,
+) -> Result<AccountView, AppError> {
+    let profile = user_profile(repo, user_id).await?;
+    let sign_in = match session_token {
+        Some(token) => repo.session_sign_in(token).await?,
+        None => None,
+    };
+    let gravatar_hash = if get_gravatar_enabled(repo).await? {
+        profile.avatar_hash.clone()
+    } else {
+        None
+    };
+    Ok(AccountView {
+        sign_in,
+        display_name_editable: !profile.display_name_from_provider(),
+        display_name: profile.display_name,
+        gravatar_hash,
+    })
 }
 
 #[instrument(skip_all)]
@@ -1271,6 +1301,36 @@ mod tests {
             gravatar_keys(&repo).await.unwrap().get(&alice.id),
             Some(&gravatar_key("alice@example.com"))
         );
+    }
+
+    #[tokio::test]
+    async fn the_account_view_names_the_sign_in_and_hides_the_picture_key_while_gravatar_is_off() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        let session = repo.create_session(alice.id, "2099-01-01").await.unwrap();
+        record_sign_in(&repo, &session, SignInMethod::Ldap)
+            .await
+            .unwrap();
+        refresh_provider_identity(&repo, alice.id, Some("Alice"), Some("alice@example.com"))
+            .await
+            .unwrap();
+
+        let view = account_view(&repo, alice.id, Some(&session.token))
+            .await
+            .unwrap();
+        assert_eq!(
+            view,
+            AccountView {
+                sign_in: Some(SignInMethod::Ldap),
+                display_name: Some("Alice".to_string()),
+                display_name_editable: false,
+                gravatar_hash: None,
+            }
+        );
+        set_gravatar_enabled(&repo, true).await.unwrap();
+        let view = account_view(&repo, alice.id, None).await.unwrap();
+        assert_eq!(view.sign_in, None, "no session, no sign-in method");
+        assert_eq!(view.gravatar_hash, Some(gravatar_key("alice@example.com")));
     }
 
     #[tokio::test]

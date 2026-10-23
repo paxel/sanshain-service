@@ -143,11 +143,12 @@ pub async fn search_directory_groups(
     State(state): State<AppState>,
     axum::extract::Query(query): axum::extract::Query<DirectoryGroupQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let config = crate::application::services::get_ldap_config(&state.repo)
-        .await?
-        .ok_or_else(|| AppError::BadRequest("LDAP is not configured".to_string()))?;
-    let directory = crate::infrastructure::ldap_provider::LdapAuthProvider::new(config);
-    let hits = authz::search_directory_groups(&state.repo, &directory, &query.q).await?;
+    let hits = authz::search_directory_groups(
+        &state.repo,
+        crate::infrastructure::ldap_provider::LdapAuthProvider::new,
+        &query.q,
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "groups": hits })))
 }
 

@@ -4,7 +4,7 @@
 //! identity is settled, and the only question left is which roles that identity
 //! carries.
 
-use crate::domain::models::{AppError, Group, GroupSource, User};
+use crate::domain::models::{AppError, Group, GroupSource, LdapConfig, User};
 use crate::domain::permissions::{Actor, Permission, Role, RootUsers};
 use crate::domain::ports::{DirectoryGroupSearch, SpecRepository};
 
@@ -150,13 +150,18 @@ pub struct DirectoryGroupHit {
 }
 
 /// Find directory groups by a part of their name, marking the ones Sanshain
-/// already knows.
-pub async fn search_directory_groups(
+/// already knows. `connect` opens the directory the stored LDAP configuration
+/// describes; without one there is nothing to search.
+#[tracing::instrument(skip(repo, connect))]
+pub async fn search_directory_groups<D: DirectoryGroupSearch>(
     repo: &impl SpecRepository,
-    directory: &impl DirectoryGroupSearch,
+    connect: impl FnOnce(LdapConfig) -> D,
     text: &str,
 ) -> Result<Vec<DirectoryGroupHit>, AppError> {
-    let hits = directory
+    let config = super::services::get_ldap_config(repo)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("LDAP is not configured".to_string()))?;
+    let hits = connect(config)
         .find_groups(text, DIRECTORY_GROUP_SEARCH_LIMIT)
         .await
         .map_err(|e| AppError::BadRequest(format!("the directory search failed: {e}")))?;
@@ -671,7 +676,20 @@ mod tests {
     #[tokio::test]
     async fn a_directory_team_is_found_by_name_and_added_once() {
         let repo = MockRepo::new();
-        let hits = search_directory_groups(&repo, &Teams, "carla")
+        assert!(
+            matches!(
+                search_directory_groups(&repo, |_| Teams, "carla").await,
+                Err(AppError::BadRequest(_))
+            ),
+            "no LDAP configured, nothing to search"
+        );
+        repo.set_setting(
+            "ldap_config",
+            r#"{"server_url":"ldap://dc","bind_dn":"","base_dn":"dc=corp,dc=com"}"#,
+        )
+        .await
+        .unwrap();
+        let hits = search_directory_groups(&repo, |_| Teams, "carla")
             .await
             .unwrap();
         assert_eq!(hits.len(), 1);
@@ -684,7 +702,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(again.id, group.id, "the DN compares without case");
-        let hits = search_directory_groups(&repo, &Teams, "carla")
+        let hits = search_directory_groups(&repo, |_| Teams, "carla")
             .await
             .unwrap();
         assert_eq!(hits[0].group_id, Some(group.id));
