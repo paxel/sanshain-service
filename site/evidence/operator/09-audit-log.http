@@ -8,10 +8,10 @@ content-length: 2913
 [
   {
     "id": 28,
-    "timestamp": "2026-10-22T18:24:52.076181072+00:00",
+    "timestamp": "2026-10-23T19:19:36.126347416+00:00",
     "username": "root",
     "action": "DATABASE_SNAPSHOT",
-    "details": "Produced database snapshot sanshain-2.10.0-20261022T182452Z.db (389120 bytes)",
+    "details": "Produced database snapshot sanshain-2.11.0-20261023T191936Z.db (405504 bytes)",
     "service": null,
     "version": null,
     "action_type": "ADMIN",
@@ -20,7 +20,7 @@ content-length: 2913
   },
   {
     "id": 27,
-    "timestamp": "2026-10-22T18:24:52.036848908+00:00",
+    "timestamp": "2026-10-23T19:19:36.074935831+00:00",
     "username": "root",
     "action": "SNAPSHOT_CLEANUP",
     "details": "Manually triggered snapshot cleanup, removed 0 snapshots",
@@ -32,7 +32,7 @@ content-length: 2913
   },
   {
     "id": 26,
-    "timestamp": "2026-10-22T18:24:51.972549147+00:00",
+    "timestamp": "2026-10-23T19:19:35.994675958+00:00",
     "username": "root",
     "action": "SET_SNAPSHOT_MAX_AGE",
     "details": "Set snapshot max age to 30 days",
@@ -44,7 +44,7 @@ content-length: 2913
   },
   {
     "id": 25,
-    "timestamp": "2026-10-22T18:24:50.828153313+00:00",
+    "timestamp": "2026-10-23T19:19:34.796491800+00:00",
     "username": "root",
     "action": "WEBHOOK_CREATED",
     "details": "Registered webhook 1 (global instance-wide, slack format, host receiver.sanshain.svc)",
@@ -56,7 +56,7 @@ content-length: 2913
   },
   {
     "id": 24,
-    "timestamp": "2026-10-22T18:24:50.767441343+00:00",
+    "timestamp": "2026-10-23T19:19:34.719261005+00:00",
     "username": "root",
     "action": "SET_WEBHOOK_ALLOWED_HOSTS",
     "details": "Set the webhook allow-list to: hooks.slack.com, http://receiver.sanshain.svc",
@@ -68,7 +68,7 @@ content-length: 2913
   },
   {
     "id": 23,
-    "timestamp": "2026-10-22T18:24:50.676511707+00:00",
+    "timestamp": "2026-10-23T19:19:34.604519092+00:00",
     "username": "root",
     "action": "ASSIGN_MAINTAINER",
     "details": "User 2 now maintains 'payments'",
@@ -80,7 +80,7 @@ content-length: 2913
   },
   {
     "id": 22,
-    "timestamp": "2026-10-22T18:24:50.650798207+00:00",
+    "timestamp": "2026-10-23T19:19:34.566372611+00:00",
     "username": "root",
     "action": "GRANT_ROLE",
     "details": "Granted role 'releaser' to user 2",
@@ -92,7 +92,7 @@ content-length: 2913
   },
   {
     "id": 21,
-    "timestamp": "2026-10-22T18:24:50.619748587+00:00",
+    "timestamp": "2026-10-23T19:19:34.522564727+00:00",
     "username": "root",
     "action": "APPROVE_USER",
     "details": "Approved user 'maria'",
@@ -104,7 +104,7 @@ content-length: 2913
   },
   {
     "id": 20,
-    "timestamp": "2026-10-22T18:24:50.560242596+00:00",
+    "timestamp": "2026-10-23T19:19:34.437099708+00:00",
     "username": "DevMode/Anonymous",
     "action": "REGISTER_USER",
     "details": "Registered user 'maria'",
@@ -116,7 +116,7 @@ content-length: 2913
   },
   {
     "id": 19,
-    "timestamp": "2026-10-22T18:24:50.512898157+00:00",
+    "timestamp": "2026-10-23T19:19:34.380718179+00:00",
     "username": "root",
     "action": "SET_REGISTRATION",
     "details": "Set registration to true",
@@ -128,7 +128,7 @@ content-length: 2913
   },
   {
     "id": 18,
-    "timestamp": "2026-10-22T18:24:50.476581056+00:00",
+    "timestamp": "2026-10-23T19:19:34.331532195+00:00",
     "username": "root",
     "action": "UPDATE_SETTINGS",
     "details": "Updated auth mode to 'local' and LDAP configurations",
@@ -140,7 +140,7 @@ content-length: 2913
   },
   {
     "id": 17,
-    "timestamp": "2026-10-22T18:24:50.424675044+00:00",
+    "timestamp": "2026-10-23T19:19:34.258883756+00:00",
     "username": "root",
     "action": "UPDATE_SETTINGS",
     "details": "Updated auth mode to 'oidc' and LDAP configurations",

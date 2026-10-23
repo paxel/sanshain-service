@@ -13,7 +13,7 @@ content-type: application/json
 content-length: 165
 
 {
-  "id": "25542665-1572-4a88-b760-e5269aa1b515",
+  "id": "7eca0ddf-e2ea-4a68-8f05-9182714c81cb",
   "name": "claude-code",
   "scope": "read_only",
   "token": "san_…"

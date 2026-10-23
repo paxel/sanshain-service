@@ -10,7 +10,7 @@ content-length: 958
     "version": "1.0.0",
     "stability": "ga",
     "provided_by": "root",
-    "updated_at": "2026-10-22T18:24:39Z",
+    "updated_at": "2026-10-23T19:19:22Z",
     "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 1.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
     "changed": true
   },
@@ -18,7 +18,7 @@ content-length: 958
     "version": "2.0.0",
     "stability": "ga",
     "provided_by": "root",
-    "updated_at": "2026-10-22T18:24:47Z",
+    "updated_at": "2026-10-23T19:19:31Z",
     "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.0.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
     "changed": true
   },
@@ -26,7 +26,7 @@ content-length: 958
     "version": "2.1.0",
     "stability": "ga",
     "provided_by": "root",
-    "updated_at": "2026-10-22T18:24:47Z",
+    "updated_at": "2026-10-23T19:19:31Z",
     "yaml_content": "openapi: 3.0.3\ninfo:\n  title: Payments\n  version: 2.1.0\npaths:\n  /payments:\n    post:\n      summary: Create a payment\n      responses:\n        '201':\n          description: Created\n",
     "changed": true
   }

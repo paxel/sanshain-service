@@ -21,11 +21,11 @@ content-length: 344
     "format": "slack",
     "event_types": [],
     "producer_glob": null,
-    "secret_hint": "7303e6f9",
+    "secret_hint": "5506bef1",
     "paused": false,
     "allow_list_exempt": true,
     "created_by": "root",
-    "created_at": "2026-10-22T18:24:50Z"
+    "created_at": "2026-10-23T19:19:34Z"
   },
-  "secret": "whsec_5c42bd134c538dd0f6154cb57799c7de88999c40c1ecd1faf658dbdd7f5e5adf"
+  "secret": "whsec_c7e296f64b64cc4f7f45b5b224cdd67804bdc0b4990d37718ff67dd9e7b7ed83"
 }

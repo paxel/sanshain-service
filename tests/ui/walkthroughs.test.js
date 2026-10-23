@@ -169,18 +169,14 @@ test.describe("Recorded walkthroughs", () => {
   });
 
   test("operator 04 to 08 and the admin overview", async ({ page }) => {
-    await page.goto("/admin.html", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin.html#general", { waitUntil: "domcontentloaded" });
     await loaderGone(page);
     await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
     await page.waitForSelector("#db-snapshot-btn", { timeout: 30000 });
     await page.waitForSelector("[data-webhook-list]", { timeout: 30000 });
-    await page.waitForFunction(() => document.body.innerText.includes("maria"), {
-      timeout: 30000,
-    });
     await page.waitForTimeout(1500);
     await page.screenshot({ path: img("admin_overview.png") });
 
-    await section(page, "Users").screenshot({ path: ops("04-users.png") });
     const webhooks = page.locator("#webhooks-section");
     await webhooks.scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
@@ -188,6 +184,17 @@ test.describe("Recorded walkthroughs", () => {
     await webhooks.screenshot({ path: img("admin_webhooks.png") });
     await section(page, "Snapshot Cleanup").screenshot({ path: ops("07-snapshot-cleanup.png") });
     await section(page, "Database Configuration").screenshot({ path: ops("08-database.png") });
+
+    // The Users tab lists the pending accounts only; the approved chip shows
+    // maria and root.
+    await page.goto("/admin.html#users", { waitUntil: "domcontentloaded" });
+    await page.click('[data-user-chip="status:approved"]');
+    await page.waitForFunction(
+      () => document.getElementById("users-list").innerText.includes("maria"),
+      { timeout: 30000 },
+    );
+    await page.waitForTimeout(500);
+    await section(page, "Users").screenshot({ path: ops("04-users.png") });
   });
 
   test("operator 09: the audit timeline", async ({ page }) => {

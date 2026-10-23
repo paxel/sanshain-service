@@ -3,19 +3,25 @@ Authorization: Bearer <session token>
 
 HTTP/1.1 200 OK
 content-type: application/json
-content-length: 166
+content-length: 280
 
 [
   {
     "approved": false,
+    "display_name": null,
+    "gravatar_hash": null,
     "id": 2,
+    "kind": "unknown",
     "roles": [],
     "service_account": false,
     "username": "maria"
   },
   {
     "approved": true,
+    "display_name": null,
+    "gravatar_hash": null,
     "id": 1,
+    "kind": "local",
     "roles": [
       "admin"
     ],

@@ -15,6 +15,6 @@ $ mvn -s settings.xml -Dsanshain.trunk=true io.github.paxel.sanshain:sanshain-ma
 [INFO] ------------------------------------------------------------------------
 [INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time:  0.630 s
-[INFO] Finished at: 2026-10-22T18:24:49Z
+[INFO] Total time:  0.683 s
+[INFO] Finished at: 2026-10-23T19:19:33Z
 [INFO] ------------------------------------------------------------------------

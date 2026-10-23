@@ -3,7 +3,7 @@ Authorization: Bearer san_…
 
 HTTP/1.1 200 OK
 content-type: application/json
-content-length: 440
+content-length: 460
 
 [
   {
@@ -12,17 +12,18 @@ content-length: 440
     "stability": "snapshot",
     "content_hash": "sha256:5b7f3014a0c983b0f9a2c1b9d2a4c0c851230cc884a5b49f5aff07f84fe3e6b3",
     "provided_by": "root",
-    "created_at": "2026-10-22T18:24:39Z",
-    "updated_at": "2026-10-22T18:24:39Z",
+    "created_at": "2026-10-23T19:19:21Z",
+    "updated_at": "2026-10-23T19:19:21Z",
     "last_required_at": null,
     "endpoint_count": 2,
     "origin": {
       "build_url": null,
       "change_url": null,
       "tickets": [],
-      "note": null
+      "note": null,
+      "trunk_build": false
     },
-    "expires_at": "2026-11-21T18:24:39Z",
-    "trunk_provided_at": "2026-10-22T18:24:39Z"
+    "expires_at": "2026-11-22T19:19:21Z",
+    "trunk_provided_at": "2026-10-23T19:19:21Z"
   }
 ]

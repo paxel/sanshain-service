@@ -3,10 +3,13 @@ Authorization: Bearer <maria's session token>
 
 HTTP/1.1 200 OK
 content-type: application/json
-content-length: 134
+content-length: 222
 
 {
   "approved": true,
+  "display_name": null,
+  "display_name_editable": true,
+  "gravatar_hash": null,
   "id": 2,
   "is_root": false,
   "maintains": [
@@ -18,5 +21,6 @@ content-length: 134
   "roles": [
     "releaser"
   ],
+  "sign_in": "local",
   "username": "maria"
 }

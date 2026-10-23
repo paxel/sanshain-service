@@ -1,9 +1,9 @@
 # Not recorded against a cluster: the restore procedure from Backup and restore,
-# with the snapshot the CronJob fetched above (sanshain-2.10.0-20261022T182452Z.db).
+# with the snapshot the CronJob fetched above (sanshain-2.11.0-20261023T191936Z.db).
 $ kubectl scale statefulset sanshain --replicas=0
 statefulset.apps/sanshain scaled
 $ kubectl run restore --rm -it --image=busybox --overrides='{"spec":{"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"sanshain-data"}},{"name":"backup","persistentVolumeClaim":{"claimName":"sanshain-backup"}}],"containers":[{"name":"restore","image":"busybox","command":["sh"],"stdin":true,"tty":true,"volumeMounts":[{"name":"data","mountPath":"/data"},{"name":"backup","mountPath":"/backup"}]}]}}' -- sh
-/ # cp /backup/sanshain-2.10.0-20261022T182452Z.db /data/sanshain.db
+/ # cp /backup/sanshain-2.11.0-20261023T191936Z.db /data/sanshain.db
 / # rm -f /data/sanshain.db-wal /data/sanshain.db-shm
 / # exit
 $ kubectl scale statefulset sanshain --replicas=1
