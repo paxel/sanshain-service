@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.11.0]
 
 ### Added
+- The admin user list tags every account with its kind: **service account**, or how the person last signed in (**local**, **LDAP**, **OIDC**); users who have not signed in since 2.11 show **unknown** (`kind` in `GET /admin/users`).
 - The landing page is a dashboard: the number of Producers, Consumers and versions, the provides of the last 7 days and a chart of provides per day over 30 days, for everyone; a signed-in user also sees the 10 latest provides with their names.
 
 ### Changed

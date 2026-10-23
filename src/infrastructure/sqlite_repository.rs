@@ -2315,6 +2315,38 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn record_user_sign_in(
+        &self,
+        user_id: i64,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, last_sign_in) VALUES (?, ?) \
+             ON CONFLICT (user_id) DO UPDATE SET last_sign_in = excluded.last_sign_in",
+        )
+        .bind(user_id)
+        .bind(method.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
+        let rows: Vec<(i64, Option<String>)> =
+            sqlx::query_as("SELECT user_id, last_sign_in FROM user_profiles")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(user_id, last_sign_in)| UserProfile {
+                user_id,
+                last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
+            })
+            .collect())
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,

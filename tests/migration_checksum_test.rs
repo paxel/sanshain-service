@@ -202,6 +202,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261023000000_session_sign_in.sql",
         "c61ab52d70f116fd2c60d704bcc2341816287e1a0cc9b5d9493cb7798d07c182",
     ),
+    (
+        "20261023000001_user_profiles.sql",
+        "e86d2a0614a81a39d4e90b78d3f516261243ca9dfef00d0ff4fbe699385f11cf",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -356,6 +360,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261023000000_session_sign_in.sql",
         "c61ab52d70f116fd2c60d704bcc2341816287e1a0cc9b5d9493cb7798d07c182",
+    ),
+    (
+        "20261023000001_user_profiles.sql",
+        "bc95ae0c0527e73cd4aecc4638288e986de3bd1ff56c903cd536b1100f6a831e",
     ),
 ];
 

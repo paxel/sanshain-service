@@ -3479,6 +3479,8 @@ paths:
       x-scope: global
       description: |
         Requires the `manage_users` permission.
+
+        Each user carries `kind`: `service` for a service account, otherwise how the person last signed in (`local`, `ldap`, `oidc`), or `unknown` before their first sign-in since 2.11.
       responses:
         "200":
           description: Success.

@@ -1125,6 +1125,18 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.delete_session(token).await
     }
 
+    async fn record_user_sign_in(
+        &self,
+        user_id: i64,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        self.inner.record_user_sign_in(user_id, method).await
+    }
+
+    async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
+        self.inner.list_user_profiles().await
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,

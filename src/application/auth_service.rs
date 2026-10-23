@@ -179,8 +179,7 @@ pub async fn login(
 
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
-    repo.set_session_sign_in(&session.token, SignInMethod::Local)
-        .await?;
+    record_sign_in(repo, &session, SignInMethod::Local).await?;
     Ok((session, user))
 }
 
@@ -202,8 +201,7 @@ pub async fn change_password(
         let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
         let session = repo.create_session(user.id, &expires_at).await?;
         // The old password was just checked here, so this is a local sign-in.
-        repo.set_session_sign_in(&session.token, SignInMethod::Local)
-            .await?;
+        record_sign_in(repo, &session, SignInMethod::Local).await?;
         return Ok(Some(session));
     }
 
@@ -442,8 +440,7 @@ pub async fn login_with_provider(
 
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
-    repo.set_session_sign_in(&session.token, SignInMethod::Ldap)
-        .await?;
+    record_sign_in(repo, &session, SignInMethod::Ldap).await?;
     Ok(session)
 }
 
@@ -585,9 +582,46 @@ pub async fn login_oidc(
     }
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
-    repo.set_session_sign_in(&session.token, SignInMethod::Oidc)
-        .await?;
+    record_sign_in(repo, &session, SignInMethod::Oidc).await?;
     Ok(session)
+}
+
+/// Note a sign-in: on the session, so the pages know what it may change, and
+/// on the person, so the user list shows where they come from.
+pub(crate) async fn record_sign_in(
+    repo: &impl SpecRepository,
+    session: &Session,
+    method: SignInMethod,
+) -> Result<(), AppError> {
+    repo.set_session_sign_in(&session.token, method).await?;
+    repo.record_user_sign_in(session.user_id, method).await?;
+    Ok(())
+}
+
+/// The kind of each account for the user list: `service` for a service
+/// account, otherwise how the person last signed in (`local`, `ldap`,
+/// `oidc`), or `unknown` before their first sign-in since 2.11.
+pub async fn account_kinds(
+    repo: &impl SpecRepository,
+    users: &[User],
+) -> Result<std::collections::HashMap<i64, &'static str>, AppError> {
+    let last: std::collections::HashMap<i64, SignInMethod> = repo
+        .list_user_profiles()
+        .await?
+        .into_iter()
+        .filter_map(|p| p.last_sign_in.map(|m| (p.user_id, m)))
+        .collect();
+    Ok(users
+        .iter()
+        .map(|user| {
+            let kind = if user.is_service_account() {
+                "service"
+            } else {
+                last.get(&user.id).map_or("unknown", SignInMethod::as_str)
+            };
+            (user.id, kind)
+        })
+        .collect())
 }
 
 /// How the session behind `token` signed in, if Sanshain recorded it.
@@ -982,6 +1016,41 @@ mod tests {
             oidc_begin(&repo, &StubOidc).await,
             Err(AppError::BadRequest(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn the_account_kind_is_the_last_sign_in_and_service_accounts_are_known_at_once() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        let bob = repo.create_user("bob", "hash", true).await.unwrap();
+        let jenkins = repo
+            .create_user("jenkins", SERVICE_ACCOUNT_PASSWORD_HASH, true)
+            .await
+            .unwrap();
+
+        let session = repo.create_session(alice.id, "2099-01-01").await.unwrap();
+        record_sign_in(&repo, &session, SignInMethod::Ldap)
+            .await
+            .unwrap();
+        let users = vec![alice.clone(), bob.clone(), jenkins.clone()];
+        let kinds = account_kinds(&repo, &users).await.unwrap();
+        assert_eq!(kinds[&alice.id], "ldap");
+        assert_eq!(kinds[&bob.id], "unknown");
+        assert_eq!(kinds[&jenkins.id], "service");
+        assert_eq!(
+            repo.session_sign_in(&session.token).await.unwrap(),
+            Some(SignInMethod::Ldap)
+        );
+
+        // The tag follows the latest sign-in.
+        let session = repo.create_session(alice.id, "2099-01-01").await.unwrap();
+        record_sign_in(&repo, &session, SignInMethod::Local)
+            .await
+            .unwrap();
+        assert_eq!(
+            account_kinds(&repo, &users).await.unwrap()[&alice.id],
+            "local"
+        );
     }
 
     #[tokio::test]

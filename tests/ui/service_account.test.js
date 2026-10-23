@@ -27,6 +27,11 @@ test("an admin creates a service account and issues its token", async ({ page })
   await page.click('#service-account-form button[type="submit"]');
   const row = page.locator("#users-list > div", { hasText: ACCOUNT });
   await expect(row.locator("[data-service-account]")).toHaveText("service account");
+  // Every row says what kind of account it is; root just signed in locally.
+  const root = page.locator("#users-list > div", {
+    has: page.locator("span.font-medium", { hasText: /^root$/ }),
+  });
+  await expect(root.locator("[data-account-kind]")).toHaveText("local");
 
   await page.goto("/account.html");
   await expect(page.locator("#token-for-row")).toBeVisible();

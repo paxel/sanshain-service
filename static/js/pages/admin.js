@@ -906,6 +906,21 @@ async function unassignMaintainer(producer, kind, id) {
 }
 
 // --- Users ---
+// What kind of account a row is: a service account, or how the person last
+// signed in. "unknown" until their first sign-in since that was recorded.
+const ACCOUNT_KIND_TAGS = {
+  service: ["service account", "bg-slate-200 text-slate-700"],
+  local: ["local", "bg-emerald-100 text-emerald-700"],
+  ldap: ["LDAP", "bg-sky-100 text-sky-700"],
+  oidc: ["OIDC", "bg-violet-100 text-violet-700"],
+  unknown: ["unknown", "bg-slate-100 text-slate-400"],
+};
+function accountKindTag(user) {
+  const kind = ACCOUNT_KIND_TAGS[user.kind] ? user.kind : "unknown";
+  const [label, colours] = ACCOUNT_KIND_TAGS[kind];
+  const marker = kind === "service" ? " data-service-account" : "";
+  return `<span class="text-xs ${colours} px-2 py-0.5 rounded-full" data-account-kind="${kind}"${marker}>${label}</span>`;
+}
 async function loadUsers() {
   const list = document.getElementById("users-list");
   try {
@@ -926,7 +941,7 @@ async function loadUsers() {
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
                             <span class="font-medium text-slate-800">${escapeHtml(u.username)}</span>
-                            ${u.service_account ? '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full" data-service-account>service account</span>' : ""}
+                            ${accountKindTag(u)}
                             ${(u.roles || []).map((r) => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(" ")}
                             ${
                               u.approved

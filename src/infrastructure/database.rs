@@ -463,6 +463,18 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, delete_session(token))
     }
 
+    async fn record_user_sign_in(
+        &self,
+        user_id: i64,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, record_user_sign_in(user_id, method))
+    }
+
+    async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
+        delegate!(self, list_user_profiles())
+    }
+
     async fn set_session_sign_in(
         &self,
         token: &str,

@@ -176,6 +176,18 @@ async fn a_fresh_instance_starts_in_off_and_only_the_admin_gets_in() {
         me["sign_in"], "local",
         "the account page offers a password change"
     );
+    let (status, users) = call(&app, "GET", "/admin/users", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{users}");
+    let root = users
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["username"] == "root")
+        .unwrap();
+    assert_eq!(
+        root["kind"], "local",
+        "the user list shows the last sign-in"
+    );
 
     // The API is closed while in maintenance, for the admin too.
     let (status, _) = call(

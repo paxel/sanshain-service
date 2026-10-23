@@ -845,6 +845,7 @@ pub async fn admin_list_users(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     let users = services::list_users(&state.repo).await?;
+    let kinds = services::account_kinds(&state.repo, &users).await?;
     let mut out = Vec::with_capacity(users.len());
     for user in users {
         let roles = crate::application::authz::list_user_roles(&state.repo, user.id).await?;
@@ -853,6 +854,7 @@ pub async fn admin_list_users(
             "username": user.username,
             "approved": user.approved,
             "service_account": user.is_service_account(),
+            "kind": kinds.get(&user.id).copied().unwrap_or("unknown"),
             "roles": roles,
         }));
     }

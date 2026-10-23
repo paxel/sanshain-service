@@ -104,6 +104,7 @@ pub struct MockRepo {
     pub users: Mutex<Vec<User>>,
     pub sessions: Mutex<Vec<Session>>,
     pub session_sign_ins: Mutex<HashMap<String, SignInMethod>>,
+    pub user_profiles: Mutex<BTreeMap<i64, UserProfile>>,
     pub settings: Mutex<HashMap<String, String>>,
     pub service_tags: Mutex<HashMap<i64, Vec<String>>>,
     pub audit_logs: Mutex<Vec<AuditLogEntry>>,
@@ -189,6 +190,7 @@ impl MockRepo {
             users: Mutex::new(Vec::new()),
             sessions: Mutex::new(Vec::new()),
             session_sign_ins: Mutex::new(HashMap::new()),
+            user_profiles: Mutex::new(BTreeMap::new()),
             settings: Mutex::new(settings),
             service_tags: Mutex::new(HashMap::new()),
             audit_logs: Mutex::new(Vec::new()),
@@ -1880,6 +1882,33 @@ impl SpecRepository for MockRepo {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         sessions.retain(|s| s.token != token);
         Ok(())
+    }
+
+    async fn record_user_sign_in(
+        &self,
+        user_id: i64,
+        method: SignInMethod,
+    ) -> Result<(), RepositoryError> {
+        self.user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(user_id)
+            .or_insert_with(|| UserProfile {
+                user_id,
+                ..UserProfile::default()
+            })
+            .last_sign_in = Some(method);
+        Ok(())
+    }
+
+    async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
+        Ok(self
+            .user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect())
     }
 
     async fn set_session_sign_in(

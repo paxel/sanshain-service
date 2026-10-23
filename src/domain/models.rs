@@ -627,6 +627,16 @@ pub struct Session {
     pub expires_at: String,
 }
 
+/// What Sanshain knows about a person beyond their account, gathered at
+/// sign-in.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub user_id: i64,
+    /// How they last signed in; `None` before their first sign-in since this
+    /// was recorded.
+    pub last_sign_in: Option<SignInMethod>,
+}
+
 /// How a person proved who they are: a password Sanshain checks itself, the
 /// directory, or an OpenID Connect provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

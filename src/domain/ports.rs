@@ -703,6 +703,18 @@ pub trait SpecRepository: Send + Sync {
         token: &str,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
+    /// Record that `user_id` just signed in through `method`.
+    fn record_user_sign_in(
+        &self,
+        user_id: i64,
+        method: SignInMethod,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Every stored user profile.
+    fn list_user_profiles(
+        &self,
+    ) -> impl Future<Output = Result<Vec<UserProfile>, RepositoryError>> + Send;
+
     /// Record how the session behind `token` signed in.
     fn set_session_sign_in(
         &self,
