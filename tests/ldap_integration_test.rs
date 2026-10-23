@@ -295,3 +295,202 @@ async fn ldap_unreachable_server_fails_fast() {
         started.elapsed()
     );
 }
+
+// --- The admin page's way to a directory team, end to end over HTTP ---
+
+#[cfg(test)]
+fn app_state(
+    repo: sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository,
+) -> sanshain_service::AppState {
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::{Arc, OnceLock};
+    static PROMETHEUS: OnceLock<metrics_exporter_prometheus::PrometheusHandle> = OnceLock::new();
+    let (spec_updated_tx, _) = tokio::sync::broadcast::channel(16);
+    sanshain_service::AppState {
+        repo: sanshain_service::infrastructure::cached_repository::CachedSpecRepository::new(
+            sanshain_service::infrastructure::database::DatabaseRepo::Sqlite(repo),
+            64,
+        ),
+        db_url: "sqlite::memory:".into(),
+        dev_user: None,
+        csrf_tokens: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+        instance_id: "test".into(),
+        spec_updated_tx,
+        error_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+        warn_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+        info_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+        debug_buffer: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+        business_logic_debug: Arc::new(AtomicBool::new(false)),
+        admin_user_debug: Arc::new(AtomicBool::new(false)),
+        requests_total: Arc::new(AtomicU64::new(0)),
+        failures_total: Arc::new(AtomicU64::new(0)),
+        process_start_time: chrono::Utc::now(),
+        prometheus_handle: PROMETHEUS
+            .get_or_init(|| axum_prometheus::PrometheusMetricLayer::pair().1)
+            .clone(),
+        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
+        snapshot_in_progress: Arc::new(AtomicBool::new(false)),
+        mcp: Default::default(),
+        directory_roles: sanshain_service::application::directory_roles::DirectoryRoleCache::new(
+            std::time::Duration::from_secs(300),
+        ),
+        root_users: Arc::new(sanshain_service::domain::permissions::RootUsers::resolve(
+            Some("root"),
+            None,
+        )),
+    }
+}
+
+#[cfg(test)]
+async fn call(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<serde_json::Value>,
+) -> (axum::http::StatusCode, serde_json::Value) {
+    use tower::ServiceExt;
+    let mut builder = axum::http::Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        builder = builder.header("Authorization", format!("Bearer {token}"));
+    }
+    let request = match body {
+        Some(json) => builder
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(json.to_string()))
+            .unwrap(),
+        None => builder.body(axum::body::Body::empty()).unwrap(),
+    };
+    let res = app.clone().oneshot(request).await.unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+/// The team `carla` in the directory is found by name on the admin page, added,
+/// made maintainer of `penguin`, and alice, a member, maintains it once she
+/// signs in through LDAP — nobody typed a DN, and Sanshain stores no member.
+#[tokio::test]
+async fn a_directory_team_found_on_the_admin_page_maintains_a_producer() {
+    use axum::http::StatusCode;
+    use sanshain_service::application::services;
+    use sanshain_service::domain::models::AuthMode;
+    use sanshain_service::domain::ports::SpecRepository;
+    use serde_json::json;
+
+    let container = start_openldap().await;
+    let host = container.get_host().await.unwrap();
+    let port = container.get_host_port_ipv4(LDAP_PORT).await.unwrap();
+    let url = format!("ldap://{host}:{port}");
+    let mut ready = admin_bind(&url).await;
+    let _ = ready.unbind().await;
+    enable_memberof(&url).await;
+    seed(&url).await;
+    let carla = "cn=carla,ou=groups,dc=example,dc=org";
+    let mut ldap = admin_bind(&url).await;
+    ldap.add(
+        carla,
+        vec![
+            ("objectClass", attr(&["groupOfNames"])),
+            ("cn", attr(&["carla"])),
+            ("member", attr(&[ALICE_DN])),
+        ],
+    )
+    .await
+    .unwrap()
+    .success()
+    .unwrap();
+    let _ = ldap.unbind().await;
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let repo = sanshain_service::infrastructure::sqlite_repository::SqliteSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    let mut ldap_config = config(&url);
+    // Only the team grants anything here, not the admins group.
+    ldap_config.admin_group = String::new();
+    services::set_ldap_config(&repo, &ldap_config)
+        .await
+        .unwrap();
+    services::set_auth_mode(&repo, &AuthMode::Ldap)
+        .await
+        .unwrap();
+    let hash = services::hash_password("root-pass").unwrap();
+    let root = repo.create_user("root", &hash, true).await.unwrap();
+    let root_token = repo
+        .create_session(root.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token;
+    repo.ensure_service("penguin").await.unwrap();
+    let app = sanshain_service::create_app(app_state(repo));
+
+    // Found by a part of its name, not yet known to Sanshain.
+    let (status, found) = call(
+        &app,
+        "GET",
+        "/admin/directory-groups?q=carl",
+        Some(&root_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    let hits = found["groups"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{found}");
+    assert_eq!(hits[0]["name"], "carla");
+    assert!(hits[0]["group_id"].is_null());
+    let dn = hits[0]["dn"].as_str().unwrap().to_string();
+
+    let (status, group) = call(
+        &app,
+        "POST",
+        "/admin/groups/directory",
+        Some(&root_token),
+        Some(json!({ "dn": dn })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{group}");
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/admin/producers/penguin/maintainers",
+        Some(&root_token),
+        Some(json!({ "group_id": group["id"] })),
+    )
+    .await;
+    assert!(status.is_success(), "{status} {body}");
+    let (_, found) = call(
+        &app,
+        "GET",
+        "/admin/directory-groups?q=carl",
+        Some(&root_token),
+        None,
+    )
+    .await;
+    assert_eq!(found["groups"][0]["group_id"], group["id"], "now known");
+
+    // Alice signs in through the directory and maintains penguin by her team.
+    let (status, login) = call(
+        &app,
+        "POST",
+        "/auth/login",
+        None,
+        Some(json!({ "username": "alice", "password": "alicepw" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{login}");
+    let alice_token = login["token"].as_str().unwrap();
+    let (status, me) = call(&app, "GET", "/auth/me", Some(alice_token), None).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(me["sign_in"], "ldap");
+    assert_eq!(me["display_name"], "Alice Anderson");
+    assert_eq!(me["maintains"], json!(["penguin"]), "{me}");
+}
