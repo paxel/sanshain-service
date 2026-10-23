@@ -792,12 +792,13 @@ pub async fn set_own_display_name(
     Ok(name)
 }
 
-/// An administrator sets the display name of a service account.
+/// An administrator sets the display name of a service account. Answers the
+/// account's username, for the audit entry, and the name as stored.
 pub async fn set_service_account_display_name(
     repo: &impl SpecRepository,
     user_id: i64,
     name: &str,
-) -> Result<Option<String>, AppError> {
+) -> Result<(String, Option<String>), AppError> {
     let account = repo
         .list_users()
         .await?
@@ -811,7 +812,7 @@ pub async fn set_service_account_display_name(
     }
     let name = clean_display_name(name)?;
     repo.set_display_name(user_id, name.as_deref()).await?;
-    Ok(name)
+    Ok((account.username, name))
 }
 
 /// How the session behind `token` signed in, if Sanshain recorded it.
@@ -1328,9 +1329,12 @@ mod tests {
             set_service_account_display_name(&repo, 9999, "Ghost").await,
             Err(AppError::NotFound(_))
         ));
-        set_service_account_display_name(&repo, jenkins.id, "Penguin CI build")
-            .await
-            .unwrap();
+        assert_eq!(
+            set_service_account_display_name(&repo, jenkins.id, "Penguin CI build")
+                .await
+                .unwrap(),
+            ("jenkins".to_string(), Some("Penguin CI build".to_string()))
+        );
         assert_eq!(
             display_names(&repo)
                 .await

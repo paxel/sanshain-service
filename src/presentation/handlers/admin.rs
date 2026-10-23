@@ -929,11 +929,26 @@ pub async fn admin_create_service_account(
 /// Set a service account's display name; blank clears it.
 pub async fn admin_set_display_name(
     State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
     Path(id): Path<i64>,
     Json(payload): Json<crate::presentation::handlers::auth::DisplayNameRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let display_name =
+    let (username, display_name) =
         services::set_service_account_display_name(&state.repo, id, &payload.display_name).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_DISPLAY_NAME",
+            details: &match &display_name {
+                Some(name) => format!("Named service account '{username}' '{name}'"),
+                None => format!("Cleared the display name of service account '{username}'"),
+            },
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
     Ok(Json(json!({ "display_name": display_name })))
 }
 

@@ -14,7 +14,7 @@ use axum::{
 };
 use chrono::Utc;
 use sanshain_service::application::services;
-use sanshain_service::domain::models::AuthMode;
+use sanshain_service::domain::models::{AuditLogFilter, AuthMode};
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::cached_repository::CachedSpecRepository;
 use sanshain_service::infrastructure::database::DatabaseRepo;
@@ -211,6 +211,48 @@ async fn a_fresh_instance_starts_in_off_and_only_the_admin_gets_in() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // Naming a service account is an administrative act and leaves a trace.
+    let (status, jenkins) = call(
+        &app,
+        "POST",
+        "/admin/users",
+        Some(&token),
+        Some(serde_json::json!({ "username": "jenkins" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{jenkins}");
+    let (status, body) = call(
+        &app,
+        "PUT",
+        &format!("/admin/users/{}/display-name", jenkins["id"]),
+        Some(&token),
+        Some(serde_json::json!({ "display_name": "Penguin CI" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let audit = repo
+        .get_audit_logs(AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: Some("ADMIN".to_string()),
+            service_wildcard: None,
+            version_wildcard: None,
+            stream: None,
+            branch_id: None,
+            limit: 100,
+        })
+        .await
+        .unwrap();
+    let named = audit
+        .iter()
+        .find(|e| e.action == "SET_DISPLAY_NAME")
+        .expect("an audit entry");
+    assert_eq!(named.username, "root");
+    assert_eq!(
+        named.details,
+        "Named service account 'jenkins' 'Penguin CI'"
+    );
 
     // The API is closed while in maintenance, for the admin too.
     let (status, _) = call(
