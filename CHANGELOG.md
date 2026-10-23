@@ -8,25 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.11.0]
 
 ### Added
-- Producers can be **external**, an outside API the company does not maintain: an admin's provide of a new Producer marks it, an **External** switch in the admin list corrects it, the graph draws it with a light grey fill, and the Producers list, the admin list and the dashboard tag it.
-- Directory groups are added by searching LDAP for a part of their name, in the Groups section or right in the Maintainers picker, so a team like `carla` can maintain a Producer without knowing its DN (`GET /admin/directory-groups`, `POST /admin/groups/directory`).
-- Every person has an avatar, a circle with their initials, in the header and the user list. A **Gravatar pictures** switch (`manage_settings`, off by default) shows their picture from gravatar.com instead, keyed by the SHA-256 of the e-mail address from LDAP `mail` or the OIDC `email` claim; the address itself is not stored.
-- People have a **display name**, shown with the username in the user list, groups, maintainers, the token **For** choice, the audit log and the header: from LDAP `displayName` or the OIDC `name` claim at every sign-in, set by local users on their account page, and by user managers for service accounts.
-- The admin user list tags every account with its kind: **service account**, or how the person last signed in (**local**, **LDAP**, **OIDC**); users who have not signed in since 2.11 show **unknown** (`kind` in `GET /admin/users`).
-- The landing page is a dashboard: the number of Producers, Consumers and versions, the provides of the last 7 days and a chart of provides per day over 30 days, for everyone; a signed-in user also sees the 10 latest provides with their names.
+- Producers can be marked **external**: a provide on the admin page marks a new Producer, a switch in the admin list corrects it, and the graph draws it light grey.
+- Directory groups are found by searching LDAP for part of their name, in Groups and in the Maintainers picker.
+- People get an initials avatar, and optionally their Gravatar picture behind a **Gravatar pictures** switch that is off by default.
+- People have a **display name**, taken from LDAP or OIDC, set by local users themselves and by user managers for service accounts.
+- The admin user list tags each account as **service account**, **local**, **LDAP**, **OIDC** or **unknown**.
+- The landing page is a dashboard of counts and provides per day, with the 10 latest provides for signed-in users.
 
 ### Changed
-- The admin page is split into the tabs **General**, **Sign-in** and **Users**; the open tab is in the address (`#users`), the last one opens by default, and a tab without any of its permissions is greyed out with a hint.
-- One picker for services, users and groups, used by the graph's Focus, the maintainers and group members on the admin page, and the token **For** choice: type to narrow, a single choice takes effect when picked, and multiple choices are ticked and unticked with immediate effect, without an accept step.
-- The admin user list shows the accounts waiting for approval and a count of the others; a search by username or display name and chips for kind, status and role find the rest.
-- The account page offers **Change Password** only after a sign-in with a Sanshain password, not after an LDAP or OIDC sign-in; `/auth/me` reports how the session signed in (`sign_in`).
-- Signing in, locally or through OIDC, lands on the dashboard instead of the account page.
-- The graph's **Periphery** switch is remembered in the browser like direction, Compact, Rainbow and Topics; a link that hides protocols still decides it.
+- The admin page is split into the tabs **General**, **Sign-in** and **Users**.
+- One picker for services, users and groups applies a choice at once, and ticks and unticks multiple choices without an accept step.
+- The admin user list shows the accounts waiting for approval, and finds the others by search and chips.
+- **Change Password** is offered only after a sign-in with a Sanshain password.
+- Signing in lands on the dashboard instead of the account page.
+- The graph's **Periphery** switch is remembered in the browser.
 
 ### Fixed
-- An LDAP user who could sign in with both a short name and an e-mail address got two accounts. The account is now named by the entry's **Username attribute** (new in the LDAP form; empty means `sAMAccountName`, else `uid`), recognised by its `objectGUID` or `entryUUID`, and renamed when the directory renames the person; existing duplicates are merged at the next sign-in, with their roles, group memberships, maintainerships, tokens and sessions, and the audit log records it.
-- A version's **build** link is shown only when it came from the trunk build, whose builds the CI server keeps; a branch build's link went to a deleted build. The trunk build after the merge takes over the build link of a branch build's origin and keeps its pull request, tickets and note. Origins stored before 2.11 show no build link until their trunk build provides again (`trunk_build` on the origin).
-- An endpoint's summary on a Producer's page sits under its path instead of floating between the path and the clients badge.
+- An LDAP user signing in with both short name and e-mail address keeps one account, named by the new **Username attribute**, and existing duplicates are merged at the next sign-in.
+- A version's **build** link is shown only when it came from the trunk build, so it no longer points to a deleted branch build.
+- An endpoint's summary on a Producer's page sits under its path.
 
 ---
 
