@@ -345,7 +345,7 @@
         <code>REQUIRE_SPEC</code>, <code>REPORT</code>, <code>CATALOG_PUSHED</code>,
         <code>RETIRE_PROTOCOL</code>, <code>DELETE_VERSION</code>, <code>DELETE_SERVICE</code>,
         <code>DELETE_CLIENT</code>,
-        <code>UPDATE_SERVICE_METADATA</code>
+        <code>UPDATE_SERVICE_METADATA</code>, <code>SET_PRODUCER_EXTERNAL</code>
       </td>
     </tr>
     <tr>
@@ -361,14 +361,18 @@
         <code>REGISTER_USER</code>, <code>APPROVE_USER</code>, <code>DELETE_USER</code>,
         <code>CHANGE_PASSWORD</code>, <code>CREATE_TOKEN</code>, <code>REVOKE_TOKEN</code>,
         <code>GRANT_ROLE</code>, <code>REVOKE_ROLE</code>, <code>CREATE_GROUP</code>,
-        <code>UPDATE_GROUP</code>, <code>DELETE_GROUP</code>, <code>ASSIGN_MAINTAINER</code>,
-        <code>UNASSIGN_MAINTAINER</code>
+        <code>UPDATE_GROUP</code>, <code>DELETE_GROUP</code>, <code>ADD_DIRECTORY_GROUP</code>,
+        <code>ADD_GROUP_MEMBER</code>, <code>REMOVE_GROUP_MEMBER</code>,
+        <code>ASSIGN_MAINTAINER</code>, <code>UNASSIGN_MAINTAINER</code>,
+        <code>CREATE_SERVICE_ACCOUNT</code>, <code>SET_DISPLAY_NAME</code>, <code>MERGE_USER</code>,
+        <code>RENAME_USER</code>
       </td>
     </tr>
     <tr>
       <td>Settings and cleanup</td>
       <td>
         <code>UPDATE_SETTINGS</code>, <code>SETTINGS_CHANGED</code>, <code>SET_AUTO_APPROVE</code>,
+        <code>SET_REGISTRATION</code>, <code>SET_GRAVATAR</code>,
         <code>SET_SNAPSHOT_MAX_AGE</code>, <code>SET_WEBHOOK_ALLOWED_HOSTS</code>,
         <code>CLEAR_CACHE</code>, <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code>,
         <code>TRUNK_CLEANUP</code>

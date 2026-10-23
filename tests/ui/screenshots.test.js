@@ -84,6 +84,7 @@ test.describe("Sanshain Screenshot Capture", () => {
   test("Capture landing page", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.waitForSelector('img[alt="Sanshain Logo"]');
+    await page.waitForSelector("#activity-chart rect");
     await page.waitForTimeout(1000);
     await page.screenshot({ path: path.join(screenshotDir, "landing.png") });
 
@@ -395,21 +396,29 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
 
     // General overview
+    await page.goto("/admin.html#general", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
     await page.screenshot({ path: path.join(screenshotDir, "admin_overview.png") });
 
-    // Scroll to Users section - use exact match to avoid ambiguity
+    // The Users tab
+    await page.goto("/admin.html#users", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
     const usersHeader = page.locator("h2", { hasText: /^Users$/ });
     await usersHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     await page.waitForTimeout(1000);
     await page.screenshot({ path: path.join(screenshotDir, "admin_users.png") });
 
-    // Scroll to Snapshot Cleanup
+    // Snapshot Cleanup, on General
+    await page.goto("/admin.html#general", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
     const cleanupHeader = page.locator("h2", { hasText: /^Snapshot Cleanup$/ });
     await cleanupHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     await page.waitForTimeout(1000);
     await page.screenshot({ path: path.join(screenshotDir, "admin_snapshot_cleanup.png") });
 
-    // Scroll to Authentication
+    // Authentication, on Sign-in
+    await page.goto("/admin.html#sign-in", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
     const authHeader = page.locator("h2", { hasText: /^Authentication$/ });
     await authHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     // Switch to LDAP to show fields
