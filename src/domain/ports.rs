@@ -59,6 +59,8 @@ pub struct OidcAuthorizeUrl {
 /// The identity a verified ID token resolves to.
 pub struct OidcClaims {
     pub username: String,
+    /// The `name` claim, the person's name to show.
+    pub name: Option<String>,
     pub email: Option<String>,
     pub groups: Vec<String>,
 }
@@ -708,6 +710,13 @@ pub trait SpecRepository: Send + Sync {
         &self,
         user_id: i64,
         method: SignInMethod,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Set the name shown for `user_id`; `None` clears it.
+    fn set_display_name(
+        &self,
+        user_id: i64,
+        display_name: Option<&str>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
 
     /// Every stored user profile.

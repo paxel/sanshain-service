@@ -51,6 +51,7 @@ impl<R: SpecRepository + 'static> AuthProvider for LocalAuthProvider<R> {
 
         Ok(AuthenticatedUser {
             username: user.username,
+            ..Default::default()
         })
     }
 

@@ -964,7 +964,7 @@ pub async fn audit_timeline(
         limit,
     };
     let res = state.repo.get_audit_logs(filter).await?;
-    Ok(Json(res))
+    Ok(Json(services::with_display_names(&state.repo, res).await?))
 }
 
 /// The free, unauthenticated spec validator behind the landing page: runs

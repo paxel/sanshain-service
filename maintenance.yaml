@@ -3480,7 +3480,7 @@ paths:
       description: |
         Requires the `manage_users` permission.
 
-        Each user carries `kind`: `service` for a service account, otherwise how the person last signed in (`local`, `ldap`, `oidc`), or `unknown` before their first sign-in since 2.11.
+        Each user carries `display_name` (null shows the username) and `kind`: `service` for a service account, otherwise how the person last signed in (`local`, `ldap`, `oidc`), or `unknown` before their first sign-in since 2.11.
       responses:
         "200":
           description: Success.
@@ -3559,6 +3559,48 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/users/{id}/display-name:
+    put:
+      summary: "Update: users/id/display-name"
+      x-permission: manage_users
+      x-scope: global
+      description: |
+        Requires the `manage_users` permission.
+
+        Sets the display name of a service account (`{"display_name": "Penguin CI build"}`); blank clears it. A person's display name comes from the directory or the OIDC provider, or they set it themselves.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: Not a service account, or the name is longer than 100 characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such user.
           content:
             application/json:
               schema:

@@ -20,6 +20,7 @@ export default [
         friendlyError: "readonly",
         errorMessage: "readonly",
         escapeHtml: "readonly",
+        personLabel: "readonly",
         escapeAttr: "readonly",
         attrJson: "readonly",
         setActionArgs: "readonly",

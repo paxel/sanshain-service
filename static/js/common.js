@@ -118,6 +118,13 @@ function canSeeAdminDashboard(user) {
   return maintainsSomething || hasAnyPermission(user, ADMIN_DASHBOARD_PERMISSIONS);
 }
 
+// How a person is named in lists: their display name with the username in
+// brackets, or the username alone when they have none.
+function personLabel(user) {
+  if (!user) return "";
+  return user.display_name ? `${user.display_name} (${user.username})` : user.username;
+}
+
 function updateBannerAuth(user) {
   if (user) setGateUser(user);
   const usernameEl = document.getElementById("banner-username");
@@ -135,7 +142,8 @@ function updateBannerAuth(user) {
   if (!usernameEl || !logoutEl || !signinEl) return;
 
   if (user && user.username) {
-    usernameEl.textContent = user.username;
+    usernameEl.textContent = user.display_name || user.username;
+    usernameEl.title = user.username;
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");
     signinEl.classList.add("hidden");

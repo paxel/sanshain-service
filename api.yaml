@@ -2265,6 +2265,10 @@ components:
         stream:
           type: string
           nullable: true
+        display_name:
+          type: string
+          nullable: true
+          description: The current display name of the user who made the change, if they have one.
     SystemContext:
       type: object
       description: |

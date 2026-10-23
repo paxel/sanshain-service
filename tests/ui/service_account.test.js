@@ -11,7 +11,12 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/sse/updates", (route) =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
-  page.on("dialog", (dialog) => dialog.dismiss());
+  // Prompts answer what the test queued (an empty queue dismisses them).
+  page.dialogAnswers = [];
+  page.on("dialog", (dialog) => {
+    const answer = page.dialogAnswers.shift();
+    return answer === undefined ? dialog.dismiss() : dialog.accept(answer);
+  });
   await page.goto("/account.html");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -32,6 +37,12 @@ test("an admin creates a service account and issues its token", async ({ page })
     has: page.locator("span.font-medium", { hasText: /^root$/ }),
   });
   await expect(root.locator("[data-account-kind]")).toHaveText("local");
+
+  // A service account gets a readable name from whoever manages users.
+  page.dialogAnswers.push("Penguin CI build");
+  await row.locator('button:has-text("Name")').click();
+  await expect(row.locator("[data-display-name]")).toHaveText("Penguin CI build");
+  await expect(row.locator("[data-username]")).toHaveText(ACCOUNT);
 
   await page.goto("/account.html");
   await expect(page.locator("#token-for-row")).toBeVisible();

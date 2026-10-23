@@ -489,9 +489,12 @@ impl LdapConfig {
 /// Carries identity only. What the user may do is resolved separately, from
 /// role grants and directory group membership — an auth provider's job ends at
 /// establishing who somebody is.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AuthenticatedUser {
     pub username: String,
+    /// The person's name as the provider knows it (LDAP `displayName`).
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 /// What an API token may do.
@@ -635,6 +638,19 @@ pub struct UserProfile {
     /// How they last signed in; `None` before their first sign-in since this
     /// was recorded.
     pub last_sign_in: Option<SignInMethod>,
+    /// The name shown for them; `None` shows the username.
+    pub display_name: Option<String>,
+}
+
+impl UserProfile {
+    /// Whether the display name comes from the directory or the OIDC provider
+    /// (refreshed at every sign-in) rather than from the person themselves.
+    pub fn display_name_from_provider(&self) -> bool {
+        matches!(
+            self.last_sign_in,
+            Some(SignInMethod::Ldap | SignInMethod::Oidc)
+        )
+    }
 }
 
 /// How a person proved who they are: a password Sanshain checks itself, the

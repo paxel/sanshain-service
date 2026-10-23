@@ -53,10 +53,10 @@ pub async fn auth_login(
     .await?;
     if services::admins_only(&mode) {
         let existing = match &verified {
-            services::Verified::Local(user) | services::Verified::Directory(Some(user)) => {
+            services::Verified::Local(user) | services::Verified::Directory(Some(user), _) => {
                 Some(user)
             }
-            services::Verified::Directory(None) => None,
+            services::Verified::Directory(None, _) => None,
         };
         let groups =
             crate::presentation::middleware::directory_groups_for(&state, &payload.username).await;
@@ -132,6 +132,7 @@ pub async fn auth_me(
         }
         None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
     };
+    let profile = services::user_profile(&state.repo, user.id).await?;
     // How this session signed in, so the pages offer a password change only
     // where the password was Sanshain's own. Null for an older session.
     let sign_in = match headers
@@ -152,7 +153,26 @@ pub async fn auth_me(
         "is_root": is_root,
         "maintains": maintains,
         "sign_in": sign_in,
+        "display_name": profile.display_name,
+        "display_name_editable": !profile.display_name_from_provider(),
     })))
+}
+
+#[derive(Deserialize)]
+pub struct DisplayNameRequest {
+    pub display_name: String,
+}
+
+/// Set the caller's own display name; blank clears it. Refused when the name
+/// comes from the directory or the OIDC provider.
+pub async fn auth_set_display_name(
+    State(state): State<AppState>,
+    axum::Extension(user): axum::Extension<User>,
+    Json(payload): Json<DisplayNameRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let display_name =
+        services::set_own_display_name(&state.repo, &user, &payload.display_name).await?;
+    Ok(Json(serde_json::json!({ "display_name": display_name })))
 }
 
 #[derive(Deserialize)]

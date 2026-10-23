@@ -146,6 +146,10 @@ async fn exchange_and_verify(
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .unwrap_or(sub);
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let email = payload
         .get("email")
         .and_then(|v| v.as_str())
@@ -162,6 +166,7 @@ async fn exchange_and_verify(
 
     Ok(OidcClaims {
         username,
+        name,
         email,
         groups,
     })

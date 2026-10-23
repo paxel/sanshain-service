@@ -78,7 +78,7 @@ function renderTimeline(logs) {
                         <div class="flex items-center flex-wrap gap-x-4 gap-y-2 flex-1">
                             <span class="text-[11px] font-mono text-slate-400 min-w-[100px]">${shortDate}</span>
                             <span class="px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider ${actionColor}">${escapeHtml(log.action)}</span>
-                            <span class="font-semibold text-sm text-slate-800">${escapeHtml(log.username)}</span>
+                            <span class="font-semibold text-sm text-slate-800" title="${escapeAttr(log.username)}">${escapeHtml(log.display_name || log.username)}</span>
                             <div class="flex items-center gap-2">
                                 ${
                                   log.service

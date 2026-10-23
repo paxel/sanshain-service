@@ -1133,6 +1133,14 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.record_user_sign_in(user_id, method).await
     }
 
+    async fn set_display_name(
+        &self,
+        user_id: i64,
+        display_name: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.inner.set_display_name(user_id, display_name).await
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         self.inner.list_user_profiles().await
     }

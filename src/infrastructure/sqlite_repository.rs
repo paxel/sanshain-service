@@ -2332,17 +2332,35 @@ impl SpecRepository for SqliteSpecRepository {
         Ok(())
     }
 
+    async fn set_display_name(
+        &self,
+        user_id: i64,
+        display_name: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, display_name) VALUES (?, ?) \
+             ON CONFLICT (user_id) DO UPDATE SET display_name = excluded.display_name",
+        )
+        .bind(user_id)
+        .bind(display_name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
-        let rows: Vec<(i64, Option<String>)> =
-            sqlx::query_as("SELECT user_id, last_sign_in FROM user_profiles")
+        let rows: Vec<(i64, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT user_id, last_sign_in, display_name FROM user_profiles")
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(rows
             .into_iter()
-            .map(|(user_id, last_sign_in)| UserProfile {
+            .map(|(user_id, last_sign_in, display_name)| UserProfile {
                 user_id,
                 last_sign_in: last_sign_in.as_deref().and_then(SignInMethod::parse),
+                display_name,
             })
             .collect())
     }

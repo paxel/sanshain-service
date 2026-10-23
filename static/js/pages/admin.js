@@ -693,7 +693,7 @@ async function loadGroups() {
           : memberIds
               .map((id) => {
                 const u = knownUsers.find((x) => x.id === id);
-                const label = u ? u.username : `user #${id}`;
+                const label = u ? personLabel(u) : `user #${id}`;
                 return `<button data-click="removeGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id, id])}"
                                 title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
                                 class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
@@ -703,7 +703,7 @@ async function loadGroups() {
           ? ""
           : knownUsers
               .filter((u) => !memberIds.includes(u.id))
-              .map((u) => `<option value="${u.id}">${escapeHtml(u.username)}</option>`)
+              .map((u) => `<option value="${u.id}">${escapeHtml(personLabel(u))}</option>`)
               .join("");
         return `
                     <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
@@ -821,7 +821,7 @@ function refreshMaintainerPickers() {
   const subject = document.getElementById("maintainer-subject");
   if (!subject) return;
   const users = knownUsers.map(
-    (u) => `<option value="user:${u.id}">user: ${escapeHtml(u.username)}</option>`,
+    (u) => `<option value="user:${u.id}">user: ${escapeHtml(personLabel(u))}</option>`,
   );
   const groups = knownGroups.map(
     (g) =>
@@ -855,7 +855,7 @@ async function loadMaintainers() {
         const users = (p.user_ids || []).map((id) => {
           const u = knownUsers.find((x) => x.id === id);
           return `<button data-click="unassignMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, "users", id])}"
-                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? u.username : "user " + id)}</button>`;
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + id)}</button>`;
         });
         const groups = (p.group_ids || []).map((id) => {
           const g = knownGroups.find((x) => x.id === id);
@@ -940,7 +940,12 @@ async function loadUsers() {
         (u) => `
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
                         <div class="flex items-center space-x-3">
-                            <span class="font-medium text-slate-800">${escapeHtml(u.username)}</span>
+                            ${
+                              u.display_name
+                                ? `<span class="font-medium text-slate-800" data-display-name>${escapeHtml(u.display_name)}</span>
+                                   <span class="text-xs text-slate-400" data-username>${escapeHtml(u.username)}</span>`
+                                : `<span class="font-medium text-slate-800" data-username>${escapeHtml(u.username)}</span>`
+                            }
                             ${accountKindTag(u)}
                             ${(u.roles || []).map((r) => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(" ")}
                             ${
@@ -950,6 +955,7 @@ async function loadUsers() {
                             }
                         </div>
                         <div class="flex items-center space-x-2">
+                            ${u.service_account ? `<button data-click="renameServiceAccount" data-needs="manage_users" data-click-args="${attrJson([u.id, u.display_name || ""])}" class="text-slate-500 hover:text-indigo-700 text-sm">Name</button>` : ""}
                             ${roleControls(u)}
                             ${!u.approved ? `<button data-click="approveUser" data-needs="manage_users" data-click-args="${attrJson([u.id])}" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
                             ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-needs="manage_users" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
@@ -982,6 +988,24 @@ document.getElementById("service-account-form").addEventListener("submit", async
   }
 });
 
+// A service account's display name, set by whoever manages users.
+async function renameServiceAccount(id, current) {
+  const name = prompt("Display name (empty shows the account name):", current);
+  if (name === null) return;
+  try {
+    const res = await apiCall(`/admin/users/${id}/display-name`, {
+      method: "PUT",
+      body: { display_name: name },
+    });
+    if (!res.ok) {
+      alert("Could not set the display name: " + (await errorMessage(res)));
+      return;
+    }
+    loadUsers();
+  } catch (err) {
+    alert("Could not set the display name: " + err.message);
+  }
+}
 async function approveUser(id) {
   try {
     await apiCall(`/admin/users/${id}/approve`, { method: "POST" });

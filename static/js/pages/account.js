@@ -78,6 +78,7 @@ function showAccount() {
 
 // A session that signed in through LDAP or OIDC has no Sanshain password to
 // change. A session from before the sign-in was recorded keeps the form.
+// The display name is the person's own unless the provider supplies it.
 async function showPasswordChangeForLocalSignIns() {
   try {
     const res = await apiCall("/auth/me");
@@ -86,8 +87,32 @@ async function showPasswordChangeForLocalSignIns() {
     document
       .getElementById("change-password-section")
       .classList.toggle("hidden", Boolean(me.sign_in) && me.sign_in !== "local");
+    const editable = me.display_name_editable !== false;
+    document.getElementById("display-name-form").classList.toggle("hidden", !editable);
+    document.getElementById("display-name-from-provider").classList.toggle("hidden", editable);
+    document.getElementById("display-name-input").value = me.display_name || "";
+    document.getElementById("display-name-value").textContent = me.display_name || me.username;
   } catch (_) {}
 }
+
+document.getElementById("display-name-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = document.getElementById("display-name-status");
+  try {
+    if (!csrfToken) await fetchCsrfToken();
+    const res = await apiCall("/auth/display-name", {
+      method: "PUT",
+      body: { display_name: document.getElementById("display-name-input").value },
+    });
+    const ok = res.ok;
+    status.textContent = ok ? "Saved." : await errorMessage(res);
+    status.className = `text-sm mt-2 ${ok ? "text-green-600" : "text-red-600"}`;
+    if (ok) await renderBanner();
+  } catch (err) {
+    status.textContent = friendlyError(err);
+    status.className = "text-sm mt-2 text-red-600";
+  }
+});
 
 // The "For" choice of the token form: the service accounts, for whoever may
 // list users (manage_users); hidden for everyone else and when none exist.
@@ -104,7 +129,7 @@ async function loadServiceAccountChoices() {
     }
   } catch (_) {}
   select.replaceChildren(new Option("Me", ""));
-  for (const account of accounts) select.add(new Option(account.username, account.username));
+  for (const account of accounts) select.add(new Option(personLabel(account), account.username));
   row.classList.toggle("hidden", accounts.length === 0);
 }
 

@@ -203,6 +203,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/settings/trunk-max-age", get(admin::get_trunk_max_age).post(admin::set_trunk_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/cleanup/trunk", post(admin::trigger_trunk_cleanup).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/users", get(admin::admin_list_users).post(admin::admin_create_service_account).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
+        .route("/admin/users/{id}/display-name", put(admin::admin_set_display_name).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}/approve", post(admin::admin_approve_user).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         .route("/admin/users/{id}", delete(admin::admin_delete_user_handler).layer(require(state.clone(), RouteGuard::Global(Permission::ManageUsers))))
         // Webhooks (#47): global hooks and the egress allow-list are instance
@@ -248,6 +249,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/auth/register", post(auth::auth_register))
         .route("/auth/me", get(auth::auth_me).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/change-password", post(auth::auth_change_password).layer(from_fn_with_state(state.clone(), authenticated_auth)))
+        .route("/auth/display-name", put(auth::auth_set_display_name).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens", get(auth::list_tokens).post(auth::create_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/tokens/{id}", delete(auth::revoke_token).layer(from_fn_with_state(state.clone(), authenticated_auth)))
         .route("/auth/favorites", get(auth::get_favorites).layer(from_fn_with_state(state.clone(), authenticated_auth)))
@@ -737,6 +739,7 @@ mod tests {
             "/LICENSE",
             // Browser session, account, and CSRF endpoints for the UI
             "/auth/change-password",
+            "/auth/display-name",
             "/auth/favorites",
             "/auth/favorites/{item_type}/{item_name}",
             "/auth/login",

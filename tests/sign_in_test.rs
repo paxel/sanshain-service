@@ -188,6 +188,29 @@ async fn a_fresh_instance_starts_in_off_and_only_the_admin_gets_in() {
         root["kind"], "local",
         "the user list shows the last sign-in"
     );
+    assert!(root["display_name"].is_null());
+
+    let (status, body) = call(
+        &app,
+        "PUT",
+        "/auth/display-name",
+        Some(&token),
+        Some(serde_json::json!({ "display_name": "Root Admin" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, me) = call(&app, "GET", "/auth/me", Some(&token), None).await;
+    assert_eq!(me["display_name"], "Root Admin");
+    assert_eq!(me["display_name_editable"], true);
+    let (status, body) = call(
+        &app,
+        "PUT",
+        &format!("/admin/users/{}/display-name", root["id"]),
+        Some(&token),
+        Some(serde_json::json!({ "display_name": "Not for a person" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
     // The API is closed while in maintenance, for the admin too.
     let (status, _) = call(

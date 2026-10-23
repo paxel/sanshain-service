@@ -471,6 +471,14 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, record_user_sign_in(user_id, method))
     }
 
+    async fn set_display_name(
+        &self,
+        user_id: i64,
+        display_name: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, set_display_name(user_id, display_name))
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         delegate!(self, list_user_profiles())
     }

@@ -846,6 +846,7 @@ pub async fn admin_list_users(
 ) -> Result<impl IntoResponse, AppError> {
     let users = services::list_users(&state.repo).await?;
     let kinds = services::account_kinds(&state.repo, &users).await?;
+    let names = services::display_names(&state.repo).await?;
     let mut out = Vec::with_capacity(users.len());
     for user in users {
         let roles = crate::application::authz::list_user_roles(&state.repo, user.id).await?;
@@ -855,6 +856,7 @@ pub async fn admin_list_users(
             "approved": user.approved,
             "service_account": user.is_service_account(),
             "kind": kinds.get(&user.id).copied().unwrap_or("unknown"),
+            "display_name": names.get(&user.id),
             "roles": roles,
         }));
     }
@@ -890,6 +892,17 @@ pub async fn admin_create_service_account(
         StatusCode::CREATED,
         Json(json!({ "id": account.id, "username": account.username, "service_account": true })),
     ))
+}
+
+/// Set a service account's display name; blank clears it.
+pub async fn admin_set_display_name(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<crate::presentation::handlers::auth::DisplayNameRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let display_name =
+        services::set_service_account_display_name(&state.repo, id, &payload.display_name).await?;
+    Ok(Json(json!({ "display_name": display_name })))
 }
 
 pub async fn admin_approve_user(

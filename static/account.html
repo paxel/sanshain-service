@@ -291,6 +291,35 @@
     <!-- Account Dashboard (logged in) -->
     <div id="account-dashboard" class="hidden">
       <main class="container mx-auto p-6 space-y-8">
+        <!-- Display name: editable unless it comes from the directory or the
+             OIDC provider. -->
+        <section
+          id="display-name-section"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
+          <h2 class="text-lg font-semibold text-slate-800 mb-4">Display Name</h2>
+          <form id="display-name-form" class="flex gap-2 max-w-md">
+            <input
+              type="text"
+              id="display-name-input"
+              maxlength="100"
+              placeholder="Your name, shown instead of your username"
+              class="flex-1 px-3 py-2 rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="submit"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              Save
+            </button>
+          </form>
+          <p id="display-name-from-provider" class="hidden text-sm text-slate-600">
+            <span id="display-name-value" class="font-medium"></span>
+            <span class="text-slate-400">· from your directory or identity provider</span>
+          </p>
+          <p id="display-name-status" class="hidden text-sm mt-2"></p>
+        </section>
+
         <!-- Change Password: only for a session that signed in with a local
              password; a directory or OIDC password is changed there. -->
         <section

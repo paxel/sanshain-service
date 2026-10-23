@@ -371,7 +371,11 @@ impl AuthProvider for LdapAuthProvider {
 
         // Search for the user
         let rs = self
-            .search_user(&mut ldap, username, vec!["dn", "cn", "memberOf"])
+            .search_user(
+                &mut ldap,
+                username,
+                vec!["dn", "cn", "memberOf", "displayName"],
+            )
             .await?;
 
         if rs.is_empty() {
@@ -383,6 +387,12 @@ impl AuthProvider for LdapAuthProvider {
             AuthProviderError::Internal("LDAP search results unexpectedly empty".to_string())
         })?;
         let entry = SearchEntry::construct(entry);
+        let display_name = entry
+            .attrs
+            .get("displayName")
+            .and_then(|values| values.first())
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty());
         let user_dn = entry.dn;
 
         // Attempt bind as the user to verify password
@@ -406,6 +416,7 @@ impl AuthProvider for LdapAuthProvider {
         // promotion or demotion in the directory with no effect.
         Ok(AuthenticatedUser {
             username: username.to_string(),
+            display_name,
         })
     }
 

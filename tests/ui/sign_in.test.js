@@ -115,6 +115,27 @@ test("signing in lands on the dashboard, whose names only a signed-in user sees"
   await expect(page.locator("#recent-provides-card")).toBeVisible();
 });
 
+test("a local user names themselves on the account page and the banner shows it", async ({
+  page,
+}) => {
+  expect((await authMode(page.request, "local")).ok()).toBeTruthy();
+  await openSignIn(page);
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.goto("/account.html");
+  await expect(page.locator("#display-name-form")).toBeVisible();
+  await page.fill("#display-name-input", "Root Admin");
+  await page.click('#display-name-form button[type="submit"]');
+  await expect(page.locator("#display-name-status")).toHaveText("Saved.");
+  await expect(page.locator("#banner-username")).toHaveText("Root Admin");
+  // Leave root as the other suites expect it.
+  await page.fill("#display-name-input", "");
+  await page.click('#display-name-form button[type="submit"]');
+  await expect(page.locator("#banner-username")).toHaveText("root");
+});
+
 // Reported from a real instance: once switched off, auto-acknowledge could not
 // be switched on again. Each click must reach the server, and the switch must
 // show the stored value after a reload.

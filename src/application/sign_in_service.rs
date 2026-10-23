@@ -13,7 +13,7 @@ use super::auth_service::{
     generate_random_password, get_auth_mode, get_auto_approve_users, get_oidc_config,
     hash_password_async, verify_password_async,
 };
-use crate::domain::models::{AppError, AuthMode, Session, SignInMethod, User};
+use crate::domain::models::{AppError, AuthMode, AuthenticatedUser, Session, SignInMethod, User};
 use crate::domain::permissions::{Actor, Permission, RootUsers};
 use crate::domain::ports::{AuthProvider, SpecRepository};
 use tracing::instrument;
@@ -133,8 +133,8 @@ pub enum Verified {
     /// The local password matched this account.
     Local(User),
     /// The directory accepted the password; the account it signs in as, if
-    /// one exists yet.
-    Directory(Option<User>),
+    /// one exists yet, and who the directory says the person is.
+    Directory(Option<User>, AuthenticatedUser),
 }
 
 /// Check `password`: the local one first, then the directory when there is
@@ -167,10 +167,11 @@ pub async fn verify_password_local_first(
         None => AppError::Unauthorized,
     };
     match directory {
-        Some(provider) if provider.authenticate(username, password).await.is_ok() => {
-            Ok(Verified::Directory(existing))
-        }
-        _ => Err(local_refusal),
+        Some(provider) => match provider.authenticate(username, password).await {
+            Ok(identity) => Ok(Verified::Directory(existing, identity)),
+            Err(_) => Err(local_refusal),
+        },
+        None => Err(local_refusal),
     }
 }
 
@@ -209,19 +210,26 @@ pub async fn start_session(
     username: &str,
     verified: Verified,
 ) -> Result<Session, AppError> {
-    let (user, method) = match verified {
-        Verified::Local(user) => (user, SignInMethod::Local),
-        Verified::Directory(Some(user)) => (user, SignInMethod::Ldap),
-        Verified::Directory(None) => {
+    let (user, method, display_name) = match verified {
+        Verified::Local(user) => (user, SignInMethod::Local, None),
+        Verified::Directory(Some(user), identity) => {
+            (user, SignInMethod::Ldap, identity.display_name)
+        }
+        Verified::Directory(None, identity) => {
             // A directory user's privileges come from their directory groups,
             // resolved on every check; the local password is random and unusable.
             let hash = hash_password_async(&generate_random_password()).await?;
             (
                 repo.create_user(username, &hash, true).await?,
                 SignInMethod::Ldap,
+                identity.display_name,
             )
         }
     };
+    // The directory's name for the person, refreshed at every sign-in.
+    if let Some(name) = display_name.as_deref() {
+        repo.set_display_name(user.id, Some(name)).await?;
+    }
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
     super::auth_service::record_sign_in(repo, &session, method).await?;
@@ -266,6 +274,7 @@ mod tests {
             if password == self.password {
                 Ok(AuthenticatedUser {
                     username: username.to_string(),
+                    display_name: Some(format!("{username} from the directory")),
                 })
             } else {
                 Err(AuthProviderError::InvalidCredentials)
@@ -311,7 +320,7 @@ mod tests {
         let verified = verify_password_local_first(&repo, Some(&directory), "axel", "ldap-pass")
             .await
             .unwrap();
-        assert!(matches!(verified, Verified::Directory(Some(ref u)) if u.username == "axel"));
+        assert!(matches!(verified, Verified::Directory(Some(ref u), _) if u.username == "axel"));
         assert_eq!(directory.binds(), 1);
         let session = start_session(&repo, "axel", verified).await.unwrap();
         assert_eq!(
@@ -337,7 +346,7 @@ mod tests {
         let verified = verify_password_local_first(&repo, Some(&directory), "dana", "ldap-pass")
             .await
             .unwrap();
-        assert!(matches!(verified, Verified::Directory(None)));
+        assert!(matches!(verified, Verified::Directory(None, _)));
         assert!(repo.find_user("dana").await.unwrap().is_none());
         let session = start_session(&repo, "dana", verified).await.unwrap();
         assert!(
@@ -348,6 +357,22 @@ mod tests {
             repo.session_sign_in(&session.token).await.unwrap(),
             Some(SignInMethod::Ldap)
         );
+        let dana = repo.find_user("dana").await.unwrap().unwrap();
+        let profile = super::super::auth_service::user_profile(&repo, dana.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            profile.display_name.as_deref(),
+            Some("dana from the directory")
+        );
+        assert!(profile.display_name_from_provider());
+        let err = super::super::auth_service::set_own_display_name(&repo, &dana, "Dana")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::BadRequest(_)),
+            "the directory owns it"
+        );
     }
 
     #[tokio::test]
@@ -357,7 +382,7 @@ mod tests {
         let verified = verify_password_local_first(&repo, Some(&directory), "newbie", "ldap-pass")
             .await
             .unwrap();
-        assert!(matches!(verified, Verified::Directory(Some(_))));
+        assert!(matches!(verified, Verified::Directory(Some(_), _)));
 
         let err = verify_password_local_first(&repo, Some(&directory), "newbie", "local-pass")
             .await

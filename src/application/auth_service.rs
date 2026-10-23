@@ -6,6 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use rand::distr::{Alphanumeric, SampleString};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -536,7 +537,14 @@ pub async fn oidc_complete(
             return Err(super::sign_in_service::admins_only_refusal(&mode));
         }
     }
-    login_oidc(repo, &claims.username, &claims.groups, &config.admin_group).await
+    login_oidc(
+        repo,
+        &claims.username,
+        claims.name.as_deref(),
+        &claims.groups,
+        &config.admin_group,
+    )
+    .await
 }
 
 /// SSO signs in only while OIDC is the source: the mode, or the one Off
@@ -564,6 +572,7 @@ async fn oidc_must_be_the_source(repo: &impl SpecRepository) -> Result<(), AppEr
 pub async fn login_oidc(
     repo: &impl SpecRepository,
     username: &str,
+    name: Option<&str>,
     groups: &[String],
     admin_group: &str,
 ) -> Result<Session, AppError> {
@@ -579,6 +588,10 @@ pub async fn login_oidc(
     if !admin_group.is_empty() && groups.iter().any(|g| g == admin_group) {
         repo.grant_user_role(local_user.id, Role::Admin.as_str())
             .await?;
+    }
+    // The provider's name for the person, refreshed at every sign-in.
+    if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
+        repo.set_display_name(local_user.id, Some(name)).await?;
     }
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
@@ -622,6 +635,121 @@ pub async fn account_kinds(
             (user.id, kind)
         })
         .collect())
+}
+
+/// The longest display name accepted.
+pub const MAX_DISPLAY_NAME_CHARS: usize = 100;
+
+/// The profile of `user_id`; an empty one when nothing is stored yet.
+pub async fn user_profile(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<UserProfile, AppError> {
+    Ok(repo
+        .list_user_profiles()
+        .await?
+        .into_iter()
+        .find(|p| p.user_id == user_id)
+        .unwrap_or(UserProfile {
+            user_id,
+            ..UserProfile::default()
+        }))
+}
+
+/// Every stored display name, by user id.
+pub async fn display_names(
+    repo: &impl SpecRepository,
+) -> Result<std::collections::HashMap<i64, String>, AppError> {
+    Ok(repo
+        .list_user_profiles()
+        .await?
+        .into_iter()
+        .filter_map(|p| p.display_name.map(|name| (p.user_id, name)))
+        .collect())
+}
+
+/// An audit entry with the display name of whoever made it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditLogView {
+    #[serde(flatten)]
+    pub entry: AuditLogEntry,
+    /// `None` when the person has none, or the account is gone.
+    pub display_name: Option<String>,
+}
+
+/// Attach the current display name of each entry's user.
+pub async fn with_display_names(
+    repo: &impl SpecRepository,
+    entries: Vec<AuditLogEntry>,
+) -> Result<Vec<AuditLogView>, AppError> {
+    let names = display_names(repo).await?;
+    let by_username: std::collections::HashMap<String, String> = repo
+        .list_users()
+        .await?
+        .into_iter()
+        .filter_map(|u| names.get(&u.id).map(|name| (u.username, name.clone())))
+        .collect();
+    Ok(entries
+        .into_iter()
+        .map(|entry| AuditLogView {
+            display_name: by_username.get(&entry.username).cloned(),
+            entry,
+        })
+        .collect())
+}
+
+/// A display name as entered: trimmed, blank clears it, too long is refused.
+fn clean_display_name(name: &str) -> Result<Option<String>, AppError> {
+    let name = name.trim();
+    if name.chars().count() > MAX_DISPLAY_NAME_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "a display name has at most {MAX_DISPLAY_NAME_CHARS} characters"
+        )));
+    }
+    Ok((!name.is_empty()).then(|| name.to_string()))
+}
+
+/// A person sets their own display name. Refused for someone whose name comes
+/// from the directory or the OIDC provider: it would be overwritten at their
+/// next sign-in.
+pub async fn set_own_display_name(
+    repo: &impl SpecRepository,
+    user: &User,
+    name: &str,
+) -> Result<Option<String>, AppError> {
+    if user_profile(repo, user.id)
+        .await?
+        .display_name_from_provider()
+    {
+        return Err(AppError::BadRequest(
+            "your name comes from the directory or the identity provider".to_string(),
+        ));
+    }
+    let name = clean_display_name(name)?;
+    repo.set_display_name(user.id, name.as_deref()).await?;
+    Ok(name)
+}
+
+/// An administrator sets the display name of a service account.
+pub async fn set_service_account_display_name(
+    repo: &impl SpecRepository,
+    user_id: i64,
+    name: &str,
+) -> Result<Option<String>, AppError> {
+    let account = repo
+        .list_users()
+        .await?
+        .into_iter()
+        .find(|u| u.id == user_id)
+        .ok_or_else(|| AppError::NotFound("no such user".to_string()))?;
+    if !account.is_service_account() {
+        return Err(AppError::BadRequest(
+            "only a service account's display name is set by an administrator".to_string(),
+        ));
+    }
+    let name = clean_display_name(name)?;
+    repo.set_display_name(user_id, name.as_deref()).await?;
+    Ok(name)
 }
 
 /// How the session behind `token` signed in, if Sanshain recorded it.
@@ -885,6 +1013,7 @@ mod tests {
             if code == "good" && pkce_verifier == "pk" && expected_nonce == "no" {
                 Ok(crate::domain::ports::OidcClaims {
                     username: "alice".to_string(),
+                    name: Some("Alice Liddell".to_string()),
                     email: None,
                     groups: Vec::new(),
                 })
@@ -1054,6 +1183,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_users_name_themselves_and_admins_name_service_accounts() {
+        let repo = MockRepo::new();
+        let alice = repo.create_user("alice", "hash", true).await.unwrap();
+        let jenkins = repo
+            .create_user("jenkins", SERVICE_ACCOUNT_PASSWORD_HASH, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            set_own_display_name(&repo, &alice, "  Alice Liddell ")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Alice Liddell")
+        );
+        assert_eq!(
+            set_own_display_name(&repo, &alice, " ").await.unwrap(),
+            None,
+            "blank clears it"
+        );
+        assert!(matches!(
+            set_own_display_name(&repo, &alice, &"x".repeat(MAX_DISPLAY_NAME_CHARS + 1)).await,
+            Err(AppError::BadRequest(_))
+        ));
+        assert!(matches!(
+            set_service_account_display_name(&repo, alice.id, "Alice").await,
+            Err(AppError::BadRequest(_))
+        ));
+        assert!(matches!(
+            set_service_account_display_name(&repo, 9999, "Ghost").await,
+            Err(AppError::NotFound(_))
+        ));
+        set_service_account_display_name(&repo, jenkins.id, "Penguin CI build")
+            .await
+            .unwrap();
+        assert_eq!(
+            display_names(&repo)
+                .await
+                .unwrap()
+                .get(&jenkins.id)
+                .map(String::as_str),
+            Some("Penguin CI build")
+        );
+
+        let entry = |username: &str| AuditLogEntry {
+            id: 0,
+            timestamp: String::new(),
+            username: username.to_string(),
+            action: "X".to_string(),
+            details: String::new(),
+            service: None,
+            version: None,
+            action_type: None,
+            diff: None,
+            stream: None,
+        };
+        let views = with_display_names(&repo, vec![entry("jenkins"), entry("gone")])
+            .await
+            .unwrap();
+        assert_eq!(views[0].display_name.as_deref(), Some("Penguin CI build"));
+        assert_eq!(views[1].display_name, None);
+    }
+
+    #[tokio::test]
     async fn oidc_complete_mints_a_session_for_the_verified_identity() {
         let repo = repo_with_oidc_config().await;
         let flow = OidcFlowState {
@@ -1072,7 +1264,16 @@ mod tests {
         .await
         .unwrap();
         assert!(!session.token.is_empty());
-        assert!(repo.find_user("alice").await.unwrap().is_some());
+        let alice = repo.find_user("alice").await.unwrap().unwrap();
+        assert_eq!(
+            user_profile(&repo, alice.id)
+                .await
+                .unwrap()
+                .display_name
+                .as_deref(),
+            Some("Alice Liddell"),
+            "the provider's name claim"
+        );
         assert_eq!(
             repo.session_sign_in(&session.token).await.unwrap(),
             Some(SignInMethod::Oidc)
@@ -1281,6 +1482,7 @@ mod tests {
         ) -> Result<AuthenticatedUser, crate::domain::ports::AuthProviderError> {
             Ok(AuthenticatedUser {
                 username: username.to_string(),
+                ..Default::default()
             })
         }
 

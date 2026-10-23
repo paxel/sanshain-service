@@ -1901,6 +1901,23 @@ impl SpecRepository for MockRepo {
         Ok(())
     }
 
+    async fn set_display_name(
+        &self,
+        user_id: i64,
+        display_name: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        self.user_profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(user_id)
+            .or_insert_with(|| UserProfile {
+                user_id,
+                ..UserProfile::default()
+            })
+            .display_name = display_name.map(str::to_string);
+        Ok(())
+    }
+
     async fn list_user_profiles(&self) -> Result<Vec<UserProfile>, RepositoryError> {
         Ok(self
             .user_profiles

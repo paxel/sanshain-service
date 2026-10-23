@@ -224,6 +224,15 @@
   <strong>LDAP</strong> or <strong>OIDC</strong>. A user who has not signed in since 2.11 shows
   <strong>unknown</strong> until their next sign-in.
 </p>
+<p>
+  People are shown by their <strong>display name</strong>, with the username beside it, in the
+  user list, the groups and maintainers, the token <strong>For</strong> choice, the audit log and the
+  header. LDAP users get it from <code>displayName</code> and OIDC users from the
+  <code>name</code> claim, refreshed at every sign-in and not editable in Sanshain. Local users set
+  their own on the account page (<code>PUT /auth/display-name</code>); a service account's is set
+  with <strong>Name</strong> in its row (<code>PUT /admin/users/{id}/display-name</code>,
+  <code>manage_users</code>). Without one, the username is shown.
+</p>
 
 <h2 id="service-accounts">Service accounts</h2>
 <p>

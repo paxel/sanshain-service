@@ -184,6 +184,7 @@ mod tests {
         {
             Ok(crate::domain::models::AuthenticatedUser {
                 username: username.to_string(),
+                ..Default::default()
             })
         }
 
