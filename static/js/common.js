@@ -386,6 +386,7 @@ async function sanshainLogout(options = {}) {
         html.dark .bg-white { background: #1e293b !important; }
         html.dark .bg-slate-50 { background: #1e293b !important; }
         html.dark .bg-slate-100 { background: #334155 !important; }
+        html.dark .fill-slate-100 { fill: #334155 !important; }
         html.dark .bg-slate-200 { background: #475569 !important; }
         html.dark .text-slate-900 { color: #e2e8f0 !important; }
         html.dark .text-slate-800 { color: #cbd5e1 !important; }

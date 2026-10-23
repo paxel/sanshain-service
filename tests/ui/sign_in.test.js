@@ -104,6 +104,17 @@ test("signing in lands on the dashboard, whose names only a signed-in user sees"
   await page.reload();
   await expect(page.locator("#stat-producers")).toHaveText(/^\d+$/);
   await expect(page.locator("#activity-chart > rect")).toHaveCount(30);
+  // A day without provides is a quiet bar in both themes, not a white dash.
+  const quiet = page.locator('#activity-chart > rect[data-provides="0"]').first();
+  await page.evaluate(() => {
+    document.cookie = "sanshain_theme=dark;path=/";
+  });
+  await page.reload();
+  await expect(quiet).toHaveCSS("fill", "rgb(51, 65, 85)");
+  await page.evaluate(() => {
+    document.cookie = "sanshain_theme=light;path=/";
+  });
+  await page.reload();
   await expect(page.locator("#recent-provides-card")).toBeHidden();
 
   await openSignIn(page);
