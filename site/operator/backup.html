@@ -136,7 +136,7 @@
     </tr>
     <tr>
       <td><code>backup.images.curl</code>, <code>backup.images.postgres</code></td>
-      <td><code>curlimages/curl:8.23.0</code>, <code>postgres:17-alpine</code></td>
+      <td><code>curlimages/curl:8.23.0</code>, <code>postgres:18-alpine</code></td>
       <td>The job images for the two engines.</td>
     </tr>
   </tbody>
@@ -180,10 +180,19 @@
   Kustomize: <code>deploy/kubernetes/backup-cronjob-postgres.yaml</code>, commented like the SQLite
   one.
 </p>
+<p>
+  <code>pg_dump</code> refuses a server newer than itself, so the job image must be at least the
+  database's major version: the default <code>postgres:18-alpine</code> dumps PostgreSQL 18 and
+  older. Set <code>backup.images.postgres</code> when the database is newer.
+</p>
 <h3>Restore</h3>
 <ol>
   <li>Scale Sanshain to zero.</li>
-  <li><code>pg_restore --clean --if-exists --dbname="$DATABASE_URL" sanshain.dump</code></li>
+  <li>
+    <code>pg_restore --clean --if-exists --dbname="$DATABASE_URL" sanshain.dump</code>, with a
+    <code>pg_restore</code> of the same major version as the job image (18 for the default): an
+    older one may refuse an archive written by a newer <code>pg_dump</code>.
+  </li>
   <li>Scale back up; migrations run on start as above.</li>
 </ol>
 

@@ -4,6 +4,8 @@
 # backup volume and keeps the newest RETAIN dumps. Not part of
 # kustomization.yaml: uncomment and add this file to `resources` to enable it.
 # Restore with `pg_restore --clean --if-exists -d "$DATABASE_URL" <file>`.
+# The image must be at least the database's major version (pg_dump refuses a
+# newer server); restore with a pg_restore of the same major as the image.
 #
 # ---
 # apiVersion: v1
@@ -42,7 +44,7 @@
 #           containers:
 #             - name: backup
 #               # Match the major version of the server you dump from.
-#               image: postgres:17-alpine
+#               image: postgres:18-alpine
 #               env:
 #                 - name: RETAIN
 #                   # Must be at least 1: 0 deletes the backup just produced.

@@ -181,4 +181,5 @@ backup:
     key: token
   images:
     curl: "curlimages/curl:8.23.0"
-    postgres: "postgres:17-alpine"
+    # At least the database's major version: pg_dump refuses a newer server.
+    postgres: "postgres:18-alpine"
