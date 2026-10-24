@@ -1,5 +1,5 @@
 use crate::domain::models::Impact;
-use serde_yaml_ng::{Mapping, Value};
+use crate::yaml::{Mapping, Value};
 use std::collections::{BTreeMap, HashMap};
 
 pub struct AsyncApiSpec {
@@ -15,10 +15,10 @@ pub struct AsyncApiSpec {
 /// first sentence of the operation's, the channel's or the message's
 /// `description`. Both 2.x (channel-nested operations) and 3.x shapes.
 pub fn channel_summary(snippet: &str) -> Option<String> {
-    let root: Value = serde_yaml_ng::from_str(snippet).ok()?;
+    let root: Value = crate::yaml::from_str(snippet).ok()?;
     let first_entry = |key: &str| -> Option<Value> {
         root.get(key)?
-            .as_mapping()?
+            .as_object()?
             .iter()
             .next()
             .map(|(_, v)| v.clone())
@@ -37,7 +37,7 @@ pub fn channel_summary(snippet: &str) -> Option<String> {
             channel
                 .as_ref()?
                 .get("messages")?
-                .as_mapping()?
+                .as_object()?
                 .iter()
                 .next()
                 .map(|(_, v)| v.clone())
@@ -57,7 +57,7 @@ pub fn channel_summary(snippet: &str) -> Option<String> {
 }
 
 pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
-    let root: Value = serde_yaml_ng::from_str(yaml_str)
+    let root: Value = crate::yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
 
     let version = root.get("asyncapi").and_then(|v| v.as_str()).unwrap_or("");
@@ -71,11 +71,9 @@ pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
 fn split_asyncapi_v2(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
     let mut specs = Vec::new();
 
-    if let Some(channels) = root.get("channels").and_then(|c| c.as_mapping()) {
+    if let Some(channels) = root.get("channels").and_then(|c| c.as_object()) {
         for (channel_name, channel_value) in channels {
-            let channel_name_str = channel_name
-                .as_str()
-                .ok_or("Channel name must be a string")?;
+            let channel_name_str = channel_name.as_str();
 
             if let Some(_publish) = channel_value.get("publish") {
                 specs.push(create_spec_v2(
@@ -106,10 +104,10 @@ fn split_asyncapi_v3(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
 
     let operations = root
         .get("operations")
-        .and_then(|o| o.as_mapping())
+        .and_then(|o| o.as_object())
         .ok_or_else(|| "AsyncAPI 3.x document has no 'operations' section".to_string())?;
 
-    let channels = root.get("channels").and_then(|c| c.as_mapping());
+    let channels = root.get("channels").and_then(|c| c.as_object());
 
     for (_op_name, op_value) in operations {
         let action = op_value
@@ -140,7 +138,7 @@ fn split_asyncapi_v3(root: &Value) -> Result<Vec<AsyncApiSpec>, String> {
 
         // Resolve the channel address (the actual topic/path name) or fall back to the channel key
         let channel_address = channels
-            .and_then(|chs| chs.get(Value::String(channel_name.to_string())))
+            .and_then(|chs| chs.get(channel_name))
             .and_then(|ch| ch.get("address"))
             .and_then(|a| a.as_str())
             .unwrap_or(channel_name);
@@ -169,9 +167,9 @@ fn create_spec_v3(
     let mut snippet = Mapping::new();
 
     // Copy top-level fields except channels and operations
-    if let Some(m) = root.as_mapping() {
+    if let Some(m) = root.as_object() {
         for (k, v) in m {
-            let key_str = k.as_str().unwrap_or("");
+            let key_str = k.as_str();
             if key_str != "channels" && key_str != "operations" {
                 snippet.insert(k.clone(), v.clone());
             }
@@ -180,24 +178,21 @@ fn create_spec_v3(
 
     // Include only the referenced channel
     if let Some(chs) = channels
-        && let Some(ch_value) = chs.get(Value::String(channel_key.to_string()))
+        && let Some(ch_value) = chs.get(channel_key)
     {
         let mut ch_map = Mapping::new();
-        ch_map.insert(Value::String(channel_key.to_string()), ch_value.clone());
-        snippet.insert(
-            Value::String("channels".to_string()),
-            Value::Mapping(ch_map),
-        );
+        ch_map.insert(channel_key.to_string(), ch_value.clone());
+        snippet.insert("channels".to_string(), Value::Object(ch_map));
     }
 
     // Include only this operation
     let mut ops = Mapping::new();
     // Use a synthetic key based on action + channel
     let op_key = format!("{}_{}", operation.to_lowercase(), channel_key);
-    ops.insert(Value::String(op_key), op_value.clone());
-    snippet.insert(Value::String("operations".to_string()), Value::Mapping(ops));
+    ops.insert(op_key, op_value.clone());
+    snippet.insert("operations".to_string(), Value::Object(ops));
 
-    let yaml_content = serde_yaml_ng::to_string(&Value::Mapping(snippet))
+    let yaml_content = crate::yaml::to_string(&Value::Object(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
 
     Ok(AsyncApiSpec {
@@ -218,16 +213,16 @@ fn create_spec_v2(
     let mut snippet = Mapping::new();
 
     // Copy top-level fields except channels
-    if let Some(m) = root.as_mapping() {
+    if let Some(m) = root.as_object() {
         for (k, v) in m {
-            if k.as_str() != Some("channels") {
+            if k != "channels" {
                 snippet.insert(k.clone(), v.clone());
             }
         }
     }
 
     let mut channels = Mapping::new();
-    let mut channel_map = channel_value.as_mapping().cloned().unwrap_or_default();
+    let mut channel_map = channel_value.as_object().cloned().unwrap_or_default();
 
     // Remove other operations from this channel in the snippet
     let other_op = if op_key == "publish" {
@@ -235,18 +230,12 @@ fn create_spec_v2(
     } else {
         "publish"
     };
-    channel_map.remove(Value::String(other_op.to_string()));
+    channel_map.remove(other_op);
 
-    channels.insert(
-        Value::String(channel_name.to_string()),
-        Value::Mapping(channel_map),
-    );
-    snippet.insert(
-        Value::String("channels".to_string()),
-        Value::Mapping(channels),
-    );
+    channels.insert(channel_name.to_string(), Value::Object(channel_map));
+    snippet.insert("channels".to_string(), Value::Object(channels));
 
-    let yaml_content = serde_yaml_ng::to_string(&Value::Mapping(snippet))
+    let yaml_content = crate::yaml::to_string(&Value::Object(snippet))
         .map_err(|e| format!("Failed to serialize AsyncAPI snippet: {}", e))?;
 
     let deprecated = channel_value
@@ -281,9 +270,9 @@ fn is_marked_deprecated(node: &Value) -> bool {
 ///
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
-    let old: Value = serde_yaml_ng::from_str(old_yaml)
+    let old: Value = crate::yaml::from_str(old_yaml)
         .map_err(|e| format!("Failed to parse old AsyncAPI YAML: {}", e))?;
-    let new: Value = serde_yaml_ng::from_str(new_yaml)
+    let new: Value = crate::yaml::from_str(new_yaml)
         .map_err(|e| format!("Failed to parse new AsyncAPI YAML: {}", e))?;
 
     let old_messages = collect_messages(&old);
@@ -319,17 +308,17 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
 /// `name`/`title` when present, otherwise a channel/operation-derived key.
 fn collect_messages(root: &Value) -> HashMap<String, &Value> {
     let mut messages = HashMap::new();
-    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+    let Some(channels) = root.get("channels").and_then(Value::as_object) else {
         return messages;
     };
 
     for (channel_name, channel_value) in channels {
-        let channel_name = channel_name.as_str().unwrap_or_default();
+        let channel_name = channel_name.as_str();
 
         // AsyncAPI 3.x: channels.<name>.messages.<msgName>
-        if let Some(v3_messages) = channel_value.get("messages").and_then(Value::as_mapping) {
+        if let Some(v3_messages) = channel_value.get("messages").and_then(Value::as_object) {
             for (message_name, message) in v3_messages {
-                let message_name = message_name.as_str().unwrap_or_default();
+                let message_name = message_name.as_str();
                 messages.insert(format!("{}/{}", channel_name, message_name), message);
             }
         }
@@ -339,7 +328,7 @@ fn collect_messages(root: &Value) -> HashMap<String, &Value> {
             let Some(message) = channel_value.get(op_key).and_then(|op| op.get("message")) else {
                 continue;
             };
-            if let Some(one_of) = message.get("oneOf").and_then(Value::as_sequence) {
+            if let Some(one_of) = message.get("oneOf").and_then(Value::as_array) {
                 for (index, variant) in one_of.iter().enumerate() {
                     messages.insert(message_key(channel_name, op_key, variant, index), variant);
                 }
@@ -411,10 +400,10 @@ fn find_schema_mismatch(path: &str, old: &Value, new: &Value) -> Result<(), Sche
         });
     }
 
-    if let Some(old_props) = old.get("properties").and_then(Value::as_mapping) {
-        let new_props = new.get("properties").and_then(Value::as_mapping);
+    if let Some(old_props) = old.get("properties").and_then(Value::as_object) {
+        let new_props = new.get("properties").and_then(Value::as_object);
         for (prop_name, old_prop) in old_props {
-            let prop_path = format!("{}.{}", path, prop_name.as_str().unwrap_or_default());
+            let prop_path = format!("{}.{}", path, prop_name);
             match new_props.and_then(|props| props.get(prop_name)) {
                 None => {
                     if !is_marked_deprecated(old_prop) {
@@ -511,7 +500,7 @@ impl Direction {
 }
 
 fn extract_messages(yaml_str: &str, dir: Direction) -> Result<Vec<PubMessage>, String> {
-    let root: Value = serde_yaml_ng::from_str(yaml_str)
+    let root: Value = crate::yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
     let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
     if version.starts_with("3.") {
@@ -523,11 +512,11 @@ fn extract_messages(yaml_str: &str, dir: Direction) -> Result<Vec<PubMessage>, S
 
 fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
-    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+    let Some(channels) = root.get("channels").and_then(Value::as_object) else {
         return out;
     };
     for (channel_name, channel_value) in channels {
-        let channel = channel_name.as_str().unwrap_or_default();
+        let channel = channel_name.as_str();
         let Some(operation) = channel_value.get(dir.v2_keyword()) else {
             continue;
         };
@@ -535,7 +524,7 @@ fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
         let Some(message) = operation.get("message") else {
             continue;
         };
-        let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
+        let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_array) {
             Some(one_of) => one_of.iter().collect(),
             None => vec![message],
         };
@@ -550,7 +539,7 @@ fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
 
 fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
     let mut out = Vec::new();
-    let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
+    let Some(operations) = root.get("operations").and_then(Value::as_object) else {
         return out;
     };
     let channels = root.get("channels");
@@ -577,7 +566,7 @@ fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
 
         // Messages the operation publishes: explicit `messages` refs when
         // present, otherwise all messages declared on the referenced channel.
-        if let Some(op_messages) = op.get("messages").and_then(Value::as_sequence) {
+        if let Some(op_messages) = op.get("messages").and_then(Value::as_array) {
             for m_ref in op_messages {
                 let Some(ref_str) = m_ref.get("$ref").and_then(Value::as_str) else {
                     continue;
@@ -590,7 +579,7 @@ fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
             }
         } else if let Some(msgs) = channel_node
             .and_then(|ch| ch.get("messages"))
-            .and_then(Value::as_mapping)
+            .and_then(Value::as_object)
         {
             for (_k, node) in msgs {
                 if let Some(pm) = pub_message_from_node(channel_address, node, op_deprecated) {
@@ -612,7 +601,7 @@ fn pub_message_from_node(
         .or_else(|| message.get("title"))
         .and_then(Value::as_str)?;
     let payload = message.get("payload").cloned().unwrap_or(Value::Null);
-    let payload_yaml = serde_yaml_ng::to_string(&payload).ok()?;
+    let payload_yaml = crate::yaml::to_string(&payload).ok()?;
     Some(PubMessage {
         channel: channel.to_string(),
         message_name: name.to_string(),
@@ -640,9 +629,9 @@ pub fn check_payload_compatible(
     old_payload_yaml: &str,
     new_payload_yaml: &str,
 ) -> Result<(), String> {
-    let old: Value = serde_yaml_ng::from_str(old_payload_yaml)
+    let old: Value = crate::yaml::from_str(old_payload_yaml)
         .map_err(|e| format!("Failed to parse stored payload: {}", e))?;
-    let new: Value = serde_yaml_ng::from_str(new_payload_yaml)
+    let new: Value = crate::yaml::from_str(new_payload_yaml)
         .map_err(|e| format!("Failed to parse submitted payload: {}", e))?;
     check_schema_compatible("payload", &old, &new)
 }
@@ -666,9 +655,9 @@ pub fn check_expectation_satisfied(
     contract_payload_yaml: &str,
     expectation_payload_yaml: &str,
 ) -> Result<(), String> {
-    let contract: Value = serde_yaml_ng::from_str(contract_payload_yaml)
+    let contract: Value = crate::yaml::from_str(contract_payload_yaml)
         .map_err(|e| format!("Failed to parse contract payload: {}", e))?;
-    let expectation: Value = serde_yaml_ng::from_str(expectation_payload_yaml)
+    let expectation: Value = crate::yaml::from_str(expectation_payload_yaml)
         .map_err(|e| format!("Failed to parse expectation payload: {}", e))?;
     // Phrase mismatches in the expectation→contract direction: the walk's
     // "old" is what the consumer reads, its "new" what the producer provides.
@@ -694,8 +683,8 @@ pub fn check_expectation_satisfied(
 /// equal (ignoring formatting and key-order differences).
 pub fn payloads_equal(a_yaml: &str, b_yaml: &str) -> bool {
     match (
-        serde_yaml_ng::from_str::<Value>(a_yaml),
-        serde_yaml_ng::from_str::<Value>(b_yaml),
+        crate::yaml::from_str::<Value>(a_yaml),
+        crate::yaml::from_str::<Value>(b_yaml),
     ) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
@@ -723,19 +712,16 @@ pub fn to_openapi_schemas(
 ) -> Result<String, String> {
     let mut schemas: BTreeMap<String, Value> = BTreeMap::new();
     for snippet in snippets {
-        let root: Value = serde_yaml_ng::from_str(snippet)
+        let root: Value = crate::yaml::from_str(snippet)
             .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
         for message in kept_messages(&root)? {
             add_message_payload(&root, &message, &mut schemas)?;
         }
     }
 
-    let schema_map: Mapping = schemas
-        .into_iter()
-        .map(|(name, schema)| (Value::String(name), schema))
-        .collect();
+    let schema_map: Mapping = schemas.into_iter().collect();
     let mut components = Mapping::new();
-    components.insert("schemas".into(), Value::Mapping(schema_map));
+    components.insert("schemas".into(), Value::Object(schema_map));
     let mut info = Mapping::new();
     info.insert(
         "title".into(),
@@ -744,10 +730,10 @@ pub fn to_openapi_schemas(
     info.insert("version".into(), Value::String(version.to_string()));
     let mut doc = Mapping::new();
     doc.insert("openapi".into(), Value::String("3.0.3".to_string()));
-    doc.insert("info".into(), Value::Mapping(info));
-    doc.insert("paths".into(), Value::Mapping(Mapping::new()));
-    doc.insert("components".into(), Value::Mapping(components));
-    serde_yaml_ng::to_string(&Value::Mapping(doc))
+    doc.insert("info".into(), Value::Object(info));
+    doc.insert("paths".into(), Value::Object(Mapping::new()));
+    doc.insert("components".into(), Value::Object(components));
+    crate::yaml::to_string(&Value::Object(doc))
         .map_err(|e| format!("Failed to serialize OpenAPI document: {}", e))
 }
 
@@ -773,16 +759,16 @@ fn kept_messages(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
 
 fn kept_messages_v2(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
     let mut out = Vec::new();
-    let Some(channels) = root.get("channels").and_then(Value::as_mapping) else {
+    let Some(channels) = root.get("channels").and_then(Value::as_object) else {
         return Ok(out);
     };
     for (channel_name, channel) in channels {
-        let channel_name = channel_name.as_str().unwrap_or_default();
+        let channel_name = channel_name.as_str();
         for op_key in ["publish", "subscribe"] {
             let Some(message) = channel.get(op_key).and_then(|op| op.get("message")) else {
                 continue;
             };
-            let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_sequence) {
+            let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_array) {
                 Some(one_of) => one_of.iter().collect(),
                 None => vec![message],
             };
@@ -809,12 +795,12 @@ fn kept_messages_v2(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
 
 fn kept_messages_v3(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
     let mut out = Vec::new();
-    let Some(operations) = root.get("operations").and_then(Value::as_mapping) else {
+    let Some(operations) = root.get("operations").and_then(Value::as_object) else {
         return Ok(out);
     };
     for (op_name, op) in operations {
-        let op_name = op_name.as_str().unwrap_or_default();
-        if let Some(refs) = op.get("messages").and_then(Value::as_sequence) {
+        let op_name = op_name.as_str();
+        if let Some(refs) = op.get("messages").and_then(Value::as_array) {
             for message in refs {
                 let location = format!("operation {}", op_name);
                 let key = ref_of(message).map(last_pointer_segment);
@@ -831,9 +817,9 @@ fn kept_messages_v3(root: &Value) -> Result<Vec<KeptMessage<'_>>, String> {
             continue;
         };
         let channel = deref(root, channel, &format!("operation {}", op_name))?;
-        if let Some(messages) = channel.get("messages").and_then(Value::as_mapping) {
+        if let Some(messages) = channel.get("messages").and_then(Value::as_object) {
             for (key, message) in messages {
-                let key = key.as_str().unwrap_or_default().to_string();
+                let key = key.clone();
                 let location = format!("operation {} message {}", op_name, key);
                 let node = deref(root, message, &location)?;
                 out.push(KeptMessage {
@@ -991,7 +977,7 @@ fn rewrite_refs(
     location: &str,
 ) -> Result<(), String> {
     match node {
-        Value::Mapping(map) => {
+        Value::Object(map) => {
             if let Some(reference) = map.get("$ref").and_then(Value::as_str) {
                 let reference = reference.to_string();
                 let target = resolve_local_ref(root, &reference, location)?;
@@ -1016,13 +1002,13 @@ fn rewrite_refs(
                 }
             }
             for (key, value) in map.iter_mut() {
-                if key.as_str() != Some("$ref") {
+                if key != "$ref" {
                     rewrite_refs(root, value, pending, location)?;
                 }
             }
             Ok(())
         }
-        Value::Sequence(items) => {
+        Value::Array(items) => {
             for item in items {
                 rewrite_refs(root, item, pending, location)?;
             }
@@ -1756,26 +1742,26 @@ components:
 
     fn schema_names(doc: &Value) -> Vec<String> {
         doc["components"]["schemas"]
-            .as_mapping()
+            .as_object()
             .unwrap()
             .keys()
-            .map(|k| k.as_str().unwrap().to_string())
+            .map(|k| k.to_string())
             .collect()
     }
 
     /// Every `$ref` anywhere in `node`.
     fn all_refs(node: &Value, out: &mut Vec<String>) {
         match node {
-            Value::Mapping(map) => {
+            Value::Object(map) => {
                 for (key, value) in map {
-                    if key.as_str() == Some("$ref") {
+                    if key == "$ref" {
                         out.push(value.as_str().unwrap().to_string());
                     } else {
                         all_refs(value, out);
                     }
                 }
             }
-            Value::Sequence(items) => items.iter().for_each(|i| all_refs(i, out)),
+            Value::Array(items) => items.iter().for_each(|i| all_refs(i, out)),
             _ => {}
         }
     }
@@ -1793,20 +1779,20 @@ components:
 
     fn convert(snippets: &[String]) -> Value {
         let yaml = to_openapi_schemas(snippets, "events", "1.4.0").unwrap();
-        serde_yaml_ng::from_str(&yaml).unwrap()
+        crate::yaml::from_str(&yaml).unwrap()
     }
 
     #[test]
     fn openapi_format_v2_has_the_openapi_header() {
         let yaml = to_openapi_schemas(&snippets_of(V2_EVENTS), "events", "1.4.0").unwrap();
-        assert!(yaml.starts_with("openapi: 3.0.3\n"), "got: {yaml}");
-        let doc: Value = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert!(yaml.starts_with("openapi: \"3.0.3\"\n"), "got: {yaml}");
+        let doc: Value = crate::yaml::from_str(&yaml).unwrap();
         assert_eq!(
             doc["info"]["title"].as_str(),
             Some("events message schemas")
         );
         assert_eq!(doc["info"]["version"].as_str(), Some("1.4.0"));
-        assert_eq!(doc["paths"], Value::Mapping(Mapping::new()));
+        assert_eq!(doc["paths"], Value::Object(Mapping::new()));
     }
 
     #[test]

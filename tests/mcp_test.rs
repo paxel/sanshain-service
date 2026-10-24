@@ -854,7 +854,7 @@ async fn diff_versions_and_blame_answer_text_and_blocks() {
         snippet["diff"]
             .as_str()
             .unwrap()
-            .contains("+  version: 1.1.0")
+            .contains("+  version: \"1.1.0\"")
     );
 
     let (is_error, text) = call(

@@ -112,7 +112,8 @@ components:
 
 // Pathologically nested documents must fail parsing with an error (handled as
 // 400 Bad Request at the API boundary) instead of exhausting the stack. This
-// pins serde_yaml_ng's built-in recursion limit as a load-bearing guardrail.
+// pins the YAML parser's nesting limit (64 levels, see `yaml.rs`) as a
+// load-bearing guardrail.
 #[test]
 fn split_rejects_excessively_nested_yaml() {
     let deep = format!("{}1{}", "{a: ".repeat(500), "}".repeat(500));
@@ -128,4 +129,20 @@ fn split_rejects_excessively_nested_yaml() {
             err
         ),
     }
+}
+
+// A schema nested right up to the parser's limit is read, not refused and not
+// a stack overflow: the typed OpenAPI model recurses once per level too.
+#[test]
+fn split_accepts_schemas_nested_up_to_the_limit() {
+    let mut schema = String::from("{type: string}");
+    for _ in 0..27 {
+        schema = format!("{{type: object, properties: {{inner: {schema}}}}}");
+    }
+    let y = format!(
+        "openapi: 3.0.0\ninfo: {{ title: T, version: 1.0.0 }}\npaths:\n  /deep:\n    get:\n      responses:\n        '200':\n          description: OK\n          content:\n            application/json:\n              schema: {schema}\n"
+    );
+    let endpoints = split_openapi(&y).expect("nesting below the limit is accepted");
+    assert_eq!(endpoints.len(), 1);
+    assert_eq!(endpoints[0].path, "/deep");
 }

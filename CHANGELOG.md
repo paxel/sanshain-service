@@ -17,12 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The PostgreSQL backup CronJob runs `pg_dump` 18 instead of 17, so it also backs up a PostgreSQL 18 database; restore its dumps with `pg_restore` 18.
 - OpenTelemetry exports retry a failed send up to 3 times with backoff instead of dropping the batch at once.
 - Webhook deliveries and the OIDC login trust the platform's certificate authorities plus `EXTRA_CA_CERTS_DIR`, like LDAPS, instead of a root list built into the binary.
+- Endpoint snippets and required specs are written in a slightly different YAML style (double quotes, quoted version strings, long single-line texts folded with `>`); their content is unchanged. The first re-provide of a snapshot counts its endpoints as updated once, and a Consumer that commits a required spec sees a one-time text diff.
+- Spec documents nested deeper than 64 levels are refused; the limit was 128.
 - Static files carry an `ETag` and answer `If-None-Match` with `304 Not Modified`; a file path with a trailing slash returns `404 Not Found`.
 
 ### Fixed
 - The Docker image's health check no longer reports the container unhealthy where `localhost` resolves to IPv6 first; it asks `127.0.0.1`, where the service listens.
 
 ### Security
+- YAML is read and written by `serde-saphyr`, which is pure Rust without `unsafe` code, instead of `serde_yaml_ng` on the unmaintained `unsafe-libyaml` (RUSTSEC-2024-0449).
 - `rsa` (RUSTSEC-2023-0071, Marvin attack) and `crypto-bigint` 0.5 (RUSTSEC-2026-0387) are no longer part of the build: the OIDC login verifies ID tokens with `openid` on `ring`, and `cargo audit` runs without exceptions.
 - The page templates no longer pull in `basic-toml`, which was unmaintained (RUSTSEC-2026-0374).
 

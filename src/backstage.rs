@@ -9,8 +9,8 @@
 //! Sanshain.
 
 use crate::domain::models::{SystemContext, SystemLink, SystemOwner};
+use crate::yaml::Value;
 use serde::Deserialize;
-use serde_yaml_ng::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -125,14 +125,14 @@ pub struct CatalogComponent {
 /// left empty otherwise, so a partial catalog-info keeps working.
 pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, CatalogError> {
     let mut found: Option<Entity> = None;
-    for (index, document) in serde_yaml_ng::Deserializer::from_str(yaml).enumerate() {
-        let value =
-            Value::deserialize(document).map_err(|e| CatalogError::InvalidYaml(e.to_string()))?;
+    let documents: Vec<Value> =
+        crate::yaml::from_str_multiple(yaml).map_err(CatalogError::InvalidYaml)?;
+    for (index, value) in documents.into_iter().enumerate() {
         // An empty document (a leading or trailing `---`) is no entity.
         if value.is_null() {
             continue;
         }
-        let entity: Entity = serde_yaml_ng::from_value(value)
+        let entity: Entity = serde_json::from_value(value)
             .map_err(|e| CatalogError::NotAnEntity(index + 1, e.to_string()))?;
         // `backstage.io/v1alpha1`, but also plugin groups such as
         // `scaffolder.backstage.io/v1beta3`: a Template in the same file is a
@@ -187,14 +187,14 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
             .metadata
             .links
             .as_ref()
-            .and_then(Value::as_sequence)
+            .and_then(Value::as_array)
             .map(|items| items.iter().filter_map(link).take(MAX_LINKS).collect())
             .unwrap_or_default(),
         tags: component
             .metadata
             .tags
             .as_ref()
-            .and_then(Value::as_sequence)
+            .and_then(Value::as_array)
             .map(|items| tags(items))
             .unwrap_or_default(),
     };
@@ -220,7 +220,7 @@ type Dependencies = (Vec<String>, Vec<String>);
 fn dependencies(component: &Entity, namespace: &str) -> Result<Dependencies, CatalogError> {
     let depends_on = match component.spec.as_ref().and_then(|s| s.get("dependsOn")) {
         None | Some(Value::Null) => return Ok((Vec::new(), Vec::new())),
-        Some(Value::Sequence(items)) => items,
+        Some(Value::Array(items)) => items,
         Some(_) => {
             return Err(CatalogError::MalformedDependsOn(
                 component.metadata.name.clone(),

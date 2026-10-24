@@ -8,6 +8,7 @@ pub mod openapi;
 pub mod presentation;
 pub mod proto;
 pub mod structure;
+pub mod yaml;
 
 use axum::{
     Router,
@@ -616,20 +617,20 @@ mod tests {
         }
 
         let mut problems: Vec<String> = Vec::new();
-        let field = |op: &serde_yaml_ng::Value, name: &str| -> String {
+        let field = |op: &crate::yaml::Value, name: &str| -> String {
             op.get(name)
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string()
         };
 
-        let maintenance: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str(include_str!("../maintenance.yaml"))
+        let maintenance: crate::yaml::Value =
+            crate::yaml::from_str(include_str!("../maintenance.yaml"))
                 .expect("maintenance.yaml must parse");
-        for (path, item) in maintenance["paths"].as_mapping().expect("paths") {
-            let path = path.as_str().expect("path key");
-            for (method, op) in item.as_mapping().expect("path item") {
-                let method = method.as_str().expect("method key");
+        for (path, item) in maintenance["paths"].as_object().expect("paths") {
+            let path = path.as_str();
+            for (method, op) in item.as_object().expect("path item") {
+                let method = method.as_str();
                 let Some((kind, scope, permission)) =
                     guards.get(&(method.to_string(), path.to_string()))
                 else {
@@ -674,12 +675,12 @@ mod tests {
             }
         }
 
-        let api: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
-        for (path, item) in api["paths"].as_mapping().expect("paths") {
-            let path = path.as_str().expect("path key");
-            for (method, op) in item.as_mapping().expect("path item") {
-                let method = method.as_str().expect("method key");
+        let api: crate::yaml::Value =
+            crate::yaml::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
+        for (path, item) in api["paths"].as_object().expect("paths") {
+            let path = path.as_str();
+            for (method, op) in item.as_object().expect("path item") {
+                let method = method.as_str();
                 let Some((kind, _, _)) = guards.get(&(method.to_string(), path.to_string())) else {
                     continue;
                 };
@@ -777,14 +778,14 @@ mod tests {
             }
         }
 
-        let spec: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
+        let spec: crate::yaml::Value =
+            crate::yaml::from_str(include_str!("../api.yaml")).expect("api.yaml must parse");
         let spec_paths: BTreeSet<&str> = spec
             .get("paths")
-            .and_then(|p| p.as_mapping())
+            .and_then(|p| p.as_object())
             .expect("api.yaml must have a `paths` mapping")
             .keys()
-            .map(|k| k.as_str().expect("api.yaml path keys must be strings"))
+            .map(String::as_str)
             .collect();
 
         let allowlist: BTreeSet<&str> = NOT_IN_CLIENT_CONTRACT.iter().copied().collect();
@@ -792,18 +793,15 @@ mod tests {
         // Routes documented in the maintenance contract instead. That file has
         // its own check below; here it only needs to account for a route's
         // absence from the client contract.
-        let maintenance_spec: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str(include_str!("../maintenance.yaml"))
+        let maintenance_spec: crate::yaml::Value =
+            crate::yaml::from_str(include_str!("../maintenance.yaml"))
                 .expect("maintenance.yaml must parse");
         let maintenance_paths: BTreeSet<&str> = maintenance_spec
             .get("paths")
-            .and_then(|p| p.as_mapping())
+            .and_then(|p| p.as_object())
             .expect("maintenance.yaml must have a `paths` mapping")
             .keys()
-            .map(|k| {
-                k.as_str()
-                    .expect("maintenance.yaml path keys must be strings")
-            })
+            .map(String::as_str)
             .collect();
 
         let phantom: Vec<&str> = spec_paths.difference(&router_paths).copied().collect();

@@ -215,12 +215,12 @@ fn require_uri(producer: &str, channel: &str, format: Option<&str>) -> String {
 
 #[cfg(test)]
 fn schema_names(yaml: &str) -> Vec<String> {
-    let doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(yaml).unwrap();
+    let doc: sanshain_service::yaml::Value = sanshain_service::yaml::from_str(yaml).unwrap();
     doc["components"]["schemas"]
-        .as_mapping()
+        .as_object()
         .unwrap()
         .keys()
-        .map(|k| k.as_str().unwrap().to_string())
+        .map(|k| k.to_string())
         .collect()
 }
 
@@ -238,12 +238,12 @@ async fn single_require_with_format_openapi_answers_the_payload_schemas() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    assert!(body.starts_with("openapi: 3.0.3\n"), "got: {body}");
+    assert!(body.starts_with("openapi: \"3.0.3\"\n"), "got: {body}");
     assert!(
         body.contains("title: events message schemas"),
         "got: {body}"
     );
-    assert!(body.contains("version: 1.0.0"), "got: {body}");
+    assert!(body.contains("version: \"1.0.0\""), "got: {body}");
     assert_eq!(schema_names(&body), vec!["Address", "User"]);
     assert_eq!(headers.get("X-Sanshain-Version").unwrap(), "1.0.0");
 }
@@ -262,7 +262,7 @@ async fn single_require_without_format_is_unchanged_asyncapi() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    let doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(&body).unwrap();
+    let doc: sanshain_service::yaml::Value = sanshain_service::yaml::from_str(&body).unwrap();
     assert!(doc.get("openapi").is_none(), "got: {body}");
     assert_eq!(doc["asyncapi"].as_str(), Some("2.6.0"));
 }
@@ -334,7 +334,7 @@ async fn bundle_with_format_openapi_merges_the_payload_schemas() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    assert!(body.starts_with("openapi: 3.0.3\n"), "got: {body}");
+    assert!(body.starts_with("openapi: \"3.0.3\"\n"), "got: {body}");
     assert_eq!(
         schema_names(&body),
         vec!["Address", "Order", "OrderPlacedPayload", "User"]
@@ -343,8 +343,8 @@ async fn bundle_with_format_openapi_merges_the_payload_schemas() {
     // Without the query parameter the bundle answer stays AsyncAPI.
     let (status, _, body) = send(&ctx, "POST", "/require-bundle", Some(payload), &[]).await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
-    assert!(body.contains("asyncapi: 2.6.0"), "got: {body}");
-    assert!(!body.contains("openapi: 3.0.3"), "got: {body}");
+    assert!(body.contains("asyncapi: \"2.6.0\""), "got: {body}");
+    assert!(!body.contains("openapi: "), "got: {body}");
 }
 
 #[tokio::test]

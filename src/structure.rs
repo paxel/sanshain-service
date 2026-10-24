@@ -10,9 +10,9 @@
 //! last changed the node's own fields.
 
 use crate::domain::models::{ApiType, SemVer};
+use crate::yaml::Value;
 use serde::Serialize;
 use serde_json::Value as Json;
-use serde_yaml_ng::Value;
 use std::collections::{BTreeSet, HashMap};
 
 /// Nesting deeper than this is cut with a note; real DTOs never get there.
@@ -142,7 +142,7 @@ pub fn endpoint_node(
     snippet: &str,
 ) -> Result<Node, String> {
     let root: Value =
-        serde_yaml_ng::from_str(snippet).map_err(|e| format!("unreadable snippet: {e}"))?;
+        crate::yaml::from_str(snippet).map_err(|e| format!("unreadable snippet: {e}"))?;
     let walker = Walker { root: &root };
     let mut node = Node::new(
         NodeKind::Endpoint,
@@ -239,8 +239,8 @@ impl<'a> Walker<'a> {
             return json_of(example);
         }
         let first = match v.get("examples")? {
-            Value::Sequence(list) => list.first()?,
-            Value::Mapping(map) => {
+            Value::Array(list) => list.first()?,
+            Value::Object(map) => {
                 let entry = map.values().next()?;
                 let entry = self.resolve(entry).ok()?.value;
                 entry.get("value").unwrap_or(entry)
@@ -299,7 +299,7 @@ impl<'a> Walker<'a> {
         let paths = self
             .root
             .get("paths")
-            .and_then(Value::as_mapping)
+            .and_then(Value::as_object)
             .ok_or("the snippet has no paths")?;
         let (item, operation) = paths
             .values()
@@ -331,17 +331,10 @@ impl<'a> Walker<'a> {
         if let Some(body) = operation.get("requestBody") {
             node.children.push(self.openapi_request_body(body));
         }
-        if let Some(responses) = operation.get("responses").and_then(Value::as_mapping) {
+        if let Some(responses) = operation.get("responses").and_then(Value::as_object) {
             let mut group = Node::new(NodeKind::Group, "responses", "Responses");
             for (status, response) in responses {
-                let status = match status {
-                    Value::String(s) => s.clone(),
-                    Value::Number(n) => n.to_string(),
-                    _ => continue,
-                };
-                group
-                    .children
-                    .push(self.openapi_response(&status, response));
+                group.children.push(self.openapi_response(status, response));
             }
             node.children.push(group);
         }
@@ -353,7 +346,7 @@ impl<'a> Walker<'a> {
     fn openapi_parameters(&self, item: &'a Value, operation: &'a Value) -> Vec<(String, Node)> {
         let mut out: Vec<(String, Node)> = Vec::new();
         let lists = [item.get("parameters"), operation.get("parameters")];
-        for list in lists.into_iter().flatten().filter_map(Value::as_sequence) {
+        for list in lists.into_iter().flatten().filter_map(Value::as_array) {
             for raw in list {
                 let (location, param) = match self.resolve(raw) {
                     Ok(r) => (
@@ -393,7 +386,7 @@ impl<'a> Walker<'a> {
         let schema = param.get("schema").or_else(|| {
             param
                 .get("content")
-                .and_then(Value::as_mapping)
+                .and_then(Value::as_object)
                 .and_then(|c| c.values().next())
                 .and_then(|m| m.get("schema"))
         });
@@ -446,10 +439,10 @@ impl<'a> Walker<'a> {
             }
         };
         node.description = text_of(response, "description");
-        if let Some(headers) = response.get("headers").and_then(Value::as_mapping) {
+        if let Some(headers) = response.get("headers").and_then(Value::as_object) {
             let mut group = Node::new(NodeKind::Group, "headers", "Headers");
             for (name, header) in headers {
-                let Some(name) = name.as_str() else { continue };
+                let name = name.as_str();
                 let header_node = match self.resolve(header) {
                     Ok(r) => self.openapi_parameter_named(r.value, NodeKind::Header, name),
                     Err(reference) => {
@@ -467,13 +460,13 @@ impl<'a> Walker<'a> {
 
     /// One body node per media type of a `content` map.
     fn openapi_content(&self, owner: &'a Value, direction: Direction) -> Vec<Node> {
-        let Some(content) = owner.get("content").and_then(Value::as_mapping) else {
+        let Some(content) = owner.get("content").and_then(Value::as_object) else {
             return Vec::new();
         };
         content
             .iter()
-            .filter_map(|(media, entry)| {
-                let media = media.as_str()?;
+            .map(|(media, entry)| {
+                let media = media.as_str();
                 let mut body = match entry.get("schema") {
                     Some(schema) => self.schema_node(media, media, schema, &mut Vec::new(), 0),
                     None => Node::new(NodeKind::Body, media, media),
@@ -483,7 +476,7 @@ impl<'a> Walker<'a> {
                 if let Some(example) = self.first_example(entry, false) {
                     body.example = Some(example);
                 }
-                Some(body)
+                body
             })
             .collect()
     }
@@ -508,7 +501,7 @@ impl<'a> Walker<'a> {
         let channel = self
             .root
             .get("channels")
-            .and_then(Value::as_mapping)
+            .and_then(Value::as_object)
             .and_then(|c| c.values().next())
             .ok_or("the snippet has no channel")?;
         let channel = self.resolve(channel).map(|r| r.value).unwrap_or(channel);
@@ -521,7 +514,7 @@ impl<'a> Walker<'a> {
         self.asyncapi_channel_parameters(node, channel);
         if let Some(message) = operation.get("message") {
             let message = self.resolve(message).map(|r| r.value).unwrap_or(message);
-            match message.get("oneOf").and_then(Value::as_sequence) {
+            match message.get("oneOf").and_then(Value::as_array) {
                 Some(variants) => {
                     for (index, variant) in variants.iter().enumerate() {
                         node.children
@@ -540,7 +533,7 @@ impl<'a> Walker<'a> {
         let operation = self
             .root
             .get("operations")
-            .and_then(Value::as_mapping)
+            .and_then(Value::as_object)
             .and_then(|o| o.values().next())
             .ok_or("the snippet has no operation")?;
         let channel = operation
@@ -553,7 +546,7 @@ impl<'a> Walker<'a> {
         if let Some(channel) = channel {
             self.asyncapi_channel_parameters(node, channel);
         }
-        let listed = operation.get("messages").and_then(Value::as_sequence);
+        let listed = operation.get("messages").and_then(Value::as_array);
         match listed {
             Some(messages) if !messages.is_empty() => {
                 for (index, message) in messages.iter().enumerate() {
@@ -564,9 +557,9 @@ impl<'a> Walker<'a> {
             _ => {
                 let messages = channel
                     .and_then(|c| c.get("messages"))
-                    .and_then(Value::as_mapping);
+                    .and_then(Value::as_object);
                 for (key, message) in messages.into_iter().flatten() {
-                    let key = key.as_str().unwrap_or("message");
+                    let key = key.as_str();
                     node.children.push(self.asyncapi_message(key, message));
                 }
             }
@@ -575,12 +568,12 @@ impl<'a> Walker<'a> {
     }
 
     fn asyncapi_channel_parameters(&self, node: &mut Node, channel: &'a Value) {
-        let Some(parameters) = channel.get("parameters").and_then(Value::as_mapping) else {
+        let Some(parameters) = channel.get("parameters").and_then(Value::as_object) else {
             return;
         };
         let mut group = Node::new(NodeKind::Group, "parameters", "Parameters");
         for (name, raw) in parameters {
-            let Some(name) = name.as_str() else { continue };
+            let name = name.as_str();
             let param = self.resolve(raw).map(|r| r.value).unwrap_or(raw);
             // 2.x parameters carry a schema; 3.x ones carry enum/default inline.
             let mut child = match param.get("schema") {
@@ -738,7 +731,7 @@ impl<'a> Walker<'a> {
         node.nullable = bool_of(schema, "nullable");
         node.default = schema.get("default").and_then(json_of);
         node.example = self.first_example(schema, false);
-        if let Some(values) = schema.get("enum").and_then(Value::as_sequence) {
+        if let Some(values) = schema.get("enum").and_then(Value::as_array) {
             node.enum_values = values.iter().filter_map(json_of).collect();
         }
         if let Some(constant) = schema.get("const").and_then(json_of) {
@@ -749,7 +742,7 @@ impl<'a> Walker<'a> {
         node.json_type = json_type(schema, &mut node.nullable);
 
         // allOf with no own properties and a single part reads as that part.
-        let all_of = schema.get("allOf").and_then(Value::as_sequence);
+        let all_of = schema.get("allOf").and_then(Value::as_array);
         if let Some(parts) = all_of
             && parts.len() == 1
             && schema.get("properties").is_none()
@@ -782,7 +775,7 @@ impl<'a> Walker<'a> {
             node.json_type = Some("object".to_string());
             node.children = self.members(schema, stack, depth);
             if let Some(additional) = schema.get("additionalProperties")
-                && additional.as_mapping().is_some()
+                && additional.as_object().is_some()
             {
                 let mut child = self.schema_node("{*}", "(any key)", additional, stack, depth + 1);
                 child.kind = NodeKind::Member;
@@ -801,7 +794,7 @@ impl<'a> Walker<'a> {
             node.children.push(child);
         }
         for (keyword, label) in [("oneOf", "one of"), ("anyOf", "any of")] {
-            if let Some(variants) = schema.get(keyword).and_then(Value::as_sequence) {
+            if let Some(variants) = schema.get(keyword).and_then(Value::as_array) {
                 node.children
                     .push(self.variants(keyword, label, schema, variants, stack, depth));
             }
@@ -853,7 +846,7 @@ impl<'a> Walker<'a> {
         if hops > MAX_DEPTH {
             return;
         }
-        if let Some(parts) = schema.get("allOf").and_then(Value::as_sequence) {
+        if let Some(parts) = schema.get("allOf").and_then(Value::as_array) {
             for part in parts {
                 match self.resolve(part) {
                     Ok(r) => {
@@ -882,9 +875,9 @@ impl<'a> Walker<'a> {
                 }
             }
         }
-        if let Some(properties) = schema.get("properties").and_then(Value::as_mapping) {
+        if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
             for (name, prop) in properties {
-                let Some(name) = name.as_str() else { continue };
+                let name = name.as_str();
                 if let Some(slot) = found.props.iter_mut().find(|(n, _, _)| n == name) {
                     slot.1 = prop;
                     slot.2 = origin.clone();
@@ -893,7 +886,7 @@ impl<'a> Walker<'a> {
                 }
             }
         }
-        if let Some(list) = schema.get("required").and_then(Value::as_sequence) {
+        if let Some(list) = schema.get("required").and_then(Value::as_array) {
             found
                 .required
                 .extend(list.iter().filter_map(Value::as_str).map(str::to_string));
@@ -940,7 +933,7 @@ impl<'a> Walker<'a> {
 fn json_type(schema: &Value, nullable: &mut bool) -> Option<String> {
     match schema.get("type")? {
         Value::String(t) => Some(t.clone()),
-        Value::Sequence(types) => {
+        Value::Array(types) => {
             let mut first = None;
             for t in types.iter().filter_map(Value::as_str) {
                 if t == "null" {

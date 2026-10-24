@@ -2,7 +2,6 @@ use crate::domain::models::{ApiType, Impact};
 use openapiv3::{Components, OpenAPI, PathItem, ReferenceOr, SchemaKind, Type as OaType};
 use serde::Serialize;
 use serde_json;
-use serde_yaml_ng;
 use similar::TextDiff;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -27,8 +26,8 @@ pub fn extract_info_version(yaml_str: &str) -> Result<crate::domain::models::Sem
         version: Option<String>,
     }
 
-    let parsed: InfoOnly = serde_yaml_ng::from_str(yaml_str)
-        .map_err(|e| format!("Failed to parse spec YAML: {}", e))?;
+    let parsed: InfoOnly =
+        crate::yaml::from_str(yaml_str).map_err(|e| format!("Failed to parse spec YAML: {}", e))?;
     let raw = parsed
         .info
         .and_then(|i| i.version)
@@ -114,8 +113,8 @@ pub fn operation_summary(snippet: &str) -> Option<String> {
     const METHODS: [&str; 8] = [
         "get", "post", "put", "delete", "patch", "options", "head", "trace",
     ];
-    let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(snippet).ok()?;
-    let paths = root.get("paths")?.as_mapping()?;
+    let root: crate::yaml::Value = crate::yaml::from_str(snippet).ok()?;
+    let paths = root.get("paths")?.as_object()?;
     for (_, item) in paths {
         for method in METHODS {
             let Some(operation) = item.get(method) else {
@@ -160,7 +159,7 @@ mod summary_tests {
 
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     tracing::debug!("Splitting OpenAPI specification ({} bytes)", yaml_str.len());
-    let openapi: OpenAPI = serde_yaml_ng::from_str(yaml_str)
+    let openapi: OpenAPI = crate::yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse OpenAPI YAML: {}", e))?;
 
     let component_graph = build_component_graph(&openapi.components);
@@ -217,7 +216,7 @@ pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
                 components.callbacks.sort_keys();
             }
 
-            let endpoint_yaml = serde_yaml_ng::to_string(&single_endpoint_openapi)
+            let endpoint_yaml = crate::yaml::to_string(&single_endpoint_openapi)
                 .map_err(|e| format!("Failed to serialize endpoint YAML: {}", e))?;
 
             endpoints.push(EndpointSpec {
@@ -412,12 +411,12 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
     }
 
     // Use the first snippet as the base (info, servers, openapi version)
-    let mut merged: OpenAPI = serde_yaml_ng::from_str(&yamls[0])
+    let mut merged: OpenAPI = crate::yaml::from_str(&yamls[0])
         .map_err(|e| format!("Failed to parse first endpoint YAML: {}", e))?;
 
     // Merge paths and components from all subsequent snippets
     for yaml in &yamls[1..] {
-        let spec: OpenAPI = serde_yaml_ng::from_str(yaml)
+        let spec: OpenAPI = crate::yaml::from_str(yaml)
             .map_err(|e| format!("Failed to parse endpoint YAML: {}", e))?;
 
         // Merge paths
@@ -492,7 +491,7 @@ pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
         components.security_schemes.sort_keys();
     }
 
-    serde_yaml_ng::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
+    crate::yaml::to_string(&merged).map_err(|e| format!("Failed to serialize merged YAML: {}", e))
 }
 
 /// Generate a unified diff between two YAML strings.
@@ -521,10 +520,10 @@ pub fn generate_diff(old: &str, new: &str) -> String {
 /// Returns Ok(()) if compatible, Err(description) if breaking.
 pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<(), String> {
     tracing::debug!("Checking backward compatibility...");
-    let old: OpenAPI = serde_yaml_ng::from_str(old_yaml)
-        .map_err(|e| format!("Failed to parse old YAML: {}", e))?;
-    let new: OpenAPI = serde_yaml_ng::from_str(new_yaml)
-        .map_err(|e| format!("Failed to parse new YAML: {}", e))?;
+    let old: OpenAPI =
+        crate::yaml::from_str(old_yaml).map_err(|e| format!("Failed to parse old YAML: {}", e))?;
+    let new: OpenAPI =
+        crate::yaml::from_str(new_yaml).map_err(|e| format!("Failed to parse new YAML: {}", e))?;
 
     check_openapi_compatible(&old, &new)
 }
@@ -543,11 +542,11 @@ pub fn check_backward_compatibility(old_yaml: &str, new_yaml: &str) -> Result<()
 /// from that; anything this function cannot see in the parsed API surface is
 /// not its business.
 pub fn analyze_impact(old_yaml: &str, new_yaml: &str) -> Impact {
-    let old: OpenAPI = match serde_yaml_ng::from_str(old_yaml) {
+    let old: OpenAPI = match crate::yaml::from_str(old_yaml) {
         Ok(o) => o,
         Err(_) => return Impact::Major,
     };
-    let new: OpenAPI = match serde_yaml_ng::from_str(new_yaml) {
+    let new: OpenAPI = match crate::yaml::from_str(new_yaml) {
         Ok(n) => n,
         Err(_) => return Impact::Major,
     };
@@ -1678,7 +1677,7 @@ components:
         assert!(merged.contains("User"));
         assert!(merged.contains("Order"));
         // Verify it parses back correctly
-        let parsed: OpenAPI = serde_yaml_ng::from_str(&merged).unwrap();
+        let parsed: OpenAPI = crate::yaml::from_str(&merged).unwrap();
         assert_eq!(parsed.paths.paths.len(), 2);
         let components = parsed.components.unwrap();
         assert_eq!(components.schemas.len(), 2);
@@ -1713,7 +1712,7 @@ paths:
 "#;
         let merged =
             merge_endpoint_yamls(&[snippet_get.to_string(), snippet_post.to_string()]).unwrap();
-        let parsed: OpenAPI = serde_yaml_ng::from_str(&merged).unwrap();
+        let parsed: OpenAPI = crate::yaml::from_str(&merged).unwrap();
         assert_eq!(parsed.paths.paths.len(), 1);
         let path_item = match parsed.paths.paths.get("/users").unwrap() {
             ReferenceOr::Item(item) => item,

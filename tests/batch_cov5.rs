@@ -150,7 +150,14 @@ paths: { /b: { get: { responses: { '200': { description: ok, headers: { Y: { $re
 "#;
     let merged = openapi::merge_endpoint_yamls(&[a.to_string(), b.to_string()]).unwrap();
     assert!(merged.contains("/a") && merged.contains("/b"));
-    assert!(merged.contains("headers:") && merged.contains("X:") && merged.contains("Y:"));
+    // Read back rather than searched as text: `Y` is a YAML 1.1 boolean
+    // spelling, so the writer quotes it.
+    let doc: serde_json::Value = sanshain_service::yaml::from_str(&merged).unwrap();
+    let headers = doc["components"]["headers"].as_object().unwrap();
+    assert!(
+        headers.contains_key("X") && headers.contains_key("Y"),
+        "{merged}"
+    );
 }
 
 #[test]

@@ -1129,7 +1129,7 @@ test.describe("Diff views", () => {
     await expect(view).toHaveAttribute("data-layout", "split", { timeout: 20000 });
     const changed = view.locator('.diff-row:not([data-diff="ctx"])');
     await expect(changed).toHaveCount(1, { timeout: 20000 });
-    await expect(changed).toContainText("version: 1.1.0");
+    await expect(changed).toContainText('version: "1.1.0"');
     await expect(view.locator(".diff-ignore-ws")).toHaveCount(0);
     await expect(view.locator(".diff-layout-switch")).toBeVisible();
   });

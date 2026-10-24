@@ -35,11 +35,11 @@ test-support = []
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", features = ["std", "clock"], default-features = false }
 sqlx = { version = "0.9", default-features = false, features = [ "runtime-tokio", "tls-rustls", "sqlite", "postgres", "migrate", "json" ] }
 openapiv3 = "2.2"
-serde_yaml_ng = "0.10"
+serde-saphyr = "2"
 tower-http = { version = "0.7", features = ["cors", "fs", "set-header", "trace", "compression-gzip", "decompression-gzip"] }
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
