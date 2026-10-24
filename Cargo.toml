@@ -49,7 +49,7 @@ rand = "0.10"
 uuid = { version = "1", features = ["v4"] }
 hex = "0.4"
 sha2 = "0.11"
-askama = "0.15"
+askama = { version = "0.15", default-features = false, features = ["derive", "std"] }
 ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ring"] }
 # Host and port of an LDAP URL, for the TCP connect the provider does itself
 # (already in the tree via ldap3).
