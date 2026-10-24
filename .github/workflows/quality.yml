@@ -20,7 +20,7 @@ jobs:
   rust-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Free up disk space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -86,8 +86,8 @@ jobs:
   js-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
       - run: npm ci
       - run: npx eslint static/js/
       - run: npx prettier --check static/js/
@@ -97,7 +97,7 @@ jobs:
   ui-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Free up disk space
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -109,7 +109,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           cache: npm
       - run: npm ci
@@ -143,7 +143,7 @@ jobs:
           INITIAL_AUTH_MODE: local
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: playwright-report/

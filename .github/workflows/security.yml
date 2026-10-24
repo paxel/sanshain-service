@@ -17,7 +17,7 @@ jobs:
     name: Vulnerable crates (cargo audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
@@ -28,8 +28,8 @@ jobs:
     name: Vulnerable npm packages (npm audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: npm audit
@@ -50,7 +50,7 @@ jobs:
       # high/critical findings that have a fix, consistent with the source audits above.
       - name: grype
         id: grype
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
           output-format: json
@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload the scan report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: grype-report-${{ steps.latest.outputs.tag }}
           path: ${{ steps.grype.outputs.json }}
@@ -69,7 +69,7 @@ jobs:
       - name: grype (all findings)
         id: grype-all
         if: always()
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
           output-format: json
@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload the full scan report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: grype-report-${{ steps.latest.outputs.tag }}-all
           path: ${{ steps.grype-all.outputs.json }}
