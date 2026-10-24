@@ -1,5 +1,5 @@
-use sqlx::Row;
 use sqlx::sqlite::SqlitePool;
+use sqlx::{AssertSqlSafe, Row};
 
 const MIGRATIONS_DIR: &str = "src/infrastructure/migrations/sqlite";
 const V2_MIGRATION: &str = "20260801000000_versions_replace_branches.sql";
@@ -54,7 +54,7 @@ async fn apply_pre_2_0_schema(pool: &SqlitePool) {
             "a migration newer than the 2.0 rework appeared ({name}); teach this test about it"
         );
         let sql = std::fs::read_to_string(format!("{MIGRATIONS_DIR}/{name}")).unwrap();
-        sqlx::raw_sql(&sql)
+        sqlx::raw_sql(AssertSqlSafe(sql))
             .execute(pool)
             .await
             .unwrap_or_else(|e| panic!("migration {name} failed: {e}"));
@@ -105,7 +105,10 @@ async fn test_sqlite_migration_2_0_versions_replace_branches() {
 
     // Run the 2.0 migration.
     let sql = std::fs::read_to_string(format!("{MIGRATIONS_DIR}/{V2_MIGRATION}")).unwrap();
-    sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+    sqlx::raw_sql(AssertSqlSafe(sql))
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // The branch-era spec tables are gone…
     let tables = table_names(&pool).await;
@@ -168,13 +171,13 @@ async fn test_sqlite_migration_2_0_versions_replace_branches() {
         .await
         .unwrap();
     assert_eq!(name.0, "legacy-svc");
-    for column in ["fallback_branch", "onboarding"] {
+    for statement in [
+        "SELECT fallback_branch FROM services",
+        "SELECT onboarding FROM services",
+    ] {
         assert!(
-            sqlx::query(&format!("SELECT {column} FROM services"))
-                .fetch_all(&pool)
-                .await
-                .is_err(),
-            "services.{column} must be dropped"
+            sqlx::query(statement).fetch_all(&pool).await.is_err(),
+            "{statement} must fail: the column is dropped"
         );
     }
 
@@ -231,7 +234,10 @@ async fn test_sqlite_migration_upgrade_1_0_1() {
         "src/infrastructure/migrations/sqlite/20240430000000_initial_schema.sql",
     )
     .unwrap();
-    sqlx::query(&initial_schema).execute(&pool).await.unwrap();
+    sqlx::query(AssertSqlSafe(initial_schema))
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // 2. Seed some 1.0.0 data
     sqlx::query("INSERT INTO services (name) VALUES ('svc1')")
@@ -246,7 +252,10 @@ async fn test_sqlite_migration_upgrade_1_0_1() {
         "src/infrastructure/migrations/sqlite/20240502000000_scope_shared_contracts.sql",
     )
     .unwrap();
-    sqlx::query(&upgrade_schema).execute(&pool).await.unwrap();
+    sqlx::query(AssertSqlSafe(upgrade_schema))
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // 4. Verify new schema has branch_name AND service_id columns
     let row = sqlx::query("SELECT branch_name, service_id FROM shared_contracts LIMIT 1")
@@ -300,7 +309,10 @@ async fn the_unique_index_migration_collapses_pre_existing_duplicates() {
         "20260807000004_audit_stream.sql",
     ] {
         let sql = std::fs::read_to_string(format!("{MIGRATIONS_DIR}/{name}")).unwrap();
-        sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+        sqlx::raw_sql(AssertSqlSafe(sql))
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     sqlx::query("INSERT INTO clients (name) VALUES ('web')")
@@ -330,7 +342,7 @@ async fn the_unique_index_migration_collapses_pre_existing_duplicates() {
         "{MIGRATIONS_DIR}/20260808000000_unique_open_pin_rows.sql"
     ))
     .unwrap();
-    sqlx::raw_sql(&sql)
+    sqlx::raw_sql(AssertSqlSafe(sql))
         .execute(&pool)
         .await
         .expect("the migration must collapse duplicates before creating the unique index");

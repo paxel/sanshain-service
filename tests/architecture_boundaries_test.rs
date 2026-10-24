@@ -164,3 +164,31 @@ fn the_boundary_check_detects_a_real_import() {
         "axum"
     ));
 }
+
+/// sqlx accepts only `&'static str` as SQL unless a string is wrapped in
+/// `AssertSqlSafe`, and `QueryBuilder::push` takes any text. Either way a later
+/// change could paste a request value into SQL and still compile. Production
+/// code builds every statement at compile time (literals and `concat!`) and
+/// passes values only as bind parameters, so neither escape hatch may appear.
+#[test]
+fn production_sql_is_fixed_at_compile_time() {
+    let mut violations: Vec<String> = Vec::new();
+    for file in rust_files(Path::new("src")) {
+        let contents = fs::read_to_string(&file)
+            .unwrap_or_else(|e| panic!("Failed to read {}: {e}", file.display()));
+        for (number, line) in contents.lines().enumerate() {
+            let code = code_only(line);
+            for token in ["AssertSqlSafe", "QueryBuilder"] {
+                if mentions_word(code, token) {
+                    violations.push(format!("{}:{}: `{token}`", file.display(), number + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "SQL built at runtime:\n  {}\n\nWrite the statement as a literal (or `concat!` of \
+         literal macros) and pass every value with `.bind(...)`.",
+        violations.join("\n  ")
+    );
+}

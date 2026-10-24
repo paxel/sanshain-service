@@ -25,7 +25,12 @@ pub(crate) type WebhookRow = (
 );
 
 /// The column list `WebhookRow` is selected with, prefixed by the table alias.
-pub(crate) const WEBHOOK_COLUMNS: &str = "h.id, h.scope_kind, h.scope_name, h.url, h.format, h.event_types, h.producer_glob, h.secret, h.secret_hint, h.paused, h.allow_list_exempt, h.created_by, h.created_at";
+macro_rules! webhook_columns {
+    () => {
+        "h.id, h.scope_kind, h.scope_name, h.url, h.format, h.event_types, h.producer_glob, h.secret, h.secret_hint, h.paused, h.allow_list_exempt, h.created_by, h.created_at"
+    };
+}
+pub(crate) use webhook_columns;
 
 /// `(id, hook_id, event_id, event_type, occurred_at, status, attempts,
 /// next_attempt_at, last_response_code, last_error, delivered_at,
@@ -49,7 +54,12 @@ pub(crate) type DeliveryRow<I> = (
 
 /// The column list `DeliveryRow` is selected with: the delivery aliased `d`,
 /// joined to its event aliased `e`.
-pub(crate) const DELIVERY_COLUMNS: &str = "d.id, d.hook_id, d.event_id, e.event_type, e.occurred_at, d.status, d.attempts, d.next_attempt_at, d.last_response_code, d.last_error, d.delivered_at, d.redelivered_at, d.updated_at";
+macro_rules! delivery_columns {
+    () => {
+        "d.id, d.hook_id, d.event_id, e.event_type, e.occurred_at, d.status, d.attempts, d.next_attempt_at, d.last_response_code, d.last_error, d.delivered_at, d.redelivered_at, d.updated_at"
+    };
+}
+pub(crate) use delivery_columns;
 
 /// The stored spelling of a hook's event-type filter: comma-separated, or
 /// `None` for "every type".

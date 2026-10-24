@@ -20,7 +20,8 @@ async fn apply(pool: &SqlitePool, migration: &str) {
     ))
     .unwrap_or_else(|e| panic!("read {migration}: {e}"));
     // The files hold several statements; sqlx executes them as one script.
-    sqlx::raw_sql(&sql)
+    // The text is a migration file from this repository, not input.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
         .execute(pool)
         .await
         .unwrap_or_else(|e| panic!("apply {migration}: {e}"));

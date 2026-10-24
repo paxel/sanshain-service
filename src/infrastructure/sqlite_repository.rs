@@ -87,8 +87,8 @@ use super::pin_rows::{
     system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
 use super::webhook_rows::{
-    DELIVERY_COLUMNS, DeliveryRow, WEBHOOK_COLUMNS, WebhookRow, data_from_json, data_json,
-    delivery_from_row, encode_event_types, webhook_from_row,
+    DeliveryRow, WebhookRow, data_from_json, data_json, delivery_columns, delivery_from_row,
+    encode_event_types, webhook_columns, webhook_from_row,
 };
 use crate::domain::models::*;
 use crate::domain::ports::{
@@ -620,19 +620,32 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // The open record of this entry's line, compared with this entry.
-        let line = "m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = ? \
-                    AND sv.service_id = m.service_id AND sv.api_type = m.api_type";
-        let same = "AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)";
-        sqlx::query(&format!(
-            "UPDATE trunk_member_versions AS m SET valid_to = ? WHERE {line} AND NOT (sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch))"
+        macro_rules! line_sql {
+            () => {
+                "m.valid_to IS NULL AND EXISTS (SELECT 1 FROM spec_versions sv WHERE sv.id = ? \
+                    AND sv.service_id = m.service_id AND sv.api_type = m.api_type"
+            };
+        }
+        macro_rules! same_sql {
+            () => {
+                "AND sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch)"
+            };
+        }
+        sqlx::query(concat!(
+            "UPDATE trunk_member_versions AS m SET valid_to = ? WHERE ",
+            line_sql!(),
+            " AND NOT (sv.major = m.major AND sv.minor = m.minor AND sv.patch = m.patch))"
         ))
         .bind(now_iso)
         .bind(spec_version_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        let refreshed = sqlx::query(&format!(
-            "UPDATE trunk_member_versions AS m SET last_provided_at = ? WHERE {line} {same}"
+        let refreshed = sqlx::query(concat!(
+            "UPDATE trunk_member_versions AS m SET last_provided_at = ? WHERE ",
+            line_sql!(),
+            " ",
+            same_sql!()
         ))
         .bind(now_iso)
         .bind(spec_version_id)
@@ -812,14 +825,16 @@ impl SpecRepository for SqliteSpecRepository {
         branch_id: i64,
         at: Option<&str>,
     ) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
-        let base = "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
+        macro_rules! base_sql {
+            () => {
+                "SELECT t.client_name, t.service_name, t.api_type, t.major, t.minor, t.patch, t.path, t.normalized_path, t.method, t.valid_from, t.last_required_at \
              FROM branch_dependencies t \
-             WHERE t.branch_id = ?";
+             WHERE t.branch_id = ?"
+            };
+        }
         let rows: Vec<PinRow<i64>> = match at {
             Some(at) => {
-                sqlx::query_as(&format!(
-                    "{base} AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY t.client_name, t.service_name, t.path, t.method"
-                ))
+                sqlx::query_as(concat!(base_sql!(), " AND t.valid_from <= ? AND (t.valid_to IS NULL OR t.valid_to > ?) ORDER BY t.client_name, t.service_name, t.path, t.method"))
                 .bind(branch_id)
                 .bind(at)
                 .bind(at)
@@ -827,9 +842,7 @@ impl SpecRepository for SqliteSpecRepository {
                 .await
             }
             None => {
-                sqlx::query_as(&format!(
-                    "{base} AND t.valid_to IS NULL ORDER BY t.client_name, t.service_name, t.path, t.method"
-                ))
+                sqlx::query_as(concat!(base_sql!(), " AND t.valid_to IS NULL ORDER BY t.client_name, t.service_name, t.path, t.method"))
                 .bind(branch_id)
                 .fetch_all(&self.pool)
                 .await
@@ -1004,12 +1017,12 @@ impl SpecRepository for SqliteSpecRepository {
         // a branch's graph while leaving the branch — and its name — behind.
         // Postgres gets the same atomicity from the declared cascade.
         let mut tx = self.write_tx().await?;
-        for table in [
-            "branch_dependencies",
-            "branch_member_versions",
-            "peripheral_dependencies",
+        for statement in [
+            "DELETE FROM branch_dependencies WHERE branch_id = ?",
+            "DELETE FROM branch_member_versions WHERE branch_id = ?",
+            "DELETE FROM peripheral_dependencies WHERE branch_id = ?",
         ] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE branch_id = ?"))
+            sqlx::query(statement)
                 .bind(branch_id)
                 .execute(&mut *tx)
                 .await
@@ -1033,9 +1046,15 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let mut tx = self.write_tx().await?;
         for p in pins {
-            let key = "branch_id = ? AND client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
-            sqlx::query(&format!(
-                "UPDATE branch_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+            macro_rules! key_sql {
+                () => {
+                    "branch_id = ? AND client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL"
+                };
+            }
+            sqlx::query(concat!(
+                "UPDATE branch_dependencies SET valid_to = ? WHERE ",
+                key_sql!(),
+                " AND NOT (major = ? AND minor = ? AND patch = ?)"
             ))
             .bind(p.now_iso)
             .bind(branch_id)
@@ -1050,8 +1069,10 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            let refreshed = sqlx::query(&format!(
-                "UPDATE branch_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
+            let refreshed = sqlx::query(concat!(
+                "UPDATE branch_dependencies SET last_required_at = ? WHERE ",
+                key_sql!(),
+                " AND major = ? AND minor = ? AND patch = ?"
             ))
             .bind(p.now_iso)
             .bind(branch_id)
@@ -1114,9 +1135,15 @@ impl SpecRepository for SqliteSpecRepository {
         // the branch with no open member version at all, hiding the producer
         // from the membership lookups until a later tagged provide repairs it.
         let mut tx = self.write_tx().await?;
-        let key = "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL";
-        sqlx::query(&format!(
-            "UPDATE branch_member_versions SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+        macro_rules! key_sql {
+            () => {
+                "branch_id = ? AND service_id = ? AND api_type = ? AND valid_to IS NULL"
+            };
+        }
+        sqlx::query(concat!(
+            "UPDATE branch_member_versions SET valid_to = ? WHERE ",
+            key_sql!(),
+            " AND NOT (major = ? AND minor = ? AND patch = ?)"
         ))
         .bind(now_iso)
         .bind(branch_id)
@@ -1128,11 +1155,9 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        sqlx::query(&format!(
-            "INSERT INTO branch_member_versions (branch_id, service_id, service_name, api_type, major, minor, patch, valid_from) \
+        sqlx::query(concat!("INSERT INTO branch_member_versions (branch_id, service_id, service_name, api_type, major, minor, patch, valid_from) \
              SELECT ?, ?, (SELECT name FROM services WHERE id = ?), ?, ?, ?, ?, ? \
-             WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE {key} AND major = ? AND minor = ? AND patch = ?)"
-        ))
+             WHERE NOT EXISTS (SELECT 1 FROM branch_member_versions WHERE ", key_sql!(), " AND major = ? AND minor = ? AND patch = ?)"))
         .bind(branch_id)
         .bind(service_id)
         .bind(service_id)
@@ -1162,10 +1187,16 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<(), RepositoryError> {
         let mut tx = self.write_tx().await?;
         for p in pins {
-            let key = "client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL";
+            macro_rules! key_sql {
+                () => {
+                    "client_id = ? AND service_id = ? AND api_type = ? AND normalized_path = ? AND method = ? AND valid_to IS NULL"
+                };
+            }
             // Append semantics: a different version closes the open record…
-            sqlx::query(&format!(
-                "UPDATE trunk_dependencies SET valid_to = ? WHERE {key} AND NOT (major = ? AND minor = ? AND patch = ?)"
+            sqlx::query(concat!(
+                "UPDATE trunk_dependencies SET valid_to = ? WHERE ",
+                key_sql!(),
+                " AND NOT (major = ? AND minor = ? AND patch = ?)"
             ))
             .bind(p.now_iso)
             .bind(p.client_id)
@@ -1180,8 +1211,10 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             // …the same version only refreshes the open record…
-            let refreshed = sqlx::query(&format!(
-                "UPDATE trunk_dependencies SET last_required_at = ? WHERE {key} AND major = ? AND minor = ? AND patch = ?"
+            let refreshed = sqlx::query(concat!(
+                "UPDATE trunk_dependencies SET last_required_at = ? WHERE ",
+                key_sql!(),
+                " AND major = ? AND minor = ? AND patch = ?"
             ))
             .bind(p.now_iso)
             .bind(p.client_id)
@@ -1418,35 +1451,30 @@ impl SpecRepository for SqliteSpecRepository {
             return Ok(result);
         }
 
-        let mut query_builder = sqlx::QueryBuilder::new(
-            r#"
-            SELECT e.id, e.path, e.normalized_path, e.method, e.yaml_content, e.deprecated
-            FROM endpoints e
-            WHERE e.spec_version_id = "#,
-        );
-        query_builder.push_bind(spec_version_id);
-        query_builder.push(" AND e.api_type = ");
-        query_builder.push_bind(api_type.as_str());
-        query_builder.push(" AND (");
-
-        for (i, (path, method)) in endpoints.iter().enumerate() {
-            if i > 0 {
-                query_builder.push(" OR ");
-            }
-            query_builder.push("(e.normalized_path = ");
-            query_builder.push_bind(crate::openapi::lookup_path(api_type, path));
-            query_builder.push(" AND e.method = ");
-            query_builder.push_bind(method);
-            query_builder.push(")");
-        }
-        query_builder.push(")");
+        // The wanted (normalized path, method) pairs travel as one JSON array
+        // bind, so the statement stays fixed whatever the number of endpoints.
+        let wanted: Vec<(String, &str)> = endpoints
+            .iter()
+            .map(|(path, method)| (crate::openapi::lookup_path(api_type, path), method.as_str()))
+            .collect();
+        let wanted =
+            serde_json::to_string(&wanted).map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         type BulkRow = (i64, String, String, String, String, bool);
-        let rows: Vec<BulkRow> = query_builder
-            .build_query_as()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let rows: Vec<BulkRow> = sqlx::query_as(
+            "SELECT e.id, e.path, e.normalized_path, e.method, e.yaml_content, e.deprecated \
+             FROM endpoints e \
+             WHERE e.spec_version_id = ? AND e.api_type = ? \
+             AND EXISTS (SELECT 1 FROM json_each(?) w \
+                 WHERE e.normalized_path = json_extract(w.value, '$[0]') \
+                 AND e.method = json_extract(w.value, '$[1]'))",
+        )
+        .bind(spec_version_id)
+        .bind(api_type.as_str())
+        .bind(wanted)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
         // Key the result by what the caller *asked for*, matched via the
         // normalized path, so lenient path matching works for bundles too.
@@ -1487,26 +1515,36 @@ impl SpecRepository for SqliteSpecRepository {
 
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-        let mut query_builder = sqlx::QueryBuilder::new(
-            "INSERT INTO dependencies (client_id, spec_version_id, api_type, path, normalized_path, method, last_seen_at) ",
-        );
-        query_builder.push_values(params, |mut b, p| {
-            b.push_bind(p.client_id)
-                .push_bind(p.spec_version_id)
-                .push_bind(p.api_type.as_str())
-                .push_bind(p.path)
-                .push_bind(p.normalized_path)
-                .push_bind(p.method)
-                .push_bind(&now);
-        });
-        query_builder.push(
-            " ON CONFLICT(client_id, spec_version_id, api_type, path, method) DO UPDATE SET last_seen_at = excluded.last_seen_at",
-        );
-        query_builder
-            .build()
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // All rows travel as one JSON array bind, so the statement stays fixed
+        // whatever the number of rows. `WHERE true` keeps SQLite from reading
+        // `ON CONFLICT` as a join constraint of the SELECT.
+        let rows: Vec<(i64, i64, &str, &str, &str, &str)> = params
+            .iter()
+            .map(|p| {
+                (
+                    p.client_id,
+                    p.spec_version_id,
+                    p.api_type.as_str(),
+                    p.path,
+                    p.normalized_path,
+                    p.method,
+                )
+            })
+            .collect();
+        let rows =
+            serde_json::to_string(&rows).map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO dependencies (client_id, spec_version_id, api_type, path, normalized_path, method, last_seen_at) \
+             SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[2]'), \
+                    json_extract(value, '$[3]'), json_extract(value, '$[4]'), json_extract(value, '$[5]'), ? \
+             FROM json_each(?) WHERE true \
+             ON CONFLICT(client_id, spec_version_id, api_type, path, method) DO UPDATE SET last_seen_at = excluded.last_seen_at",
+        )
+        .bind(&now)
+        .bind(rows)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         write_outbox(&mut tx, &outbox).await?;
         tx.commit()
             .await
@@ -1700,26 +1738,45 @@ impl SpecRepository for SqliteSpecRepository {
         // A user survives the purge when they are an effective administrator:
         // direct `admin` role, `admin` via group membership, or a
         // configuration-held root username (`spare_usernames`).
-        const DOOMED: &str = "SELECT id FROM users \
+        macro_rules! doomed_sql {
+            () => {
+                "SELECT id FROM users \
              WHERE NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = users.id AND r.role = 'admin') \
              AND NOT EXISTS (SELECT 1 FROM user_group_members m \
                  JOIN user_group_roles gr ON gr.group_id = m.group_id AND gr.role = 'admin' \
                  WHERE m.user_id = users.id) \
-             AND users.username NOT IN (SELECT value FROM json_each(?))";
+             AND users.username NOT IN (SELECT value FROM json_each(?))"
+            };
+        }
         let spare_json = serde_json::to_string(spare_usernames)
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        for table in ["sessions", "api_tokens"] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE user_id IN ({DOOMED})"))
+        for statement in [
+            concat!(
+                "DELETE FROM sessions WHERE user_id IN (",
+                doomed_sql!(),
+                ")"
+            ),
+            concat!(
+                "DELETE FROM api_tokens WHERE user_id IN (",
+                doomed_sql!(),
+                ")"
+            ),
+        ] {
+            sqlx::query(statement)
                 .bind(&spare_json)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         }
-        let result = sqlx::query(&format!("DELETE FROM users WHERE id IN ({DOOMED})"))
-            .bind(&spare_json)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let result = sqlx::query(concat!(
+            "DELETE FROM users WHERE id IN (",
+            doomed_sql!(),
+            ")"
+        ))
+        .bind(&spare_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
 
@@ -2332,16 +2389,17 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn delete_expired_credentials(&self, now_iso: &str) -> Result<u64, RepositoryError> {
         let mut removed = 0u64;
-        for table in ["sessions", "api_tokens"] {
-            // Compared as instants: the stored RFC 3339 text and the cutoff
-            // need not share a spelling (`T` or space, `Z` or `+00:00`).
-            let res = sqlx::query(&format!(
-                "DELETE FROM {table} WHERE julianday(expires_at) < julianday(?)"
-            ))
-            .bind(now_iso)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Compared as instants: the stored RFC 3339 text and the cutoff
+        // need not share a spelling (`T` or space, `Z` or `+00:00`).
+        for statement in [
+            "DELETE FROM sessions WHERE julianday(expires_at) < julianday(?)",
+            "DELETE FROM api_tokens WHERE julianday(expires_at) < julianday(?)",
+        ] {
+            let res = sqlx::query(statement)
+                .bind(now_iso)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
             removed += res.rows_affected();
         }
         Ok(removed)
@@ -2514,8 +2572,11 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&mut *tx)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        for table in ["api_tokens", "sessions"] {
-            sqlx::query(&format!("UPDATE {table} SET user_id = ? WHERE user_id = ?"))
+        for statement in [
+            "UPDATE api_tokens SET user_id = ? WHERE user_id = ?",
+            "UPDATE sessions SET user_id = ? WHERE user_id = ?",
+        ] {
+            sqlx::query(statement)
                 .bind(into)
                 .bind(from)
                 .execute(&mut *tx)
@@ -3398,13 +3459,23 @@ impl SpecRepository for SqliteSpecRepository {
         at: Option<&str>,
     ) -> Result<Vec<PeripheralDependency>, RepositoryError> {
         let (track, branch_id) = periphery_track_key(track);
-        let base = "SELECT system_name, resource_ref FROM peripheral_dependencies \
-                    WHERE track = ? AND COALESCE(branch_id, 0) = COALESCE(?, 0)";
-        let order = "ORDER BY system_name, resource_ref";
+        macro_rules! base_sql {
+            () => {
+                "SELECT system_name, resource_ref FROM peripheral_dependencies \
+                    WHERE track = ? AND COALESCE(branch_id, 0) = COALESCE(?, 0)"
+            };
+        }
+        macro_rules! order_sql {
+            () => {
+                "ORDER BY system_name, resource_ref"
+            };
+        }
         let rows: Vec<(String, String)> = match at {
             Some(at) => {
-                sqlx::query_as(&format!(
-                    "{base} AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) {order}"
+                sqlx::query_as(concat!(
+                    base_sql!(),
+                    " AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) ",
+                    order_sql!()
                 ))
                 .bind(track)
                 .bind(branch_id)
@@ -3414,7 +3485,7 @@ impl SpecRepository for SqliteSpecRepository {
                 .await
             }
             None => {
-                sqlx::query_as(&format!("{base} AND valid_to IS NULL {order}"))
+                sqlx::query_as(concat!(base_sql!(), " AND valid_to IS NULL ", order_sql!()))
                     .bind(track)
                     .bind(branch_id)
                     .fetch_all(&self.pool)
@@ -3504,22 +3575,35 @@ impl SpecRepository for SqliteSpecRepository {
         at: Option<&str>,
     ) -> Result<Vec<MemberVersion>, RepositoryError> {
         type Row = (String, String, i64, i64, i64, String, Option<String>);
-        let (table, last, filter) = match track {
-            MemberTrack::Trunk => ("trunk_member_versions", "last_provided_at", "1 = 1"),
-            MemberTrack::Branch(_) => ("branch_member_versions", "NULL", "branch_id = ?"),
+        macro_rules! trunk {
+            () => {
+                "SELECT service_name, api_type, major, minor, patch, valid_from, last_provided_at \
+                 FROM trunk_member_versions WHERE 1 = 1"
+            };
+        }
+        macro_rules! branch {
+            () => {
+                "SELECT service_name, api_type, major, minor, patch, valid_from, NULL \
+                 FROM branch_member_versions WHERE branch_id = ?"
+            };
+        }
+        macro_rules! as_of {
+            () => {
+                " AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) ORDER BY service_name, api_type"
+            };
+        }
+        macro_rules! open {
+            () => {
+                " AND valid_to IS NULL ORDER BY service_name, api_type"
+            };
+        }
+        let sql = match (&track, at) {
+            (MemberTrack::Trunk, Some(_)) => concat!(trunk!(), as_of!()),
+            (MemberTrack::Trunk, None) => concat!(trunk!(), open!()),
+            (MemberTrack::Branch(_), Some(_)) => concat!(branch!(), as_of!()),
+            (MemberTrack::Branch(_), None) => concat!(branch!(), open!()),
         };
-        let base = format!(
-            "SELECT service_name, api_type, major, minor, patch, valid_from, {last} \
-             FROM {table} WHERE {filter}"
-        );
-        let order = "ORDER BY service_name, api_type";
-        let sql = match at {
-            Some(_) => {
-                format!("{base} AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) {order}")
-            }
-            None => format!("{base} AND valid_to IS NULL {order}"),
-        };
-        let mut query = sqlx::query_as::<_, Row>(&sql);
+        let mut query = sqlx::query_as::<_, Row>(sql);
         if let MemberTrack::Branch(id) = track {
             query = query.bind(id);
         }
@@ -3577,37 +3661,22 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         filter: AuditLogFilter,
     ) -> Result<Vec<AuditLogEntry>, RepositoryError> {
-        let mut sql = String::from(
-            "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream FROM audit_logs WHERE 1=1",
-        );
-
-        if filter.from_date.is_some() {
-            sql.push_str(" AND timestamp >= ?");
-        }
-        if filter.to_date.is_some() {
-            sql.push_str(" AND timestamp <= ?");
-        }
-        if filter.action_type.is_some() {
-            sql.push_str(" AND action_type = ?");
-        }
-        if filter.service_wildcard.is_some() {
-            sql.push_str(" AND service LIKE ?");
-        }
-        if filter.version_wildcard.is_some() {
-            sql.push_str(" AND version LIKE ?");
-        }
+        // One fixed statement: an absent filter binds NULL and matches every row.
         // Identity first: a resolved branch matches by id, so a rename does
         // not orphan its history. Only an unresolvable name falls back to the
         // recorded label — which is how a deleted branch stays reachable.
-        if filter.branch_id.is_some() {
-            sql.push_str(" AND branch_id = ?");
-        } else if filter.stream.is_some() {
-            sql.push_str(" AND stream = ?");
-        }
+        const SQL: &str = "SELECT id, timestamp, username, action, details, service, version, action_type, diff, stream \
+             FROM audit_logs \
+             WHERE (?1 IS NULL OR timestamp >= ?1) \
+             AND (?2 IS NULL OR timestamp <= ?2) \
+             AND (?3 IS NULL OR action_type = ?3) \
+             AND (?4 IS NULL OR service LIKE ?4) \
+             AND (?5 IS NULL OR version LIKE ?5) \
+             AND CASE WHEN ?6 IS NOT NULL THEN branch_id = ?6 \
+                 ELSE (?7 IS NULL OR stream = ?7) END \
+             ORDER BY id DESC LIMIT ?8";
 
-        sql.push_str(" ORDER BY id DESC LIMIT ?");
-
-        let mut query = sqlx::query_as::<
+        let query = sqlx::query_as::<
             _,
             (
                 i64,
@@ -3621,29 +3690,15 @@ impl SpecRepository for SqliteSpecRepository {
                 Option<String>,
                 Option<String>,
             ),
-        >(&sql);
-
-        if let Some(ref val) = filter.from_date {
-            query = query.bind(val);
-        }
-        if let Some(ref val) = filter.to_date {
-            query = query.bind(val);
-        }
-        if let Some(ref val) = filter.action_type {
-            query = query.bind(val);
-        }
-        if let Some(ref val) = filter.service_wildcard {
-            query = query.bind(val);
-        }
-        if let Some(ref val) = filter.version_wildcard {
-            query = query.bind(val);
-        }
-        if let Some(val) = filter.branch_id {
-            query = query.bind(val);
-        } else if let Some(ref val) = filter.stream {
-            query = query.bind(val);
-        }
-        query = query.bind(filter.limit);
+        >(SQL)
+        .bind(filter.from_date)
+        .bind(filter.to_date)
+        .bind(filter.action_type)
+        .bind(filter.service_wildcard)
+        .bind(filter.version_wildcard)
+        .bind(filter.branch_id)
+        .bind(filter.stream)
+        .bind(filter.limit);
 
         let rows = query
             .fetch_all(&self.pool)
@@ -3846,8 +3901,10 @@ impl SpecRepository for SqliteSpecRepository {
     ) -> Result<Vec<Webhook>, RepositoryError> {
         let rows: Vec<WebhookRow> = match scope {
             Some(scope) => {
-                sqlx::query_as(&format!(
-                    "SELECT {WEBHOOK_COLUMNS} FROM webhooks h \
+                sqlx::query_as(concat!(
+                    "SELECT ",
+                    webhook_columns!(),
+                    " FROM webhooks h \
                      WHERE h.scope_kind = ? AND COALESCE(h.scope_name, '') = COALESCE(?, '') \
                      ORDER BY h.id"
                 ))
@@ -3857,8 +3914,10 @@ impl SpecRepository for SqliteSpecRepository {
                 .await
             }
             None => {
-                sqlx::query_as(&format!(
-                    "SELECT {WEBHOOK_COLUMNS} FROM webhooks h ORDER BY h.id"
+                sqlx::query_as(concat!(
+                    "SELECT ",
+                    webhook_columns!(),
+                    " FROM webhooks h ORDER BY h.id"
                 ))
                 .fetch_all(&self.pool)
                 .await
@@ -3869,8 +3928,10 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn get_webhook(&self, id: i64) -> Result<Option<Webhook>, RepositoryError> {
-        let row: Option<WebhookRow> = sqlx::query_as(&format!(
-            "SELECT {WEBHOOK_COLUMNS} FROM webhooks h WHERE h.id = ?"
+        let row: Option<WebhookRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            webhook_columns!(),
+            " FROM webhooks h WHERE h.id = ?"
         ))
         .bind(id)
         .fetch_optional(&self.pool)
@@ -3960,8 +4021,10 @@ impl SpecRepository for SqliteSpecRepository {
         hook_id: i64,
         limit: u32,
     ) -> Result<Vec<WebhookDelivery>, RepositoryError> {
-        let rows: Vec<DeliveryRow<i64>> = sqlx::query_as(&format!(
-            "SELECT {DELIVERY_COLUMNS} FROM webhook_deliveries d \
+        let rows: Vec<DeliveryRow<i64>> = sqlx::query_as(concat!(
+            "SELECT ",
+            delivery_columns!(),
+            " FROM webhook_deliveries d \
              JOIN webhook_outbox e ON e.id = d.event_id \
              WHERE d.hook_id = ? ORDER BY d.id DESC LIMIT ?"
         ))
@@ -3977,8 +4040,10 @@ impl SpecRepository for SqliteSpecRepository {
         &self,
         delivery_id: i64,
     ) -> Result<Option<WebhookDelivery>, RepositoryError> {
-        let row: Option<DeliveryRow<i64>> = sqlx::query_as(&format!(
-            "SELECT {DELIVERY_COLUMNS} FROM webhook_deliveries d \
+        let row: Option<DeliveryRow<i64>> = sqlx::query_as(concat!(
+            "SELECT ",
+            delivery_columns!(),
+            " FROM webhook_deliveries d \
              JOIN webhook_outbox e ON e.id = d.event_id WHERE d.id = ?"
         ))
         .bind(delivery_id)
@@ -4018,14 +4083,12 @@ impl SpecRepository for SqliteSpecRepository {
         // selects are leased before any other pass can see them as due.
         let mut tx = self.write_tx().await?;
         let rows: Vec<DueRow> = {
-            let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(&format!(
-                "SELECT {DELIVERY_COLUMNS}, {WEBHOOK_COLUMNS}, e.producer, e.data_json \
+            let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(concat!("SELECT ", delivery_columns!(), ", ", webhook_columns!(), ", e.producer, e.data_json \
                  FROM webhook_deliveries d \
                  JOIN webhook_outbox e ON e.id = d.event_id \
                  JOIN webhooks h ON h.id = d.hook_id \
                  WHERE d.status IN ('pending', 'failed') AND d.next_attempt_at <= ? AND h.paused = 0 \
-                 ORDER BY d.next_attempt_at, d.id LIMIT ?"
-            ))
+                 ORDER BY d.next_attempt_at, d.id LIMIT ?"))
             .bind(now_iso)
             .bind(limit as i64)
             .fetch_all(&mut *tx)

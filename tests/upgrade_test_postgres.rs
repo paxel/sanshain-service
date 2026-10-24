@@ -23,7 +23,7 @@ async fn test_postgres_migration_upgrade_1_0_1() {
     for statement in initial_schema.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            sqlx::query(trimmed)
+            sqlx::query(sqlx::AssertSqlSafe(trimmed))
                 .execute(&pool)
                 .await
                 .unwrap_or_else(|_| panic!("Failed to execute statement: {}", trimmed));
@@ -46,7 +46,7 @@ async fn test_postgres_migration_upgrade_1_0_1() {
     for statement in upgrade_schema.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            sqlx::query(trimmed)
+            sqlx::query(sqlx::AssertSqlSafe(trimmed))
                 .execute(&pool)
                 .await
                 .unwrap_or_else(|_| panic!("Failed to execute statement: {}", trimmed));
