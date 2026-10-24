@@ -3,7 +3,7 @@ use crate::domain::permissions::Role;
 use crate::domain::ports::{AuthProvider, NewApiToken, OidcFlow, SpecRepository};
 use argon2::{
     Argon2,
-    password_hash::{PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+    password_hash::{PasswordHasher, PasswordVerifier},
 };
 use rand::distr::{Alphanumeric, SampleString};
 use serde::Serialize;
@@ -13,10 +13,9 @@ use uuid::Uuid;
 use tracing::instrument;
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let password_hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| AppError::Internal(format!("Hashing error: {}", e)))?
         .to_string();
     Ok(password_hash)
@@ -1577,6 +1576,25 @@ mod tests {
         let hash = hash_password("secret123").unwrap();
         assert!(verify_password("secret123", &hash).unwrap());
         assert!(!verify_password("wrong", &hash).unwrap());
+    }
+
+    // Stored hashes outlive the argon2 crate version that wrote them: this one
+    // was made by argon2 0.5.3, so users can still sign in after an upgrade.
+    #[test]
+    fn verifies_a_hash_written_by_an_older_argon2() {
+        let hash = "$argon2id$v=19$m=19456,t=2,p=1$c2Fuc2hhaW5zYWx0MDU$r6vcRDZePuZFWIMJ1VJv/jf0qUs11fNBRJnr1aqR67s";
+        assert!(verify_password("correct horse", hash).unwrap());
+        assert!(!verify_password("wrong", hash).unwrap());
+    }
+
+    // New hashes keep the PHC format and the parameters the old ones carry.
+    #[test]
+    fn hashes_with_the_same_argon2id_parameters() {
+        let hash = hash_password("secret123").unwrap();
+        assert!(
+            hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
+            "{hash}"
+        );
     }
 
     // The blocking-pool wrappers must behave exactly like the sync functions:

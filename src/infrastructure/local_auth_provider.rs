@@ -84,14 +84,10 @@ mod tests {
     }
 
     async fn seed_users(repo: &SqliteSpecRepository) {
-        use argon2::{
-            Argon2,
-            password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
-        };
-        let salt = SaltString::generate(&mut OsRng);
+        use argon2::{Argon2, password_hash::PasswordHasher};
         let argon2 = Argon2::default();
         let hash = argon2
-            .hash_password("password123".as_bytes(), &salt)
+            .hash_password("password123".as_bytes())
             .unwrap()
             .to_string();
 
