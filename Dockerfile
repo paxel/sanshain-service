@@ -4,10 +4,11 @@ FROM rust:1.85-alpine AS builder
 RUN apk add --no-cache musl-dev sqlite-dev openssl-dev pkgconfig
 
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock LICENSE ./
 COPY src/ src/
 COPY static/ static/
 COPY templates/ templates/
+COPY benches/ benches/
 #COPY tests/ tests/
 
 RUN cargo build --release
