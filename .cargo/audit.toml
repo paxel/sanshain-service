@@ -3,4 +3,11 @@
 # No fix is available upstream. The vulnerable crate is pulled in transitively
 # by `sqlx-macros-core -> sqlx-mysql -> rsa` even though this project only uses
 # SQLite and PostgreSQL backends. The `rsa` code is never executed at runtime.
-ignore = ["RUSTSEC-2023-0071"]
+#
+# RUSTSEC-2026-0387: timing variability in `crypto-bigint` 0.5, fixed in 0.7.6.
+# Pulled in by `openidconnect -> p256/p384 -> elliptic-curve 0.13`; the newest
+# `openidconnect` (4.0.1) still needs that generation. Sanshain only verifies
+# the provider's ID token signatures with its public key, so this code never
+# handles a secret a timing difference could leak. Remove the ignore once
+# `openidconnect` moves to `elliptic-curve` 0.14.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]
