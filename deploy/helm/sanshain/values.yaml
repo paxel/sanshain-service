@@ -180,5 +180,5 @@ backup:
     name: ""
     key: token
   images:
-    curl: "curlimages/curl:8.11.1"
+    curl: "curlimages/curl:8.23.0"
     postgres: "postgres:17-alpine"

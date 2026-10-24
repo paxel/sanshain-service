@@ -48,7 +48,7 @@
 #             fsGroup: 1000
 #           containers:
 #             - name: backup
-#               image: curlimages/curl:8.11.1
+#               image: curlimages/curl:8.23.0
 #               env:
 #                 - name: RETAIN
 #                   # Must be at least 1: 0 deletes the backup just produced.
