@@ -12,6 +12,26 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// The answer a guard gives instead of running the route.
+///
+/// Boxed because an axum `Response` is 128 bytes, and a `Result` carrying one
+/// unboxed makes even its `Ok(())` that large (`clippy::result_large_err`).
+/// A refusal is the rare path, so the allocation lands there.
+#[derive(Debug)]
+pub struct Refusal(Box<Response>);
+
+impl From<Response> for Refusal {
+    fn from(response: Response) -> Self {
+        Self(Box::new(response))
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        *self.0
+    }
+}
+
 async fn resolve_dev_user(state: &AppState) -> Option<crate::domain::models::User> {
     if let Some(u) = &state.dev_user {
         return Some(u.clone());
@@ -101,7 +121,7 @@ async fn attach_caller(
 fn refuse_unless_admin_may_sign_in<'a>(
     state: &'a AppState,
     req: &Request,
-) -> impl std::future::Future<Output = Result<(), Response>> + Send + 'a {
+) -> impl std::future::Future<Output = Result<(), Refusal>> + Send + 'a {
     // Read before the await: a request is not `Sync`, so no reference to it
     // may be held across one.
     let may = req
@@ -113,14 +133,14 @@ fn refuse_unless_admin_may_sign_in<'a>(
     admins_only_gate(state, may)
 }
 
-async fn admins_only_gate(state: &AppState, may: bool) -> Result<(), Response> {
+async fn admins_only_gate(state: &AppState, may: bool) -> Result<(), Refusal> {
     let mode = services::get_auth_mode(&state.repo)
         .await
         .map_err(IntoResponse::into_response)?;
     if may || !services::admins_only(&mode) {
         Ok(())
     } else {
-        Err(services::admins_only_refusal(&mode).into_response())
+        Err(services::admins_only_refusal(&mode).into_response().into())
     }
 }
 
@@ -175,7 +195,7 @@ pub async fn authenticated_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<Response, Response> {
+) -> Result<Response, Refusal> {
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -193,10 +213,10 @@ pub async fn authenticated_auth(
                     refuse_unless_admin_may_sign_in(&state, &req).await?;
                     Ok(next.run(req).await)
                 }
-                _ => Err(StatusCode::UNAUTHORIZED.into_response()),
+                _ => Err(StatusCode::UNAUTHORIZED.into_response().into()),
             }
         }
-        _ => Err(StatusCode::UNAUTHORIZED.into_response()),
+        _ => Err(StatusCode::UNAUTHORIZED.into_response().into()),
     }
 }
 
@@ -244,7 +264,7 @@ async fn producer_from_path(parts: &mut axum::http::request::Parts) -> Option<St
 /// Boxed so `require`'s return type can be written down at all: the layer's type
 /// mentions the closure's future, and an `async fn`'s future is unnameable.
 type GuardFuture =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Response>> + Send>>;
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, Refusal>> + Send>>;
 
 /// The middleware layer `require` produces.
 type GuardLayer<F> = axum::middleware::FromFnLayer<F, AppState, (State<AppState>, Request)>;
@@ -310,7 +330,7 @@ pub async fn permission_auth(
     guard: RouteGuard,
     req: Request,
     next: Next,
-) -> Result<Response, Response> {
+) -> Result<Response, Refusal> {
     permission_auth_with(state, guard, AdminCredentials::SessionOnly, req, next).await
 }
 
@@ -320,7 +340,7 @@ async fn permission_auth_with(
     credentials: AdminCredentials,
     req: Request,
     next: Next,
-) -> Result<Response, Response> {
+) -> Result<Response, Refusal> {
     // Dev mode opens the API, not the administration: the routes behind a
     // guard always need a signed-in caller.
     let token = req
@@ -335,14 +355,14 @@ async fn permission_auth_with(
             match services::validate_api_token(&state.repo, token).await {
                 Ok(Some(identity)) => {
                     if identity.scope == crate::domain::models::ApiTokenScope::ReadOnly {
-                        return Err(read_only_admin_token_refusal().into_response());
+                        return Err(read_only_admin_token_refusal().into_response().into());
                     }
                     identity.user
                 }
-                _ => return Err(AppError::Unauthorized.into_response()),
+                _ => return Err(AppError::Unauthorized.into_response().into()),
             }
         }
-        _ => return Err(AppError::Unauthorized.into_response()),
+        _ => return Err(AppError::Unauthorized.into_response().into()),
     };
 
     let mut req = req;
@@ -361,7 +381,7 @@ async fn permission_auth_with(
         RouteGuard::Authenticated => {}
         RouteGuard::Global(permission) => {
             if !actor.has_permission(permission) {
-                return Err(AppError::Forbidden.into_response());
+                return Err(AppError::Forbidden.into_response().into());
             }
         }
         RouteGuard::Producer(permission) => {
@@ -409,7 +429,7 @@ pub async fn api_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<axum::response::Response, axum::response::Response> {
+) -> Result<Response, Refusal> {
     authenticate_api(state, ApiAccess::Read, req, next).await
 }
 
@@ -420,7 +440,7 @@ pub async fn api_auth_write(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<axum::response::Response, axum::response::Response> {
+) -> Result<Response, Refusal> {
     authenticate_api(state, ApiAccess::Write, req, next).await
 }
 
@@ -448,7 +468,7 @@ async fn authenticate_api(
     access: ApiAccess,
     req: Request,
     next: Next,
-) -> Result<axum::response::Response, axum::response::Response> {
+) -> Result<Response, Refusal> {
     if let Ok(crate::domain::models::AuthMode::Disabled) =
         services::get_auth_mode(&state.repo).await
     {
@@ -456,7 +476,8 @@ async fn authenticate_api(
             StatusCode::SERVICE_UNAVAILABLE,
             "Service is in Maintenance Mode / Disabled",
         )
-            .into_response());
+            .into_response()
+            .into());
     }
 
     // API tokens must be supplied via the `Authorization` header only. Accepting
@@ -482,7 +503,7 @@ async fn authenticate_api(
             if access == ApiAccess::Write
                 && identity.scope == crate::domain::models::ApiTokenScope::ReadOnly
             {
-                return Err(read_only_token_refusal().into_response());
+                return Err(read_only_token_refusal().into_response().into());
             }
             let mut req = req;
             attach_caller(&mut req, &state, identity.user)
@@ -492,7 +513,7 @@ async fn authenticate_api(
         }
 
         // Token was provided but invalid
-        return Err(StatusCode::UNAUTHORIZED.into_response());
+        return Err(StatusCode::UNAUTHORIZED.into_response().into());
     }
 
     if services::get_dev_mode(&state.repo).await.unwrap_or(false)
@@ -505,7 +526,7 @@ async fn authenticate_api(
         return Ok(next.run(req).await);
     }
 
-    Err(StatusCode::FORBIDDEN.into_response())
+    Err(StatusCode::FORBIDDEN.into_response().into())
 }
 
 pub struct LogVisitor<'a> {
@@ -717,6 +738,22 @@ mod tests {
             admin_user_debug: Arc::new(AtomicBool::new(false)),
         };
         (layer, info_buffer)
+    }
+
+    // Boxing a refusal must not change the answer: status and headers come back
+    // exactly as the guard built them.
+    #[test]
+    fn a_refusal_answers_with_the_response_it_was_made_from() {
+        let response = (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+        )
+            .into_response();
+
+        let answer = Refusal::from(response).into_response();
+
+        assert_eq!(answer.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(answer.headers()[header::WWW_AUTHENTICATE], "Bearer");
     }
 
     // An event carrying `service`/`version` fields (as used on the provide/require

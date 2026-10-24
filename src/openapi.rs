@@ -277,10 +277,7 @@ fn extract_used_components_optimized(
     all_components: &Option<Components>,
     graph: &HashMap<String, BTreeSet<String>>,
 ) -> Option<Components> {
-    let all_components = match all_components {
-        Some(c) => c,
-        None => return None,
-    };
+    let all_components = all_components.as_ref()?;
 
     let mut to_visit: Vec<String> = collect_refs(&partial_spec.paths).into_iter().collect();
     let mut visited: BTreeSet<String> = BTreeSet::new();

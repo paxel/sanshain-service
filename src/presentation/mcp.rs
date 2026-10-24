@@ -9,6 +9,7 @@
 use crate::AppState;
 use crate::application::services;
 use crate::domain::models::{ApiTokenScope, AppError, AuthMode, User};
+use crate::presentation::middleware::Refusal;
 use axum::{
     extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
@@ -98,13 +99,14 @@ pub async fn mcp_auth(
     State(state): State<AppState>,
     req: Request,
     next: Next,
-) -> Result<Response, Response> {
+) -> Result<Response, Refusal> {
     if let Ok(AuthMode::Disabled) = services::get_auth_mode(&state.repo).await {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             "Service is in Maintenance Mode / Disabled",
         )
-            .into_response());
+            .into_response()
+            .into());
     }
     let auth_header = req
         .headers()
@@ -117,7 +119,8 @@ pub async fn mcp_auth(
                 return Err(unauthorized(
                     "the MCP endpoint takes `Authorization: Bearer <API token>`",
                     Some("invalid_request"),
-                ));
+                )
+                .into());
             };
             match services::validate_api_token(&state.repo, token.trim()).await {
                 Ok(Some(identity)) => McpCaller {
@@ -129,7 +132,8 @@ pub async fn mcp_auth(
                     return Err(unauthorized(
                         "unknown or expired API token (session tokens are not accepted here)",
                         Some("invalid_token"),
-                    ));
+                    )
+                    .into());
                 }
             }
         }
@@ -152,7 +156,8 @@ pub async fn mcp_auth(
                     return Err(unauthorized(
                         "the MCP endpoint needs `Authorization: Bearer <API token>`; mint one on the account page",
                         None,
-                    ));
+                    )
+                    .into());
                 }
             }
         }
