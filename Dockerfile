@@ -13,7 +13,7 @@ COPY templates/ templates/
 RUN cargo build --release
 
 # Stage 2: Runtime
-FROM alpine:3.21
+FROM alpine:3.24
 
 # ca-certificates: the platform trust store, so ldaps:// against a publicly
 # signed directory works without a certificate mount. Private CAs still go
