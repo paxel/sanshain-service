@@ -88,7 +88,7 @@ opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
 tracing-opentelemetry = "0.34"
 opentelemetry-semantic-conventions = "0.33"
-rmcp = { version = "=3.4.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 schemars = "1"
 
 [dev-dependencies]
