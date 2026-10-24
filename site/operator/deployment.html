@@ -446,8 +446,8 @@ extraEnv:
 
 <h2>Outbound TLS trust</h2>
 <p>
-  LDAPS connections and webhook deliveries verify the server's certificate against the platform
-  bundle plus, when set, every certificate under <code>EXTRA_CA_CERTS_DIR</code>. Mount the corporate CA
+  LDAPS connections, webhook deliveries and the OIDC login verify the server's certificate against
+  the platform bundle plus, when set, every certificate under <code>EXTRA_CA_CERTS_DIR</code>. Mount the corporate CA
   (<code>extraVolumes</code>/<code>extraVolumeMounts</code> in Helm, the commented
   <code>ca-certs</code> volume in Kustomize) and point the variable at the mount path. Details and
   the startup failures are in

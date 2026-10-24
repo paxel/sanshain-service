@@ -56,9 +56,9 @@ ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ri
 url = "2"
 # Unprivileged datagram ICMP sockets for the LDAP network diagnosis (#59).
 socket2 = "0.6"
-# OIDC human login (ai/improvements grill: batch 2). reqwest via openidconnect's
-# feature; rustls-tls to match the existing rustls stack (no native-tls pull).
-openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+# OIDC human login (ai/improvements grill: batch 2). rustls through reqwest
+# 0.13; its crypto is biscuit on ring, the provider rustls already uses here.
+openid = { version = "0.25", default-features = false, features = ["rustls"] }
 base64 = "0.23"
 # Webhook deliveries (#47): the outbound POST and its HMAC-SHA256 signature.
 # Same reqwest spec as the dev-dependency below, so the two unify; hmac 0.13

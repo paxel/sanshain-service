@@ -1,22 +1,22 @@
 //! OpenID Connect provider for human browser login (ai/improvements grill batch
-//! 2). openidconnect drives the security-critical parts — discovery, the PKCE
-//! authorization-code flow, and ID-token verification (JWKS signature, nonce,
-//! issuer, audience, expiry). The username/groups claims are configurable by
-//! name, which openidconnect's typed claims can't express, so they are read
-//! from the *already-verified* token payload as JSON.
+//! 2). The `openid` crate drives the security-critical parts — discovery, the
+//! PKCE authorization-code flow, and ID-token verification (JWKS signature,
+//! nonce, issuer, audience, expiry). The username/groups claims are
+//! configurable by name, so they are read from the *already-verified* token
+//! payload as JSON.
+//!
+//! Discovery and the key set go through the process trust store (platform CAs
+//! plus `EXTRA_CA_CERTS_DIR`), and the key set must be served over https.
 //!
 //! OIDC is human-only: Consumer/machine clients keep API tokens.
 
 use crate::domain::models::{AppError, OidcConfig};
 use crate::domain::ports::{OidcAuthorizeUrl, OidcClaims, OidcFlow};
 use base64::Engine;
-use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
-use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, reqwest,
-};
+use openid::{DiscoveredClient, Options, StandardClaims, Token};
+use rand::distr::{Alphanumeric, SampleString};
 
-/// The openidconnect-backed implementation of the [`OidcFlow`] port.
+/// The `openid`-backed implementation of the [`OidcFlow`] port.
 pub struct OidcProvider;
 
 impl OidcFlow for OidcProvider {
@@ -36,111 +36,109 @@ impl OidcFlow for OidcProvider {
 }
 
 /// An HTTP client that does not follow redirects — required by the OIDC spec's
-/// SSRF guidance for token/discovery requests.
+/// SSRF guidance for token/discovery requests — and trusts the process trust
+/// store.
 fn http_client() -> Result<reqwest::Client, AppError> {
+    let tls = crate::infrastructure::tls::client_config()
+        .ok_or_else(|| AppError::Internal("OIDC HTTP client: no TLS configuration".to_string()))?;
     reqwest::ClientBuilder::new()
+        .tls_backend_preconfigured((*tls).clone())
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| AppError::Internal(format!("OIDC HTTP client: {e}")))
 }
 
-async fn discover(
-    config: &OidcConfig,
-    http: &reqwest::Client,
-) -> Result<CoreProviderMetadata, AppError> {
-    let issuer = IssuerUrl::new(config.issuer_url.clone())
+/// Discover the provider and fetch its key set, which must be served over
+/// https.
+async fn discover(config: &OidcConfig) -> Result<DiscoveredClient, AppError> {
+    let issuer = reqwest::Url::parse(&config.issuer_url)
         .map_err(|e| AppError::BadRequest(format!("OIDC issuer URL: {e}")))?;
-    CoreProviderMetadata::discover_async(issuer, http)
-        .await
-        .map_err(|e| AppError::Internal(format!("OIDC discovery failed: {e}")))
+    reqwest::Url::parse(&config.redirect_url)
+        .map_err(|e| AppError::BadRequest(format!("OIDC redirect URL: {e}")))?;
+    DiscoveredClient::discover_with_client(
+        http_client()?,
+        config.client_id.clone(),
+        config.client_secret.clone(),
+        config.redirect_url.clone(),
+        issuer,
+    )
+    .await
+    .map_err(|e| AppError::Internal(format!("OIDC discovery failed: {e}")))
+}
+
+/// 32 alphanumeric characters (about 190 bits) for `state` and `nonce`.
+fn random_token() -> String {
+    Alphanumeric.sample_string(&mut rand::rng(), 32)
 }
 
 /// Build the provider authorization URL plus the state/nonce/PKCE the callback
 /// verifies against.
 async fn authorize_url(config: &OidcConfig) -> Result<OidcAuthorizeUrl, AppError> {
-    let http = http_client()?;
-    let metadata = discover(config, &http).await?;
-    let redirect = RedirectUrl::new(config.redirect_url.clone())
-        .map_err(|e| AppError::BadRequest(format!("OIDC redirect URL: {e}")))?;
-    // Inlined (not returned from a helper): after configuration the client's
-    // endpoint typestate differs from the default `CoreClient` and cannot be
-    // named without spelling out ~17 type parameters.
-    let client = CoreClient::from_provider_metadata(
-        metadata,
-        ClientId::new(config.client_id.clone()),
-        config.client_secret.clone().map(ClientSecret::new),
-    )
-    .set_redirect_uri(redirect);
-
-    let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-    let mut request = client
-        .authorize_url(
-            CoreAuthenticationFlow::AuthorizationCode,
-            CsrfToken::new_random,
-            Nonce::new_random,
-        )
-        .set_pkce_challenge(challenge);
-    for scope in &config.scopes {
-        if scope != "openid" {
-            request = request.add_scope(Scope::new(scope.clone()));
-        }
-    }
-    let (url, state, nonce) = request.url();
+    let client = discover(config).await?;
+    let state = random_token();
+    let nonce = random_token();
+    let scopes: Vec<&str> = config
+        .scopes
+        .iter()
+        .map(String::as_str)
+        .filter(|scope| *scope != "openid")
+        .collect();
+    let options = Options {
+        // `openid` prefixes the `openid` scope itself.
+        scope: (!scopes.is_empty()).then(|| scopes.join(" ")),
+        state: Some(state.clone()),
+        nonce: Some(nonce.clone()),
+        ..Default::default()
+    };
+    let (url, pkce) = client.auth_url_with_new_pkce(&options);
     Ok(OidcAuthorizeUrl {
         url: url.to_string(),
-        state: state.secret().clone(),
-        nonce: nonce.secret().clone(),
-        pkce_verifier: verifier.secret().clone(),
+        state,
+        nonce,
+        pkce_verifier: pkce.code_verifier().to_string(),
     })
 }
 
 /// Exchange the authorization code for tokens, verify the ID token, and resolve
 /// the identity. Verification (signature via JWKS, nonce, issuer, audience,
-/// expiry) is done by openidconnect; a failure is an authentication failure.
+/// expiry) is done by `openid`; a failure is an authentication failure.
 async fn exchange_and_verify(
     config: &OidcConfig,
     code: String,
     pkce_verifier: String,
     expected_nonce: String,
 ) -> Result<OidcClaims, AppError> {
-    let http = http_client()?;
-    let metadata = discover(config, &http).await?;
-    let redirect = RedirectUrl::new(config.redirect_url.clone())
-        .map_err(|e| AppError::BadRequest(format!("OIDC redirect URL: {e}")))?;
-    let client = CoreClient::from_provider_metadata(
-        metadata,
-        ClientId::new(config.client_id.clone()),
-        config.client_secret.clone().map(ClientSecret::new),
-    )
-    .set_redirect_uri(redirect);
-
-    let token_response = client
-        .exchange_code(AuthorizationCode::new(code))
-        .map_err(|e| AppError::Internal(format!("OIDC token request build: {e}")))?
-        .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier))
-        .request_async(&http)
+    let client = discover(config).await?;
+    let bearer = client
+        .request_token_pkce(&code, Some(&pkce_verifier))
         .await
         .map_err(|e| {
             tracing::warn!("OIDC code exchange failed: {e}");
             AppError::Unauthorized
         })?;
-
-    let id_token = token_response.id_token().ok_or(AppError::Unauthorized)?;
-
-    // This is the verification: signature (against the discovered JWKS), nonce,
-    // issuer, audience and expiry. An error here is a rejected login.
-    let verifier = client.id_token_verifier();
-    let claims = id_token
-        .claims(&verifier, &Nonce::new(expected_nonce))
+    // `openid` verifies an ID token only when one came back, so its absence
+    // is refused here.
+    let raw_id_token = bearer.id_token.clone().ok_or(AppError::Unauthorized)?;
+    let token: Token<StandardClaims> = bearer.into();
+    let mut id_token = token.id_token.ok_or(AppError::Unauthorized)?;
+    // This is the verification: signature (against the discovered JWKS), then
+    // nonce, issuer, audience and expiry. An error here is a rejected login.
+    client
+        .decode_token(&mut id_token)
+        .and_then(|()| client.validate_token(&id_token, expected_nonce.as_str(), None))
         .map_err(|e| {
             tracing::warn!("OIDC ID token rejected: {e}");
             AppError::Unauthorized
         })?;
-    let sub = claims.subject().as_str().to_string();
+    let claims = id_token.payload().map_err(|e| {
+        tracing::warn!("OIDC ID token payload: {e}");
+        AppError::Unauthorized
+    })?;
+    let sub = openid::Claims::sub(claims).to_string();
 
     // Flexible claims from the (now-verified) payload. Reading the payload JSON
     // is safe here precisely because the token was just verified above.
-    let payload = decode_payload(&id_token.to_string())?;
+    let payload = decode_payload(&raw_id_token)?;
     let username = payload
         .get(&config.username_claim)
         .and_then(|v| v.as_str())

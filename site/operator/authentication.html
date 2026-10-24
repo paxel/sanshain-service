@@ -614,7 +614,10 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
       <td><code>issuer_url</code></td>
       <td>
         The provider; discovery reads
-        <code>&lt;issuer_url&gt;/.well-known/openid-configuration</code>.
+        <code>&lt;issuer_url&gt;/.well-known/openid-configuration</code>. The provider's key set
+        (<code>jwks_uri</code>) must be served over <code>https</code>; a private or corporate CA
+        goes through <code>EXTRA_CA_CERTS_DIR</code>, see
+        <a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>.
       </td>
     </tr>
     <tr>
@@ -666,7 +669,8 @@ fd00::1: ping answered in 0.4 ms; route via local address fd00::2; tcp/636 refus
   redirects to the dashboard (<code>/</code>), where a local sign-in lands too. Without a configuration both routes answer
   <code>400 OIDC is not configured</code>; a callback without its cookie answers
   <code>400 no OIDC login in progress</code>; a provider that cannot be reached at discovery answers
-  <code>500 OIDC discovery failed: …</code>.
+  <code>500 OIDC discovery failed: …</code>, and a key set served over plain http answers
+  <code>500 OIDC discovery failed: Url must use TLS: '…'</code>.
 </p>
 
 <h2>Developer mode</h2>

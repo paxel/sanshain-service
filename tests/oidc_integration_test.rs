@@ -5,11 +5,25 @@
 //! with ID-token verification. The auth-code step is driven headlessly — the
 //! Keycloak login form is submitted over HTTP and the `code` extracted from the
 //! redirect — so no browser is needed.
+//!
+//! Keycloak serves https with a certificate from a CA generated here, which
+//! reaches the process trust store through `EXTRA_CA_CERTS_DIR`. One CA serves
+//! every test of this binary because the trust store is a process-wide
+//! `OnceLock`.
 
-use sanshain_service::domain::models::OidcConfig;
+#![expect(
+    unsafe_code,
+    reason = "edition 2024: std::env::set_var/remove_var are unsafe"
+)]
+
+use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, SanType};
+use sanshain_service::domain::models::{AppError, OidcConfig};
 use sanshain_service::domain::ports::OidcFlow;
 use sanshain_service::infrastructure::oidc_provider::OidcProvider;
+use sanshain_service::infrastructure::tls;
 use serde_json::json;
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::OnceLock;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
@@ -21,17 +35,89 @@ const REDIRECT: &str = "http://127.0.0.1:9/auth/oidc/callback";
 const USER: &str = "alice";
 const PASS: &str = "alicepw";
 
+/// The test CA (PEM) and Keycloak's certificate and key, signed by it for
+/// `localhost` and `127.0.0.1`.
+#[cfg(test)]
+struct Certs {
+    ca: String,
+    server: String,
+    key: String,
+}
+
+/// The CA, generated once and installed in the process trust store before any
+/// OIDC call of this binary.
+#[cfg(test)]
+fn certs() -> &'static Certs {
+    static CERTS: OnceLock<Certs> = OnceLock::new();
+    CERTS.get_or_init(|| {
+        let ca_key = KeyPair::generate().expect("ca key");
+        let mut ca_params = CertificateParams::new(Vec::<String>::new()).expect("ca params");
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params
+            .distinguished_name
+            .push(DnType::CommonName, "Sanshain OIDC Test CA");
+        let ca_cert = ca_params.self_signed(&ca_key).expect("self-signed CA");
+
+        let srv_key = KeyPair::generate().expect("server key");
+        let mut srv_params =
+            CertificateParams::new(vec!["localhost".to_string()]).expect("server params");
+        srv_params.subject_alt_names = vec![
+            SanType::DnsName("localhost".try_into().expect("dns san")),
+            SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        ];
+        let srv_cert = srv_params
+            .signed_by(&srv_key, &Issuer::from_params(&ca_params, &ca_key))
+            .expect("sign server cert");
+
+        let ca_dir = std::env::temp_dir().join("sanshain_oidc_tls_ca");
+        let _ = std::fs::remove_dir_all(&ca_dir);
+        std::fs::create_dir_all(&ca_dir).expect("ca dir");
+        std::fs::write(ca_dir.join("ca.crt"), ca_cert.pem()).expect("write ca");
+        unsafe {
+            std::env::set_var(tls::EXTRA_CA_CERTS_DIR_ENV, &ca_dir);
+        }
+        tls::init_from_env().expect("trust store init");
+
+        Certs {
+            ca: ca_cert.pem(),
+            server: srv_cert.pem(),
+            key: srv_key.serialize_pem(),
+        }
+    })
+}
+
+/// A client for the test's own calls to Keycloak (admin API, login form) that
+/// trusts the test CA.
+#[cfg(test)]
+fn test_client(builder: reqwest::ClientBuilder) -> reqwest::Client {
+    let ca = reqwest::Certificate::from_pem(certs().ca.as_bytes()).expect("ca pem");
+    builder
+        .add_root_certificate(ca)
+        .build()
+        .expect("test http client")
+}
+
 #[cfg(test)]
 async fn start_keycloak() -> ContainerAsync<GenericImage> {
+    let certs = certs();
     let mut last = String::new();
     for attempt in 1..=5 {
         let image = GenericImage::new("quay.io/keycloak/keycloak", "24.0")
-            .with_wait_for(WaitFor::message_on_stdout(
-                "Listening on: http://0.0.0.0:8080",
-            ))
+            .with_wait_for(WaitFor::message_on_stdout("Listening on:"))
             .with_exposed_port(8080.tcp())
+            .with_exposed_port(8443.tcp())
             .with_env_var("KEYCLOAK_ADMIN", "admin")
             .with_env_var("KEYCLOAK_ADMIN_PASSWORD", "admin")
+            .with_env_var("KC_HTTPS_CERTIFICATE_FILE", "/opt/keycloak/conf/tls.crt")
+            .with_env_var(
+                "KC_HTTPS_CERTIFICATE_KEY_FILE",
+                "/opt/keycloak/conf/tls.key",
+            )
+            .with_copy_to(
+                "/opt/keycloak/conf/tls.crt",
+                certs.server.clone().into_bytes(),
+            )
+            .with_copy_to("/opt/keycloak/conf/tls.key", certs.key.clone().into_bytes())
             .with_cmd(["start-dev"]);
         match image.start().await {
             Ok(c) => return c,
@@ -135,9 +221,9 @@ fn config(base: &str) -> OidcConfig {
 async fn oidc_discovery_and_authorize_url_against_keycloak() {
     let container = start_keycloak().await;
     let host = container.get_host().await.unwrap();
-    let port = container.get_host_port_ipv4(8080).await.unwrap();
-    let base = format!("http://{host}:{port}");
-    let http = reqwest::Client::new();
+    let port = container.get_host_port_ipv4(8443).await.unwrap();
+    let base = format!("https://{host}:{port}");
+    let http = test_client(reqwest::Client::builder());
     setup_realm(&base, &http).await;
 
     // Discovery + client build + PKCE authorization URL.
@@ -155,6 +241,21 @@ async fn oidc_discovery_and_authorize_url_against_keycloak() {
         "PKCE challenge present"
     );
     assert!(!authorize.state.is_empty() && !authorize.nonce.is_empty());
+
+    // The same realm over plain http: the key set that validates logins must
+    // come over https, so discovery refuses it.
+    let http_port = container.get_host_port_ipv4(8080).await.unwrap();
+    let refused = OidcProvider
+        .authorize_url(&config(&format!("http://{host}:{http_port}")))
+        .await;
+    match refused {
+        Err(AppError::Internal(message)) => assert!(
+            message.contains("OIDC discovery failed") && message.contains("must use TLS"),
+            "{message}"
+        ),
+        Err(other) => panic!("expected a discovery failure, got {other:?}"),
+        Ok(_) => panic!("an http issuer must be refused"),
+    }
 }
 
 /// Extract the Keycloak login-form POST action from the login page HTML.
@@ -180,11 +281,11 @@ fn extract_login_action(html: &str) -> String {
 /// captured rather than chased.
 #[cfg(test)]
 async fn obtain_code(authorize_url: &str) -> String {
-    let http = reqwest::Client::builder()
-        .cookie_store(true)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("login http client");
+    let http = test_client(
+        reqwest::Client::builder()
+            .cookie_store(true)
+            .redirect(reqwest::redirect::Policy::none()),
+    );
     let page = http
         .get(authorize_url)
         .send()
@@ -219,9 +320,9 @@ async fn obtain_code(authorize_url: &str) -> String {
 async fn oidc_full_code_flow_verifies_the_id_token() {
     let container = start_keycloak().await;
     let host = container.get_host().await.unwrap();
-    let port = container.get_host_port_ipv4(8080).await.unwrap();
-    let base = format!("http://{host}:{port}");
-    let http = reqwest::Client::new();
+    let port = container.get_host_port_ipv4(8443).await.unwrap();
+    let base = format!("https://{host}:{port}");
+    let http = test_client(reqwest::Client::builder());
     setup_realm(&base, &http).await;
 
     let cfg = config(&base);

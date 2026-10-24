@@ -6,7 +6,7 @@
 //! authorities keep working alongside an internal one.
 //!
 //! The trust store is built here and handed to every outbound TLS client —
-//! LDAP and webhook deliveries — for **every** connection,
+//! LDAP, webhook deliveries and the OIDC login — for **every** connection,
 //! whether or not extra certificates were configured. Left to its own devices
 //! ldap3 collapses to an *empty* root store if reading the platform
 //! certificates produces any error, decides that once for the process lifetime,
@@ -67,7 +67,7 @@ pub struct ExtraCaCerts {
     pub directory: PathBuf,
 }
 
-/// Process-wide client configuration for outbound TLS (LDAP, webhooks),
+/// Process-wide client configuration for outbound TLS (LDAP, webhooks, OIDC),
 /// installed once at startup.
 static CLIENT_CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
 
@@ -256,8 +256,8 @@ fn build_client_config(store: RootCertStore) -> Result<Arc<rustls::ClientConfig>
     Ok(Arc::new(config))
 }
 
-/// The client configuration for every outbound TLS connection: LDAP and
-/// webhook deliveries.
+/// The client configuration for every outbound TLS connection: LDAP, webhook
+/// deliveries and the OIDC login.
 ///
 /// Falls back to a platform-only trust store if [`init_from_env`] has not run,
 /// so a caller can never end up handing ldap3 no configuration at all — which

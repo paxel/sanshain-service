@@ -319,7 +319,9 @@
   <dt><code>500 OIDC discovery failed: …</code></dt>
   <dd>
     <code>&lt;issuer_url&gt;/.well-known/openid-configuration</code> could not be fetched or parsed
-    from inside the pod. The OIDC client does not use <code>EXTRA_CA_CERTS_DIR</code>.
+    from inside the pod, or its certificate is not trusted: a private CA goes through
+    <code>EXTRA_CA_CERTS_DIR</code>. <code>Url must use TLS: '…'</code> means the provider serves its
+    key set (<code>jwks_uri</code>) over plain http, which is refused.
   </dd>
   <dt><code>400 OIDC issuer URL: …</code>, <code>400 OIDC redirect URL: …</code></dt>
   <dd>One of the two is not a valid URL.</dd>

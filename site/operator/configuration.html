@@ -284,7 +284,8 @@
       <td><code>EXTRA_CA_CERTS_DIR</code></td>
       <td>unset</td>
       <td>
-        Directory of PEM certificates added to the trust store for LDAPS and webhook deliveries. See
+        Directory of PEM certificates added to the trust store for LDAPS, webhook deliveries and the
+        OIDC login. See
         <a href="#additional-ca-certificates">Additional CA certificates</a>.
       </td>
     </tr>
@@ -446,8 +447,8 @@ CONFIGURATION ERROR: LOG_FORMAT="yaml" is not recognised. Valid values: json, te
 <h2>Additional CA certificates</h2>
 <p>
   Set <code>EXTRA_CA_CERTS_DIR</code> to a directory of PEM files when Sanshain must trust a private
-  or corporate certificate authority, typically for LDAPS against an internal directory or a
-  webhook receiver behind an internal CA. Every
+  or corporate certificate authority, typically for LDAPS against an internal directory, a
+  webhook receiver or an OIDC provider behind an internal CA. Every
   <code>*.pem</code>, <code>*.crt</code> and <code>*.cer</code> file in the directory is read at
   startup and <strong>added</strong> to the platform trust store, never substituted for it. A file
   may hold one certificate or a chain; <code>.crt</code> is accepted because a Kubernetes Secret is
