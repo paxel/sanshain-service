@@ -97,7 +97,7 @@ schemars = "1"
 sanshain_service = { path = ".", features = ["test-support"] }
 flate2 = "1"
 criterion = "0.8"
-rcgen = "0.13"
+rcgen = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["postgres"] }

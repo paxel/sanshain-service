@@ -28,7 +28,7 @@ const LDAP_ADMIN_PW: &str = "adminpw";
 
 #[cfg(test)]
 fn generate_certs() -> (String, String, String) {
-    use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, SanType};
+    use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, SanType};
     let ca_key = KeyPair::generate().expect("ca key");
     let mut ca_params = CertificateParams::new(Vec::<String>::new()).expect("ca params");
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -44,7 +44,7 @@ fn generate_certs() -> (String, String, String) {
         SanType::DnsName("localhost".try_into().expect("dns san")),
     ];
     let srv_cert = srv_params
-        .signed_by(&srv_key, &ca_cert, &ca_key)
+        .signed_by(&srv_key, &Issuer::from_params(&ca_params, &ca_key))
         .expect("sign server cert");
     (ca_cert.pem(), srv_cert.pem(), srv_key.serialize_pem())
 }
