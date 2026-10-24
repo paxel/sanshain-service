@@ -1,4 +1,4 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use sanshain_service::asyncapi::split_asyncapi;
 use sanshain_service::openapi::{
     EndpointSpec, check_backward_compatibility, generate_diff, merge_endpoint_yamls,
@@ -6,6 +6,7 @@ use sanshain_service::openapi::{
 };
 use sanshain_service::proto::split_proto;
 use std::fs;
+use std::hint::black_box;
 
 // Benches are not compiled with `cfg(test)`, so the no-panic lints apply here;
 // aborting with a message is the sensible reaction to a broken fixture.
