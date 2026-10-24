@@ -40,7 +40,7 @@ chrono = { version = "0.4", features = ["std", "clock"], default-features = fals
 sqlx = { version = "0.8", default-features = false, features = [ "runtime-tokio", "tls-rustls", "sqlite", "postgres", "migrate", "json" ] }
 openapiv3 = "2.2"
 serde_yaml_ng = "0.10"
-tower-http = { version = "0.6", features = ["cors", "fs", "set-header", "trace", "compression-gzip", "decompression-gzip"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "set-header", "trace", "compression-gzip", "decompression-gzip"] }
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
