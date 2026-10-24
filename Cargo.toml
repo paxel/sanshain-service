@@ -59,7 +59,7 @@ socket2 = "0.6"
 # OIDC human login (ai/improvements grill: batch 2). reqwest via openidconnect's
 # feature; rustls-tls to match the existing rustls stack (no native-tls pull).
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
-base64 = "0.22"
+base64 = "0.23"
 # Webhook deliveries (#47): the outbound POST and its HMAC-SHA256 signature.
 # Same reqwest spec as the dev-dependency below, so the two unify; hmac 0.13
 # is the digest-0.11 line sha2 0.11 is on.
