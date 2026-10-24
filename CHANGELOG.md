@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Security
 - Updated `ctutils` to 0.4.5 (RUSTSEC-2026-0385), `tokio` to 1.54.1 (RUSTSEC-2026-0386, unsound `AsyncFd` constructors that Sanshain does not call) and `chacha20` to 0.10.2 (0.10.0 was yanked).
 - `cargo audit` ignores RUSTSEC-2026-0387 (timing variability in `crypto-bigint` 0.5.5): it comes in through `openidconnect` 4.0.1, whose newest release still needs it, and Sanshain uses it only to verify the OIDC provider's ID token signatures with a public key, so no secret can leak; the ignore goes once `openidconnect` moves on ([#74](https://github.com/paxel/sanshain-service/issues/74)).
-- `cargo audit` still ignores RUSTSEC-2023-0071 (Marvin attack in `rsa`): no fix exists, and `rsa` comes in only through `sqlx`'s MySQL driver, which Sanshain never runs.
+- `cargo audit` still ignores RUSTSEC-2023-0071 (Marvin attack in `rsa`): no fix exists, and `rsa` comes in through `openidconnect`, which only verifies RS256 ID token signatures with the provider's public key, while the attack needs RSA decryption with a private key that Sanshain does not have.
 - Two dependencies are unmaintained without a known vulnerability: `unsafe-libyaml` (RUSTSEC-2024-0449), which parses every received spec through `serde_yaml_ng`, and `basic-toml` (RUSTSEC-2026-0374), used only at build time by the page templates; replacing them is part of [#74](https://github.com/paxel/sanshain-service/issues/74).
 
 ---

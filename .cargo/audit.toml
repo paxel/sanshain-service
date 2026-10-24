@@ -1,8 +1,9 @@
 [advisories]
 # RUSTSEC-2023-0071: Marvin Attack timing sidechannel in the `rsa` crate.
-# No fix is available upstream. The vulnerable crate is pulled in transitively
-# by `sqlx-macros-core -> sqlx-mysql -> rsa` even though this project only uses
-# SQLite and PostgreSQL backends. The `rsa` code is never executed at runtime.
+# No fix is available upstream. `rsa` comes in through `openidconnect`, which
+# uses it to verify RS256-signed ID tokens with the provider's public key. The
+# attack recovers a private key from RSA decryption timings; Sanshain holds no
+# RSA private key and never decrypts, so the affected code path is not used.
 #
 # RUSTSEC-2026-0387: timing variability in `crypto-bigint` 0.5, fixed in 0.7.6.
 # Pulled in by `openidconnect -> p256/p384 -> elliptic-curve 0.13`; the newest
