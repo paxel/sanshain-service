@@ -488,6 +488,12 @@ extraEnv:
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   | jq -r .payload | base64 -d | jq .predicate &gt; sanshain-service.cdx.json</code></pre>
 <p>
+  From 2.12.0 on the signature and the attestation are written by cosign 3 in the Sigstore bundle
+  format. Verify them with cosign 3, which also verifies older releases; cosign 2.6 needs
+  <code>--new-bundle-format</code> added to both commands and otherwise reports
+  <code>no signatures found</code>.
+</p>
+<p>
   A signature whose certificate names any other identity or issuer fails, so an admission policy can
   require exactly this one. Only a release built from a pushed tag verifies with the regexp above: a
   run started by hand through <code>workflow_dispatch</code> is signed with

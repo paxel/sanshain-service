@@ -175,7 +175,7 @@ jobs:
           upload-release-assets: false
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4
 
       - name: Attach the image SBOM as a cosign attestation
         env:

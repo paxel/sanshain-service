@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - The Docker image is based on Alpine 3.24 instead of 3.21, which reaches its end of support in November 2026.
 - The SQLite backup CronJob downloads with curl 8.23.0 instead of 8.11.1.
+- The release image is signed with cosign 3 in the Sigstore bundle format; verify it with cosign 3, or with cosign 2.6 and `--new-bundle-format`.
 - The PostgreSQL backup CronJob runs `pg_dump` 18 instead of 17, so it also backs up a PostgreSQL 18 database; restore its dumps with `pg_restore` 18.
 
 ### Security
