@@ -16,7 +16,11 @@ impl ReqwestWebhookSender {
     /// and a redirect could otherwise walk the signed POST to a host the
     /// allow-list never admitted.
     pub fn new(timeout: Duration) -> Result<Self, String> {
+        // The process trust store: platform CAs plus `EXTRA_CA_CERTS_DIR`.
+        let tls = crate::infrastructure::tls::client_config()
+            .ok_or("no TLS client configuration for webhook deliveries")?;
         let client = reqwest::ClientBuilder::new()
+            .tls_backend_preconfigured((*tls).clone())
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("Sanshain/", env!("CARGO_PKG_VERSION")))

@@ -281,7 +281,7 @@ impl LdapAuthProvider {
             .set_std_stream(StdStream::Tcp(stream));
         // `None` only when the configuration could not be built at all, which
         // is already logged as an error. Plain LDAP still works on this path.
-        if let Some(config) = crate::infrastructure::tls::ldap_client_config() {
+        if let Some(config) = crate::infrastructure::tls::client_config() {
             settings = settings.set_config(config);
         }
 

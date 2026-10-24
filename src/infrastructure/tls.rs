@@ -5,9 +5,10 @@
 //! are *added* to the platform trust store, never substituted for it, so public
 //! authorities keep working alongside an internal one.
 //!
-//! The trust store is built here and handed to the LDAP client for **every**
-//! connection, whether or not extra certificates were configured. Left to its
-//! own devices ldap3 collapses to an *empty* root store if reading the platform
+//! The trust store is built here and handed to every outbound TLS client —
+//! LDAP and webhook deliveries — for **every** connection,
+//! whether or not extra certificates were configured. Left to its own devices
+//! ldap3 collapses to an *empty* root store if reading the platform
 //! certificates produces any error, decides that once for the process lifetime,
 //! and reports nothing — a service that trusts nothing and says so nowhere.
 //! Supplying the configuration also bypasses ldap3's `ClientConfig::builder()`,
@@ -66,8 +67,9 @@ pub struct ExtraCaCerts {
     pub directory: PathBuf,
 }
 
-/// Process-wide LDAP client configuration, installed once at startup.
-static LDAP_CLIENT_CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+/// Process-wide client configuration for outbound TLS (LDAP, webhooks),
+/// installed once at startup.
+static CLIENT_CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
 
 /// Read every certificate file in `dir` (see [`CERT_EXTENSIONS`]).
 ///
@@ -193,7 +195,7 @@ fn read_extra_from_env() -> Result<Option<ExtraCaCerts>, TrustStoreError> {
     load_extra_ca_certs(Path::new(&dir)).map(Some)
 }
 
-/// Build the LDAP client configuration and install it for the process.
+/// Build the outbound TLS client configuration and install it for the process.
 ///
 /// Runs whether or not extra certificates are configured: the configuration is
 /// what keeps ldap3 off its own `ClientConfig::builder()` (which panics here)
@@ -201,18 +203,18 @@ fn read_extra_from_env() -> Result<Option<ExtraCaCerts>, TrustStoreError> {
 /// can refuse to start rather than run with a trust store that silently lacks
 /// what the operator mounted.
 ///
-/// Must be called before the first LDAP connection. It logs what it installed;
+/// Must be called before the first outbound TLS connection. It logs what it installed;
 /// certificate contents are never logged.
 pub fn init_from_env() -> Result<(), TrustStoreError> {
     let loaded = read_extra_from_env()?;
     let extra: &[CertificateDer<'static>] = loaded.as_ref().map_or(&[], |l| &l.certs);
     let config = build_client_config(build_root_store(extra))?;
 
-    if LDAP_CLIENT_CONFIG.set(config).is_err() {
+    if CLIENT_CONFIG.set(config).is_err() {
         // Something already initialised it, so the certificates just read are
         // not the ones in use. Say so rather than reporting a successful load.
         tracing::warn!(
-            "LDAP client configuration was already initialised; certificates read now are NOT in use"
+            "Outbound TLS client configuration was already initialised; certificates read now are NOT in use"
         );
         return Ok(());
     }
@@ -254,21 +256,25 @@ fn build_client_config(store: RootCertStore) -> Result<Arc<rustls::ClientConfig>
     Ok(Arc::new(config))
 }
 
-/// The client configuration to use for every LDAP connection.
+/// The client configuration for every outbound TLS connection: LDAP and
+/// webhook deliveries.
 ///
 /// Falls back to a platform-only trust store if [`init_from_env`] has not run,
 /// so a caller can never end up handing ldap3 no configuration at all — which
 /// would put it back on the `ClientConfig::builder()` path that panics here.
 /// In the service `init_from_env` runs at startup, before the listener binds,
 /// so it is always the one that populates this.
-pub fn ldap_client_config() -> Option<Arc<rustls::ClientConfig>> {
-    if let Some(config) = LDAP_CLIENT_CONFIG.get() {
+pub fn client_config() -> Option<Arc<rustls::ClientConfig>> {
+    if let Some(config) = CLIENT_CONFIG.get() {
         return Some(config.clone());
     }
     match build_client_config(native_root_store()) {
-        Ok(config) => Some(LDAP_CLIENT_CONFIG.get_or_init(|| config).clone()),
+        Ok(config) => Some(CLIENT_CONFIG.get_or_init(|| config).clone()),
         Err(e) => {
-            tracing::error!("Could not build the LDAP TLS client configuration: {}", e);
+            tracing::error!(
+                "Could not build the outbound TLS client configuration: {}",
+                e
+            );
             None
         }
     }
@@ -520,8 +526,8 @@ ia0rU+VKt226rPiZA1b79i4t9mQ=
     /// this always yields a configuration — including when `init_from_env` has
     /// never run, which is the case in this test binary.
     #[test]
-    fn ldap_client_config_is_available_without_explicit_initialisation() {
-        let config = ldap_client_config().expect("a configuration must always be available");
+    fn client_config_is_available_without_explicit_initialisation() {
+        let config = client_config().expect("a configuration must always be available");
 
         assert!(
             !config.crypto_provider().cipher_suites.is_empty(),
@@ -530,7 +536,7 @@ ia0rU+VKt226rPiZA1b79i4t9mQ=
 
         // Same instance on a second call, so every connection shares one store
         // rather than rebuilding it per request.
-        let again = ldap_client_config().expect("still available");
+        let again = client_config().expect("still available");
         assert!(
             Arc::ptr_eq(&config, &again),
             "the configuration is built once and reused"

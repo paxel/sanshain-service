@@ -63,7 +63,7 @@ base64 = "0.23"
 # Webhook deliveries (#47): the outbound POST and its HMAC-SHA256 signature.
 # Same reqwest spec as the dev-dependency below, so the two unify; hmac 0.13
 # is the digest-0.11 line sha2 0.11 is on.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 hmac = "0.13"
 # Feature set mirrors what ldap3's `tls-rustls-ring` enables, so both crates
 # resolve to the same `rustls` build and the same `ClientConfig` type.
@@ -98,7 +98,8 @@ sanshain_service = { path = ".", features = ["test-support"] }
 flate2 = "1"
 criterion = "0.8"
 rcgen = "0.14"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "cookies", "form"] }
 testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
