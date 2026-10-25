@@ -10,12 +10,13 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
+  <p class="eyebrow">What changed in 2.12.0</p>
   <ul>
-    <li>The <a href="#webhooks">Webhooks</a> section is new, as is the feature.</li>
     <li>
-      The LDAP stall message (<code>accepted the connection but did not respond within 10 s</code>)
-      replaces the ingress's <code>502 Bad Gateway</code>; see <a href="#ldap">LDAP</a>.
+      An OIDC provider with a plain-http key set is refused at login; see <a href="#openid-connect">OpenID Connect</a>.
+    </li>
+    <li>
+      A spec nested deeper than 64 levels is refused with <code>400</code> (<a href="#provides-and-requires">Provides and requires</a>); the limit was 128.
     </li>
   </ul>
 </div>
@@ -540,7 +541,8 @@
     Invalid YAML, a version that is not <code>MAJOR[.MINOR[.PATCH]]</code> (optionally
     <code>v</code>-prefixed, no suffix such as <code>-SNAPSHOT</code>), OpenAPI outside 3.0 and 3.1,
     AsyncAPI outside 2.x and 3.x, a proto file without exactly one
-    <code>// sanshain-version:</code> comment.
+    <code>// sanshain-version:</code> comment, a document nested deeper than 64 levels
+    (<code>budget breached: Depth</code>).
   </dd>
   <dt><code>413</code> on a provide</dt>
   <dd>The body exceeds <code>MAX_SPEC_BODY_BYTES</code> (4 MiB). Raise it.</dd>

@@ -7,24 +7,13 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.10.0</p>
+  <p class="eyebrow">What changed in 2.12.0</p>
   <ul>
     <li>
-      A fresh instance starts in <a href="#off">Off</a>, where only the admin signs in, unless
-      <code>INITIAL_AUTH_MODE</code> names a mode. Off lets administrators sign in instead of
-      refusing every login.
+      The OIDC login refuses a provider whose key set (<code>jwks_uri</code>) is served over plain http; serve it over https. A provider behind a private CA needs that CA in <code>EXTRA_CA_CERTS_DIR</code> (<a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>).
     </li>
     <li>
-      Registration has its own switch and is closed by default, also on instances updated from an
-      earlier version. The sign-in page offers the register tab only while it is open.
-    </li>
-    <li>
-      Under LDAP a local password is checked first, so it never reaches the directory, where a
-      failed bind counts towards the account lockout.
-    </li>
-    <li>
-      Dev mode opens the API only; the admin pages need a signed-in administrator. OIDC has a form
-      on the admin page, and the SSO button shows only while OIDC is the sign-in source.
+      The OIDC login trusts the platform's certificate authorities plus <code>EXTRA_CA_CERTS_DIR</code>, like LDAPS, instead of a list built into the binary.
     </li>
   </ul>
 </div>

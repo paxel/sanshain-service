@@ -6,11 +6,12 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
-  <p>
-    Two webhook metrics: <code>sanshain_webhook_deliveries_total{outcome}</code> and
-    <code>sanshain_webhook_outbox_pending</code>.
-  </p>
+  <p class="eyebrow">What changed in 2.12.0</p>
+  <ul>
+    <li>
+      OpenTelemetry exports retry a failed send up to 3 times with backoff instead of dropping the batch (<a href="#traces-over-otlp">Traces over OTLP</a>).
+    </li>
+  </ul>
 </div>
 
 <h2>Prometheus metrics</h2>
@@ -116,7 +117,8 @@
   instrumented handlers and services (the HTTP layer, provide, require, webhook passes, LDAP calls).
   An exporter that cannot be built stops the start with
   <code>ERROR: Failed to initialize OpenTelemetry tracing: …</code>; a collector that is merely
-  unreachable at runtime is logged by the exporter and does not affect requests. The exporter's TLS
+  unreachable at runtime is logged by the exporter and does not affect requests; a failed send is
+  retried up to 3 times with backoff before the batch is dropped. The exporter's TLS
   does not use <code>EXTRA_CA_CERTS_DIR</code>. Spans are flushed on shutdown.
 </p>
 

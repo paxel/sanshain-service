@@ -6,15 +6,11 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
+  <p class="eyebrow">What changed in 2.12.0</p>
   <ul>
     <li>
-      New: <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
-      <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code> and <code>PUBLIC_BASE_URL</code> for
-      <a href="webhooks.html">webhooks</a>; <code>LDAP_OPERATION_TIMEOUT_SECS</code> for the
-      <a href="authentication.html#ldap-and-active-directory">LDAP</a> stall timeout.
+      <code>EXTRA_CA_CERTS_DIR</code> also applies to webhook deliveries and the OIDC login, which trust the platform's certificate authorities plus that directory instead of a list built into the binary (<a href="#additional-ca-certificates">Additional CA certificates</a>).
     </li>
-    <li>The data cache's 10 s entry lifetime is fixed, not a setting.</li>
   </ul>
 </div>
 

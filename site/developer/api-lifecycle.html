@@ -6,24 +6,6 @@
   chapter is what happens on that line, with the exact messages a refusal carries.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
-  <ul>
-    <li>
-      Every accepted provide, every refusal and every newly deprecated element can be delivered as a
-      <a href="../start/glossary.html#webhook">webhook</a> (<code>version.published</code>,
-      <code>provide.rejected</code> with the rule that fired, <code>version.deprecated</code>).
-      Receivers are in <a href="../operator/webhooks.html">Webhooks</a>.
-    </li>
-    <li>
-      A GA provide with a previous GA on the line reports the classification against it in the
-      <code>version.published</code> event: <code>compatibility.impact</code> is <code>patch</code>,
-      <code>minor</code> or <code>major</code>. The diff is computed only when a hook will receive
-      the event.
-    </li>
-  </ul>
-</div>
-
 <h2>In short</h2>
 <ol>
   <li>

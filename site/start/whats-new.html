@@ -1,0 +1,75 @@
+<!-- page: title="What's new" track="start" order=4 summary="What changed from 2.11 to 2.12.0, sorted by who notices it: the one breaking change, what an operator sees, what a Producer or Consumer sees, and the security fixes." -->
+<p class="lede">
+  2.12.0 is a maintenance and security release: every library is on its current version and three
+  security advisories are gone. It adds no feature. This page is the short version of the
+  <a href="https://github.com/paxel/sanshain-service/blob/summer/CHANGELOG.md">changelog</a>, sorted
+  by who notices a change.
+</p>
+
+<h2>Before you upgrade</h2>
+<p>
+  One change can stop a working setup: the OpenID Connect login refuses a provider whose key set
+  (<code>jwks_uri</code>) is served over plain http. Serve it over https; a provider behind a
+  private CA needs that CA in <code>EXTRA_CA_CERTS_DIR</code>
+  (<a href="../operator/configuration.html#additional-ca-certificates">Additional CA certificates</a>).
+  Local accounts and LDAP are not affected.
+</p>
+
+<h2>For operators</h2>
+<ul>
+  <li>
+    The image is based on Alpine 3.24 instead of 3.21, and its health check asks
+    <code>127.0.0.1</code>, so a container where <code>localhost</code> resolves to IPv6 first is no
+    longer reported unhealthy.
+  </li>
+  <li>
+    Webhook deliveries and the OIDC login trust the platform's certificate authorities plus
+    <code>EXTRA_CA_CERTS_DIR</code>, like LDAPS, instead of a list built into the binary.
+  </li>
+  <li>
+    Releases are signed with cosign 3; verify them with cosign 3, or with cosign 2.6 and
+    <code>--new-bundle-format</code>
+    (<a href="../operator/deployment.html#verifying-a-release">Verifying a release</a>).
+  </li>
+  <li>
+    The Helm backup CronJobs use curl 8.23.0 and <code>pg_dump</code> 18, which also backs up a
+    PostgreSQL 18 database; restore those dumps with <code>pg_restore</code> 18.
+  </li>
+  <li>OpenTelemetry exports retry a failed send up to 3 times instead of dropping the batch.</li>
+  <li>SQLite 3.51 is built in instead of 3.46; an existing database opens unchanged.</li>
+</ul>
+
+<h2>For Producers and Consumers</h2>
+<ul>
+  <li>
+    Endpoint snippets and required specs are written in a slightly different YAML style: double
+    quotes, quoted version strings (<code>version: "1.0.0"</code>), long single-line texts folded
+    with <code>&gt;</code>. Their content is the same. A Consumer that commits a required spec sees
+    a one-time text diff after the upgrade.
+  </li>
+  <li>
+    An unchanged re-provide is still a no-op. The first re-provide of a snapshot that changes
+    anything counts all its endpoints as updated once.
+  </li>
+  <li>
+    A spec nested deeper than 64 levels is refused with <code>400</code>; the limit was 128.
+  </li>
+  <li>
+    The official clients need no update for 2.12. Their current releases (sanshain-js 2.5.1,
+    sanshain-rs 3.2.0, sanshain-go 2.4.0, sanshain-maven-plugin 2.4.1, sanshain-conan 2.4.0) are
+    dependency and security updates too.
+  </li>
+</ul>
+
+<h2>Security</h2>
+<ul>
+  <li>
+    YAML is read and written by <code>serde-saphyr</code>, pure Rust without <code>unsafe</code>
+    code, instead of a library on the unmaintained <code>unsafe-libyaml</code>.
+  </li>
+  <li>
+    The OIDC login verifies ID tokens without the <code>rsa</code> crate (Marvin attack,
+    RUSTSEC-2023-0071); <code>cargo audit</code> runs without exceptions.
+  </li>
+  <li>The unmaintained <code>basic-toml</code> is no longer part of the build.</li>
+</ul>

@@ -8,22 +8,6 @@
   keep up to date.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
-  <ul>
-    <li>
-      A branch cut emits the <code>branch.cut</code>
-      <a href="../start/glossary.html#webhook">webhook</a>
-      event to global hooks, and a require that records a new edge in a stream emits
-      <code>dependency.recorded</code> with that stream's name.
-    </li>
-    <li>
-      The graph's node panel shows a system's catalog context in every view; the periphery of a
-      branch is still what trunk had when the branch was cut.
-    </li>
-  </ul>
-</div>
-
 <h2>The three streams</h2>
 <p>
   Every provide, require and bundle may carry one stream marker; the catalog push takes only

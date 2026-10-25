@@ -7,18 +7,12 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
-  <p>
-    Webhooks are new in 2.6.0 (<a
-      href="https://github.com/paxel/sanshain-service/blob/summer/docs/adr/0009-webhooks-outbox-and-egress-allowlist.md"
-      >ADR-0009</a
-    >). A fresh install sends nothing until an administrator allows a receiver host; an upgraded
-    install is in the same state. Four variables configure the worker:
-    <code>WEBHOOKS_ENABLED</code>, <code>WEBHOOK_WORKER_INTERVAL_SECS</code>,
-    <code>WEBHOOK_DELIVERY_TIMEOUT_SECS</code>, <code>PUBLIC_BASE_URL</code>. The allow-list binds
-    Producer and Consumer maintainers, not administrators: a hook registered by a
-    <code>manage_settings</code> holder is exempt from it at registration and at every delivery.
-  </p>
+  <p class="eyebrow">What changed in 2.12.0</p>
+  <ul>
+    <li>
+      Deliveries trust the platform's certificate authorities plus <code>EXTRA_CA_CERTS_DIR</code> instead of a list built into the binary; a receiver behind a private CA works once its CA is in that directory (<a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>).
+    </li>
+  </ul>
 </div>
 
 <h2>Hooks in three scopes</h2>

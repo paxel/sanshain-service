@@ -6,15 +6,13 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
+  <p class="eyebrow">What changed in 2.12.0</p>
   <ul>
     <li>
-      <code>GET /admin/backup/sqlite</code> streams a consistent snapshot while the service runs,
-      with a button on the admin page.
+      The SQLite CronJob downloads with curl 8.23.0.
     </li>
     <li>
-      The Helm chart's <code>backup.*</code> values render a nightly CronJob for either engine;
-      Kustomize users get the same job as commented examples.
+      The PostgreSQL CronJob runs <code>pg_dump</code> 18, so it also backs up a PostgreSQL 18 database; restore its dumps with <code>pg_restore</code> 18.
     </li>
   </ul>
 </div>

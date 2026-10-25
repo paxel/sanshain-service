@@ -6,26 +6,19 @@
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.6.0</p>
+  <p class="eyebrow">What changed in 2.12.0</p>
   <ul>
     <li>
-      The image carries the platform CA bundle (<code>ca-certificates</code>), so
-      <code>ldaps://</code> against a directory with a publicly trusted certificate works without a
-      certificate mount. Private CAs still go through <code>EXTRA_CA_CERTS_DIR</code>.
+      The image is based on Alpine 3.24 instead of 3.21.
     </li>
     <li>
-      The Helm chart renders an optional backup CronJob (<code>backup.*</code>): a SQLite snapshot
-      fetched from the service, or <code>pg_dump</code>. See
-      <a href="backup.html">Backup and restore</a>.
+      The health check asks <code>127.0.0.1</code>, so a container where <code>localhost</code> resolves to IPv6 first is no longer reported unhealthy.
     </li>
     <li>
-      Every release is signed with cosign and ships CycloneDX SBOMs; the weekly security run scans
-      the released image. See <a href="#verifying-a-release">Verifying a release</a>.
+      Releases are signed with cosign 3; verify them with cosign 3, or with cosign 2.6 and <code>--new-bundle-format</code> (<a href="#verifying-a-release">Verifying a release</a>).
     </li>
     <li>
-      Sanshain runs as exactly one instance: the chart and the manifests render a StatefulSet with
-      one replica, and <code>replicaCount</code> and <code>autoscaling</code> are gone. See
-      <a href="#scaling">Scaling</a>.
+      Webhooks and the OIDC login trust the platform's certificate authorities plus <code>EXTRA_CA_CERTS_DIR</code>; the OIDC key set must be served over https (<a href="#outbound-tls-trust">Outbound TLS trust</a>).
     </li>
   </ul>
 </div>
