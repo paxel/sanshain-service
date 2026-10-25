@@ -14,6 +14,8 @@ unsafe_code = "deny"
 [lints.clippy]
 # No-panic policy (see AGENTS.md / ai/improvements.md E3). Test code is exempt
 # via `allow-*-in-tests` in clippy.toml.
+# Unreachable, indexing, slicing and overflowing arithmetic are denied for shipped code only,
+# at the crate roots (`src/lib.rs`, `src/main.rs`): tests have no in-tests escape.
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"

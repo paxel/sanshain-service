@@ -80,9 +80,12 @@ pub fn diff_lines<'a>(old: &'a str, new: &'a str, options: DiffOptions) -> Vec<D
     let diff = TextDiff::from_slices(&old_keys, &new_keys);
     // "Whole text" is a context larger than either side; `usize::MAX` would
     // overflow inside the grouping.
-    let radius = options
-        .context
-        .unwrap_or(old_lines.len() + new_lines.len() + 1);
+    let radius = options.context.unwrap_or(
+        old_lines
+            .len()
+            .saturating_add(new_lines.len())
+            .saturating_add(1),
+    );
 
     diff.grouped_ops(radius)
         .iter()
@@ -100,12 +103,14 @@ fn hunk(group: &[DiffOp], old_lines: &[&str], new_lines: &[&str]) -> DiffHunk {
                 len,
             } => {
                 for i in 0..len {
-                    let old_text = old_lines.get(old_index + i).copied().unwrap_or_default();
-                    let new_text = new_lines.get(new_index + i).copied().unwrap_or_default();
+                    let (old_at, new_at) =
+                        (old_index.saturating_add(i), new_index.saturating_add(i));
+                    let old_text = old_lines.get(old_at).copied().unwrap_or_default();
+                    let new_text = new_lines.get(new_at).copied().unwrap_or_default();
                     lines.push(DiffLine {
                         op: DiffLineOp::Ctx,
-                        old_no: Some(old_index + i + 1),
-                        new_no: Some(new_index + i + 1),
+                        old_no: Some(old_at.saturating_add(1)),
+                        new_no: Some(new_at.saturating_add(1)),
                         text: new_text.to_string(),
                         old_text: (old_text != new_text).then(|| old_text.to_string()),
                     });
@@ -140,10 +145,10 @@ fn hunk(group: &[DiffOp], old_lines: &[&str], new_lines: &[&str]) -> DiffHunk {
 }
 
 fn push_deleted(lines: &mut Vec<DiffLine>, old_lines: &[&str], index: usize, len: usize) {
-    for i in index..index + len {
+    for i in index..index.saturating_add(len) {
         lines.push(DiffLine {
             op: DiffLineOp::Del,
-            old_no: Some(i + 1),
+            old_no: Some(i.saturating_add(1)),
             new_no: None,
             text: old_lines.get(i).copied().unwrap_or_default().to_string(),
             old_text: None,
@@ -152,11 +157,11 @@ fn push_deleted(lines: &mut Vec<DiffLine>, old_lines: &[&str], index: usize, len
 }
 
 fn push_inserted(lines: &mut Vec<DiffLine>, new_lines: &[&str], index: usize, len: usize) {
-    for i in index..index + len {
+    for i in index..index.saturating_add(len) {
         lines.push(DiffLine {
             op: DiffLineOp::Add,
             old_no: None,
-            new_no: Some(i + 1),
+            new_no: Some(i.saturating_add(1)),
             text: new_lines.get(i).copied().unwrap_or_default().to_string(),
             old_text: None,
         });
@@ -177,7 +182,7 @@ fn side_range(ranges: impl Iterator<Item = std::ops::Range<usize>>) -> (usize, u
     if len == 0 {
         (start, 0)
     } else {
-        (start + 1, len)
+        (start.saturating_add(1), len)
     }
 }
 
@@ -218,7 +223,7 @@ pub fn blame_lines(texts: &[&str]) -> Vec<usize> {
     let mut owners: Vec<usize> = vec![0; first.lines().count()];
     let mut previous = *first;
     for (offset, text) in rest.iter().enumerate() {
-        let step = offset + 1;
+        let step = offset.saturating_add(1);
         let old_lines: Vec<&str> = previous.lines().collect();
         let new_lines: Vec<&str> = text.lines().collect();
         let diff = TextDiff::from_slices(&old_lines, &new_lines);
@@ -230,12 +235,9 @@ pub fn blame_lines(texts: &[&str]) -> Vec<usize> {
                 len,
             } = *op
             {
-                for i in 0..len {
-                    if let (Some(slot), Some(owner)) =
-                        (next.get_mut(new_index + i), owners.get(old_index + i))
-                    {
-                        *slot = *owner;
-                    }
+                let slots = next.iter_mut().skip(new_index);
+                for (slot, owner) in slots.zip(owners.iter().skip(old_index)).take(len) {
+                    *slot = *owner;
                 }
             }
         }
@@ -260,7 +262,7 @@ pub fn group_blame(owners: &[usize]) -> Vec<BlameRun> {
     let mut runs: Vec<BlameRun> = Vec::new();
     for (i, &owner) in owners.iter().enumerate() {
         match runs.last_mut() {
-            Some(run) if run.owner == owner => run.len += 1,
+            Some(run) if run.owner == owner => run.len = run.len.saturating_add(1),
             _ => runs.push(BlameRun {
                 owner,
                 start: i,

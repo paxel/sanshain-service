@@ -408,7 +408,10 @@ pub async fn generate_report(repo: &impl SpecRepository) -> Result<DependencyRep
     // refreshed since half the TTL are highlighted as forgotten-in-progress.
     let ttl_days = super::admin_service::get_trunk_max_age_days(repo).await?;
     if ttl_days > 0 {
-        let boundary = chrono::Utc::now() - chrono::Duration::hours(ttl_days as i64 * 12);
+        let boundary = super::before(
+            chrono::Utc::now(),
+            super::hours(ttl_days.saturating_mul(12)),
+        );
         report.trunk_stale_before =
             Some(boundary.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
     }

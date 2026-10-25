@@ -580,7 +580,10 @@ async fn provide_spec_inner(
         && let Some(baseline_content) = repo.get_spec_content(baseline.id).await?
         && let Err(reason) = check_compatibility(api_type, &baseline_content, content)
     {
-        let proposed = propose_free(&line, SemVer::new(baseline.version.major + 1, 0, 0));
+        let proposed = propose_free(
+            &line,
+            SemVer::new(baseline.version.major.saturating_add(1), 0, 0),
+        );
         let message = format!(
             "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
             version,

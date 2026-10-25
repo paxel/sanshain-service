@@ -2376,7 +2376,7 @@ impl SpecRepository for PostgresSpecRepository {
                 .execute(&self.pool)
                 .await
             {
-                Ok(res) => removed += res.rows_affected(),
+                Ok(res) => removed = removed.saturating_add(res.rows_affected()),
                 Err(e) => failure = Some(RepositoryError::Internal(e.to_string())),
             }
         }

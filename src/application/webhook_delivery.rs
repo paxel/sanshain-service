@@ -209,8 +209,10 @@ pub fn envelope(
         "sanshain_version": env!("CARGO_PKG_VERSION"),
         "data": data,
     });
-    if let Some(base) = base_url {
-        envelope["links"] = links_for(event_type, data, base);
+    if let Some(base) = base_url
+        && let Some(object) = envelope.as_object_mut()
+    {
+        object.insert("links".to_string(), links_for(event_type, data, base));
     }
     envelope
 }
@@ -389,10 +391,15 @@ pub fn render_body(format: WebhookFormat, envelope: &serde_json::Value) -> Strin
                     { "type": "TextBlock", "text": teams_escape(&text), "wrap": true },
                 ],
             });
-            if let Some(url) = &link {
-                card["actions"] = serde_json::json!([
-                    { "type": "Action.OpenUrl", "title": "Open in Sanshain", "url": url }
-                ]);
+            if let Some(url) = &link
+                && let Some(object) = card.as_object_mut()
+            {
+                object.insert(
+                    "actions".to_string(),
+                    serde_json::json!([
+                        { "type": "Action.OpenUrl", "title": "Open in Sanshain", "url": url }
+                    ]),
+                );
             }
             serde_json::json!({
                 "type": "message",
@@ -462,7 +469,7 @@ pub async fn deliver_due(
     config: &WebhookDeliveryConfig,
     now: DateTime<Utc>,
 ) -> Result<DeliveryPassSummary, AppError> {
-    let lease_until = iso(now + Duration::seconds(config.lease_secs()));
+    let lease_until = iso(super::after(now, super::seconds(config.lease_secs())));
     let due = repo
         .claim_due_webhook_deliveries(&iso(now), &lease_until, config.batch_size)
         .await?;
@@ -474,15 +481,15 @@ pub async fn deliver_due(
             let outcome = attempt(sender, item, &allowed, base_url.as_deref(), now).await;
             match &outcome {
                 WebhookAttemptOutcome::Delivered { .. } => {
-                    summary.delivered += 1;
+                    summary.delivered = summary.delivered.saturating_add(1);
                     count("delivered");
                 }
                 WebhookAttemptOutcome::Failed { .. } => {
-                    summary.failed += 1;
+                    summary.failed = summary.failed.saturating_add(1);
                     count("failed");
                 }
                 WebhookAttemptOutcome::Dead { .. } | WebhookAttemptOutcome::Expired { .. } => {
-                    summary.dead += 1;
+                    summary.dead = summary.dead.saturating_add(1);
                     count("dead");
                 }
             }
@@ -514,7 +521,10 @@ async fn attempt(
             .map(|t| t.with_timezone(&Utc))
             .unwrap_or(now)
     };
-    let cutoff = parse(&item.delivery.occurred_at) + Duration::hours(CUTOFF_HOURS);
+    let cutoff = super::after(
+        parse(&item.delivery.occurred_at),
+        Duration::hours(CUTOFF_HOURS),
+    );
     // A row redelivered by hand gets one more attempt whatever the clock
     // says; everything else past the cutoff is dead without one (a paused
     // hook resumed a day later included). A failure past the cutoff is dead
@@ -525,7 +535,7 @@ async fn attempt(
             error: format!("given up: {CUTOFF_HOURS} hours have passed since the event"),
         };
     }
-    let next = now + Duration::seconds(backoff_secs(item.delivery.attempts));
+    let next = super::after(now, super::seconds(backoff_secs(item.delivery.attempts)));
     let fail = |code: Option<u16>, error: String| {
         // A retry due after the cutoff would only be marked dead then;
         // saying so now keeps the log honest.
@@ -562,7 +572,7 @@ async fn attempt(
 /// the cleanup cycle. Returns how many deliveries went.
 #[instrument(skip_all)]
 pub async fn cleanup_webhook_data(repo: &impl SpecRepository) -> Result<u64, AppError> {
-    let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
+    let cutoff = super::before(Utc::now(), Duration::days(RETENTION_DAYS));
     Ok(repo.delete_old_webhook_data(&iso(cutoff)).await?)
 }
 

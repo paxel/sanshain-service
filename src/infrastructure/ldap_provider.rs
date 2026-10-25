@@ -160,7 +160,11 @@ async fn connect_tcp(url: &str, host_port: &str) -> Result<TcpStream, AuthProvid
             url, reason
         ))
     };
-    let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
+    // A deadline past the clock's range cannot happen; failing fast is the
+    // answer that cannot hang if it ever did.
+    let deadline = tokio::time::Instant::now()
+        .checked_add(CONNECT_TIMEOUT)
+        .unwrap_or_else(tokio::time::Instant::now);
 
     let addrs: Vec<SocketAddr> =
         match tokio::time::timeout_at(deadline, tokio::net::lookup_host(host_port)).await {

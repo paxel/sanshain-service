@@ -131,7 +131,7 @@ pub async fn list_services(
             .or_default()
             .insert(edge.client.as_str());
         let entry = requires_of.entry(edge.client.as_str()).or_default();
-        entry.0 += 1;
+        entry.0 = entry.0.saturating_add(1);
         entry.1.insert(edge.service.as_str());
     }
     for sub in &report.harvested_subscriptions {
@@ -141,7 +141,7 @@ pub async fn list_services(
                 .or_default()
                 .insert(sub.client.as_str());
             let entry = requires_of.entry(sub.client.as_str()).or_default();
-            entry.0 += 1;
+            entry.0 = entry.0.saturating_add(1);
             entry.1.insert(owner.as_str());
         }
     }
@@ -828,7 +828,8 @@ pub fn graph_counts(graph: &Graph) -> BTreeMap<String, usize> {
             NodeKind::Missing => "missing",
             NodeKind::Resource => "resource",
         };
-        *counts.entry(key.to_string()).or_insert(0) += 1;
+        let count = counts.entry(key.to_string()).or_insert(0usize);
+        *count = count.saturating_add(1);
     }
     counts
 }

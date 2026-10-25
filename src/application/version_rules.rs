@@ -82,8 +82,8 @@ pub(crate) fn diff_endpoints(
         .iter()
         .map(|e| ((e.normalized_path.clone(), e.method.clone()), e))
         .collect();
-    let mut inserts = 0;
-    let mut updates = 0;
+    let mut inserts = 0usize;
+    let mut updates = 0usize;
     for endpoint in new {
         match old_map.remove(&(endpoint.normalized_path.clone(), endpoint.method.clone())) {
             Some(existing) => {
@@ -91,10 +91,10 @@ pub(crate) fn diff_endpoints(
                     || existing.path != endpoint.path
                     || existing.deprecated != endpoint.deprecated
                 {
-                    updates += 1;
+                    updates = updates.saturating_add(1);
                 }
             }
-            None => inserts += 1,
+            None => inserts = inserts.saturating_add(1),
         }
     }
     let deletes = old_map.len();

@@ -48,7 +48,19 @@ pub struct CachedSpecRepository {
 }
 
 fn mb_to_bytes(mb: u64) -> u64 {
-    mb * 1024 * 1024
+    mb.saturating_mul(1024 * 1024)
+}
+
+/// Cache weight of an entry in bytes: its parts summed, saturating instead of
+/// overflowing, capped at what moka's `u32` weight can carry.
+fn weight(parts: impl IntoIterator<Item = usize>) -> u32 {
+    let bytes = parts.into_iter().fold(0, usize::saturating_add);
+    u32::try_from(bytes).unwrap_or(u32::MAX)
+}
+
+/// `count` items of `each` bytes, saturating.
+fn times(count: usize, each: usize) -> usize {
+    count.saturating_mul(each)
 }
 
 /// Safety net for the effective-roles cache: writes that bypass this
@@ -119,40 +131,39 @@ impl CachedSpecRepository {
 
     fn build_caches(memory_limit_mb: u64, data_ttl: Duration) -> RepoCaches {
         let total = mb_to_bytes(memory_limit_mb);
-        let spec_budget = total * 60 / 100;
-        let report_budget = total * 20 / 100;
-        let id_budget = total * 10 / 100;
-        let list_budget = total * 10 / 100;
+        let spec_budget = total.saturating_mul(60) / 100;
+        let report_budget = total.saturating_mul(20) / 100;
+        let id_budget = total.saturating_mul(10) / 100;
+        let list_budget = total.saturating_mul(10) / 100;
 
         // Spec data caches (60%)
         let endpoint_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
             .time_to_live(data_ttl)
-            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool)>| (v.1.len() + 80) as u32)
+            .weigher(|_k: &EndpointKey, v: &Arc<(i64, String, bool)>| weight([v.1.len(), 80]))
             .build();
 
         let version_endpoints_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
             .time_to_live(data_ttl)
             .weigher(|_k: &i64, v: &Arc<Vec<EndpointRecord>>| {
-                let size: usize = v
-                    .iter()
-                    .map(|e| {
-                        e.path.len()
-                            + e.normalized_path.len()
-                            + e.method.len()
-                            + e.yaml_content.len()
-                            + 80
-                    })
-                    .sum();
-                (size + 24) as u32
+                let entries = v.iter().map(|e| {
+                    weight([
+                        e.path.len(),
+                        e.normalized_path.len(),
+                        e.method.len(),
+                        e.yaml_content.len(),
+                        80,
+                    ]) as usize
+                });
+                weight(entries.chain([24]))
             })
             .build();
 
         let spec_content_cache = Cache::builder()
             .max_capacity(spec_budget / 3)
             .time_to_live(data_ttl)
-            .weigher(|_k: &i64, v: &Arc<String>| (v.len() + 40) as u32)
+            .weigher(|_k: &i64, v: &Arc<String>| weight([v.len(), 40]))
             .build();
 
         // Report caches (20%)
@@ -160,12 +171,13 @@ impl CachedSpecRepository {
             .max_capacity(report_budget / 2)
             .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<DependencyReport>| {
-                let size = v.unused_endpoints.len() * 120
-                    + v.missing_endpoints.len() * 150
-                    + v.dependency_graph.len() * 150
-                    + v.service_tags.len() * 60
-                    + 80;
-                size as u32
+                weight([
+                    times(v.unused_endpoints.len(), 120),
+                    times(v.missing_endpoints.len(), 150),
+                    times(v.dependency_graph.len(), 150),
+                    times(v.service_tags.len(), 60),
+                    80,
+                ])
             })
             .build();
 
@@ -173,17 +185,16 @@ impl CachedSpecRepository {
             .max_capacity(report_budget / 2)
             .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<ProducerSummary>>| {
-                let size: usize = v
-                    .iter()
-                    .map(|s| {
-                        s.name.len()
-                            + s.versions.len() * 160
-                            + s.icon.as_ref().map_or(0, |i| i.len())
-                            + s.domain.as_ref().map_or(0, |d| d.len())
-                            + 100
-                    })
-                    .sum();
-                (size + 24) as u32
+                let summaries = v.iter().map(|s| {
+                    weight([
+                        s.name.len(),
+                        times(s.versions.len(), 160),
+                        s.icon.as_ref().map_or(0, |i| i.len()),
+                        s.domain.as_ref().map_or(0, |d| d.len()),
+                        100,
+                    ]) as usize
+                });
+                weight(summaries.chain([24]))
             })
             .build();
 
@@ -191,14 +202,14 @@ impl CachedSpecRepository {
         let service_id_cache = Cache::builder()
             .max_capacity(id_budget / 2)
             .time_to_live(data_ttl)
-            .weigher(|k: &String, _v: &i64| (k.len() + 32) as u32)
+            .weigher(|k: &String, _v: &i64| weight([k.len(), 32]))
             .build();
 
         let spec_version_cache = Cache::builder()
             .max_capacity(id_budget / 2)
             .time_to_live(data_ttl)
             .weigher(|k: &SpecVersionKey, v: &Arc<SpecVersionMeta>| {
-                (k.2.len() + v.content_hash.len() + v.provided_by.len() + 160) as u32
+                weight([k.2.len(), v.content_hash.len(), v.provided_by.len(), 160])
             })
             .build();
 
@@ -207,8 +218,7 @@ impl CachedSpecRepository {
             .max_capacity(list_budget / 2)
             .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
-                let size: usize = v.iter().map(|s| s.len() + 24).sum();
-                (size + 24) as u32
+                weight(v.iter().flat_map(|s| [s.len(), 24]).chain([24]))
             })
             .build();
 
@@ -216,8 +226,7 @@ impl CachedSpecRepository {
             .max_capacity(list_budget / 2)
             .time_to_live(data_ttl)
             .weigher(|_k: &String, v: &Arc<Vec<String>>| {
-                let size: usize = v.iter().map(|s| s.len() + 24).sum();
-                (size + 24) as u32
+                weight(v.iter().flat_map(|s| [s.len(), 24]).chain([24]))
             })
             .build();
 
@@ -289,7 +298,7 @@ impl CachedSpecRepository {
 
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
-        let total = hits + misses;
+        let total = hits.saturating_add(misses);
         let hit_rate = if total > 0 {
             hits as f64 / total as f64 * 100.0
         } else {
@@ -297,25 +306,33 @@ impl CachedSpecRepository {
         };
         let limit_mb = self.memory_limit_mb.load(Ordering::Relaxed);
 
-        let estimated_bytes = self.endpoint_cache.weighted_size()
-            + self.version_endpoints_cache.weighted_size()
-            + self.spec_content_cache.weighted_size()
-            + self.report_cache.weighted_size()
-            + self.services_cache.weighted_size()
-            + self.service_id_cache.weighted_size()
-            + self.spec_version_cache.weighted_size()
-            + self.services_list_cache.weighted_size()
-            + self.clients_list_cache.weighted_size();
+        let estimated_bytes = [
+            self.endpoint_cache.weighted_size(),
+            self.version_endpoints_cache.weighted_size(),
+            self.spec_content_cache.weighted_size(),
+            self.report_cache.weighted_size(),
+            self.services_cache.weighted_size(),
+            self.service_id_cache.weighted_size(),
+            self.spec_version_cache.weighted_size(),
+            self.services_list_cache.weighted_size(),
+            self.clients_list_cache.weighted_size(),
+        ]
+        .into_iter()
+        .fold(0, u64::saturating_add);
 
-        let entry_count = self.endpoint_cache.entry_count()
-            + self.version_endpoints_cache.entry_count()
-            + self.spec_content_cache.entry_count()
-            + self.report_cache.entry_count()
-            + self.services_cache.entry_count()
-            + self.service_id_cache.entry_count()
-            + self.spec_version_cache.entry_count()
-            + self.services_list_cache.entry_count()
-            + self.clients_list_cache.entry_count();
+        let entry_count = [
+            self.endpoint_cache.entry_count(),
+            self.version_endpoints_cache.entry_count(),
+            self.spec_content_cache.entry_count(),
+            self.report_cache.entry_count(),
+            self.services_cache.entry_count(),
+            self.service_id_cache.entry_count(),
+            self.spec_version_cache.entry_count(),
+            self.services_list_cache.entry_count(),
+            self.clients_list_cache.entry_count(),
+        ]
+        .into_iter()
+        .fold(0, u64::saturating_add);
 
         CacheStats {
             enabled: limit_mb > 0,

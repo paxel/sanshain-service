@@ -1,3 +1,19 @@
+// Shipped code may not use `unsafe` and may not panic. Cargo.toml denies
+// unwrap, expect and panic everywhere; these add unreachable, indexing or
+// slicing that can go out of bounds and arithmetic that can overflow, for
+// shipped code only: unit tests and the `test-support` mocks are exempt,
+// integration tests are separate crates.
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(any(test, feature = "test-support")),
+    deny(
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        clippy::arithmetic_side_effects
+    )
+)]
+
 use axum_prometheus::PrometheusMetricLayer;
 use chrono::Utc;
 use sanshain_service::application::background::job_failed;
@@ -80,22 +96,23 @@ fn env_choice(name: &str, allowed: &[&str], default: &str) -> String {
 #[tokio::main]
 pub async fn main() {
     let log_buffer_size = env_number::<usize>("LOG_BUFFER_SIZE", 100);
+    let buffer_capacity = log_buffer_size.saturating_add(1);
 
     let business_logic_debug = Arc::new(AtomicBool::new(false));
     let admin_user_debug = Arc::new(AtomicBool::new(false));
     let requests_total = Arc::new(AtomicU64::new(0));
     let failures_total = Arc::new(AtomicU64::new(0));
     let error_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
-        log_buffer_size + 1,
+        buffer_capacity,
     )));
     let warn_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
-        log_buffer_size + 1,
+        buffer_capacity,
     )));
     let info_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
-        log_buffer_size + 1,
+        buffer_capacity,
     )));
     let debug_buffer = Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
-        log_buffer_size + 1,
+        buffer_capacity,
     )));
 
     let capture_layer = LogCaptureLayer {
@@ -499,15 +516,13 @@ pub async fn main() {
             {
                 let mut tokens = cleanup_csrf.write().await;
                 let now = Utc::now();
-                let max_age = chrono::Duration::hours(csrf_max_age_hours);
+                let max_age = chrono::TimeDelta::try_hours(csrf_max_age_hours)
+                    .unwrap_or(chrono::TimeDelta::MAX);
                 let before_count = tokens.len();
-                tokens.retain(|_, created_at| now - *created_at < max_age);
-                let after_count = tokens.len();
-                if before_count > after_count {
-                    tracing::info!(
-                        "CSRF cleanup: pruned {} expired tokens",
-                        before_count - after_count
-                    );
+                tokens.retain(|_, created_at| now.signed_duration_since(*created_at) < max_age);
+                let pruned = before_count.saturating_sub(tokens.len());
+                if pruned > 0 {
+                    tracing::info!("CSRF cleanup: pruned {} expired tokens", pruned);
                 }
             }
         }

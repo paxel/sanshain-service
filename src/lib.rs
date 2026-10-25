@@ -1,3 +1,19 @@
+// Shipped code may not use `unsafe` and may not panic. Cargo.toml denies
+// unwrap, expect and panic everywhere; these add unreachable, indexing or
+// slicing that can go out of bounds and arithmetic that can overflow, for
+// shipped code only: unit tests and the `test-support` mocks are exempt,
+// integration tests are separate crates.
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(any(test, feature = "test-support")),
+    deny(
+        clippy::unreachable,
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        clippy::arithmetic_side_effects
+    )
+)]
+
 pub mod application;
 pub mod asyncapi;
 pub mod backstage;

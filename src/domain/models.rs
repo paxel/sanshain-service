@@ -215,9 +215,9 @@ impl SemVer {
 
     pub fn increment(&self, impact: Impact) -> Self {
         match impact {
-            Impact::Major => Self::new(self.major + 1, 0, 0),
-            Impact::Minor => Self::new(self.major, self.minor + 1, 0),
-            Impact::Patch => Self::new(self.major, self.minor, self.patch + 1),
+            Impact::Major => Self::new(self.major.saturating_add(1), 0, 0),
+            Impact::Minor => Self::new(self.major, self.minor.saturating_add(1), 0),
+            Impact::Patch => Self::new(self.major, self.minor, self.patch.saturating_add(1)),
             Impact::None => *self,
         }
     }
@@ -471,11 +471,11 @@ impl LdapConfig {
         if !self.server_url.starts_with("ldap://") && !self.server_url.starts_with("ldaps://") {
             return Err("Server URL must start with ldap:// or ldaps://".to_string());
         }
-        let host_part = if self.server_url.starts_with("ldap://") {
-            &self.server_url[7..]
-        } else {
-            &self.server_url[8..]
-        };
+        let host_part = self
+            .server_url
+            .strip_prefix("ldap://")
+            .or_else(|| self.server_url.strip_prefix("ldaps://"))
+            .unwrap_or_default();
         if host_part.is_empty() || host_part.contains(' ') || host_part.starts_with('/') {
             return Err("Invalid LDAP server host".to_string());
         }

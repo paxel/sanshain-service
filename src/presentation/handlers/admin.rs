@@ -1370,7 +1370,8 @@ pub async fn get_observability_stats(
         memory_used: system.used_memory(),
         memory_total: system.total_memory(),
         system_uptime: sysinfo::System::uptime(),
-        process_uptime: (chrono::Utc::now() - state.process_start_time)
+        process_uptime: chrono::Utc::now()
+            .signed_duration_since(state.process_start_time)
             .num_seconds()
             .max(0) as u64,
         requests_total: state
@@ -1512,7 +1513,7 @@ fn redact_database_url(url: &str) -> String {
 
     // The authority ends at the first '/', '?' or '#'.
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, tail) = rest.split_at(end);
+    let (authority, tail) = rest.split_at_checked(end).unwrap_or((rest, ""));
 
     let authority = match authority.rsplit_once('@') {
         Some((userinfo, host)) => {

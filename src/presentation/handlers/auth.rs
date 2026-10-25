@@ -295,7 +295,7 @@ pub struct CsrfResponse {
 pub async fn get_csrf_token(State(state): State<AppState>) -> impl IntoResponse {
     use rand::distr::{Alphanumeric, SampleString};
     let token = Alphanumeric.sample_string(&mut rand::rng(), 32);
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = crate::application::after(chrono::Utc::now(), chrono::Duration::hours(1));
 
     let mut tokens = state.csrf_tokens.write().await;
     tokens.insert(token.clone(), expires_at);

@@ -139,27 +139,33 @@ pub fn glob_matches(glob: &str, name: &str) -> bool {
     let text: Vec<char> = name.chars().collect();
     let (mut p, mut t) = (0usize, 0usize);
     let mut star: Option<(usize, usize)> = None;
-    while t < text.len() {
+    // Both cursors only advance past an existing character, so `+ 1` stays
+    // within the lengths and saturating never actually saturates.
+    while let Some(&current) = text.get(t) {
         match pattern.get(p) {
             Some('*') => {
                 star = Some((p, t));
-                p += 1;
+                p = p.saturating_add(1);
             }
-            Some(&c) if c == '?' || c == text[t] => {
-                p += 1;
-                t += 1;
+            Some(&c) if c == '?' || c == current => {
+                p = p.saturating_add(1);
+                t = t.saturating_add(1);
             }
             _ => match star {
                 Some((sp, st)) => {
-                    p = sp + 1;
-                    t = st + 1;
+                    p = sp.saturating_add(1);
+                    t = st.saturating_add(1);
                     star = Some((sp, t));
                 }
                 None => return false,
             },
         }
     }
-    pattern[p..].iter().all(|&c| c == '*')
+    pattern
+        .get(p..)
+        .unwrap_or_default()
+        .iter()
+        .all(|&c| c == '*')
 }
 
 /// Whether one hook wants this event: the scope first — a global hook sees
@@ -520,7 +526,8 @@ fn new_secret() -> (String, String) {
 fn secret_hint(secret: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
-    hex::encode(hasher.finalize())[..8].to_string()
+    let hash = hex::encode(hasher.finalize());
+    hash.get(..8).unwrap_or(&hash).to_string()
 }
 
 fn validate_glob(glob: Option<&str>) -> Result<Option<String>, AppError> {

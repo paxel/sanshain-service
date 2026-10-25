@@ -743,11 +743,10 @@ impl<'a> Walker<'a> {
 
         // allOf with no own properties and a single part reads as that part.
         let all_of = schema.get("allOf").and_then(Value::as_array);
-        if let Some(parts) = all_of
-            && parts.len() == 1
+        if let Some([part]) = all_of.map(Vec::as_slice)
             && schema.get("properties").is_none()
         {
-            let inner = self.schema_node(key, name, &parts[0], stack, depth + 1);
+            let inner = self.schema_node(key, name, part, stack, depth.saturating_add(1));
             node.type_name = inner.type_name.clone();
             node.json_type = node.json_type.take().or(inner.json_type.clone());
             node.format = node.format.take().or(inner.format.clone());
@@ -777,7 +776,13 @@ impl<'a> Walker<'a> {
             if let Some(additional) = schema.get("additionalProperties")
                 && additional.as_object().is_some()
             {
-                let mut child = self.schema_node("{*}", "(any key)", additional, stack, depth + 1);
+                let mut child = self.schema_node(
+                    "{*}",
+                    "(any key)",
+                    additional,
+                    stack,
+                    depth.saturating_add(1),
+                );
                 child.kind = NodeKind::Member;
                 node.children.push(child);
             }
@@ -785,7 +790,7 @@ impl<'a> Walker<'a> {
         if node.json_type.as_deref() == Some("array")
             && let Some(items) = schema.get("items")
         {
-            let mut child = self.schema_node("[]", "items", items, stack, depth + 1);
+            let mut child = self.schema_node("[]", "items", items, stack, depth.saturating_add(1));
             child.kind = NodeKind::Items;
             node.type_name = Some(format!(
                 "array of {}",
@@ -822,7 +827,8 @@ impl<'a> Walker<'a> {
         let mut out: Vec<Node> = props
             .into_iter()
             .map(|(name, prop, origin)| {
-                let mut child = self.schema_node(&name, &name, prop, stack, depth + 1);
+                let mut child =
+                    self.schema_node(&name, &name, prop, stack, depth.saturating_add(1));
                 if child.kind != NodeKind::Cycle && child.kind != NodeKind::Note {
                     child.kind = NodeKind::Member;
                 }
@@ -862,7 +868,13 @@ impl<'a> Walker<'a> {
                         if let Some(n) = &r.name {
                             stack.push(n.clone());
                         }
-                        self.collect_members(r.value, part_origin, stack, found, hops + 1);
+                        self.collect_members(
+                            r.value,
+                            part_origin,
+                            stack,
+                            found,
+                            hops.saturating_add(1),
+                        );
                         if r.name.is_some() {
                             stack.pop();
                         }
@@ -911,7 +923,7 @@ impl<'a> Walker<'a> {
                 .map(last_segment)
                 .or_else(|| text_of(variant, "title"))
                 .unwrap_or_else(|| index.to_string());
-            let mut child = self.schema_node(&key, &key, variant, stack, depth + 1);
+            let mut child = self.schema_node(&key, &key, variant, stack, depth.saturating_add(1));
             if child.kind != NodeKind::Cycle && child.kind != NodeKind::Note {
                 child.kind = NodeKind::Variant;
             }
@@ -1165,7 +1177,10 @@ fn apply(node: &mut Node, parent: &str, since: &HashMap<String, SemVer>) -> Opti
 
 /// How many nodes a tree has, itself included.
 pub fn node_count(node: &Node) -> usize {
-    1 + node.children.iter().map(node_count).sum::<usize>()
+    node.children
+        .iter()
+        .map(node_count)
+        .fold(1, usize::saturating_add)
 }
 
 /// Drop every endpoint's children, keeping `changed_in` and `inside`: the

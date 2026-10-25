@@ -29,13 +29,10 @@ pub fn first_sentence(text: &str) -> Option<String> {
     }
     let mut sentence = paragraph.as_str();
     let chars: Vec<(usize, char)> = paragraph.char_indices().collect();
-    for (i, (idx, ch)) in chars.iter().enumerate() {
-        if matches!(ch, '.' | '!' | '?')
-            && chars
-                .get(i + 1)
-                .is_some_and(|(_, next)| next.is_whitespace())
-        {
-            sentence = &paragraph[..idx + ch.len_utf8()];
+    for (&(_, ch), &(next_idx, next)) in chars.iter().zip(chars.iter().skip(1)) {
+        if matches!(ch, '.' | '!' | '?') && next.is_whitespace() {
+            // The sentence ends where the whitespace after its mark starts.
+            sentence = paragraph.get(..next_idx).unwrap_or(&paragraph);
             break;
         }
     }

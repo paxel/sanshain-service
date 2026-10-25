@@ -177,7 +177,7 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    let expires_at = super::after(chrono::Utc::now(), super::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
     record_sign_in(repo, &session, SignInMethod::Local).await?;
     Ok((session, user))
@@ -198,7 +198,7 @@ pub async fn change_password(
 
     if let Some(token) = current_token {
         repo.delete_session(token).await?;
-        let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+        let expires_at = super::after(chrono::Utc::now(), super::days(7)).to_rfc3339();
         let session = repo.create_session(user.id, &expires_at).await?;
         // The old password was just checked here, so this is a local sign-in.
         record_sign_in(repo, &session, SignInMethod::Local).await?;
@@ -438,7 +438,7 @@ pub async fn login_with_provider(
         }
     };
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    let expires_at = super::after(chrono::Utc::now(), super::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
     record_sign_in(repo, &session, SignInMethod::Ldap).await?;
     Ok(session)
@@ -591,7 +591,7 @@ pub async fn login_oidc(
             .await?;
     }
     refresh_provider_identity(repo, local_user.id, name, email).await?;
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    let expires_at = super::after(chrono::Utc::now(), super::days(7)).to_rfc3339();
     let session = repo.create_session(local_user.id, &expires_at).await?;
     record_sign_in(repo, &session, SignInMethod::Oidc).await?;
     Ok(session)
@@ -928,8 +928,7 @@ pub(crate) async fn create_api_token_issued(
 
     let id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().to_rfc3339();
-    let expires_at =
-        (chrono::Utc::now() + chrono::Duration::days(expires_in_days as i64)).to_rfc3339();
+    let expires_at = super::after(chrono::Utc::now(), super::days(expires_in_days)).to_rfc3339();
 
     repo.create_api_token(NewApiToken {
         id: &id,
@@ -984,7 +983,7 @@ pub fn last_used_stamp_due(last_used_at: Option<&str>, now: chrono::DateTime<chr
             chrono::NaiveDateTime::parse_from_str(stamp, "%Y-%m-%d %H:%M:%S").map(|t| t.and_utc())
         });
     match parsed {
-        Ok(stamped) => now - stamped >= LAST_USED_STAMP_INTERVAL,
+        Ok(stamped) => now.signed_duration_since(stamped) >= LAST_USED_STAMP_INTERVAL,
         Err(_) => true,
     }
 }

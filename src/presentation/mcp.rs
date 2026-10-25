@@ -218,7 +218,7 @@ impl RateLimiter {
             Ok(())
         } else {
             let wait = (1.0 - bucket.tokens) / per_second;
-            Err(Duration::from_secs_f64(wait))
+            Err(Duration::try_from_secs_f64(wait).unwrap_or(Duration::MAX))
         }
     }
 }

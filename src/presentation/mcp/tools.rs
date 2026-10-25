@@ -373,7 +373,8 @@ async fn find_endpoint(state: &AppState, p: FindEndpointParams) -> Result<ToolOu
     let stamp = ScopeStamp::dev();
     let mut per_producer: std::collections::BTreeMap<&str, usize> = Default::default();
     for hit in &hits {
-        *per_producer.entry(hit.producer.as_str()).or_insert(0) += 1;
+        let count = per_producer.entry(hit.producer.as_str()).or_insert(0);
+        *count = count.saturating_add(1);
     }
     let over_budget = json!({
         "scope": stamp.scope, "at": stamp.at, "query": p.query,
@@ -396,19 +397,19 @@ async fn get_spec(state: &AppState, p: GetSpecParams) -> Result<ToolOutput, Tool
     let lines: Vec<&str> = doc.text.lines().collect();
     let total = lines.len();
     let offset = p.offset.unwrap_or(1).max(1);
-    let start = (offset - 1).min(total);
+    let start = offset.saturating_sub(1).min(total);
     let end = match p.limit {
         Some(limit) => start.saturating_add(limit).min(total),
         None => total,
     };
-    let next_offset = (end < total).then_some(end + 1);
+    let next_offset = (end < total).then_some(end.saturating_add(1));
     let body = json!({
         "scope": doc.stamp.scope, "at": doc.stamp.at,
         "service": doc.service, "api_type": doc.api_type, "version": doc.version,
         "stability": doc.stability, "path": doc.path, "method": doc.method,
         "lines": total, "bytes": doc.text.len(),
         "offset": offset, "limit": p.limit, "next_offset": next_offset,
-        "text": lines[start..end].join("\n"),
+        "text": lines.get(start..end).unwrap_or_default().join("\n"),
     });
     let endpoints =
         mcp_service::endpoint_refs(&state.repo, &doc.service, doc.api_type, doc.version).await?;
@@ -459,8 +460,8 @@ async fn diff_versions(state: &AppState, p: DiffVersionsParams) -> Result<ToolOu
             .iter()
             .flat_map(|h| h.lines.iter())
             .fold((0usize, 0usize), |(a, r), line| match line.op {
-                DiffLineOp::Add => (a + 1, r),
-                DiffLineOp::Del => (a, r + 1),
+                DiffLineOp::Add => (a.saturating_add(1), r),
+                DiffLineOp::Del => (a, r.saturating_add(1)),
                 DiffLineOp::Ctx => (a, r),
             });
     let text = services::render_unified(
@@ -476,11 +477,16 @@ async fn diff_versions(state: &AppState, p: DiffVersionsParams) -> Result<ToolOu
         "added": added, "removed": removed,
         "from_origin": diff.from_origin, "to_origin": diff.to_origin,
     });
-    let mut body = header.clone();
-    body["diff"] = Value::String(text);
-    let mut over_budget = header;
-    over_budget["hint"] = Value::String(
-        "the diff is too large to answer: narrow it to one endpoint with path + method".to_string(),
+    let body = with_fields(&header, [("diff", Value::String(text))]);
+    let over_budget = with_fields(
+        &header,
+        [(
+            "hint",
+            Value::String(
+                "the diff is too large to answer: narrow it to one endpoint with path + method"
+                    .to_string(),
+            ),
+        )],
     );
     Ok(ToolOutput { body, over_budget })
 }
@@ -515,13 +521,20 @@ async fn blame(state: &AppState, p: BlameParams) -> Result<ToolOutput, ToolError
             })
         })
         .collect();
-    let mut body = header.clone();
-    body["blocks"] = Value::Array(full);
-    let mut over_budget = header;
-    over_budget["blocks"] = Value::Array(bare);
-    over_budget["hint"] = Value::String(
-        "the text is too large to answer with its lines: narrow to one endpoint with path + method"
-            .to_string(),
+    let body = with_fields(&header, [("blocks", Value::Array(full))]);
+    let over_budget = with_fields(
+        &header,
+        [
+            ("blocks", Value::Array(bare)),
+            (
+                "hint",
+                Value::String(
+                    "the text is too large to answer with its lines: narrow to one endpoint with \
+                     path + method"
+                        .to_string(),
+                ),
+            ),
+        ],
     );
     Ok(ToolOutput { body, over_budget })
 }
@@ -546,32 +559,47 @@ async fn endpoint_structure(
         "service": view.service, "api_type": view.api_type, "version": view.version,
         "path": p.path, "method": p.method,
     });
-    let mut body = header.clone();
-    body["endpoint"] = to_value(&view.endpoints.first())?;
+    let body = with_fields(&header, [("endpoint", to_value(&view.endpoints.first())?)]);
     let mut shallow = view.endpoints.first().cloned();
     if let Some(node) = shallow.as_mut() {
         cut_below(node, 2);
     }
-    let mut over_budget = header;
-    over_budget["endpoint"] = to_value(&shallow)?;
-    over_budget["hint"] = Value::String(
+    let over_budget = with_fields(
+        &header,
+        [
+            ("endpoint", to_value(&shallow)?),
+            (
+                "hint",
+                Value::String(
         "the tree is too large to answer whole: it is cut two levels deep (children_omitted); \
          drop with_examples, or read one body with get_spec and path + method"
-            .to_string(),
+                        .to_string(),
+                ),
+            ),
+        ],
     );
     Ok(ToolOutput { body, over_budget })
 }
 
+/// `base`, a JSON object, with `fields` added or replaced.
+fn with_fields<const N: usize>(base: &Value, fields: [(&str, Value); N]) -> Value {
+    let mut object = base.as_object().cloned().unwrap_or_default();
+    for (key, value) in fields {
+        object.insert(key.to_string(), value);
+    }
+    Value::Object(object)
+}
+
 /// Keep `levels` levels of children below `node`, flagging where it cut.
 fn cut_below(node: &mut crate::structure::Node, levels: usize) {
-    if levels == 0 {
+    let Some(below) = levels.checked_sub(1) else {
         node.children_omitted = !node.children.is_empty();
         node.children.clear();
         node.example = None;
         return;
-    }
+    };
     for child in &mut node.children {
-        cut_below(child, levels - 1);
+        cut_below(child, below);
     }
 }
 

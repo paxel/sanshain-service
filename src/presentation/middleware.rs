@@ -196,26 +196,24 @@ pub async fn authenticated_auth(
     req: Request,
     next: Next,
 ) -> Result<Response, Refusal> {
-    let auth_header = req
+    let bearer = req
         .headers()
         .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
 
-    match auth_header {
-        Some(token) if token.starts_with("Bearer ") => {
-            let token = &token[7..];
-            match services::validate_session(&state.repo, token).await {
-                Ok(Some((user, _session))) => {
-                    let mut req = req;
-                    attach_caller(&mut req, &state, user)
-                        .await
-                        .map_err(IntoResponse::into_response)?;
-                    refuse_unless_admin_may_sign_in(&state, &req).await?;
-                    Ok(next.run(req).await)
-                }
-                _ => Err(StatusCode::UNAUTHORIZED.into_response().into()),
+    match bearer {
+        Some(token) => match services::validate_session(&state.repo, token).await {
+            Ok(Some((user, _session))) => {
+                let mut req = req;
+                attach_caller(&mut req, &state, user)
+                    .await
+                    .map_err(IntoResponse::into_response)?;
+                refuse_unless_admin_may_sign_in(&state, &req).await?;
+                Ok(next.run(req).await)
             }
-        }
+            _ => Err(StatusCode::UNAUTHORIZED.into_response().into()),
+        },
         _ => Err(StatusCode::UNAUTHORIZED.into_response().into()),
     }
 }
@@ -543,8 +541,8 @@ impl<'a> tracing::field::Visit for LogVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let formatted = || {
             let mut s = format!("{:?}", value);
-            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
-                s = s[1..s.len() - 1].to_string();
+            if let Some(inner) = s.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
+                s = inner.to_string();
             }
             s
         };

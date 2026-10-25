@@ -215,7 +215,7 @@ pub async fn retire_protocol_family(
             if contract.owner_service_id == service_id {
                 repo.delete_channel_message_contract(&contract.channel, &contract.message_name)
                     .await?;
-                result.contracts_released += 1;
+                result.contracts_released = result.contracts_released.saturating_add(1);
             }
         }
     }
@@ -338,10 +338,8 @@ async fn producer_versions_map(
                 .unwrap_or(meta.updated_at.as_str());
             chrono::DateTime::parse_from_rfc3339(last_use)
                 .ok()
-                .map(|t| {
-                    (t + chrono::Duration::days(max_age_days as i64))
-                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-                })
+                .and_then(|t| t.checked_add_signed(super::days(max_age_days)))
+                .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         } else {
             None
         };
@@ -586,7 +584,7 @@ pub async fn cleanup_expired_snapshots(repo: &impl SpecRepository) -> Result<u64
     if days == 0 {
         return Ok(0);
     }
-    let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff = super::before(Utc::now(), super::days(days));
     Ok(repo.delete_expired_snapshots(&cutoff.to_rfc3339()).await?)
 }
 
@@ -614,7 +612,7 @@ pub async fn cleanup_stale_dependencies(repo: &impl SpecRepository) -> Result<u6
     if days == 0 {
         return Ok(0);
     }
-    let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff = super::before(Utc::now(), super::days(days));
     Ok(repo.delete_stale_dependencies(&cutoff.to_rfc3339()).await?)
 }
 
@@ -653,8 +651,8 @@ pub async fn cleanup_stale_trunk_data(repo: &impl SpecRepository) -> Result<u64,
         return Ok(0);
     }
     let now = Utc::now();
-    let cutoff = (now - chrono::Duration::days(days as i64))
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let cutoff =
+        super::before(now, super::days(days)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let now = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     Ok(repo.close_expired_trunk_data(&cutoff, &now).await?)
 }

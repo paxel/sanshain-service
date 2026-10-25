@@ -61,8 +61,8 @@ pub fn extract_sanshain_version(content: &str) -> Result<crate::domain::models::
             .map_err(|e| format!("sanshain-version marker: {}", e)),
         many => {
             let unique: std::collections::BTreeSet<&str> = many.iter().copied().collect();
-            if unique.len() == 1 {
-                crate::domain::models::SemVer::parse_spec_version(many[0])
+            if let (1, Some(only)) = (unique.len(), unique.first()) {
+                crate::domain::models::SemVer::parse_spec_version(only)
                     .map_err(|e| format!("sanshain-version marker: {}", e))
             } else {
                 Err(format!(
@@ -93,16 +93,20 @@ pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
 
     for service in services {
         for rpc_cap in re_rpc.captures_iter(&service.body) {
-            let method_name = &rpc_cap[1];
-            let rpc_line = rpc_cap[0].trim();
-            let rpc_start = rpc_cap.get(0).map(|m| m.start()).unwrap_or(0);
+            let (Some(whole), Some(method_name)) = (rpc_cap.get(0), rpc_cap.get(1)) else {
+                continue;
+            };
+            let method_name = method_name.as_str();
+            let rpc_line = whole.as_str().trim();
+            let rpc_start = whole.start();
 
             let mut snippet = common_base.clone();
             snippet.push_str(&format!("\nservice {} {{\n", service.name));
             // The comment block right above the rpc is its documentation:
             // it travels with the snippet so a Consumer (and the endpoint
             // list) reads what the Producer wrote.
-            for line in leading_comment_lines(&service.body[..rpc_start]) {
+            let before = service.body.get(..rpc_start).unwrap_or_default();
+            for line in leading_comment_lines(before) {
                 snippet.push_str("  ");
                 snippet.push_str(line);
                 snippet.push('\n');
@@ -148,7 +152,7 @@ fn leading_comment_lines(before: &str) -> Vec<&str> {
 pub fn rpc_summary(snippet: &str) -> Option<String> {
     let re_rpc = RE_RPC.as_ref().ok()?;
     let rpc = re_rpc.find(snippet)?;
-    let text = leading_comment_lines(&snippet[..rpc.start()])
+    let text = leading_comment_lines(snippet.get(..rpc.start())?)
         .iter()
         .map(|line| line.trim_start_matches('/').trim())
         .collect::<Vec<_>>()
@@ -162,26 +166,34 @@ fn extract_service_blocks(re_service: &Regex, content: &str) -> Vec<ServiceBlock
         .filter_map(|captures| {
             let service_match = captures.get(0)?;
             let name = captures.get(1)?.as_str().to_string();
-            let open_brace = service_match.end() - 1;
-            let close_brace = find_matching_brace(content, open_brace)?;
+            let (body, end) = braced_block(content, service_match)?;
             Some(ServiceBlock {
                 name,
-                body: content[open_brace + 1..close_brace].to_string(),
-                range: service_match.start()..close_brace + 1,
+                body: body.to_string(),
+                range: service_match.start()..end,
             })
         })
         .collect()
 }
 
+/// The block a regex match opens with its final `{`: the text between the
+/// braces, and the offset just past the matching `}`.
+fn braced_block<'a>(content: &'a str, opening: regex::Match<'_>) -> Option<(&'a str, usize)> {
+    let open_brace = opening.end().checked_sub(1)?;
+    let close_brace = find_matching_brace(content, open_brace)?;
+    let body = content.get(opening.end()..close_brace)?;
+    Some((body, close_brace.checked_add(1)?))
+}
+
 fn find_matching_brace(content: &str, open_brace: usize) -> Option<usize> {
     let mut depth = 0usize;
-    for (offset, ch) in content[open_brace..].char_indices() {
+    for (offset, ch) in content.get(open_brace..)?.char_indices() {
         match ch {
-            '{' => depth += 1,
+            '{' => depth = depth.checked_add(1)?,
             '}' => {
                 depth = depth.checked_sub(1)?;
                 if depth == 0 {
-                    return Some(open_brace + offset);
+                    return open_brace.checked_add(offset);
                 }
             }
             _ => {}
@@ -194,10 +206,10 @@ fn remove_service_blocks(content: &str, services: &[ServiceBlock]) -> String {
     let mut common_base = String::new();
     let mut cursor = 0;
     for service in services {
-        common_base.push_str(&content[cursor..service.range.start]);
+        common_base.push_str(content.get(cursor..service.range.start).unwrap_or_default());
         cursor = service.range.end;
     }
-    common_base.push_str(&content[cursor..]);
+    common_base.push_str(content.get(cursor..).unwrap_or_default());
     common_base
 }
 
@@ -316,12 +328,20 @@ fn parse_rpcs(content: &str) -> Result<HashMap<(String, String), ProtoRpc>, Stri
     let mut rpcs = HashMap::new();
     for service in extract_service_blocks(re_service, content) {
         for rpc_cap in re_rpc.captures_iter(&service.body) {
+            let (Some(whole), Some(method), Some(request), Some(response)) = (
+                rpc_cap.get(0),
+                rpc_cap.get(1),
+                rpc_cap.get(2),
+                rpc_cap.get(3),
+            ) else {
+                continue;
+            };
             rpcs.insert(
-                (service.name.clone(), rpc_cap[1].to_string()),
+                (service.name.clone(), method.as_str().to_string()),
                 ProtoRpc {
-                    request: normalize_type(&rpc_cap[2]),
-                    response: normalize_type(&rpc_cap[3]),
-                    deprecated: re_deprecated.is_match(&rpc_cap[0]),
+                    request: normalize_type(request.as_str()),
+                    response: normalize_type(response.as_str()),
+                    deprecated: re_deprecated.is_match(whole.as_str()),
                 },
             );
         }
@@ -386,13 +406,11 @@ fn collect_message_blocks(
         let Some(name) = captures.get(1) else {
             continue;
         };
-        let open_brace = message_match.end() - 1;
-        let Some(close_brace) = find_matching_brace(content, open_brace) else {
+        let Some((body, end)) = braced_block(content, message_match) else {
             continue;
         };
-        last_end = close_brace + 1;
+        last_end = end;
 
-        let body = &content[open_brace + 1..close_brace];
         let qualified_name = if prefix.is_empty() {
             name.as_str().to_string()
         } else {
@@ -414,15 +432,20 @@ fn collect_message_blocks(
         let own_body = remove_message_blocks(body, re_message);
         let mut fields = HashMap::new();
         for field_cap in re_field.captures_iter(&own_body) {
-            let number = field_cap[4].parse::<u64>().unwrap_or(0);
+            let (Some(field_type), Some(name), Some(number)) =
+                (field_cap.get(2), field_cap.get(3), field_cap.get(4))
+            else {
+                continue;
+            };
+            let number = number.as_str().parse::<u64>().unwrap_or(0);
             fields.insert(
-                field_cap[3].to_string(),
+                name.as_str().to_string(),
                 ProtoField {
                     label: field_cap
                         .get(1)
                         .map(|l| l.as_str().to_string())
                         .unwrap_or_default(),
-                    field_type: normalize_type(&field_cap[2]),
+                    field_type: normalize_type(field_type.as_str()),
                     number,
                     deprecated: field_cap
                         .get(5)
@@ -449,14 +472,17 @@ fn remove_message_blocks(content: &str, re_message: &Regex) -> String {
         if message_match.start() < cursor {
             continue;
         }
-        let open_brace = message_match.end() - 1;
-        let Some(close_brace) = find_matching_brace(content, open_brace) else {
+        let Some((_, end)) = braced_block(content, message_match) else {
             continue;
         };
-        result.push_str(&content[cursor..message_match.start()]);
-        cursor = close_brace + 1;
+        result.push_str(
+            content
+                .get(cursor..message_match.start())
+                .unwrap_or_default(),
+        );
+        cursor = end;
     }
-    result.push_str(&content[cursor..]);
+    result.push_str(content.get(cursor..).unwrap_or_default());
     result
 }
 

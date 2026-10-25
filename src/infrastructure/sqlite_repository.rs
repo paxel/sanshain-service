@@ -2400,7 +2400,7 @@ impl SpecRepository for SqliteSpecRepository {
                 .execute(&self.pool)
                 .await
                 .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-            removed += res.rows_affected();
+            removed = removed.saturating_add(res.rows_affected());
         }
         Ok(removed)
     }

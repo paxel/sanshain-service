@@ -228,7 +228,7 @@ pub async fn start_session(
         )
         .await?;
     }
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339();
+    let expires_at = super::after(chrono::Utc::now(), super::days(7)).to_rfc3339();
     let session = repo.create_session(user.id, &expires_at).await?;
     super::auth_service::record_sign_in(repo, &session, method).await?;
     Ok(session)

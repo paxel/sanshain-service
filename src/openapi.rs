@@ -86,15 +86,14 @@ fn collapse_slashes(path: &str) -> String {
 fn blank_path_variables(path: &str) -> String {
     let mut blanked = String::with_capacity(path.len());
     let mut rest = path;
-    while let Some(open) = rest.find('{') {
-        blanked.push_str(&rest[..open]);
-        let after_open = &rest[open + 1..];
-        match after_open.find('}') {
+    while let Some((before, after_open)) = rest.split_once('{') {
+        blanked.push_str(before);
+        match after_open.split_once('}') {
             // A placeholder needs at least one character between the braces;
             // bare `{}` and unclosed `{` are kept verbatim.
-            Some(close) if close > 0 => {
+            Some((name, after_close)) if !name.is_empty() => {
                 blanked.push_str("{}");
-                rest = &after_open[close + 1..];
+                rest = after_close;
             }
             _ => {
                 blanked.push('{');
@@ -296,12 +295,9 @@ fn extract_used_components_optimized(
 
     let mut filtered = Components::default();
     for key in &visited {
-        let parts: Vec<&str> = key.splitn(2, '/').collect();
-        if parts.len() != 2 {
+        let Some((category, name)) = key.split_once('/') else {
             continue;
-        }
-        let category = parts[0];
-        let name = parts[1];
+        };
 
         match category {
             "schemas" => {
@@ -406,16 +402,16 @@ fn collect_refs_recursive(value: &serde_json::Value, refs: &mut BTreeSet<String>
 /// Merge multiple per-endpoint YAML snippets (from the same service) into a single OpenAPI spec
 /// with deduplicated schemas/components.
 pub fn merge_endpoint_yamls(yamls: &[String]) -> Result<String, String> {
-    if yamls.is_empty() {
+    let Some((first, rest)) = yamls.split_first() else {
         return Err("No endpoint YAMLs to merge".to_string());
-    }
+    };
 
     // Use the first snippet as the base (info, servers, openapi version)
-    let mut merged: OpenAPI = crate::yaml::from_str(&yamls[0])
+    let mut merged: OpenAPI = crate::yaml::from_str(first)
         .map_err(|e| format!("Failed to parse first endpoint YAML: {}", e))?;
 
     // Merge paths and components from all subsequent snippets
-    for yaml in &yamls[1..] {
+    for yaml in rest {
         let spec: OpenAPI = crate::yaml::from_str(yaml)
             .map_err(|e| format!("Failed to parse endpoint YAML: {}", e))?;
 

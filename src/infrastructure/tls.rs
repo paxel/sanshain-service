@@ -130,7 +130,7 @@ pub fn load_extra_ca_certs(dir: &Path) -> Result<ExtraCaCerts, TrustStoreError> 
                 message: e.to_string(),
             })?;
             certs.push(cert);
-            found_in_file += 1;
+            found_in_file = found_in_file.saturating_add(1);
         }
 
         if found_in_file == 0 {
@@ -140,7 +140,7 @@ pub fn load_extra_ca_certs(dir: &Path) -> Result<ExtraCaCerts, TrustStoreError> 
             });
         }
 
-        files_read += 1;
+        files_read = files_read.saturating_add(1);
     }
 
     Ok(ExtraCaCerts {

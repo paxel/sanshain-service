@@ -31,7 +31,11 @@ fn spec_content_fingerprint(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     let hash = hex::encode(hasher.finalize());
-    format!("{} bytes, sha256:{}", content.len(), &hash[..16])
+    format!(
+        "{} bytes, sha256:{}",
+        content.len(),
+        hash.get(..16).unwrap_or(&hash)
+    )
 }
 
 pub(crate) fn content_hash(content: &str) -> String {
@@ -117,15 +121,15 @@ pub async fn normalize_stored_spec_text(
             endpoint_texts: &endpoint_texts,
         })
         .await?;
-        summary.versions += 1;
-        summary.endpoints += endpoint_texts.len();
+        summary.versions = summary.versions.saturating_add(1);
+        summary.endpoints = summary.endpoints.saturating_add(endpoint_texts.len());
     }
     for mut contract in repo.list_channel_message_contracts().await? {
         let payload = normalize_spec_text(&contract.payload_yaml);
         if payload != contract.payload_yaml {
             contract.payload_yaml = payload.into_owned();
             repo.upsert_channel_message_contract(&contract).await?;
-            summary.contracts += 1;
+            summary.contracts = summary.contracts.saturating_add(1);
         }
     }
     repo.set_setting(SPEC_TEXT_NORMALIZED_SETTING, &super::now_iso())
@@ -620,7 +624,7 @@ pub async fn blame_version(
                 provided_by: meta.provided_by.clone(),
                 updated_at: meta.updated_at.clone(),
                 origin: origins.get(&meta.id).cloned().unwrap_or_default(),
-                start_line: run.start + 1,
+                start_line: run.start.saturating_add(1),
                 lines: last
                     .iter()
                     .skip(run.start)

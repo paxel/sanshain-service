@@ -5,7 +5,7 @@
 
 use crate::domain::models::{AppError, AuditLogEntry, AuditLogFilter};
 use crate::domain::ports::SpecRepository;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Days, NaiveDate, Utc};
 use serde::Serialize;
 
 /// How many days the activity chart covers, today included.
@@ -60,7 +60,9 @@ pub async fn dashboard_stats(
     let versions = repo.list_all_spec_versions().await?.len();
 
     let today = now.date_naive();
-    let first = today - Duration::days(ACTIVITY_DAYS as i64 - 1);
+    let first = today
+        .checked_sub_days(Days::new(ACTIVITY_DAYS.saturating_sub(1) as u64))
+        .unwrap_or(NaiveDate::MIN);
     let entries = repo
         .get_audit_logs(AuditLogFilter {
             from_date: Some(first.format("%Y-%m-%d").to_string()),
@@ -136,20 +138,25 @@ fn per_day(entries: &[AuditLogEntry], first: NaiveDate, days: usize) -> Vec<DayC
         let Ok(stamp) = DateTime::parse_from_rfc3339(&entry.timestamp) else {
             continue;
         };
-        let offset = (stamp.with_timezone(&Utc).date_naive() - first).num_days();
+        let offset = stamp
+            .with_timezone(&Utc)
+            .date_naive()
+            .signed_duration_since(first)
+            .num_days();
         if let Ok(index) = usize::try_from(offset)
             && let Some(count) = counts.get_mut(index)
         {
-            *count += 1;
+            *count = count.saturating_add(1);
         }
     }
     counts
         .into_iter()
         .enumerate()
         .map(|(i, provides)| DayCount {
-            day: (first + Duration::days(i as i64))
-                .format("%Y-%m-%d")
-                .to_string(),
+            day: first
+                .checked_add_days(Days::new(i as u64))
+                .map(|day| day.format("%Y-%m-%d").to_string())
+                .unwrap_or_default(),
             provides,
         })
         .collect()

@@ -207,7 +207,7 @@ async fn echo(socket: &tokio::net::UdpSocket, ip: IpAddr) -> io::Result<()> {
     let mut buf = [0u8; 1500];
     loop {
         let (len, _) = socket.recv_from(&mut buf).await?;
-        if is_echo_reply(ip, &buf[..len]) {
+        if is_echo_reply(ip, buf.get(..len).unwrap_or(&[])) {
             return Ok(());
         }
     }
@@ -241,10 +241,10 @@ fn internet_checksum(data: &[u8]) -> u16 {
             [a] => u16::from_be_bytes([*a, 0]),
             _ => 0,
         };
-        sum += u32::from(word);
+        sum = sum.saturating_add(u32::from(word));
     }
     while sum >> 16 != 0 {
-        sum = (sum & 0xffff) + (sum >> 16);
+        sum = (sum & 0xffff).saturating_add(sum >> 16);
     }
     !(sum as u16)
 }
@@ -252,9 +252,9 @@ fn internet_checksum(data: &[u8]) -> u16 {
 /// Whether a received datagram is an echo reply. Some kernels hand the IPv4
 /// header back in front of the ICMP header; it is skipped when present.
 fn is_echo_reply(ip: IpAddr, datagram: &[u8]) -> bool {
-    let icmp = match ip {
-        IpAddr::V4(_) if datagram.first().is_some_and(|b| b >> 4 == 4) => {
-            let header_len = usize::from(datagram[0] & 0x0f) * 4;
+    let icmp = match (ip, datagram.first()) {
+        (IpAddr::V4(_), Some(&first)) if first >> 4 == 4 => {
+            let header_len = usize::from(first & 0x0f).saturating_mul(4);
             datagram.get(header_len..).unwrap_or(&[])
         }
         _ => datagram,

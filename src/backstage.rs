@@ -133,14 +133,14 @@ pub fn read_component(yaml: &str, system: &str) -> Result<CatalogComponent, Cata
             continue;
         }
         let entity: Entity = serde_json::from_value(value)
-            .map_err(|e| CatalogError::NotAnEntity(index + 1, e.to_string()))?;
+            .map_err(|e| CatalogError::NotAnEntity(index.saturating_add(1), e.to_string()))?;
         // `backstage.io/v1alpha1`, but also plugin groups such as
         // `scaffolder.backstage.io/v1beta3`: a Template in the same file is a
         // valid entity, merely not the one Sanshain reads.
         let group = entity.api_version.split('/').next().unwrap_or_default();
         if !(group == "backstage.io" || group.ends_with(".backstage.io")) {
             return Err(CatalogError::NotAnEntity(
-                index + 1,
+                index.saturating_add(1),
                 format!(
                     "apiVersion '{}' is not a backstage.io group",
                     entity.api_version
@@ -300,7 +300,7 @@ fn cut(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_string();
     }
-    let mut cut: String = text.chars().take(max - 1).collect();
+    let mut cut: String = text.chars().take(max.saturating_sub(1)).collect();
     cut.push('…');
     cut
 }
