@@ -4,6 +4,19 @@
 
 # [Sanshain Service](https://github.com/paxel/sanshain-service)
 
+[![CI](https://github.com/paxel/sanshain-service/actions/workflows/ci.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/ci.yml)
+[![Quality](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml)
+[![Security](https://github.com/paxel/sanshain-service/actions/workflows/security.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/paxel/sanshain-service)](https://github.com/paxel/sanshain-service/releases/latest)
+[![Image](https://img.shields.io/badge/image-ghcr.io-blue)](https://github.com/paxel/sanshain-service/pkgs/container/sanshain-service)
+[![Signed with cosign](https://img.shields.io/badge/signed-cosign-blue)](https://paxel.github.io/sanshain-service/operator/deployment.html#verifying-a-release)
+[![Docs](https://img.shields.io/badge/docs-paxel.github.io-blue)](https://paxel.github.io/sanshain-service/)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A579%25-brightgreen)](https://github.com/paxel/sanshain-service/blob/summer/.github/workflows/quality.yml)
+[![dependency status](https://deps.rs/repo/github/paxel/sanshain-service/status.svg)](https://deps.rs/repo/github/paxel/sanshain-service)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success)](https://github.com/paxel/sanshain-service/blob/summer/src/lib.rs)
+[![panic-free](https://img.shields.io/badge/panic--free-linted-success)](https://github.com/paxel/sanshain-service/blob/summer/src/lib.rs)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/paxel/sanshain-service/blob/summer/LICENSE)
+
 Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and distribute API specifications. **Producers** provide their full API definitions; **Consumers** require only the specific snippets (endpoints, channels, or methods) they actually use at build time. A system is usually both.
 
 ### TL;DR
