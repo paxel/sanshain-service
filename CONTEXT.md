@@ -27,6 +27,14 @@ Software that speaks HTTP to Sanshain on a Producer's or Consumer's behalf — t
 CLIs, build integrations. Never a domain entity: tooling acts *for* a Producer or Consumer.
 _Avoid_: client, Sanshain client
 
+**Product**:
+A named envelope of systems that together make up something a company ships — what a Helm
+umbrella chart deploys, for example. Defined from outside and above: a system never declares, and
+never knows, which Products it is in, and one system may be in many. A member is a system by name,
+counting with whichever of its Producer and Consumer roles it has. A Product collects its members;
+it never changes them and passes no power over them (ADR-0011).
+_Avoid_: system, domain (the Producer's graph cluster), application, tenant
+
 > Producer and Consumer are **roles, not entity types**. One system is usually both: it produces
 > its own spec and consumes others'. Sanshain records the two roles separately, so such a system
 > appears once in each list.
@@ -39,7 +47,7 @@ never roles, so what a route requires stays readable without knowing who holds w
 _Avoid_: right, privilege, capability
 
 **Role**:
-A named bundle of permissions, held instance-wide. Fixed: the set of roles is part of the product,
+A named bundle of permissions, held instance-wide. Fixed: the set of roles is part of Sanshain itself,
 not something an operator composes.
 _Avoid_: profile, permission set, access level (also: not a Producer/Consumer role — those are
 positions in an exchange, not grants)
@@ -53,6 +61,11 @@ _Avoid_: team, org unit
 An Actor responsible for a set of Producers, holding powers over those and no others. Scoped by
 definition — unlike a role, it means nothing without the Producers it is over.
 _Avoid_: owner, admin, service owner
+
+**Product Maintainer**:
+An Actor responsible for one Product's membership — adding and removing its member systems — and
+nothing else. Holds no power over the members themselves; that stays with their own Maintainers.
+_Avoid_: product owner, Maintainer (unqualified — that one is scoped to Producers)
 
 **Root**:
 The Actor whose authority comes from configuration rather than from stored grants, and which
