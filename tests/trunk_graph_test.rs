@@ -1803,7 +1803,7 @@ async fn audit_csv_escapes_quotes_in_the_stream_column() {
 
 #[tokio::test]
 async fn a_deleted_participant_leaves_the_main_graph_but_keeps_its_timeline() {
-    // ai/improvements.md #26 Problem B: the participant's pin rows used to
+    // The participant's pin rows used to
     // cascade away on delete, erasing the timeline. Now they are denormalized
     // by value — the delete closes the open pin (so the participant leaves the
     // *current* main graph) but every row survives, so a past-instant query
@@ -2324,7 +2324,7 @@ async fn a_branch_pin_survives_deleting_a_participant_it_no_longer_references() 
 
 #[tokio::test]
 async fn retiring_a_protocol_family_sheds_the_capability_but_keeps_history() {
-    // ai/improvements.md #7: a producer that no longer provides AsyncAPI can
+    // A producer that no longer provides AsyncAPI can
     // retire it — the messaging tag goes, its trunk pins leave the current
     // graph (history kept), its channel contract is released — while the
     // version line stays and consumers can still require the old version.

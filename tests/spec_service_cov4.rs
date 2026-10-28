@@ -272,7 +272,7 @@ async fn diff_versions_refuses_an_unknown_producer() {
     );
 }
 
-// --- AsyncAPI subscribe harvesting (ai/improvements.md #6, ADR-0006) ---
+// --- AsyncAPI subscribe harvesting (ADR-0006) ---
 
 #[cfg(test)]
 fn asyncapi_subscribes_to(version: &str, extra_prop_line: &str) -> String {

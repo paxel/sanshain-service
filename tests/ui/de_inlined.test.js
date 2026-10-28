@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 // Runtime companion to the static tests/no_inline_handlers.rs guard for the CSP
-// de-inlining (ai/improvements.md #11). The static test proves no source ships
+// de-inlining. The static test proves no source ships
 // an inline on* handler; this proves the replacements are wired correctly:
 //
 //  1. every data-<event> attribute present in the live DOM names a function

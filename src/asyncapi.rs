@@ -439,7 +439,7 @@ fn check_schema_compatible(path: &str, old: &Value, new: &Value) -> Result<(), S
 }
 
 /// A `publish`/`send` (PUB) message extracted from an AsyncAPI document, for
-/// message-level channel contracts (ai/improvements.md item #20). Only messages
+/// message-level channel contracts. Only messages
 /// carrying an explicit identity (`name`, falling back to `title`) are returned;
 /// unnamed messages have no cross-service identity and are skipped.
 #[derive(Debug, Clone, PartialEq)]
@@ -467,7 +467,7 @@ pub fn extract_pub_messages(yaml_str: &str) -> Result<Vec<PubMessage>, String> {
 
 /// Extract every named SUB (subscribe/receive) message — the mirror of
 /// [`extract_pub_messages`], used to harvest a Producer's declared
-/// subscriptions (ai/improvements.md #6, ADR-0006). The returned [`PubMessage`]
+/// subscriptions (ADR-0006). The returned [`PubMessage`]
 /// describes the subscribed message; its fields (channel, message name,
 /// payload) are direction-neutral. The same app-perspective reading applies:
 /// `subscribe` (2.x) / `receive` (3.x) = this service subscribes.
@@ -637,7 +637,7 @@ pub fn check_payload_compatible(
 }
 
 /// Check a consumer's SUB payload (its *expectation*) is satisfiable by a
-/// Producer's PUB `contract` payload (ai/improvements.md #6, ADR-0006): every
+/// Producer's PUB `contract` payload (ADR-0006): every
 /// property the expectation reads must exist in the contract with a compatible
 /// type. A consumer expecting *less* than the contract guarantees is fine;
 /// expecting a property, or a type, the contract does not guarantee is drift.
@@ -1496,7 +1496,7 @@ channels:
         assert_eq!(analyze_impact(base, &doc_only), Impact::Patch);
     }
 
-    // --- SUB harvesting (ai/improvements.md #6, ADR-0006) ---
+    // --- SUB harvesting (ADR-0006) ---
 
     #[test]
     fn extract_sub_messages_v2_named_subscribe_only() {

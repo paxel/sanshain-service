@@ -1,5 +1,5 @@
 //! Postgres repository tests for message-level AsyncAPI channel contracts
-//! (ai/improvements.md item #20, reworked by ADR-0003). Contracts are keyed
+//! (reworked by ADR-0003). Contracts are keyed
 //! globally by `(channel, message_name)` — Kafka topic names share one
 //! namespace, so there is no branch (and no version) in the key. Mirrors the
 //! SQLite unit tests in `src/infrastructure/sqlite_repository.rs`, run against

@@ -12,7 +12,7 @@ license = "Apache-2.0"
 unsafe_code = "deny"
 
 [lints.clippy]
-# No-panic policy (see AGENTS.md / ai/improvements.md E3). Test code is exempt
+# No-panic policy (see AGENTS.md). Test code is exempt
 # via `allow-*-in-tests` in clippy.toml.
 # Unreachable, indexing, slicing and overflowing arithmetic are denied for shipped code only,
 # at the crate roots (`src/lib.rs`, `src/main.rs`): tests have no in-tests escape.
@@ -23,7 +23,7 @@ todo = "deny"
 unimplemented = "deny"
 dbg_macro = "deny"
 
-# No-`#[allow]` policy (see AGENTS.md / ai/improvements.md E10). Silencing a lint
+# No-`#[allow]` policy (see AGENTS.md). Silencing a lint
 # with `#[allow(...)]` is forbidden — fix the lint instead. This denies the
 # escape hatch itself so it cannot creep back in.
 allow_attributes = "deny"
@@ -58,7 +58,7 @@ ldap3 = { version = "0.12", default-features = false, features = ["tls-rustls-ri
 url = "2"
 # Unprivileged datagram ICMP sockets for the LDAP network diagnosis (#59).
 socket2 = "0.6"
-# OIDC human login (ai/improvements grill: batch 2). rustls through reqwest
+# OIDC human login. rustls through reqwest
 # 0.13; its crypto is biscuit on ring, the provider rustls already uses here.
 openid = { version = "0.25", default-features = false, features = ["rustls"] }
 base64 = "0.23"

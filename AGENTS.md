@@ -64,8 +64,6 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
 Update these as part of the same change, not as a follow-up:
 - **`README.md`**: new features, endpoints, or configuration options.
 - **`CHANGELOG.md`**: every user-facing change, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, under the current unreleased/version heading.
-- **`docs/ai/plan.md`**: check off / update task status when completing backlog items tracked there.
-- **`ai/improvements.md`**: a standing backlog of known risks/gaps (P0 security, P1 features, P2 quality). Pick one item at a time, don't "fix everything" in one PR.
 - **`api.yaml`**: the contract Producers and Consumers speak (provide/require/report). Keep in sync
   with what the service exposes. It must stay stable — roughly 25 Producers pin against it.
 - **`maintenance.yaml`**: the `/admin/*` administrative surface, including the permission each
@@ -88,8 +86,6 @@ Update these as part of the same change, not as a follow-up:
 | `justfile` / `package.json`         | Task runner entry points (`just check`, `npm run check`, …) |
 | `CHANGELOG.md` / `OLDER_CHANGES.md` | User-facing change history                                  |
 | `docs/`                             | User and developer documentation (see `docs/README.md`)     |
-| `ai/improvements.md`                | Prioritized improvement/risk backlog                        |
-| `docs/ai/plan.md`                   | Longer-term feature roadmap                                 |
 
 ## External Integrations
 - Playwright MCP server available for browser-based UI testing (`npx @playwright/mcp`).

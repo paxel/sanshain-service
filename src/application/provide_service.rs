@@ -1,6 +1,6 @@
 //! The Provide use-case of the version-line model (ADR-0003): the version and
 //! stability rules, promotion, AsyncAPI channel-message contracts, and
-//! subscribe harvesting. Split out of spec_service.rs (ai/improvements.md #16);
+//! subscribe harvesting. Split out of spec_service.rs;
 //! the read/query use-cases stay there. Refactor only — no behaviour change.
 
 use super::now_iso;

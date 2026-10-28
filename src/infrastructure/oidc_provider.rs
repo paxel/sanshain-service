@@ -1,5 +1,4 @@
-//! OpenID Connect provider for human browser login (ai/improvements grill batch
-//! 2). The `openid` crate drives the security-critical parts — discovery, the
+//! OpenID Connect provider for human browser login. The `openid` crate drives the security-critical parts — discovery, the
 //! PKCE authorization-code flow, and ID-token verification (JWKS signature,
 //! nonce, issuer, audience, expiry). The username/groups claims are
 //! configurable by name, so they are read from the *already-verified* token

@@ -88,7 +88,7 @@ pub struct AppState {
     pub mcp: presentation::mcp::McpConfig,
 }
 
-/// Content-Security-Policy served with every response (ai/improvements.md #11).
+/// Content-Security-Policy served with every response.
 ///
 /// `script-src 'self'` forbids inline scripts and inline `on*=` event handlers;
 /// all behaviour is delegated through the dispatcher in `common.js`. Every
@@ -354,7 +354,7 @@ fn mcp_routes(state: AppState) -> Router<AppState> {
 mod tests {
     use super::CONTENT_SECURITY_POLICY;
 
-    /// The de-inlining (ai/improvements.md #11) exists so `script-src` can drop
+    /// The de-inlining exists so `script-src` can drop
     /// `'unsafe-inline'`; this pins that it stays dropped. `style-src`
     /// deliberately keeps `'unsafe-inline'` (Mermaid injects `<style>`), so the
     /// assertion is scoped to the `script-src` directive rather than the whole

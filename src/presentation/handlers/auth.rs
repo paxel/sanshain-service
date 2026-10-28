@@ -397,7 +397,7 @@ pub async fn remove_favorite(
     Ok(StatusCode::OK)
 }
 
-// --- OIDC human login (ai/improvements grill batch 2) ---
+// --- OIDC human login ---
 
 const OIDC_FLOW_COOKIE: &str = "sanshain_oidc_flow";
 

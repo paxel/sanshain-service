@@ -1,4 +1,4 @@
-// Extracted from static/audit.html (ai/improvements.md #11): inline
+// Extracted from static/audit.html: inline
 // script moved to an external classic file so the CSP can forbid inline
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.

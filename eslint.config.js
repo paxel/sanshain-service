@@ -51,7 +51,7 @@ export default [
         checkDiscoveryAuth: "readonly",
         closeModal: "readonly",
         // Cross-file page globals surfaced when inline <script> blocks were
-        // extracted to static/js/pages/ (ai/improvements.md #11). Each is
+        // extracted to static/js/pages/. Each is
         // defined in another script loaded on the same page; runtime scope is
         // unchanged from when the code was inline.
         allServices: "readonly",

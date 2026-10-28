@@ -12,7 +12,7 @@ miss consumer edges, and drift between a consumer's local schema copy and the pr
 is never detected.
 
 This ADR settles how Sanshain harvests those subscriptions. It re-scopes
-[ai/improvements.md #6](../../ai/improvements.md) to the post-ADR-0003 world (versions, not
+the subscribe-harvesting backlog item to the post-ADR-0003 world (versions, not
 branches; contracts keyed `(channel, message-name)` with no branch; GA-only contract registration
 from [ADR-0004](0004-trunk-flag-and-graph-views.md) / item #20). No code lands with this ADR — it
 is the design pass the item was gated on.

@@ -150,7 +150,7 @@ pub struct MockPeripheryRow {
     pub valid_to: Option<String>,
 }
 
-/// In-memory harvested subscription row (ai/improvements.md #6). Append-only:
+/// In-memory harvested subscription row. Append-only:
 /// the open row (`valid_to` is `None`) per (client_id, channel, message) is
 /// current.
 #[derive(Clone)]

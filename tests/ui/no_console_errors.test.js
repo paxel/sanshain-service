@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-// The safety net for de-inlining (ai/improvements.md #11). The CSP forbids
+// The safety net for de-inlining. The CSP forbids
 // inline scripts, and every `onclick=` now routes through the delegated
 // dispatcher via `data-<event>` attributes. A handler or script that was missed
 // no longer silently no-ops — it throws a ReferenceError or logs a CSP

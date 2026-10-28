@@ -11,7 +11,7 @@ What remains in `docs/` is not for the site:
   whiteboxed export; the site's Architecture page is generated from them.
 - [`agents/`](agents/) — instructions for coding agents: the issue tracker, triage labels, the
   domain docs layout.
-- [`ai/`](ai/) — the longer-term roadmap (`plan.md`) and the client 2.2 rollout notes.
+- [`ai/`](ai/) — the client 2.2 rollout notes.
 - [`ai-migration.md`](ai-migration.md) — using an AI assistant to migrate a service to Sanshain.
 - [`developer-guide.md`](developer-guide.md) — service internals for contributors and auditors.
 - [`reports/demo.md`](reports/demo.md) — a sample dependency report.

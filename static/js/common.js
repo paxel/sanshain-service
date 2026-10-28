@@ -798,7 +798,7 @@ function togglePasswordVisibility(inputId, btn) {
   }
 }
 
-// ── Delegated event dispatcher (ai/improvements.md #11) ──────────────────
+// ── Delegated event dispatcher ──────────────────
 // Replaces inline event-handler attributes so the CSP can forbid inline
 // script. A control declares data-<event>="fnName" (plus an optional
 // data-<event>-args JSON array) in place of an inline handler attribute; one

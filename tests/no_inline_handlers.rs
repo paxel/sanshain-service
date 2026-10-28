@@ -1,4 +1,4 @@
-//! Completeness guard for the CSP de-inlining (ai/improvements.md #11).
+//! Completeness guard for the CSP de-inlining.
 //!
 //! `script-src 'self'` forbids inline scripts *and* inline event-handler
 //! attributes, so no served markup may carry an `on*=` handler — every control

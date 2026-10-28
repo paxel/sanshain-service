@@ -37,7 +37,7 @@ use sanshain_service::{AppState, LogCaptureLayer, create_app};
 ///
 /// These were all parsed with `.ok().unwrap_or(default)`, so `LOG_BUFFER_SIZE=1OO`
 /// silently became 100 and the operator believed a setting was active that the
-/// service had ignored — the exact complaint behind `ai/improvements.md` #15. A
+/// service had ignored. A
 /// container that will not start is far cheaper to diagnose than one running
 /// with settings nobody chose. Called before tracing is initialised, so the
 /// message goes to stderr where a container runtime will surface it.

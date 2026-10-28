@@ -370,7 +370,7 @@ pub struct ProvideResponse {
     #[serde(default)]
     pub promoted: bool,
     /// AsyncAPI subscribe operations harvested from this provide as consumer
-    /// edges (ai/improvements.md #6) — each with its resolved owner (or none)
+    /// edges — each with its resolved owner (or none)
     /// and, on a snapshot, an advisory drift note. Empty for non-AsyncAPI
     /// provides. Omitted from the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -859,7 +859,7 @@ impl EndpointResolution {
     }
 }
 
-/// A message-level AsyncAPI channel contract (ai/improvements.md item #20).
+/// A message-level AsyncAPI channel contract.
 ///
 /// Kafka topic names share a global namespace, so contract identity is the
 /// message -- keyed by `(channel, message_name)` -- not the whole channel
@@ -877,8 +877,7 @@ pub struct ChannelMessageContract {
     pub payload_yaml: String,
 }
 
-/// A resolved SUB to reconcile into the harvested store (ai/improvements.md #6,
-/// ADR-0006): the subscribed `(channel, message_name)` and the PUB owner it
+/// A resolved SUB to reconcile into the harvested store (ADR-0006): the subscribed `(channel, message_name)` and the PUB owner it
 /// resolved to against the GA contract store — `None` when no GA provider owns
 /// the channel yet (an unfulfilled subscription, kept visible).
 #[derive(Clone, Debug, PartialEq)]
@@ -1166,7 +1165,7 @@ pub struct CatalogPushResult {
 }
 
 /// One entry in a provide's `harvested_subscriptions` response: what the
-/// harvest did with a SUB the Producer declared (ai/improvements.md #6).
+/// harvest did with a SUB the Producer declared.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct HarvestedSubscriptionResult {
     pub channel: String,
@@ -1193,7 +1192,7 @@ pub struct DependencyReport {
     /// Populated by the application layer; empty in raw repository results.
     #[serde(default)]
     pub trunk_graph: Vec<TrunkPinInfo>,
-    /// Current harvested AsyncAPI subscription edges (ai/improvements.md #6),
+    /// Current harvested AsyncAPI subscription edges,
     /// version-less consumer edges rendered alongside the require edges.
     #[serde(default)]
     pub harvested_subscriptions: Vec<HarvestedSubscription>,

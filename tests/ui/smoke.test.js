@@ -642,7 +642,7 @@ test.describe("Escaping", () => {
   });
 });
 
-test.describe("Release-graph regressions (ai/improvements.md #28)", () => {
+test.describe("Release-graph regressions", () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
   const LONER = "reg28-loner-svc"; // trunk-provided, never pinned
   const PINNED = "reg28-pinned-svc"; // pinned by the consumer

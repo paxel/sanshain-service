@@ -44,8 +44,8 @@ pub async fn nuke_database(
 /// the same reason [`list_version_dependents`] names branches before a
 /// version delete — except the stakes are higher here: the participant's rows
 /// cascade out of every branch graph, so those release cuts lose the edges
-/// retroactively rather than showing them as dangling. Removing that
-/// asymmetry is `ai/improvements.md` #26; until then, say it out loud.
+/// retroactively rather than showing them as dangling. Until that asymmetry
+/// is removed, say it out loud.
 ///
 /// Composed from the branch listing rather than a dedicated query: release
 /// cuts are few and this runs only on the interactive delete path.
@@ -103,7 +103,7 @@ pub enum ParticipantRole {
 /// it already churns and ages out on its TTL, and with trunk CI in use almost
 /// every participant appears there — blocking on it would make retiring a
 /// decommissioned service impossible. The trunk timeline does lose that
-/// participant's closed rows; see `ai/improvements.md` #26.
+/// participant's closed rows.
 async fn refuse_if_a_release_graph_needs_it(
     repo: &impl SpecRepository,
     name: &str,
@@ -134,7 +134,7 @@ pub struct RetiredProtocol {
     pub contracts_released: usize,
 }
 
-/// #7 (`ai/improvements.md`): a Producer declares it no longer provides an API
+/// A Producer declares it no longer provides an API
 /// family — the `retired` flag on its provide call. Retiring the capability,
 /// not deleting the history:
 /// the auto-tag is cleared, the family's open trunk pins are closed (it leaves

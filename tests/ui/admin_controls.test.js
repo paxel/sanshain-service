@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // Behavioural coverage of the admin dashboard's controls, written before the
-// inline handlers are removed (ai/improvements.md #11): each test drives a
+// inline handlers are removed: each test drives a
 // control and asserts its visible effect, so it passes against the current
 // onclick= wiring and must keep passing once those become a delegated
 // data-action dispatcher. A control that goes dead in the rewrite fails here.
