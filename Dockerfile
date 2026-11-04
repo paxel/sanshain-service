@@ -29,6 +29,13 @@ COPY src/infrastructure/migrations/ /app/src/infrastructure/migrations/
 
 WORKDIR /app
 
+# The service runs as sanshain (UID/GID 1000, as in the Kubernetes manifests),
+# not root. /data belongs to it, so a new volume mounted there starts writable.
+RUN addgroup -S -g 1000 sanshain \
+    && adduser -S -D -H -u 1000 -G sanshain -h /app sanshain \
+    && mkdir -p /data \
+    && chown sanshain:sanshain /data
+
 ENV DATABASE_URL="sqlite:/data/sanshain.db?mode=rwc"
 
 EXPOSE 3000
@@ -36,5 +43,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
+USER 1000:1000
 ENTRYPOINT ["tini", "--"]
 CMD ["sanshain"]

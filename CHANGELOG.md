@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.12.0]
 
 ### Breaking Changes
+- The Docker image runs as the user `sanshain` (UID and GID 1000, as on Kubernetes) instead of root. A `/data` volume created by an earlier release belongs to root and has to be handed over once: `docker run --rm -v sanshain-data:/data alpine:3.24 chown -R 1000:1000 /data`.
 - The OIDC login refuses a provider that serves its key set (`jwks_uri`) over plain http; serve it over https, with `EXTRA_CA_CERTS_DIR` for a private CA.
 
 ### Added

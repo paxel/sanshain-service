@@ -15,6 +15,9 @@
 </p>
 <pre><code>docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest</code></pre>
 <p>
+  The container runs as UID 1000, not root. A volume created by a release before 2.12.0, or a host
+  directory, has to belong to that user first:
+  <a href="../operator/deployment.html#data-owned-by-uid-1000">Deployment</a> has the one command.
   Migrations run on startup. The service listens on port 3000 (<code>BIND_ADDRESS</code> changes
   that).
 </p>

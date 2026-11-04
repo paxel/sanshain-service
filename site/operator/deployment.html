@@ -33,8 +33,8 @@
   <code>/app/static</code>. It sets one variable:
   <code>DATABASE_URL=sqlite:/data/sanshain.db?mode=rwc</code>, so the database lives under
   <code>/data</code>. It exposes port 3000 and declares a Docker <code>HEALTHCHECK</code> on
-  <code>GET /health</code>. The Kubernetes manifests run it as UID 1000; the image itself does not
-  switch user.
+  <code>GET /health</code>. It runs as the user <code>sanshain</code> (UID and GID 1000, the same
+  as the Kubernetes manifests), never as root, and <code>/data</code> belongs to that user.
 </p>
 <p>
   On every start the service runs its SQL migrations, creates the initial admin when the user table
@@ -45,6 +45,16 @@
 
 <h2>Docker and Compose</h2>
 <pre><code>docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:v2.6.0</code></pre>
+<p id="data-owned-by-uid-1000">
+  A new named volume takes the owner of the image's <code>/data</code>, so it starts writable. A
+  volume made by a release before 2.12.0 belongs to root, and a host directory mounted with
+  <code>-v /srv/sanshain:/data</code> belongs to whoever created it; the service then stops with
+  <code>unable to open database file</code>. Hand it to UID 1000 once:
+</p>
+<pre><code>docker run --rm -v sanshain-data:/data alpine:3.24 chown -R 1000:1000 /data</code></pre>
+<p>
+  For a host directory, <code>sudo chown -R 1000:1000 /srv/sanshain</code> does the same.
+</p>
 <p>
   <code>docker-compose.release.template.yaml</code> in the repository is the same as a Compose
   service: the volume on <code>/data</code>, <code>init: true</code>,
