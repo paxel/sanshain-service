@@ -7,9 +7,16 @@
 // Light theme, 1280 wide; a dark twin (`-dark.png`) where the picture's colours
 // carry meaning. The chapter screenshots the 2.6.0 chapters reference are taken
 // here too, into site/assets/images/.
-import { test } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+
+// Takes the screenshot and asserts the file was written and is not empty, so
+// a capture that breaks fails the recording instead of leaving a gap in the docs.
+const capture = async (target, options) => {
+  await target.screenshot(options);
+  expect(fs.statSync(options.path).size, options.path).toBeGreaterThan(0);
+};
 
 const evidenceDir = process.env.EVIDENCE_DIR || "site/evidence";
 const imagesDir = "site/assets/images";
@@ -72,10 +79,10 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.waitForSelector("g.graph-node", { timeout: 60000 });
     await page.waitForTimeout(4000);
-    await page.screenshot({ path: dev("03-graph.png") });
+    await capture(page, { path: dev("03-graph.png") });
     await setTheme(page, "dark");
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: dev("03-graph-dark.png") });
+    await capture(page, { path: dev("03-graph-dark.png") });
     await setTheme(page, "light");
   });
 
@@ -89,17 +96,17 @@ test.describe("Recorded walkthroughs", () => {
     });
     await page.waitForSelector("[data-context='owner']", { timeout: 30000 });
     await page.waitForTimeout(1200);
-    await page.screenshot({ path: dev("06-producer-versions.png") });
+    await capture(page, { path: dev("06-producer-versions.png") });
     const context = page
       .locator("[data-context='owner']")
       .locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
-    await context.screenshot({ path: dev("10-catalog-context.png") });
-    await context.screenshot({ path: img("producer_context.png") });
+    await capture(context, { path: dev("10-catalog-context.png") });
+    await capture(context, { path: img("producer_context.png") });
     const webhooks = page
       .locator("[data-webhook-panel]")
       .locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
     await webhooks.waitFor({ state: "visible", timeout: 20000 });
-    await webhooks.screenshot({ path: img("producer_webhooks_card.png") });
+    await capture(webhooks, { path: img("producer_webhooks_card.png") });
   });
 
   test("developer 08: one endpoint's version history in the spec viewer", async ({ page }) => {
@@ -109,7 +116,7 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.locator("text=openapi:").first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: dev("08-history.png") });
+    await capture(page, { path: dev("08-history.png") });
   });
 
   test("developer 09: the reports page with the branch in the scope selector", async ({ page }) => {
@@ -119,10 +126,10 @@ test.describe("Recorded walkthroughs", () => {
     await scope.waitFor({ timeout: 20000 });
     await scope.selectOption("release-2026.10");
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: dev("09-report.png") });
+    await capture(page, { path: dev("09-report.png") });
     await scope.selectOption("dev");
     await page.waitForTimeout(800);
-    await page.screenshot({ path: img("reports.png") });
+    await capture(page, { path: img("reports.png") });
   });
 
   test("chapter: the graph node panel with the catalog context", async ({ page }) => {
@@ -134,7 +141,7 @@ test.describe("Recorded walkthroughs", () => {
     await node.hover();
     await page.waitForSelector("#graph-tooltip", { state: "visible", timeout: 10000 });
     await page.waitForTimeout(800);
-    await page.screenshot({ path: img("graph_node_panel.png") });
+    await capture(page, { path: img("graph_node_panel.png") });
   });
 
   test("chapter: the consumers list", async ({ page }) => {
@@ -142,7 +149,7 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.waitForSelector(".endpoint-card", { timeout: 20000 });
     await page.waitForTimeout(800);
-    await page.screenshot({ path: img("consumers_list.png") });
+    await capture(page, { path: img("consumers_list.png") });
   });
 
   test("chapter: the account page with the read-only box and the token list", async ({ page }) => {
@@ -152,7 +159,7 @@ test.describe("Recorded walkthroughs", () => {
     await page.waitForSelector("[data-token-scope]", { timeout: 20000 });
     await page.locator("#token-form").scrollIntoViewIfNeeded();
     await page.waitForTimeout(800);
-    await page.screenshot({ path: img("account_tokens.png") });
+    await capture(page, { path: img("account_tokens.png") });
   });
 
   // ----------------------------------------------------------------- operator
@@ -165,7 +172,7 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.waitForSelector("#auth-screen:not(.hidden)", { timeout: 20000 });
     await page.waitForTimeout(500);
-    await page.screenshot({ path: ops("02-login.png") });
+    await capture(page, { path: ops("02-login.png") });
   });
 
   test("operator 04 to 08 and the admin overview", async ({ page }) => {
@@ -175,15 +182,15 @@ test.describe("Recorded walkthroughs", () => {
     await page.waitForSelector("#db-snapshot-btn", { timeout: 30000 });
     await page.waitForSelector("[data-webhook-list]", { timeout: 30000 });
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: img("admin_overview.png") });
+    await capture(page, { path: img("admin_overview.png") });
 
     const webhooks = page.locator("#webhooks-section");
     await webhooks.scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
-    await webhooks.screenshot({ path: ops("06-webhooks.png") });
-    await webhooks.screenshot({ path: img("admin_webhooks.png") });
-    await section(page, "Snapshot Cleanup").screenshot({ path: ops("07-snapshot-cleanup.png") });
-    await section(page, "Database Configuration").screenshot({ path: ops("08-database.png") });
+    await capture(webhooks, { path: ops("06-webhooks.png") });
+    await capture(webhooks, { path: img("admin_webhooks.png") });
+    await capture(section(page, "Snapshot Cleanup"), { path: ops("07-snapshot-cleanup.png") });
+    await capture(section(page, "Database Configuration"), { path: ops("08-database.png") });
 
     // The Users tab lists the pending accounts only; the approved chip shows
     // maria and root.
@@ -194,7 +201,7 @@ test.describe("Recorded walkthroughs", () => {
       { timeout: 30000 },
     );
     await page.waitForTimeout(500);
-    await section(page, "Users").screenshot({ path: ops("04-users.png") });
+    await capture(section(page, "Users"), { path: ops("04-users.png") });
   });
 
   test("operator 09: the audit timeline", async ({ page }) => {
@@ -202,7 +209,7 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.waitForSelector(".timeline-item", { timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: ops("09-audit.png") });
+    await capture(page, { path: ops("09-audit.png") });
   });
 
   test("operator 10: the observability page", async ({ page }) => {
@@ -210,6 +217,6 @@ test.describe("Recorded walkthroughs", () => {
     await loaderGone(page);
     await page.waitForSelector("#stat-uptime", { timeout: 20000 });
     await page.waitForTimeout(2500);
-    await page.screenshot({ path: ops("10-observability.png") });
+    await capture(page, { path: ops("10-observability.png") });
   });
 });

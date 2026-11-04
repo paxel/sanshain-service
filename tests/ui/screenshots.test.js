@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
+import fs from "fs";
 import path from "path";
+
+// Takes the screenshot and asserts the file was written and is not empty, so
+// a capture that breaks fails the recording instead of leaving a gap in the docs.
+const capture = async (target, options) => {
+  await target.screenshot(options);
+  expect(fs.statSync(options.path).size, options.path).toBeGreaterThan(0);
+};
 
 // The live-update stream stays open by design, so "networkidle" would never
 // arrive: these tests get an empty stream, which the page retries quietly.
@@ -86,12 +94,12 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.waitForSelector('img[alt="Sanshain Logo"]');
     await page.waitForSelector("#activity-chart rect");
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "landing.png") });
+    await capture(page, { path: path.join(screenshotDir, "landing.png") });
 
     // Dark mode landing
     await setTheme(page, "dark");
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "landing_dark.png") });
+    await capture(page, { path: path.join(screenshotDir, "landing_dark.png") });
   });
 
   test("Capture login page", async ({ page, context }) => {
@@ -103,26 +111,26 @@ test.describe("Sanshain Screenshot Capture", () => {
 
     await ensureLoaderHidden(page);
     await page.waitForSelector("#auth-screen:not(.hidden)");
-    await page.screenshot({ path: path.join(screenshotDir, "login.png") });
+    await capture(page, { path: path.join(screenshotDir, "login.png") });
 
     // Switch to register
     await page.click("#tab-register");
     await page.waitForTimeout(500);
-    await page.screenshot({ path: path.join(screenshotDir, "register.png") });
+    await capture(page, { path: path.join(screenshotDir, "register.png") });
   });
 
   test("Capture user dashboard", async ({ page }) => {
     await page.goto("/account.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
     await page.waitForSelector("#account-dashboard:not(.hidden)");
-    await page.screenshot({ path: path.join(screenshotDir, "user_dashboard.png") });
+    await capture(page, { path: path.join(screenshotDir, "user_dashboard.png") });
   });
 
   test("Capture services and drill-down", async ({ page }) => {
     await page.goto("/producers.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
     await page.waitForSelector(".endpoint-card", { timeout: 30000 });
-    await page.screenshot({ path: path.join(screenshotDir, "producers_list.png") });
+    await capture(page, { path: path.join(screenshotDir, "producers_list.png") });
 
     // Click on config-service (from demo2)
     const svcCard = page.locator(".endpoint-card", { hasText: "config-service" }).first();
@@ -131,14 +139,14 @@ test.describe("Sanshain Screenshot Capture", () => {
       timeout: 20000,
     });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "producer_versions.png") });
+    await capture(page, { path: path.join(screenshotDir, "producer_versions.png") });
 
     // Click on the newest version entry of the timeline
     const versionCard = page.locator(".endpoint-card", { hasText: /\d+\.\d+\.\d+/ }).first();
     await versionCard.click();
     await page.waitForSelector(".endpoint-card", { timeout: 30000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "version_endpoints.png") });
+    await capture(page, { path: path.join(screenshotDir, "version_endpoints.png") });
   });
 
   test("Capture YAML viewer", async ({ page }) => {
@@ -157,7 +165,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.locator("text=openapi:").first().waitFor({ timeout: 60000 });
 
     await page.waitForTimeout(3000);
-    await page.screenshot({ path: path.join(screenshotDir, "yaml_viewer.png") });
+    await capture(page, { path: path.join(screenshotDir, "yaml_viewer.png") });
   });
 
   test("Capture dependency graph", async ({ page }) => {
@@ -171,7 +179,7 @@ test.describe("Sanshain Screenshot Capture", () => {
 
     // Give it plenty of time for the layout to stabilize and zoom-to-fit
     await page.waitForTimeout(15000);
-    await page.screenshot({ path: path.join(screenshotDir, "graph.png") });
+    await capture(page, { path: path.join(screenshotDir, "graph.png") });
 
     /*
     // Click on a node to show details - use dispatchEvent for more reliability on SVG
@@ -180,7 +188,7 @@ test.describe("Sanshain Screenshot Capture", () => {
         await node.evaluate(el => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
         await page.waitForSelector('.node-popup', { state: 'visible', timeout: 30000 });
         await page.waitForTimeout(2000);
-        await page.screenshot({ path: path.join(screenshotDir, 'graph_details.png') });
+        await capture(page, { path: path.join(screenshotDir, 'graph_details.png') });
         // Close popup by clicking outside
         await page.mouse.click(10, 10);
         await page.waitForTimeout(1000);
@@ -190,12 +198,12 @@ test.describe("Sanshain Screenshot Capture", () => {
     // Horizontal mode
     await page.click("#graph-direction-toggle");
     await page.waitForTimeout(5000);
-    await page.screenshot({ path: path.join(screenshotDir, "graph_horizontal.png") });
+    await capture(page, { path: path.join(screenshotDir, "graph_horizontal.png") });
 
     // Dark mode
     await setTheme(page, "dark");
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: path.join(screenshotDir, "graph_dark.png") });
+    await capture(page, { path: path.join(screenshotDir, "graph_dark.png") });
   });
 
   test("Capture release graphs (main, branch, timeline, diff)", async ({ page }) => {
@@ -207,22 +215,22 @@ test.describe("Sanshain Screenshot Capture", () => {
 
     // Toolbar crop (Focus, Dev/Main toggle, branch selector, filters) — the
     // cropped shots keep the controls legible on mobile-width doc pages.
-    await page.locator("#graph-toolbar-row").screenshot({
+    await capture(page.locator("#graph-toolbar-row"), {
       path: path.join(screenshotDir, "graph_toolbar_crop.png"),
     });
 
     // Main view: trunk pin set, red major-lag conflict, dangling pin.
     await page.click("#stream-main");
     await page.waitForTimeout(8000);
-    await page.screenshot({ path: path.join(screenshotDir, "graph_main.png") });
-    await page.locator("#graph-legend").screenshot({
+    await capture(page, { path: path.join(screenshotDir, "graph_main.png") });
+    await capture(page.locator("#graph-legend"), {
       path: path.join(screenshotDir, "graph_legend_main_crop.png"),
     });
 
     // Timeline slider (visible in the main and branch views).
     const timelineRow = page.locator("#graph-timeline-row");
     if (await timelineRow.isVisible()) {
-      await timelineRow.screenshot({
+      await capture(timelineRow, {
         path: path.join(screenshotDir, "graph_timeline_crop.png"),
       });
     }
@@ -230,7 +238,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     // Branch view: the release cut's pin set, hotfix + dangling included.
     await page.selectOption("#graph-branch-select", "release-maribou");
     await page.waitForTimeout(8000);
-    await page.screenshot({ path: path.join(screenshotDir, "graph_branch.png") });
+    await capture(page, { path: path.join(screenshotDir, "graph_branch.png") });
 
     // Compare: branch vs main, structured diff rendered below the panel.
     await page.selectOption("#diff-left", "release-maribou");
@@ -245,7 +253,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     const compareBox = await page.locator("#graph-compare-row").boundingBox();
     const outputBox = await page.locator("#graph-diff-output").boundingBox();
     if (compareBox && outputBox) {
-      await page.screenshot({
+      await capture(page, {
         path: path.join(screenshotDir, "graph_diff_crop.png"),
         clip: {
           x: compareBox.x,
@@ -267,11 +275,11 @@ test.describe("Sanshain Screenshot Capture", () => {
       timeout: 20000,
     });
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: path.join(screenshotDir, "producer_branches.png") });
+    await capture(page, { path: path.join(screenshotDir, "producer_branches.png") });
     // Crop the newest version card: stability, trunk badge, branch chips.
     const versionCard = page.locator(".endpoint-card", { hasText: /\d+\.\d+\.\d+/ }).first();
     if (await versionCard.isVisible()) {
-      await versionCard.screenshot({
+      await capture(versionCard, {
         path: path.join(screenshotDir, "producer_version_card_crop.png"),
       });
     }
@@ -284,7 +292,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     await scope.waitFor({ timeout: 15000 });
     const box = await scope.boundingBox();
     if (box) {
-      await page.screenshot({
+      await capture(page, {
         path: path.join(screenshotDir, "report_scope_crop.png"),
         clip: {
           x: Math.max(0, box.x - 220),
@@ -315,11 +323,11 @@ test.describe("Sanshain Screenshot Capture", () => {
       .catch(() => console.log("Audit timeline timeout, proceeding anyway"));
 
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: path.join(screenshotDir, "audit.png") });
+    await capture(page, { path: path.join(screenshotDir, "audit.png") });
 
     // Filter bar crop — date range, action type, wildcards and the Stream
     // filter (trunk / branch tag) in one mobile-friendly strip.
-    await page.locator("#audit-filters").screenshot({
+    await capture(page.locator("#audit-filters"), {
       path: path.join(screenshotDir, "audit_filters_crop.png"),
     });
 
@@ -331,13 +339,13 @@ test.describe("Sanshain Screenshot Capture", () => {
         .waitForSelector(".d2h-wrapper", { state: "visible", timeout: 10000 })
         .catch(() => {});
       await page.waitForTimeout(1000);
-      await page.screenshot({ path: path.join(screenshotDir, "audit_diff.png") });
+      await capture(page, { path: path.join(screenshotDir, "audit_diff.png") });
     }
 
     // Dark mode audit
     await setTheme(page, "dark");
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: path.join(screenshotDir, "audit_dark.png") });
+    await capture(page, { path: path.join(screenshotDir, "audit_dark.png") });
   });
 
   test("Capture reports and observability", async ({ page }) => {
@@ -356,7 +364,7 @@ test.describe("Sanshain Screenshot Capture", () => {
       });
 
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: path.join(screenshotDir, "reports_dashboard.png") });
+    await capture(page, { path: path.join(screenshotDir, "reports_dashboard.png") });
 
     // Actual report view
     const viewReportBtn = page.locator("text=View Markdown Report");
@@ -364,21 +372,21 @@ test.describe("Sanshain Screenshot Capture", () => {
       await viewReportBtn.click();
       await page.waitForSelector("#report-container table", { timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: path.join(screenshotDir, "reports.png") });
+      await capture(page, { path: path.join(screenshotDir, "reports.png") });
     }
 
     await page.goto("/observability.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
     await page.waitForSelector('h3:has-text("Health Check")', { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: path.join(screenshotDir, "observability.png") });
+    await capture(page, { path: path.join(screenshotDir, "observability.png") });
   });
 
   test("Capture clients list", async ({ page }) => {
     await page.goto("/consumers.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
     await page.waitForSelector(".endpoint-card", { timeout: 20000 });
-    await page.screenshot({ path: path.join(screenshotDir, "consumers_list.png") });
+    await capture(page, { path: path.join(screenshotDir, "consumers_list.png") });
 
     // Click on a client to show its requirements
     const clientCard = page.locator(".endpoint-card", { hasText: "InventoryService" }).first();
@@ -386,7 +394,7 @@ test.describe("Sanshain Screenshot Capture", () => {
       await clientCard.click();
       await page.waitForSelector('span:has-text("InventoryService")');
       await page.waitForTimeout(1000);
-      await page.screenshot({ path: path.join(screenshotDir, "client_details.png") });
+      await capture(page, { path: path.join(screenshotDir, "client_details.png") });
     }
   });
 
@@ -398,7 +406,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     // General overview
     await page.goto("/admin.html#general", { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#admin-dashboard:not(.hidden)", { timeout: 30000 });
-    await page.screenshot({ path: path.join(screenshotDir, "admin_overview.png") });
+    await capture(page, { path: path.join(screenshotDir, "admin_overview.png") });
 
     // The Users tab
     await page.goto("/admin.html#users", { waitUntil: "domcontentloaded" });
@@ -406,7 +414,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     const usersHeader = page.locator("h2", { hasText: /^Users$/ });
     await usersHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "admin_users.png") });
+    await capture(page, { path: path.join(screenshotDir, "admin_users.png") });
 
     // Snapshot Cleanup, on General
     await page.goto("/admin.html#general", { waitUntil: "domcontentloaded" });
@@ -414,7 +422,7 @@ test.describe("Sanshain Screenshot Capture", () => {
     const cleanupHeader = page.locator("h2", { hasText: /^Snapshot Cleanup$/ });
     await cleanupHeader.scrollIntoViewIfNeeded({ timeout: 10000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "admin_snapshot_cleanup.png") });
+    await capture(page, { path: path.join(screenshotDir, "admin_snapshot_cleanup.png") });
 
     // Authentication, on Sign-in
     await page.goto("/admin.html#sign-in", { waitUntil: "domcontentloaded" });
@@ -425,6 +433,6 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.click('input[value="ldap"]');
     await page.waitForSelector("#ldap-config-form:not(.hidden)", { timeout: 10000 });
     await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(screenshotDir, "admin_auth_ldap.png") });
+    await capture(page, { path: path.join(screenshotDir, "admin_auth_ldap.png") });
   });
 });
