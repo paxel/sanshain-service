@@ -36,7 +36,9 @@ pub async fn diagnose(host: &str, port: u16) -> Vec<String> {
     let all = tokio::time::timeout(TOTAL_TIMEOUT, async {
         let addrs = resolve(host, port, &mut lines).await;
         lines.push(resolvers_line(
-            &std::fs::read_to_string(RESOLV_CONF).unwrap_or_default(),
+            &tokio::fs::read_to_string(RESOLV_CONF)
+                .await
+                .unwrap_or_default(),
         ));
         let probes: Vec<_> = addrs
             .iter()
