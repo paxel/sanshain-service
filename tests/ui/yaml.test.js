@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 
 test.describe('Sanshain YAML Viewer UI Tests', () => {
   test('YAML viewer page loaded with correct elements', async ({ page }) => {

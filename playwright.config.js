@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/ui',
+  /* Script coverage for SonarQube when UI_COVERAGE is set (tests/ui/coverage.js). */
+  globalSetup: './tests/ui/coverage-setup.js',
+  globalTeardown: './tests/ui/coverage-teardown.js',
   /* Maximum time one test can run for. */
   timeout: 300 * 1000,
   expect: {

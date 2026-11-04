@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 // Behavioural coverage of the admin dashboard's controls, written before the
 // inline handlers are removed: each test drives a

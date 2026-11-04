@@ -96,13 +96,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node 24 as in the Pages workflow; the site tests' coverage flags need 22.5 or later.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - run: npm ci --ignore-scripts
       - run: ./node_modules/.bin/eslint static/js/
       - run: ./node_modules/.bin/prettier --check static/js/
       # The Tailwind CSS is a committed artifact (prod serves static/ directly);
       # fail if it drifts from source.
       - run: npm run build:css && git diff --exit-code static/css/app.css
+      # The site build's tests, here for their coverage of scripts/ (sonar.yml
+      # downloads it); the Pages workflow runs them for the deploy.
+      - name: Site tests with coverage
+        run: >-
+          node --test --experimental-test-coverage --test-coverage-include='scripts/**'
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=lcov --test-reporter-destination=site-lcov.info
+          tests/site/*.test.js
+      - name: Upload the site coverage for SonarQube Cloud
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-site
+          path: site-lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
   ui-quality:
     runs-on: ubuntu-latest
     steps:
@@ -150,6 +169,16 @@ jobs:
         env:
           INITIAL_ADMIN_PASSWORD: root_password
           INITIAL_AUTH_MODE: local
+          # Page-script coverage for SonarQube Cloud (tests/ui/coverage.js).
+          UI_COVERAGE: "1"
+      - name: Upload the page-script coverage for SonarQube Cloud
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-ui
+          path: build/ui-coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

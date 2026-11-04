@@ -7,7 +7,7 @@
 // Light theme, 1280 wide; a dark twin (`-dark.png`) where the picture's colours
 // carry meaning. The chapter screenshots the 2.6.0 chapters reference are taken
 // here too, into site/assets/images/.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import fs from "node:fs";
 import path from "node:path";
 

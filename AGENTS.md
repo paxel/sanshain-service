@@ -64,7 +64,10 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
   for in a trailing comment. Never reference an action by tag or branch alone.
 - SonarQube Cloud (`paxel_sanshain-service`) analyses `summer` after each Quality run there
   (`.github/workflows/sonar.yml`, settings in `sonar-project.properties`): clippy's JSON report
-  plus the LCOV file Quality's tarpaulin uploads. Report only; it fails no build.
+  plus the LCOV files Quality uploads: Rust from tarpaulin, the page scripts from the UI tests
+  (`UI_COVERAGE=1`, `tests/ui/coverage.js`), and `scripts/` from the site tests. Report only; it
+  fails no build. UI tests import `test` from `tests/ui/fixtures.js`, not from `@playwright/test`,
+  so their coverage is recorded.
 
 ## Documentation Upkeep
 Update these as part of the same change, not as a follow-up:

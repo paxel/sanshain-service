@@ -2,7 +2,7 @@
 // hold their own nodes, the Topics switch draws a channel nobody requires,
 // and Rainbow gives every source its own colour, the catalog's dependsOn
 // lines included.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const P = "g10";

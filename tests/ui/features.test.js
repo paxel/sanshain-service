@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 
 test.describe('Sanshain 1.5.0 Features Integration Tests', () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;

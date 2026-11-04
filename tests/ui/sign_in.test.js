@@ -2,7 +2,7 @@
 // while registration is open, a text that does not promise a wait when
 // accounts are acknowledged automatically, the SSO button only while OIDC
 // is the source, and a maintenance notice while only administrators get in.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { createHash } from "node:crypto";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;

@@ -1,7 +1,7 @@
 // Service accounts: an admin creates one on the admin page, issues its token
 // on the account page through "For", and the token list says whose it is and
 // who issued it.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const ACCOUNT = `ci-${Date.now().toString(36)}`;

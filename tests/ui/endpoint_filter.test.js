@@ -2,7 +2,7 @@
 // then method; a search box over path, method and summary; Used / Unused /
 // Deprecated chips; the filter kept in the URL, so Back from an endpoint
 // returns to the filtered list.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const stamp = Date.now().toString(36);

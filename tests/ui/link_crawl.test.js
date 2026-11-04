@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 // The live-update stream stays open by design, so "networkidle" would never
 // arrive: these tests get an empty stream, which the page retries quietly.

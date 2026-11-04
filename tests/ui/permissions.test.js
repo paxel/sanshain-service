@@ -1,7 +1,7 @@
 // Every page as a caller with less than everything: no request on load may be
 // refused (a refused read shows as an empty or wrong value), and every control
 // the caller may not use is greyed out with the permission named, never live.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const RUN = Date.now().toString(36);

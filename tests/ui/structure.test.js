@@ -2,7 +2,7 @@
 // types, flags, descriptions, the version that last changed each node and a
 // copyable example per body; folded endpoints in the full-spec viewer that
 // load when opened; and the choice remembered in the browser.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const PRODUCER = `structure-${Date.now().toString(36)}`;

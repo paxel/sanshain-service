@@ -3,7 +3,7 @@
 // URL hash, the story graph's visibility and highlight classes, and the
 // inlined evidence. Builds the site and serves it itself, so it needs no
 // running service; part of `npm run test:ui`.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { spawn } from "node:child_process";
 import net from "node:net";
 
