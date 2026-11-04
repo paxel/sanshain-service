@@ -721,13 +721,15 @@ pub async fn set_auth_config(
 }
 
 /// Connect and bind with the service account of the submitted configuration.
+/// The masked password tests the stored one only for unchanged settings
+/// (`ldap_config_to_test`).
 ///
 /// A directory that could not be reached at all gets the network diagnosis
 /// appended to the `400`, one line each, so the admin sees the container's
 /// own view of DNS, routes and the port. Any failure the directory itself
 /// answered or stalled on is reported as it is: the network was proven then.
 pub async fn test_auth_config(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(config): Json<LdapConfig>,
 ) -> Result<impl IntoResponse, AppError> {
     use crate::domain::ports::{AuthProvider, AuthProviderError};
@@ -735,6 +737,7 @@ pub async fn test_auth_config(
     use crate::infrastructure::net_diag;
 
     config.validate_server_url().map_err(AppError::BadRequest)?;
+    let config = services::ldap_config_to_test(&state.repo, config).await?;
     let server_url = config.server_url.clone();
     let provider = LdapAuthProvider::new(config);
     match provider.test_connection().await {

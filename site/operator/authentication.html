@@ -374,6 +374,15 @@
   fields) connects and binds with the service account;
   <strong>Save Authentication Settings</strong> applies. The same through the API:
 </p>
+<p id="testing-the-saved-connection">
+  The form shows a saved bind password as <code>****</code>. With every field as saved, the test
+  binds with the saved password, so it checks that the saved connection still works. Change any
+  field (server URL, bind DN, base DN, filter, attribute or group) and the test refuses
+  <code>****</code> with <code>400 The settings differ from the saved ones: enter the bind password
+  to test them.</code> Type the password again to test the changed settings. The saved password is
+  never sent to a server other than the saved one, so nobody can test against a server of their own
+  and collect it.
+</p>
 <pre><code>curl -X PUT $SANSHAIN/admin/auth-config \
   -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
   -d '{

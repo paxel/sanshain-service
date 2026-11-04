@@ -411,6 +411,52 @@ async fn auth_config_test_reports_unreachable_server() {
     );
 }
 
+/// The masked bind password tests the stored one only while every other
+/// setting is the stored one; a changed form must bring its own password, so
+/// the stored one is never sent to another server.
+#[tokio::test]
+async fn auth_config_test_uses_the_stored_password_only_for_unchanged_settings() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    let saved = json!({
+        "server_url": "ldap://127.0.0.1:9",
+        "bind_dn": "cn=admin,dc=example,dc=com",
+        "bind_password": "secret-bind-pw",
+        "base_dn": "dc=example,dc=com",
+    });
+    let (status, _) = send_json(
+        &app,
+        "PUT",
+        "/admin/auth-config",
+        &auth,
+        &json!({ "auth_mode": "local", "ldap_config": saved }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Unchanged: the test reaches the saved server (nothing listens there).
+    let mut unchanged = saved.clone();
+    unchanged["bind_password"] = json!("****");
+    let (status, body) =
+        send_json(&app, "POST", "/admin/auth-config/test", &auth, &unchanged).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let error = body["error"].as_str().unwrap_or("");
+    assert!(
+        error.starts_with("LDAP connection failed: Could not connect"),
+        "{error}"
+    );
+
+    // Changed: refused before any connection is made.
+    let mut moved = unchanged.clone();
+    moved["server_url"] = json!("ldap://127.0.0.2:9");
+    let (status, body) = send_json(&app, "POST", "/admin/auth-config/test", &auth, &moved).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"],
+        "The settings differ from the saved ones: enter the bind password to test them."
+    );
+}
+
 /// The admin "Test connection" button shows whatever the `400` body says, so
 /// a directory that accepts the connection and never answers must produce the
 /// stalled message there, not an ingress "Bad Gateway" minutes later.

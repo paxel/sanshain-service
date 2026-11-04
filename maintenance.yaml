@@ -82,7 +82,11 @@ paths:
       description: |
         Requires the `manage_auth_config` permission. Connects to the
         directory named by the submitted LDAP configuration and binds with
-        its service account; nothing is saved.
+        its service account; nothing is saved. A `bind_password` of `****`
+        (the mask `GET /admin/auth-config` returns) binds with the stored
+        password, but only when every other field equals the stored
+        configuration; otherwise the request is refused with `400`, so the
+        stored password never goes to another server.
       responses:
         "200":
           description: Connected and bound.

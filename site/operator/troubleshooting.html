@@ -311,6 +311,17 @@
     <a href="authentication.html#timeouts-schemes-and-ports">Authentication</a> lists the
     combinations. Test the port from inside the pod, not from a laptop.
   </dd>
+  <dt>
+    <code
+      >400 The settings differ from the saved ones: enter the bind password to test them.</code
+    >
+  </dt>
+  <dd>
+    A field of the LDAP form differs from the saved settings while the bind password still shows
+    <code>****</code>. Type the bind password, then test again; or undo the change to test the saved
+    connection. See
+    <a href="authentication.html#testing-the-saved-connection">Testing the saved connection</a>.
+  </dd>
   <dt><strong>Test Connection</strong> shows <code>502 Bad Gateway</code></dt>
   <dd>
     Sanshain never answers 502; the ingress gave up before Sanshain's 10 s did. Raise the ingress

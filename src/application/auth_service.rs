@@ -360,6 +360,32 @@ pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapCo
     }
 }
 
+/// The configuration the connection test binds with.
+///
+/// A masked bind password stands for the stored one, but only while every
+/// other setting is the stored one too: the test then checks that the saved
+/// connection still works. With anything changed the password has to be typed
+/// again, so nobody can point the test at another server and hand it the
+/// stored password.
+pub async fn ldap_config_to_test(
+    repo: &impl SpecRepository,
+    submitted: LdapConfig,
+) -> Result<LdapConfig, AppError> {
+    if submitted.bind_password.as_deref() != Some(LdapConfig::MASKED_PASSWORD) {
+        return Ok(submitted);
+    }
+    match get_ldap_config(repo).await? {
+        Some(stored) if submitted.same_except_bind_password(&stored) => Ok(stored),
+        Some(_) => Err(AppError::BadRequest(
+            "The settings differ from the saved ones: enter the bind password to test them."
+                .to_string(),
+        )),
+        None => Err(AppError::BadRequest(
+            "No bind password is saved yet: enter it to test the connection.".to_string(),
+        )),
+    }
+}
+
 pub async fn get_oidc_config(repo: &impl SpecRepository) -> Result<Option<OidcConfig>, AppError> {
     let json = repo.get_setting("oidc_config").await?;
     if let Some(s) = json {
@@ -1020,6 +1046,81 @@ pub async fn validate_api_token(
 mod tests {
     use super::*;
     use crate::application::mock_repo::MockRepo;
+
+    fn saved_ldap_config() -> LdapConfig {
+        LdapConfig {
+            server_url: "ldaps://dc01.example.test:636".into(),
+            bind_dn: "cn=svc,dc=example,dc=test".into(),
+            bind_password: Some("secret".into()),
+            base_dn: "dc=example,dc=test".into(),
+            user_filter: "(uid={username})".into(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+            username_attribute: String::new(),
+        }
+    }
+
+    fn masked(config: LdapConfig) -> LdapConfig {
+        LdapConfig {
+            bind_password: Some(LdapConfig::MASKED_PASSWORD.into()),
+            ..config
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_form_tests_with_the_stored_password() {
+        let repo = MockRepo::new();
+        set_ldap_config(&repo, &saved_ldap_config()).await.unwrap();
+
+        let tested = ldap_config_to_test(&repo, masked(saved_ldap_config()))
+            .await
+            .unwrap();
+
+        assert_eq!(tested, saved_ldap_config());
+    }
+
+    #[tokio::test]
+    async fn a_changed_form_needs_the_password_typed_again() {
+        let repo = MockRepo::new();
+        set_ldap_config(&repo, &saved_ldap_config()).await.unwrap();
+        let moved = LdapConfig {
+            server_url: "ldaps://attacker.test:636".into(),
+            ..masked(saved_ldap_config())
+        };
+
+        let refused = ldap_config_to_test(&repo, moved).await.unwrap_err();
+
+        assert!(matches!(refused, AppError::BadRequest(message)
+            if message == "The settings differ from the saved ones: enter the bind password to test them."));
+    }
+
+    #[tokio::test]
+    async fn a_masked_password_without_a_saved_configuration_is_refused() {
+        let repo = MockRepo::new();
+
+        let refused = ldap_config_to_test(&repo, masked(saved_ldap_config()))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(refused, AppError::BadRequest(message)
+            if message == "No bind password is saved yet: enter it to test the connection."));
+    }
+
+    #[tokio::test]
+    async fn a_typed_password_is_tested_as_typed() {
+        let repo = MockRepo::new();
+        set_ldap_config(&repo, &saved_ldap_config()).await.unwrap();
+        let typed = LdapConfig {
+            server_url: "ldaps://dc02.example.test:636".into(),
+            bind_password: Some("typed".into()),
+            ..saved_ldap_config()
+        };
+
+        let tested = ldap_config_to_test(&repo, typed.clone()).await.unwrap();
+
+        assert_eq!(tested, typed);
+    }
 
     /// A root set that reserves no username used by these tests.
     fn no_root_users() -> crate::domain::permissions::RootUsers {

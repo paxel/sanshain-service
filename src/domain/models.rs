@@ -401,7 +401,7 @@ impl ProvideChanges {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LdapConfig {
     pub server_url: String,
     pub bind_dn: String,
@@ -424,6 +424,20 @@ pub struct LdapConfig {
 }
 
 impl LdapConfig {
+    /// The placeholder the admin page shows, and sends back, for a stored bind password.
+    pub const MASKED_PASSWORD: &'static str = "****";
+
+    /// Every setting except the bind password is the same as `other`'s.
+    pub fn same_except_bind_password(&self, other: &LdapConfig) -> bool {
+        LdapConfig {
+            bind_password: None,
+            ..self.clone()
+        } == LdapConfig {
+            bind_password: None,
+            ..other.clone()
+        }
+    }
+
     /// The server URL must be `ldap://host[:port]` or `ldaps://host[:port]`.
     /// A typo such as `ldap:/host:636` (one slash) parses as a URL without a
     /// host and fails later as an unexplained "connection refused"; it is
@@ -2156,6 +2170,37 @@ mod tests {
         assert!(config.group_filter.is_empty());
         assert!(config.admin_group.is_empty());
         assert!(!config.use_tls);
+    }
+
+    #[test]
+    fn only_the_bind_password_may_differ_for_the_same_settings() {
+        let stored = LdapConfig {
+            server_url: "ldaps://dc01.example.test:636".into(),
+            bind_dn: "cn=svc,dc=example,dc=test".into(),
+            bind_password: Some("secret".into()),
+            base_dn: "dc=example,dc=test".into(),
+            user_filter: "(uid={username})".into(),
+            group_filter: String::new(),
+            admin_group: String::new(),
+            use_tls: false,
+            username_attribute: String::new(),
+        };
+        let masked = LdapConfig {
+            bind_password: Some(LdapConfig::MASKED_PASSWORD.into()),
+            ..stored.clone()
+        };
+        let moved = LdapConfig {
+            server_url: "ldaps://elsewhere.test:636".into(),
+            ..masked.clone()
+        };
+        let starttls = LdapConfig {
+            use_tls: true,
+            ..masked.clone()
+        };
+
+        assert!(masked.same_except_bind_password(&stored));
+        assert!(!moved.same_except_bind_password(&stored));
+        assert!(!starttls.same_except_bind_password(&stored));
     }
 
     #[test]

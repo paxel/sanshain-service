@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Static files carry an `ETag` and answer `If-None-Match` with `304 Not Modified`; a file path with a trailing slash returns `404 Not Found`.
 
 ### Fixed
+- **Test Connection** with the saved bind password shown as `****` binds with the saved password instead of the literal `****`, as long as every other field is as saved; with any field changed it asks for the bind password again.
 - The Docker image's health check no longer reports the container unhealthy where `localhost` resolves to IPv6 first; it asks `127.0.0.1`, where the service listens.
 
 ### Security
