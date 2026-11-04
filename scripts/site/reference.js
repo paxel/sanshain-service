@@ -90,7 +90,7 @@ function inlineMarkdown(text, repoUrl) {
         : escapeHtml(part)
             .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
             .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
-            .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, link),
+            .replace(/\[([^\][]+)\]\(([^)\s]+)\)/g, link),
     )
     .join("");
 }

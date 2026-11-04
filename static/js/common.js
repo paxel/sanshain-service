@@ -188,17 +188,24 @@ function updateBannerAuth(user) {
   }
 }
 
+/** The path without its trailing slashes, in linear time (a /\/+$/ regex backtracks). */
+function withoutTrailingSlashes(path) {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end--;
+  return path.slice(0, end);
+}
+
 function highlightCurrentBannerLink() {
   const nav = document.querySelector("#site-banner nav");
   if (!nav) return;
 
   const currentPath =
-    window.location.pathname === "/" ? "/" : window.location.pathname.replace(/\/+$/, "");
+    window.location.pathname === "/" ? "/" : withoutTrailingSlashes(window.location.pathname);
   nav.querySelectorAll("a[href]").forEach((link) => {
     const href = link.getAttribute("href");
     if (!href || !href.startsWith("/")) return;
 
-    const normalizedHref = href === "/" ? "/" : href.replace(/\/+$/, "");
+    const normalizedHref = href === "/" ? "/" : withoutTrailingSlashes(href);
     const isActive = normalizedHref === currentPath;
     link.classList.toggle("font-bold", isActive);
     link.classList.toggle("underline", isActive);

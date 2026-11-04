@@ -120,7 +120,7 @@ const INLINE_TAG = /^<\/?(a|code|em|strong|kbd|span|b|i|abbr|sup|sub|mark|small|
 
 /** Text of an HTML fragment: inline tags vanish, block tags become a space, entities are decoded. */
 export function stripTags(html) {
-  const text = html.replace(/<[^>]*>/g, (tag) => (INLINE_TAG.test(tag) ? "" : " "));
+  const text = html.replace(/<[^<>]*>/g, (tag) => (INLINE_TAG.test(tag) ? "" : " "));
   return decodeEntities(text).replace(/\s+/g, " ").trim();
 }
 
@@ -252,7 +252,7 @@ export function inlineEvidence(body, evidenceDir, pageUrl = "page") {
           `scripts/record-walkthroughs.sh to record it`,
       );
     }
-    const text = fs.readFileSync(file, "utf8").replace(/\s+$/, "");
+    const text = fs.readFileSync(file, "utf8").trimEnd();
     if (!text) throw new Error(`${pageUrl}: evidence file "${name}" is empty (${file})`);
     return `<pre${before} data-evidence="${name}"${after}><code>${escapeHtml(text)}</code></pre>`;
   });
@@ -513,7 +513,7 @@ export function render404({ nav, version, versions = [], tag = null, base = "/" 
 
 const ATTR_LINK = /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g;
 const SRCSET = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/g;
 
 /** Every link (href or xlink:href, also inside inline SVG, src, srcset candidates, CSS url()) in one output file. */
 export function extractLinks(file, content) {
@@ -552,7 +552,9 @@ export function checkLinks(files, { base = "/", knownTargets = new Set() } = {})
       if (EXTERNAL.test(link)) continue;
       const hashAt = link.indexOf("#");
       const fragment = hashAt >= 0 ? link.slice(hashAt + 1) : "";
-      let target = (hashAt >= 0 ? link.slice(0, hashAt) : link).replace(/\?.*$/, "");
+      let target = hashAt >= 0 ? link.slice(0, hashAt) : link;
+      const queryAt = target.indexOf("?");
+      if (queryAt >= 0) target = target.slice(0, queryAt);
       if (target.startsWith("/")) {
         if (knownTargets.has(target)) continue; // a file of another version
         if (!target.startsWith(base)) {

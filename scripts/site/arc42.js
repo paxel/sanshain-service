@@ -83,7 +83,7 @@ export function readExport(source, file = "export") {
   let image = "";
   let imageAt = -1;
   for (let i = 0; i < lines.length; i++) {
-    const heading = /^###\s+(.+?)\s*$/.exec(lines[i]);
+    const heading = /^###\s+(\S.*)$/.exec(lines[i].trimEnd());
     if (heading && !title) title = heading[1];
     const img = /^!\[[^\]]*\]\(<?([^>)]+?)>?\)\s*$/.exec(lines[i]);
     if (img && !image) {
@@ -108,7 +108,7 @@ export function readExport(source, file = "export") {
 
   const tables = [];
   for (let i = imageAt + 1; i < lines.length; i++) {
-    const heading = /^####\s+(.+?)\s*$/.exec(lines[i]);
+    const heading = /^####\s+(\S.*)$/.exec(lines[i].trimEnd());
     if (!heading || heading[1] === "Motivation") continue;
     let at = i + 1;
     while (at < lines.length && lines[at].trim() === "") at++;
@@ -242,7 +242,7 @@ function linkCell(map, text) {
 // ---------------------------------------------------------------------------
 // SVG: top-level elements, geometry, wrapping boxes in <a>
 
-const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
+const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'/]|\/(?!>))*)(\/?)>/g;
 
 function decodeXml(text) {
   return text
@@ -419,9 +419,7 @@ export function prepareSvg(source, file = "diagram.svg") {
   if (!root || close < 0) throw new Error(`${file}: not an SVG document`);
   const viewBox = attr(root[0], "viewBox");
   if (!viewBox) throw new Error(`${file}: the root <svg> has no viewBox`);
-  const attrs = (root[1] || "")
-    .replace(/\s(?:width|height|class)\s*=\s*"[^"]*"/g, "")
-    .replace(/\s+$/, "");
+  const attrs = (root[1] || "").replace(/\s(?:width|height|class)\s*=\s*"[^"]*"/g, "").trimEnd();
   let inner = text.slice(root[0].length, close);
   const [vx, vy, vw, vh] = viewBox
     .trim()

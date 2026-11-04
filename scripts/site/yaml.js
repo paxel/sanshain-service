@@ -22,7 +22,8 @@ class YamlError extends Error {
   }
 }
 
-const KEY = /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#&*!|>%@`{}[\],][^#]*?))\s*:(?:\s+|$)/;
+const KEY =
+  /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#&*!|>%@`{}[\],](?:[^\s#:]|:(?=\S)|\s+(?=[^\s#:]|:\S))*))\s*:(?:\s+|$)/;
 
 function plainScalar(text) {
   if (text === "" || text === "~" || /^(null|Null|NULL)$/.test(text)) return null;

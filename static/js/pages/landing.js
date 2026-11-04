@@ -80,9 +80,10 @@ function renderRecentProvides(provides) {
 const validatorInput = document.getElementById("validator-input");
 function detectFormat(text) {
   const head = text.slice(0, 2000);
-  if (/^\s*asyncapi\s*:/m.test(head)) return "asyncapi";
-  if (/^\s*openapi\s*:|^\s*swagger\s*:/m.test(head)) return "openapi";
-  if (/^\s*syntax\s*=|^\s*package\s+[\w.]+\s*;|\bservice\s+\w+\s*\{/m.test(head)) return "proto";
+  if (/^[ \t]*asyncapi\s*:/m.test(head)) return "asyncapi";
+  if (/^[ \t]*openapi\s*:|^[ \t]*swagger\s*:/m.test(head)) return "openapi";
+  if (/^[ \t]*syntax\s*=|^[ \t]*package\s+[\w.]+\s*;|\bservice\s+\w+\s*\{/m.test(head))
+    return "proto";
   return null;
 }
 function highlightSuggestion() {
