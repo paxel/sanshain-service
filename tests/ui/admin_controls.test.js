@@ -110,7 +110,9 @@ test("pickers take effect on the tick: group members and maintainers", async ({ 
   });
   expect(provided.ok()).toBeTruthy();
   const group = `team-${run}`;
-  expect((await page.request.post("/admin/groups", { headers, data: { name: group } })).ok());
+  expect(
+    (await page.request.post("/admin/groups", { headers, data: { name: group } })).ok(),
+  ).toBeTruthy();
   await page.reload();
   await expect(page.locator("#admin-dashboard:not(.hidden)")).toBeVisible({ timeout: 30000 });
 
