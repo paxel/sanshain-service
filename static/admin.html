@@ -193,6 +193,7 @@
             <input
               type="number"
               id="cache-memory-mb"
+              aria-label="Cache size in MB"
               data-needs="manage_settings"
               min="0"
               value="0"
@@ -314,6 +315,7 @@
             <input
               type="text"
               id="new-branch-name"
+              aria-label="New branch name"
               data-needs="release_ga"
               placeholder="Branch name (e.g. Release Maribou)"
               class="grow px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -321,6 +323,7 @@
             <input
               type="datetime-local"
               id="new-branch-as-of"
+              aria-label="Create the branch as of"
               data-needs="release_ga"
               title="Optional: create retroactively off the trunk graph at this instant"
               class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -395,6 +398,7 @@
             <input
               type="number"
               id="trunk-max-age-days"
+              aria-label="Trunk data TTL in days"
               data-needs="manage_settings"
               min="0"
               value="90"
@@ -435,6 +439,7 @@
             <input
               type="number"
               id="snapshot-max-age-days"
+              aria-label="Snapshot age limit in days"
               data-needs="manage_settings"
               min="0"
               value="30"
@@ -476,6 +481,7 @@
             <input
               type="url"
               id="ticket-url-template"
+              aria-label="Ticket URL template"
               data-needs="manage_settings"
               placeholder="https://jira.acme.corp/browse/{id}"
               class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -506,6 +512,7 @@
             <input
               type="number"
               id="dependency-max-age-days"
+              aria-label="Dependency age limit in days"
               data-needs="manage_settings"
               min="1"
               value="30"
@@ -687,7 +694,9 @@
             <div id="ldap-config-form" class="hidden mt-4 space-y-3 border-t border-slate-200 pt-4">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1">Server URL</label>
+                  <label for="ldap-server-url" class="block text-sm font-medium text-slate-600 mb-1"
+                    >Server URL</label
+                  >
                   <input
                     type="text"
                     id="ldap-server-url"
@@ -697,7 +706,9 @@
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1">Bind DN</label>
+                  <label for="ldap-bind-dn" class="block text-sm font-medium text-slate-600 mb-1"
+                    >Bind DN</label
+                  >
                   <input
                     type="text"
                     id="ldap-bind-dn"
@@ -707,7 +718,11 @@
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1">Bind Password</label>
+                  <label
+                    for="ldap-bind-password"
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    >Bind Password</label
+                  >
                   <input
                     type="password"
                     id="ldap-bind-password"
@@ -717,7 +732,9 @@
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1">Base DN</label>
+                  <label for="ldap-base-dn" class="block text-sm font-medium text-slate-600 mb-1"
+                    >Base DN</label
+                  >
                   <input
                     type="text"
                     id="ldap-base-dn"
@@ -727,7 +744,11 @@
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1">User Filter</label>
+                  <label
+                    for="ldap-user-filter"
+                    class="block text-sm font-medium text-slate-600 mb-1"
+                    >User Filter</label
+                  >
                   <input
                     type="text"
                     id="ldap-user-filter"
@@ -737,7 +758,9 @@
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1"
+                  <label
+                    for="ldap-username-attribute"
+                    class="block text-sm font-medium text-slate-600 mb-1"
                     >Username attribute</label
                   >
                   <input
@@ -753,7 +776,9 @@
                   </p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-600 mb-1"
+                  <label
+                    for="ldap-admin-group"
+                    class="block text-sm font-medium text-slate-600 mb-1"
                     >Bootstrap Admin Group
                     <span class="font-normal text-slate-400"
                       >(directory group granted the admin role)</span
@@ -1014,6 +1039,7 @@
           <div class="flex flex-col gap-2 mb-3">
             <input
               id="users-search"
+              aria-label="Search users"
               type="search"
               placeholder="Search by name…"
               autocomplete="off"
@@ -1053,6 +1079,7 @@
           <div class="flex items-center gap-2 mb-4">
             <input
               id="new-group-name"
+              aria-label="New group name"
               data-needs="manage_roles"
               type="text"
               placeholder="New group name"
@@ -1120,12 +1147,14 @@
             <input
               type="text"
               id="paste-spec-name"
+              aria-label="Producer name"
               placeholder="Producer name, e.g. external-api"
               class="px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               autocomplete="off"
             />
             <select
               id="paste-spec-type"
+              aria-label="Spec type"
               class="px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             >
               <option value="openapi">OpenAPI</option>
@@ -1146,6 +1175,7 @@
           </p>
           <textarea
             id="paste-spec-content"
+            aria-label="Spec content"
             rows="10"
             spellcheck="false"
             placeholder="Paste the full spec here. The version comes from the document itself (info.version, or a // sanshain-version: comment for proto)."
@@ -1202,6 +1232,7 @@
             <input
               type="text"
               id="services-filter"
+              aria-label="Filter services"
               data-input="filterServices"
               placeholder="🔍 Filter services..."
               class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
@@ -1241,6 +1272,7 @@
             <input
               type="text"
               id="clients-filter"
+              aria-label="Filter clients"
               data-input="filterClients"
               placeholder="🔍 Filter clients..."
               class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
@@ -1315,6 +1347,7 @@
           <input
             type="text"
             id="nuke-input"
+            aria-label="Confirmation text"
             autocomplete="off"
             class="w-full px-3 py-2 rounded-lg border border-red-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-red-500 font-mono"
           />
@@ -1353,7 +1386,9 @@
         <form id="metadata-form" class="space-y-4">
           <input type="hidden" id="metadata-svc-hidden" />
           <div>
-            <label class="block text-sm font-medium text-slate-600 mb-1">Emoji Icon</label>
+            <label for="metadata-icon" class="block text-sm font-medium text-slate-600 mb-1"
+              >Emoji Icon</label
+            >
             <input
               type="text"
               id="metadata-icon"
@@ -1362,7 +1397,9 @@
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-slate-600 mb-1">Domain / Group</label>
+            <label for="metadata-domain" class="block text-sm font-medium text-slate-600 mb-1"
+              >Domain / Group</label
+            >
             <input
               type="text"
               id="metadata-domain"

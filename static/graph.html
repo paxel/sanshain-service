@@ -211,6 +211,7 @@
             </div>
             <select
               id="graph-branch-select"
+              aria-label="Branch"
               class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white shadow-xs text-slate-600"
               title="Show a sanshain-branch's graph"
               data-change="selectBranchView"
@@ -432,22 +433,26 @@
           >
           <select
             id="diff-left"
+            aria-label="Compare from"
             class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
           ></select>
           <input
             type="datetime-local"
             id="diff-left-at"
+            aria-label="Compare from this instant"
             class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
             title="Optional: left side at this instant"
           />
           <span class="text-slate-500 text-xs">→</span>
           <select
             id="diff-right"
+            aria-label="Compare to"
             class="text-xs border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
           ></select>
           <input
             type="datetime-local"
             id="diff-right-at"
+            aria-label="Compare to this instant"
             class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
             title="Optional: right side at this instant"
           />
@@ -478,6 +483,7 @@
           <input
             type="range"
             id="graph-timeline-slider"
+            aria-label="Timeline position"
             min="0"
             max="0"
             value="0"
