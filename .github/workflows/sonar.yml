@@ -24,8 +24,12 @@ permissions:
 jobs:
   sonar:
     name: SonarQube Cloud analysis
-    # A cancelled Quality run was superseded by a newer push, which brings its own.
-    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion != 'cancelled'
+    # Only this repository's own pushes: code from a fork never runs here with the
+    # token. A cancelled Quality run was superseded by a newer push, which brings its own.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
     steps:
       # The commit Quality tested, with the full history for the blame and the
