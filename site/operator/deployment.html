@@ -193,9 +193,15 @@ secrets:
     <tr>
       <td><code>resources</code></td>
       <td>
-        <code>100m</code>/<code>128Mi</code> requests, <code>500m</code>/<code>512Mi</code> limits
+        <code>100m</code>/<code>128Mi</code>/<code>256Mi</code> requests,
+        <code>500m</code>/<code>512Mi</code>/<code>1Gi</code> limits (CPU, memory, ephemeral
+        storage)
       </td>
-      <td>The container's resources.</td>
+      <td>
+        The container's resources. Ephemeral storage is the pod's local disk: logs, and the database
+        itself when <code>persistence.enabled</code> is <code>false</code>; raise its limit for such
+        an install, since a pod past it is evicted.
+      </td>
     </tr>
     <tr>
       <td><code>config.*</code></td>

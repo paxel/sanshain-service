@@ -56,13 +56,18 @@ ingress:
   #    hosts:
   #      - sanshain.local
 
+# ephemeral-storage is the pod's local disk: logs, and the database itself only
+# when persistence is off. Raise the limit for such an install; past it the pod
+# is evicted.
 resources:
   limits:
     cpu: 500m
     memory: 512Mi
+    ephemeral-storage: 1Gi
   requests:
     cpu: 100m
     memory: 128Mi
+    ephemeral-storage: 256Mi
 
 nodeSelector: {}
 

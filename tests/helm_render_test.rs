@@ -171,6 +171,24 @@ fn the_service_account_token_is_mounted_only_when_asked() {
 }
 
 #[test]
+fn the_default_render_bounds_the_local_disk() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let rendered = render(&[]).expect("chart renders with default values");
+    assert!(
+        rendered.contains("ephemeral-storage: 1Gi"),
+        "the limit must be rendered"
+    );
+    assert!(
+        rendered.contains("ephemeral-storage: 256Mi"),
+        "the request must be rendered"
+    );
+}
+
+#[test]
 fn no_backup_cronjob_unless_enabled() {
     if !helm_available() {
         eprintln!("skipping: helm is not installed");
