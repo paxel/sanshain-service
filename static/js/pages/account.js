@@ -204,11 +204,13 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
       }),
     });
     if (!res.ok) {
-      const message = res.status === 401 ? "" : await errorMessage(res);
-      // A bare 403 is an account still waiting for approval; one with a
-      // reason (maintenance, dev mode) says it itself.
+      const message = await errorMessage(res);
+      // A bare 401 or 403 says nothing more: invalid credentials, or an
+      // account still waiting for approval. One with a reason (a locked
+      // directory account, maintenance, or any reason while an admin has
+      // detailed sign-in errors on) says it itself.
       errEl.textContent =
-        res.status === 401
+        res.status === 401 && ["Unauthorized", "Request failed (401)"].includes(message)
           ? "Invalid username or password."
           : message === "Forbidden"
             ? "Your account is waiting for an admin's approval."

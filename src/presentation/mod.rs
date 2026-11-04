@@ -45,6 +45,9 @@ impl IntoResponse for AppError {
                 StatusCode::UNAUTHORIZED,
                 ErrorBody::message("Unauthorized".to_string()),
             ),
+            AppError::UnauthorizedWithReason(msg) => {
+                (StatusCode::UNAUTHORIZED, ErrorBody::message(msg))
+            }
             AppError::Forbidden => (
                 StatusCode::FORBIDDEN,
                 ErrorBody::message("Forbidden".to_string()),

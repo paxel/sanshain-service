@@ -23,6 +23,38 @@ use tracing::instrument;
 
 const BEFORE_OFF_KEY: &str = "auth_mode_before_off";
 const REGISTRATION_KEY: &str = "registration_enabled";
+const DETAILED_ERRORS_KEY: &str = "detailed_sign_in_errors_until";
+
+/// How long detailed sign-in errors stay on once turned on.
+pub const DETAILED_ERRORS_MINUTES: i64 = 15;
+const DETAILED_ERRORS_SECONDS: i64 = DETAILED_ERRORS_MINUTES * 60;
+
+/// Until when the login page names every reason a sign-in was refused, or
+/// `None` while it names only those a guesser learns nothing from
+/// ([`SignInRefusal::message`]). Turns itself off at the stored time.
+pub async fn detailed_sign_in_errors_until(
+    repo: &impl SpecRepository,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, AppError> {
+    let until = repo
+        .get_setting(DETAILED_ERRORS_KEY)
+        .await?
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
+        .map(|t| t.with_timezone(&chrono::Utc));
+    Ok(until.filter(|until| *until > chrono::Utc::now()))
+}
+
+/// Turn detailed sign-in errors on for [`DETAILED_ERRORS_MINUTES`] from
+/// `now`, or off at once. Returns until when they are on.
+pub async fn set_detailed_sign_in_errors(
+    repo: &impl SpecRepository,
+    enabled: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, AppError> {
+    let until = enabled.then(|| super::after(now, super::seconds(DETAILED_ERRORS_SECONDS)));
+    let stored = until.map(|t| t.to_rfc3339()).unwrap_or_default();
+    repo.set_setting(DETAILED_ERRORS_KEY, &stored).await?;
+    Ok(until)
+}
 
 /// Whether only holders of `manage_auth_config` may sign in: in Off
 /// (maintenance) and in Dev.
@@ -146,7 +178,8 @@ pub enum Verified {
 /// is refused (wrong password, not yet approved) still gets the directory's
 /// answer; when both refuse, "not approved" stands, and otherwise the
 /// directory's reason. Every refusal is recorded by
-/// [`record_sign_in_refusal`].
+/// [`record_sign_in_refusal`]; what the caller is told depends on
+/// [`detailed_sign_in_errors_until`].
 #[instrument(skip_all)]
 pub async fn verify_password_local_first(
     repo: &impl SpecRepository,
@@ -158,7 +191,8 @@ pub async fn verify_password_local_first(
         Ok(verified) => Ok(verified),
         Err(refusal) => {
             record_sign_in_refusal(repo, username, refusal).await?;
-            Err(refusal.error())
+            let detailed = detailed_sign_in_errors_until(repo).await?.is_some();
+            Err(refusal.error(detailed))
         }
     }
 }
@@ -740,14 +774,14 @@ mod tests {
                 Some(Refusing(|| {
                     AuthProviderError::Refused(SignInRefusal::AccountLocked)
                 })),
-                AppError::Unauthorized,
+                AppError::UnauthorizedWithReason(String::new()),
                 "account locked",
             ),
             (
                 "bob",
                 "pw",
                 Some(Refusing(|| AuthProviderError::Unreachable("down".into()))),
-                AppError::Unauthorized,
+                AppError::UnauthorizedWithReason(String::new()),
                 "directory unreachable",
             ),
             ("bob", "pw", None, AppError::Unauthorized, "no account"),
@@ -785,6 +819,55 @@ mod tests {
                 ("a***l".to_string(), "directory error".to_string()),
                 ("a***l".to_string(), "wrong password".to_string()),
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn detailed_errors_name_every_reason_until_they_turn_themselves_off() {
+        let repo = repo_with("axel", "local-pass", true).await;
+        let wrong = || verify_password_local_first(&repo, no_directory(), "axel", "wrong");
+        assert!(matches!(wrong().await.unwrap_err(), AppError::Unauthorized));
+
+        let now = chrono::Utc::now();
+        let until = set_detailed_sign_in_errors(&repo, true, now).await.unwrap();
+        assert_eq!(until, Some(now + chrono::TimeDelta::minutes(15)));
+        assert_eq!(detailed_sign_in_errors_until(&repo).await.unwrap(), until);
+        assert!(matches!(
+            wrong().await.unwrap_err(),
+            AppError::UnauthorizedWithReason(ref m) if m == "The password is wrong."
+        ));
+
+        let lapsed = now - chrono::TimeDelta::minutes(16);
+        set_detailed_sign_in_errors(&repo, true, lapsed)
+            .await
+            .unwrap();
+        assert_eq!(
+            detailed_sign_in_errors_until(&repo).await.unwrap(),
+            None,
+            "off by itself 15 minutes after it was turned on"
+        );
+        assert!(matches!(wrong().await.unwrap_err(), AppError::Unauthorized));
+
+        set_detailed_sign_in_errors(&repo, true, now).await.unwrap();
+        assert_eq!(
+            set_detailed_sign_in_errors(&repo, false, now)
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(detailed_sign_in_errors_until(&repo).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_locked_account_is_told_without_details() {
+        let repo = MockRepo::new();
+        let directory = Refusing(|| AuthProviderError::Refused(SignInRefusal::AccountLocked));
+        let err = verify_password_local_first(&repo, Some(&directory), "bob", "pw")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::UnauthorizedWithReason(ref m) if m.starts_with("Your directory account is locked")),
+            "{err:?}"
         );
     }
 

@@ -1,7 +1,7 @@
 <!-- page: title="What's new" track="start" order=4 summary="What changed from 2.11 to 2.12.0, sorted by who notices it: the one breaking change, what an operator sees, what a Producer or Consumer sees, and the security fixes." -->
 <p class="lede">
   2.12.0 is a maintenance and security release: every library is on its current version and three
-  security advisories are gone. Its one feature tells an operator why a login was refused. This page is the short version of the
+  security advisories are gone. Its one feature tells why a login was refused. This page is the short version of the
   <a href="https://github.com/paxel/sanshain-service/blob/summer/CHANGELOG.md">changelog</a>, sorted
   by who notices a change.
 </p>
@@ -21,6 +21,9 @@
     A refused login is logged and audited with the masked name and the reason, such as a wrong
     password, no directory entry for the typed name, or a locked or expired Active Directory account
     (<a href="../operator/troubleshooting.html#logins-sessions-and-tokens">Troubleshooting</a>).
+    The login page says when a directory account is locked, and an admin can turn on
+    <a href="../operator/authentication.html#detailed-sign-in-errors">Detailed sign-in errors</a>
+    for 15 minutes so it names every reason.
   </li>
   <li>
     The image is based on Alpine 3.24 instead of 3.21, and its health check asks

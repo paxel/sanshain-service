@@ -17,6 +17,11 @@ pub enum AppError {
     Gone(String),
     #[error("Unauthorized")]
     Unauthorized,
+    /// A refused sign-in whose reason the person is told, e.g. a locked
+    /// directory account. Same `401` as [`AppError::Unauthorized`], with a
+    /// message.
+    #[error("Unauthorized: {0}")]
+    UnauthorizedWithReason(String),
     #[error("Forbidden")]
     Forbidden,
     /// A refusal whose remedy the caller should be told — e.g. a GA publish
@@ -784,12 +789,53 @@ impl SignInRefusal {
     }
 
     /// What the caller is told: 403 for an account that exists but may not
-    /// sign in yet, 401 for everything else.
-    pub fn error(&self) -> AppError {
-        match self {
-            SignInRefusal::NotApproved => AppError::Forbidden,
-            _ => AppError::Unauthorized,
+    /// sign in yet, 401 for everything else, with [`Self::message`] when
+    /// there is one to tell.
+    pub fn error(&self, detailed: bool) -> AppError {
+        match (self, self.message(detailed)) {
+            (SignInRefusal::NotApproved, _) => AppError::Forbidden,
+            (_, Some(message)) => AppError::UnauthorizedWithReason(message.to_string()),
+            (_, None) => AppError::Unauthorized,
         }
+    }
+
+    /// What the login page tells the person. Without `detailed` only what a
+    /// guesser learns nothing from: a lock (Active Directory reports it
+    /// whatever the password) and a directory that is down. With `detailed`
+    /// (the switch an administrator turns on for a few minutes) every
+    /// reason, also those that say the name does not exist or that the
+    /// password was right. `None` keeps the plain "invalid username or
+    /// password"; an unapproved account is told by its `403`.
+    pub fn message(&self, detailed: bool) -> Option<&'static str> {
+        let message = match self {
+            SignInRefusal::NotApproved | SignInRefusal::AdminsOnly => return None,
+            SignInRefusal::AccountLocked => {
+                "Your directory account is locked. Wait for the lock to end, or ask your directory administrator to unlock it."
+            }
+            SignInRefusal::DirectoryUnreachable | SignInRefusal::DirectoryError => {
+                "The sign-in service is unavailable. Contact an administrator."
+            }
+            _ if !detailed => return None,
+            SignInRefusal::EmptyPassword => "Enter a password.",
+            SignInRefusal::NoAccount => "There is no account with this name.",
+            SignInRefusal::WrongPassword => "The password is wrong.",
+            SignInRefusal::ServiceAccount => {
+                "This is a service account. It signs in with API tokens only."
+            }
+            SignInRefusal::NoDirectoryEntry => {
+                "The directory has no entry for this name. Try your other sign-in name: the short name instead of the e-mail address, or the other way round."
+            }
+            SignInRefusal::AccountDisabled => "Your directory account is disabled.",
+            SignInRefusal::PasswordExpired => {
+                "Your password has expired or must be changed. Change it in the directory, then sign in again."
+            }
+            SignInRefusal::AccountExpired => "Your directory account has expired.",
+            SignInRefusal::NotAllowedNow => {
+                "Your directory account may not sign in at this time or from this workstation."
+            }
+            SignInRefusal::DirectoryRefused => "The directory refused the sign-in.",
+        };
+        Some(message)
     }
 }
 
@@ -1860,18 +1906,63 @@ mod tests {
     #[test]
     fn only_an_unapproved_account_is_told_forbidden() {
         use super::{AppError, SignInRefusal};
-        assert!(matches!(
-            SignInRefusal::NotApproved.error(),
-            AppError::Forbidden
-        ));
-        for other in [
-            SignInRefusal::WrongPassword,
-            SignInRefusal::AccountLocked,
-            SignInRefusal::NoDirectoryEntry,
-        ] {
-            assert!(matches!(other.error(), AppError::Unauthorized), "{other:?}");
+        for detailed in [false, true] {
+            assert!(matches!(
+                SignInRefusal::NotApproved.error(detailed),
+                AppError::Forbidden
+            ));
         }
+        assert!(matches!(
+            SignInRefusal::WrongPassword.error(false),
+            AppError::Unauthorized
+        ));
+        assert!(matches!(
+            SignInRefusal::WrongPassword.error(true),
+            AppError::UnauthorizedWithReason(ref m) if m == "The password is wrong."
+        ));
         assert_eq!(SignInRefusal::AccountLocked.as_str(), "account locked");
+    }
+
+    #[test]
+    fn without_details_only_what_a_guesser_learns_nothing_from_is_told() {
+        use super::SignInRefusal::*;
+        let told = [AccountLocked, DirectoryUnreachable, DirectoryError];
+        let all = [
+            EmptyPassword,
+            NoAccount,
+            WrongPassword,
+            NotApproved,
+            ServiceAccount,
+            AdminsOnly,
+            NoDirectoryEntry,
+            AccountLocked,
+            AccountDisabled,
+            PasswordExpired,
+            AccountExpired,
+            NotAllowedNow,
+            DirectoryRefused,
+            DirectoryUnreachable,
+            DirectoryError,
+        ];
+        for refusal in all {
+            assert_eq!(
+                refusal.message(false).is_some(),
+                told.contains(&refusal),
+                "{refusal:?}"
+            );
+            let by_status = matches!(refusal, NotApproved | AdminsOnly);
+            assert_eq!(
+                refusal.message(true).is_none(),
+                by_status,
+                "{refusal:?}: every reason is told with details, except those the status tells"
+            );
+        }
+        assert_eq!(
+            PasswordExpired.message(true),
+            Some(
+                "Your password has expired or must be changed. Change it in the directory, then sign in again."
+            )
+        );
     }
 
     #[test]

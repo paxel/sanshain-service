@@ -112,6 +112,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/auth-config/detailed-errors:
+    get:
+      summary: "Read: auth-config/detailed-errors"
+      x-permission: manage_auth_config
+      x-scope: global
+      description: |
+        Requires the `manage_auth_config` permission. Until when the login
+        page names every reason a sign-in was refused.
+      responses:
+        "200":
+          description: |
+            `{"until": "<RFC 3339>"}` while detailed errors are on,
+            `{"until": null}` while they are off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedSignInErrors"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: auth-config/detailed-errors"
+      x-permission: manage_auth_config
+      x-scope: global
+      description: |
+        Requires the `manage_auth_config` permission. `{"enabled": true}`
+        turns detailed sign-in errors on for 15 minutes, after which they
+        turn themselves off; `{"enabled": false}` turns them off at once.
+        While they are on, a refused `POST /auth/login` names its reason
+        (wrong password, no account, no directory entry, disabled or expired
+        directory account, …); while they are off, only a locked directory
+        account and an unavailable directory are named. Every change is
+        audited as `SET_DETAILED_SIGN_IN_ERRORS`.
+      responses:
+        "200":
+          description: Until when detailed errors are on, as for `GET`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetailedSignInErrors"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/backup/sqlite:
     get:
       summary: "Read: backup/sqlite"
@@ -3936,6 +3997,15 @@ components:
       scheme: bearer
 
   schemas:
+    DetailedSignInErrors:
+      type: object
+      required: [until]
+      properties:
+        until:
+          type: string
+          format: date-time
+          nullable: true
+          description: When detailed sign-in errors turn themselves off; `null` while off.
     SystemContext:
       type: object
       description: |

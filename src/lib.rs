@@ -205,6 +205,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/settings/auto-approve", get(admin::get_auto_approve_users).post(admin::set_auto_approve_users).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/auth-config", get(admin::get_auth_config).put(admin::set_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/auth-config/test", post(admin::test_auth_config).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
+        .route("/admin/auth-config/detailed-errors", get(admin::get_detailed_sign_in_errors).post(admin::set_detailed_sign_in_errors).layer(require(state.clone(), RouteGuard::Global(Permission::ManageAuthConfig))))
         .route("/admin/nuke/database", post(admin::admin_nuke_database).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/producers", post(admin::admin_nuke_producers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
         .route("/admin/nuke/consumers", post(admin::admin_nuke_consumers).layer(require(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))

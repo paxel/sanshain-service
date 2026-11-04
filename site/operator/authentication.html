@@ -458,6 +458,21 @@
   in <a href="troubleshooting.html#logins-sessions-and-tokens">Troubleshooting</a>. Nothing else
   that the directory answered is written anywhere, since its messages can contain the person's DN.
 </p>
+<p>
+  The login page itself names only what a guesser learns nothing from: a locked directory account
+  (Active Directory reports the lock whatever the password) and a directory that is unavailable;
+  everything else reads <em>Invalid username or password</em>. An account waiting for approval and
+  the Off and Dev modes say so as before.
+</p>
+<p id="detailed-sign-in-errors">
+  When someone cannot sign in, turn on <strong>Detailed sign-in errors</strong> on the Sign-in tab
+  (<code>manage_auth_config</code>), ask them to try again, and they see the reason: wrong password,
+  no account, no directory entry for the name they typed (try the short name instead of the e-mail
+  address, or the other way round), a disabled or expired directory account, an expired password,
+  or a time or workstation restriction. Some of these tell a guesser that a name exists or that a
+  password was right, so the switch turns itself off after 15 minutes; it can be turned off earlier.
+  Each change is audited as <code>SET_DETAILED_SIGN_IN_ERRORS</code>.
+</p>
 
 <h3>One account per person</h3>
 <p>

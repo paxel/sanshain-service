@@ -581,3 +581,92 @@ async fn an_admin_runs_a_service_account_end_to_end() {
     let (status, _) = call(&app, "POST", "/provide", Some(&raw), Some(provide)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "revoked");
 }
+
+#[tokio::test]
+async fn detailed_sign_in_errors_name_the_reason_while_they_are_on() {
+    let (app, repo) = fresh_instance().await;
+    services::set_auth_mode(&repo, &AuthMode::Local)
+        .await
+        .unwrap();
+    plain_user(&repo, "bob", "bob-pass").await;
+    let (_, body) = login(&app, "root", "root_password").await;
+    let root = body["token"].as_str().unwrap().to_string();
+    let detailed = "/admin/auth-config/detailed-errors";
+
+    let (status, body) = login(&app, "bob", "wrong").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], "Unauthorized", "no detail while off");
+    let (status, body) = call(&app, "GET", detailed, Some(&root), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["until"].is_null(), "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        detailed,
+        Some(&root),
+        Some(serde_json::json!({ "enabled": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let until = chrono::DateTime::parse_from_rfc3339(body["until"].as_str().unwrap()).unwrap();
+    let left = until.with_timezone(&Utc) - Utc::now();
+    assert!(
+        left > chrono::TimeDelta::minutes(14) && left <= chrono::TimeDelta::minutes(15),
+        "{left}"
+    );
+    let (status, body) = login(&app, "bob", "wrong").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], "The password is wrong.");
+    let (_, body) = login(&app, "nobody", "x").await;
+    assert_eq!(body["error"], "There is no account with this name.");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        detailed,
+        Some(&root),
+        Some(serde_json::json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["until"].is_null(), "{body}");
+    let (_, body) = login(&app, "bob", "wrong").await;
+    assert_eq!(body["error"], "Unauthorized");
+
+    let switched: Vec<String> = repo
+        .get_audit_logs(AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: Some("ADMIN".to_string()),
+            service_wildcard: None,
+            version_wildcard: None,
+            stream: None,
+            branch_id: None,
+            limit: 100,
+        })
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.action == "SET_DETAILED_SIGN_IN_ERRORS")
+        .map(|e| format!("{} {}", e.username, e.details))
+        .collect();
+    assert_eq!(switched.len(), 2, "{switched:?}");
+    assert!(
+        switched.iter().all(|e| e.starts_with("root ")),
+        "{switched:?}"
+    );
+
+    plain_user(&repo, "carol", "carol-pass").await;
+    let (_, body) = login(&app, "carol", "carol-pass").await;
+    let carol = body["token"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &app,
+        "POST",
+        detailed,
+        Some(&carol),
+        Some(serde_json::json!({ "enabled": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "needs manage_auth_config");
+}

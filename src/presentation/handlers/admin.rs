@@ -577,6 +577,43 @@ pub async fn set_registration_enabled(
     Ok(StatusCode::OK)
 }
 
+/// Until when the login page names every refusal reason; `until` is `null`
+/// while the switch is off.
+pub async fn get_detailed_sign_in_errors(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    let until = services::detailed_sign_in_errors_until(&state.repo).await?;
+    Ok(Json(json!({ "until": until.map(|t| t.to_rfc3339()) })))
+}
+
+/// Turn detailed sign-in errors on for 15 minutes, or off at once.
+pub async fn set_detailed_sign_in_errors(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<EnabledRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let until =
+        services::set_detailed_sign_in_errors(&state.repo, payload.enabled, chrono::Utc::now())
+            .await?
+            .map(|t| t.to_rfc3339());
+    let details = match &until {
+        Some(until) => format!("Turned detailed sign-in errors on until {until}"),
+        None => "Turned detailed sign-in errors off".to_string(),
+    };
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_DETAILED_SIGN_IN_ERRORS",
+            details: &details,
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "until": until })))
+}
+
 pub async fn get_auth_config(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let mode = services::get_auth_mode(&state.repo).await?;
     let ldap = services::get_ldap_config(&state.repo).await?;

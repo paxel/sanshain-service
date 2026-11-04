@@ -9,7 +9,7 @@
 <h2>The admin page</h2>
 <p>
   <code>/admin.html</code> has three tabs. <strong>Sign-in</strong> holds the authentication mode,
-  the LDAP and OIDC forms, Registration and Auto-acknowledge; <strong>Users</strong> holds the
+  the LDAP and OIDC forms, Detailed sign-in errors, Registration and Auto-acknowledge; <strong>Users</strong> holds the
   users, groups and maintainers; <strong>General</strong> holds everything else. The open tab is in
   the address (<code>/admin.html#users</code>), so it can be linked, and the browser opens the tab it
   showed last. A tab whose permissions the caller lacks entirely is greyed out, and its tooltip names
@@ -361,6 +361,7 @@
       <td>
         <code>UPDATE_SETTINGS</code>, <code>SETTINGS_CHANGED</code>, <code>SET_AUTO_APPROVE</code>,
         <code>SET_REGISTRATION</code>, <code>SET_GRAVATAR</code>,
+        <code>SET_DETAILED_SIGN_IN_ERRORS</code>,
         <code>SET_SNAPSHOT_MAX_AGE</code>, <code>SET_WEBHOOK_ALLOWED_HOSTS</code>,
         <code>CLEAR_CACHE</code>, <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code>,
         <code>TRUNK_CLEANUP</code>

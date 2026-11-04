@@ -16,7 +16,10 @@
       An OIDC provider with a plain-http key set is refused at login; see <a href="#openid-connect">OpenID Connect</a>.
     </li>
     <li>
-      A refused login is logged and audited with its reason; see
+      A refused login is logged and audited with its reason, and the login page can name it (<a
+        href="authentication.html#detailed-sign-in-errors"
+        >Detailed sign-in errors</a
+      >); see
       <a href="#logins-sessions-and-tokens">Logins, sessions and tokens</a>.
     </li>
     <li>
@@ -172,7 +175,19 @@
   <dd>
     Wrong username or password, or an empty password, which is refused before any check; with LDAP,
     the directory refused and the local check refused too. The log line and audit entry below say
-    which.
+    which. While <a href="authentication.html#detailed-sign-in-errors">Detailed sign-in errors</a>
+    are on, the answer names the reason itself, for example
+    <code>The directory has no entry for this name. Try your other sign-in name: …</code>.
+  </dd>
+  <dt><code>Your directory account is locked. …</code></dt>
+  <dd>
+    Active Directory locked the account after too many wrong passwords. It unlocks after the
+    directory's lockout duration, or a directory administrator unlocks it.
+  </dd>
+  <dt><code>The sign-in service is unavailable. Contact an administrator.</code></dt>
+  <dd>
+    The directory could not be reached, or refused the service account. The log and audit entry say
+    <code>directory unreachable</code> or <code>directory error</code>; see <a href="#ldap">LDAP</a>.
   </dd>
   <dt><code>WARN Sign-in refused user=t***m@company.com reason="…"</code></dt>
   <dd>

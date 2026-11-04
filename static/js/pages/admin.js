@@ -168,8 +168,10 @@ async function loadAll() {
   loadServices();
   loadClients();
   loadAutoApproveUsers();
-  if (can("manage_auth_config")) loadAuthConfig();
-  else lockedNote("auth-config-locked", "manage_auth_config");
+  if (can("manage_auth_config")) {
+    loadAuthConfig();
+    loadDetailedErrors();
+  } else lockedNote("auth-config-locked", "manage_auth_config");
   // Ordered: the catalogue tells the user and group rows which roles
   // exist, the user list feeds the maintainer picker, and groups feed
   // it too — so each waits for what it needs.
@@ -611,6 +613,56 @@ function toggleAutoApproveUsers() {
 
 function toggleGravatar() {
   return flipSwitch("gravatar");
+}
+
+// --- Detailed sign-in errors ---
+// On for 15 minutes while an admin helps someone who cannot sign in; the
+// server turns it off by itself, and the status repaints when it lapses.
+let detailedErrorsUntil = null;
+let detailedErrorsTimer = null;
+
+function paintDetailedErrors() {
+  const until = detailedErrorsUntil ? new Date(detailedErrorsUntil) : null;
+  const on = !!until && until > new Date();
+  const toggle = document.getElementById("detailed-errors-toggle");
+  const dot = document.getElementById("detailed-errors-dot");
+  toggle.classList.toggle("bg-indigo-600", on);
+  toggle.classList.toggle("bg-slate-200", !on);
+  dot.classList.toggle("translate-x-6", on);
+  dot.classList.toggle("translate-x-1", !on);
+  toggle.setAttribute("aria-checked", String(on));
+  document.getElementById("detailed-errors-status").textContent = on
+    ? `On until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+    : "Off.";
+  clearTimeout(detailedErrorsTimer);
+  if (on) detailedErrorsTimer = setTimeout(paintDetailedErrors, until - new Date() + 1000);
+}
+
+async function loadDetailedErrors() {
+  try {
+    const res = await apiCall("/admin/auth-config/detailed-errors");
+    if (!res.ok) return;
+    detailedErrorsUntil = (await res.json()).until;
+    paintDetailedErrors();
+  } catch (_) {}
+}
+
+async function toggleDetailedErrors() {
+  const on = !!detailedErrorsUntil && new Date(detailedErrorsUntil) > new Date();
+  try {
+    const res = await apiCall("/admin/auth-config/detailed-errors", {
+      method: "POST",
+      body: { enabled: !on },
+    });
+    if (!res.ok) {
+      alert("Failed to save: " + (await errorMessage(res)));
+      return;
+    }
+    detailedErrorsUntil = (await res.json()).until;
+    paintDetailedErrors();
+  } catch (e) {
+    alert("Failed to save: " + e.message);
+  }
 }
 
 // --- Roles, groups and maintainers ---
