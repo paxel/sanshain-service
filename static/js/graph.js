@@ -127,7 +127,7 @@ window.graphRainbowPalette = graphRainbowPalette;
 
 // Source name -> its index into the palette, by sorted position.
 function graphRainbowIndexes(sources) {
-  return new Map([...new Set(sources)].sort().map((name, i) => [name, i]));
+  return new Map([...new Set(sources)].sort(byCodeUnit).map((name, i) => [name, i]));
 }
 window.graphRainbowIndexes = graphRainbowIndexes;
 // Independent display-state highlights (never resolution inputs):

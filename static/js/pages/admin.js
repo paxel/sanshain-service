@@ -1217,7 +1217,7 @@ function renderUserChips() {
     return `<button type="button" data-click="toggleUserChip" data-click-args="${attrJson([group, value])}" data-user-chip="${group}:${escapeAttr(value)}" aria-pressed="${on}"
       class="text-xs px-2 py-0.5 rounded-full border ${on ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}">${escapeHtml(label)}</button>`;
   };
-  const roles = [...new Set(knownUsers.flatMap((u) => u.roles || []))].sort();
+  const roles = [...new Set(knownUsers.flatMap((u) => u.roles || []))].sort(byCodeUnit);
   const group = (title, chips) =>
     `<span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 ml-1">${title}</span>${chips.join("")}`;
   document.getElementById("users-chips").innerHTML = [

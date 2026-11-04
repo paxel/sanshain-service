@@ -202,7 +202,7 @@ async function loadGraph() {
       services.add(d.client);
       services.add(d.service);
     });
-    graphFocusServices = [...services].sort();
+    graphFocusServices = [...services].sort(byCodeUnit);
     if (graphFocusPicker) graphFocusPicker.refresh();
 
     const anyProducer = ((window.graphScopeData && window.graphScopeData.producers) || []).length;

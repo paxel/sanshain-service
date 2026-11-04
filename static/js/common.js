@@ -188,6 +188,12 @@ function updateBannerAuth(user) {
   }
 }
 
+/** Sort compare in UTF-16 code-unit order: the order of a bare `.sort()`, stated. */
+function byCodeUnit(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** The path without its trailing slashes, in linear time (a /\/+$/ regex backtracks). */
 function withoutTrailingSlashes(path) {
   let end = path.length;

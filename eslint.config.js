@@ -24,6 +24,7 @@ export default [
         avatarHtml: "readonly",
         externalTag: "readonly",
         createPicker: "readonly",
+        byCodeUnit: "readonly",
         escapeAttr: "readonly",
         attrJson: "readonly",
         setActionArgs: "readonly",
