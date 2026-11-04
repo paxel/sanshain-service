@@ -108,6 +108,6 @@ mkdir -p site/assets/images
 
 # Run the screenshot test
 # We pass the token via env var
-INITIAL_ADMIN_PASSWORD=$INITIAL_ADMIN_PASSWORD SANSHAIN_TOKEN=$TOKEN npx playwright test tests/ui/screenshots.test.js --project=chromium
+INITIAL_ADMIN_PASSWORD=$INITIAL_ADMIN_PASSWORD SANSHAIN_TOKEN=$TOKEN ./node_modules/.bin/playwright test tests/ui/screenshots.test.js --project=chromium
 
 echo "Screenshots updated successfully in site/assets/images/"

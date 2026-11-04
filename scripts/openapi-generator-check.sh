@@ -40,7 +40,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 if [[ ! -f "$JAR" ]]; then
     mkdir -p "$CACHE_DIR"
     echo "Downloading openapi-generator-cli $GENERATOR_VERSION..."
-    curl -fsSL -o "$JAR.part" \
+    curl -fsSL --proto =https --proto-redir =https -o "$JAR.part" \
         "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/$GENERATOR_VERSION/openapi-generator-cli-$GENERATOR_VERSION.jar"
     mv "$JAR.part" "$JAR"
 fi
