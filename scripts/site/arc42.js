@@ -245,7 +245,7 @@ function linkCell(map, text) {
 // ---------------------------------------------------------------------------
 // SVG: top-level elements, geometry, wrapping boxes in <a>
 
-const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'/]|\/(?!>))*)(\/?)>/g;
+const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:\s(?:"[^"]*"|'[^']*'|[^>"'/]|\/(?!>))*)?)(\/?)>/g;
 
 function decodeXml(text) {
   return text

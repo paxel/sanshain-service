@@ -513,7 +513,7 @@ export function render404({ nav, version, versions = [], tag = null, base = "/" 
 
 const ATTR_LINK = /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g;
 const SRCSET = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/g;
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]+))\s*\)/g;
 
 /** Every link (href or xlink:href, also inside inline SVG, src, srcset candidates, CSS url()) in one output file. */
 export function extractLinks(file, content) {
