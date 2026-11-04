@@ -5,39 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [2.12.0]
-
-### Breaking Changes
-- The Docker image runs as the user `sanshain` (UID and GID 1000, as on Kubernetes) instead of root. A `/data` volume created by an earlier release belongs to root and has to be handed over once: `docker run --rm -v sanshain-data:/data alpine:3.24 chown -R 1000:1000 /data`.
-- The OIDC login refuses a provider that serves its key set (`jwks_uri`) over plain http; serve it over https, with `EXTRA_CA_CERTS_DIR` for a private CA.
-
-### Added
-- A refused sign-in is logged as a warning and recorded in the audit log as a rejection (`SIGN_IN_REFUSED`), with the typed name masked (`t***m@company.com`) and the reason: wrong password, not approved, administrators only, no directory entry found by the user filter, or the account status Active Directory reports (locked, disabled, password or account expired, outside the allowed hours).
-- The login page says when a directory account is locked or the directory is unavailable. **Detailed sign-in errors** on the Sign-in tab (`POST /admin/auth-config/detailed-errors`) make it name every reason for 15 minutes, then turn themselves off.
-
-### Changed
-- The Helm chart requests 256Mi and limits the pod's local disk to 1Gi of ephemeral storage by default; an install without persistence keeps its database there and may need a higher `resources.limits.ephemeral-storage`.
-- Built with Rust 1.99.1 and the current major versions of its libraries: sqlx 0.9, reqwest 0.13, tower-http 0.7, argon2 0.6, askama 0.16, OpenTelemetry 0.33 with tracing-opentelemetry 0.34, rmcp 3.7, sysinfo 0.39 and base64 0.23, with SQLite 3.51 built in instead of 3.46. The OIDC login moved from `openidconnect` to `openid` 0.25 and YAML from `serde_yaml_ng` to `serde-saphyr` 2; every other dependency is on its newest compatible release. Only `testcontainers`, used by the tests alone, waits for an upstream release.
-- The Docker image is based on Alpine 3.24 instead of 3.21, which reaches its end of support in November 2026.
-- The SQLite backup CronJob downloads with curl 8.23.0 instead of 8.11.1.
-- The release image is signed with cosign 3 in the Sigstore bundle format; verify it with cosign 3, or with cosign 2.6 and `--new-bundle-format`.
-- The PostgreSQL backup CronJob runs `pg_dump` 18 instead of 17, so it also backs up a PostgreSQL 18 database; restore its dumps with `pg_restore` 18.
-- OpenTelemetry exports retry a failed send up to 3 times with backoff instead of dropping the batch at once.
-- Webhook deliveries and the OIDC login trust the platform's certificate authorities plus `EXTRA_CA_CERTS_DIR`, like LDAPS, instead of a root list built into the binary.
-- Endpoint snippets and required specs are written in a slightly different YAML style (double quotes, quoted version strings, long single-line texts folded with `>`); their content is unchanged. An unchanged re-provide stays a no-op, a GA re-provide is not refused, and the first re-provide of a snapshot that changes anything counts all its endpoints as updated once; a Consumer that commits a required spec sees a one-time text diff.
-- Spec documents nested deeper than 64 levels are refused; the limit was 128.
-- Static files carry an `ETag` and answer `If-None-Match` with `304 Not Modified`; a file path with a trailing slash returns `404 Not Found`.
-
-### Fixed
-- **Test Connection** with the saved bind password shown as `****` binds with the saved password instead of the literal `****`, as long as every other field is as saved; with any field changed it asks for the bind password again.
-- The Docker image's health check no longer reports the container unhealthy where `localhost` resolves to IPv6 first; it asks `127.0.0.1`, where the service listens.
-
-### Security
-- The Helm chart no longer mounts the service account's Kubernetes API token into the pod, which Sanshain never uses; `serviceAccount.automount: true` mounts it again.
-- Saving the LDAP settings with the bind password shown as `****` keeps the saved password only while every other field is as saved; with any field changed it asks for the bind password again, so the saved password can no longer be sent to another server.
-- YAML is read and written by `serde-saphyr`, which is pure Rust without `unsafe` code, instead of `serde_yaml_ng` on the unmaintained `unsafe-libyaml` (RUSTSEC-2024-0449).
-- `rsa` (RUSTSEC-2023-0071, Marvin attack) and `crypto-bigint` 0.5 (RUSTSEC-2026-0387) are no longer part of the build: the OIDC login verifies ID tokens with `openid` on `ring`, and `cargo audit` runs without exceptions.
-- The page templates no longer pull in `basic-toml`, which was unmaintained (RUSTSEC-2026-0374).
+## [2.13.0]
 
 ---
 
