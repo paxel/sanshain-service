@@ -48,8 +48,9 @@
 <p id="data-owned-by-uid-1000">
   A new named volume takes the owner of the image's <code>/data</code>, so it starts writable. A
   volume made by a release before 2.12.0 belongs to root, and a host directory mounted with
-  <code>-v /srv/sanshain:/data</code> belongs to whoever created it; the service then stops with
-  <code>unable to open database file</code>. Hand it to UID 1000 once:
+  <code>-v /srv/sanshain:/data</code> belongs to whoever created it. The service then stops at
+  start with <code>ERROR: Can't connect to SQLite database: … attempt to write a readonly
+  database</code>. Hand it to UID 1000 once:
 </p>
 <pre><code>docker run --rm -v sanshain-data:/data alpine:3.24 chown -R 1000:1000 /data</code></pre>
 <p>
@@ -264,6 +265,14 @@ secrets:
           >valueFrom</code
         >
         entries appended to the container's env; see below.
+      </td>
+    </tr>
+    <tr>
+      <td><code>serviceAccount.automount</code></td>
+      <td><code>false</code></td>
+      <td>
+        Mounts the service account's Kubernetes API token into the pod. Sanshain never calls the
+        API, so the token stays out unless a sidecar needs it.
       </td>
     </tr>
     <tr>
