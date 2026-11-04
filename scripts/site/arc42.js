@@ -246,7 +246,7 @@ const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
 
 function decodeXml(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
     .replace(/&(lt|gt|quot|apos);/g, (_, n) => ({ lt: "<", gt: ">", quot: '"', apos: "'" })[n])
     .replace(/&amp;/g, "&");
@@ -257,7 +257,7 @@ function attr(open, name) {
   return m ? m[1] : undefined;
 }
 
-const num = (open, name) => Number(attr(open, name) ?? NaN);
+const num = (open, name) => Number(attr(open, name) ?? Number.NaN);
 
 /** The direct children of the root element, each `{ tag, open, start, end, text }` (text: inner content of <text>). */
 export function topLevelNodes(inner) {

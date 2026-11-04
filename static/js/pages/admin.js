@@ -302,8 +302,8 @@ async function loadCacheConfig() {
 }
 
 async function saveCacheConfig() {
-  const mb = parseInt(document.getElementById("cache-memory-mb").value, 10);
-  if (isNaN(mb) || mb < 0) return;
+  const mb = Number.parseInt(document.getElementById("cache-memory-mb").value, 10);
+  if (Number.isNaN(mb) || mb < 0) return;
   try {
     const res = await apiCall("/admin/settings/cache", { method: "POST", body: { memory_mb: mb } });
     if (res.ok) {
@@ -339,7 +339,7 @@ async function loadTrunkMaxAge() {
 }
 
 async function saveTrunkMaxAge() {
-  const days = parseInt(document.getElementById("trunk-max-age-days").value, 10);
+  const days = Number.parseInt(document.getElementById("trunk-max-age-days").value, 10);
   const res = await apiCall("/admin/settings/trunk-max-age", { method: "POST", body: { days } });
   document.getElementById("trunk-cleanup-result").textContent = res.ok ? "Saved." : "Save failed.";
 }
@@ -454,8 +454,8 @@ async function loadSnapshotMaxAge() {
 }
 
 async function saveSnapshotMaxAge() {
-  const days = parseInt(document.getElementById("snapshot-max-age-days").value, 10);
-  if (isNaN(days) || days < 0) return;
+  const days = Number.parseInt(document.getElementById("snapshot-max-age-days").value, 10);
+  if (Number.isNaN(days) || days < 0) return;
   try {
     const res = await apiCall("/admin/settings/snapshot-max-age", {
       method: "POST",
@@ -519,8 +519,8 @@ async function loadDependencyMaxAge() {
 }
 
 async function saveDependencyMaxAge() {
-  const days = parseInt(document.getElementById("dependency-max-age-days").value, 10);
-  if (isNaN(days) || days < 1) return;
+  const days = Number.parseInt(document.getElementById("dependency-max-age-days").value, 10);
+  if (Number.isNaN(days) || days < 1) return;
   try {
     const res = await apiCall("/admin/settings/dependency-max-age", {
       method: "POST",

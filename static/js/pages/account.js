@@ -387,7 +387,7 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
       method: "POST",
       body: {
         name: document.getElementById("token-name").value,
-        expires_in_days: parseInt(document.getElementById("token-expires").value, 10),
+        expires_in_days: Number.parseInt(document.getElementById("token-expires").value, 10),
         scope: document.getElementById("token-read-only").checked ? "read_only" : "full",
         for_user: document.getElementById("token-for").value || null,
       },

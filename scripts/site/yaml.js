@@ -36,7 +36,7 @@ const ESCAPES = { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "/": "/", 0: 
 
 function unescapeDouble(inner, fail) {
   return inner.replace(/\\(u([0-9a-fA-F]{4})|.)/g, (whole, ch, hex) => {
-    if (hex) return String.fromCharCode(parseInt(hex, 16));
+    if (hex) return String.fromCharCode(Number.parseInt(hex, 16));
     if (ch in ESCAPES) return ESCAPES[ch];
     return fail(`unknown escape ${whole} in double-quoted string`);
   });

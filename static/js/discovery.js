@@ -40,7 +40,7 @@ function producerHasAnyEndpoints(name) {
 function parseSemver(v) {
   return String(v)
     .split(".")
-    .map((n) => parseInt(n, 10) || 0);
+    .map((n) => Number.parseInt(n, 10) || 0);
 }
 
 function compareSemver(a, b) {

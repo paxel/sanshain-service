@@ -230,10 +230,10 @@ const GRAPH_BREAKING_OUTDATED_COLOR = "#be123c";
 function _graphCompareSemver(a, b) {
   const pa = String(a)
     .split(".")
-    .map((n) => parseInt(n, 10) || 0);
+    .map((n) => Number.parseInt(n, 10) || 0);
   const pb = String(b)
     .split(".")
-    .map((n) => parseInt(n, 10) || 0);
+    .map((n) => Number.parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
     if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
   }
@@ -306,14 +306,14 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) {
       // Two tiers: behind within the same major is an upgrade waiting to
       // happen; a whole major behind means the contract moved underneath.
-      if (parseInt(d.version, 10) < parseInt(latestGa, 10)) f.breakingOutdated = true;
+      if (Number.parseInt(d.version, 10) < Number.parseInt(latestGa, 10)) f.breakingOutdated = true;
       else f.outdated = true;
     }
     // Main view: a pin a whole major behind the producer's trunk version is a
     // conflict, drawn loud (ADR-0004).
     if (conflictMap) {
       const trunkV = conflictMap.get(typeKey);
-      if (trunkV && parseInt(d.version, 10) < parseInt(trunkV, 10)) f.conflict = true;
+      if (trunkV && Number.parseInt(d.version, 10) < Number.parseInt(trunkV, 10)) f.conflict = true;
     }
   });
   return flags;
@@ -1058,7 +1058,7 @@ function initTimelineSlider() {
   if (!slider || slider.dataset.wired) return;
   slider.dataset.wired = "1";
   slider.addEventListener("input", () => {
-    const idx = parseInt(slider.value, 10);
+    const idx = Number.parseInt(slider.value, 10);
     if (idx >= window.graphTimelineDates.length) {
       void setTimelinePosition(null);
     } else {

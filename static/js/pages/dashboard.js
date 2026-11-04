@@ -51,7 +51,7 @@ document.getElementById("createTokenForm").addEventListener("submit", async (e) 
   e.preventDefault();
   if (!csrfToken) await fetchCsrfToken();
   const name = document.getElementById("tokenName").value;
-  const expires_in_days = parseInt(document.getElementById("tokenExpiry").value);
+  const expires_in_days = Number.parseInt(document.getElementById("tokenExpiry").value);
   const res = await fetch("/auth/tokens", {
     method: "POST",
     headers: {

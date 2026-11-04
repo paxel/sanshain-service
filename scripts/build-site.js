@@ -108,7 +108,7 @@ const NAMED_ENTITIES = {
 /** Decodes numeric and the named entities the pages use; `&amp;` last so `&amp;lt;` stays `&lt;`. */
 export function decodeEntities(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
     .replace(/&([a-z]+);/gi, (whole, name) =>
       name === "amp" ? whole : (NAMED_ENTITIES[name] ?? whole),
