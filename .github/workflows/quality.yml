@@ -81,8 +81,17 @@ jobs:
       # Ratchet rule (see AGENTS.md): when coverage rises, raise --fail-under to
       # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-13 at
       # 81.03% measured with --engine llvm.
+      # The LCOV file is for the SonarQube Cloud workflow (sonar.yml), which downloads it.
       - name: Coverage
-        run: cargo tarpaulin --out Xml --fail-under 79.03
+        run: cargo tarpaulin --out Xml --out Lcov --fail-under 79.03
+      - name: Upload the coverage for SonarQube Cloud
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: ignore
+          retention-days: 7
   js-quality:
     runs-on: ubuntu-latest
     steps:

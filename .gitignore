@@ -41,4 +41,5 @@ Thumbs.db
 
 # Coverage and Logs
 cobertura.xml
+lcov.info
 *.log

@@ -58,10 +58,13 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
 - `cargo audit` — security audit.
 - The Rust toolchain is pinned in `rust-toolchain.toml` and mirrored in the CI workflows
   (`dtolnay/rust-toolchain@<commit> # <version> branch`). Toolchain bumps are deliberate, separate
-  PRs that update the pin and all three workflow references together — never bump as a side effect
+  PRs that update the pin and every workflow reference together — never bump as a side effect
   of another change.
 - Every action in `.github/workflows/` is pinned to a full commit SHA, with the version it stands
   for in a trailing comment. Never reference an action by tag or branch alone.
+- SonarQube Cloud (`paxel_sanshain-service`) analyses `summer` after each Quality run there
+  (`.github/workflows/sonar.yml`, settings in `sonar-project.properties`): clippy's JSON report
+  plus the LCOV file Quality's tarpaulin uploads. Report only; it fails no build.
 
 ## Documentation Upkeep
 Update these as part of the same change, not as a follow-up:

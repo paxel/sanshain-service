@@ -7,6 +7,7 @@
 [![CI](https://github.com/paxel/sanshain-service/actions/workflows/ci.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/ci.yml)
 [![Quality](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml)
 [![Security](https://github.com/paxel/sanshain-service/actions/workflows/security.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/security.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=paxel_sanshain-service&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=paxel_sanshain-service)
 [![Release](https://img.shields.io/github/v/release/paxel/sanshain-service)](https://github.com/paxel/sanshain-service/releases/latest)
 [![Image](https://img.shields.io/badge/image-ghcr.io-blue)](https://github.com/paxel/sanshain-service/pkgs/container/sanshain-service)
 [![Signed with cosign](https://img.shields.io/badge/signed-cosign-blue)](https://paxel.github.io/sanshain-service/operator/deployment.html#verifying-a-release)
