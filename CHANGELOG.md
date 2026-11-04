@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Docker image's health check no longer reports the container unhealthy where `localhost` resolves to IPv6 first; it asks `127.0.0.1`, where the service listens.
 
 ### Security
+- The Helm chart no longer mounts the service account's Kubernetes API token into the pod, which Sanshain never uses; `serviceAccount.automount: true` mounts it again.
 - Saving the LDAP settings with the bind password shown as `****` keeps the saved password only while every other field is as saved; with any field changed it asks for the bind password again, so the saved password can no longer be sent to another server.
 - YAML is read and written by `serde-saphyr`, which is pure Rust without `unsafe` code, instead of `serde_yaml_ng` on the unmaintained `unsafe-libyaml` (RUSTSEC-2024-0449).
 - `rsa` (RUSTSEC-2023-0071, Marvin attack) and `crypto-bigint` 0.5 (RUSTSEC-2026-0387) are no longer part of the build: the OIDC login verifies ID tokens with `openid` on `ring`, and `cargo audit` runs without exceptions.

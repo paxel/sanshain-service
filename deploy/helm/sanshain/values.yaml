@@ -23,6 +23,9 @@ serviceAccount:
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: ""
+  # Mount the service account's API token into the pod. Sanshain never calls the
+  # Kubernetes API, so it stays out of the container unless something else needs it.
+  automount: false
 
 podAnnotations: {}
 

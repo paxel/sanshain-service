@@ -153,6 +153,24 @@ fn extra_volumes_render_without_persistence() {
 // --- Backup CronJobs (#50) ---
 
 #[test]
+fn the_service_account_token_is_mounted_only_when_asked() {
+    if !helm_available() {
+        eprintln!("skipping: helm is not installed");
+        return;
+    }
+
+    let default = render(&[]).expect("chart renders with default values");
+    assert!(
+        default.contains("automountServiceAccountToken: false"),
+        "Sanshain never calls the Kubernetes API, so the token stays out by default"
+    );
+
+    let mounted = render(&["--set", "serviceAccount.automount=true"])
+        .expect("chart renders with the token mounted");
+    assert!(mounted.contains("automountServiceAccountToken: true"));
+}
+
+#[test]
 fn no_backup_cronjob_unless_enabled() {
     if !helm_available() {
         eprintln!("skipping: helm is not installed");
