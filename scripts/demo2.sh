@@ -22,14 +22,14 @@ ADMIN_USER="${SANSHAIN_USER:-root}"
 ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-${INITIAL_ADMIN_PASSWORD:-}}"
 TOKEN="${SANSHAIN_TOKEN:-}"
 
-if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+if [[ -z "$TOKEN" ]] && [[ -n "$ADMIN_PASSWORD" ]]; then
   echo ">>> Logging in as $ADMIN_USER to obtain token..."
   LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
   echo ">>> Login Response: $LOGIN_RESPONSE"
   TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
-  if [ "$TOKEN" = "null" ]; then
+  if [[ "$TOKEN" = "null" ]]; then
     echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
     TOKEN=""
   else
@@ -38,7 +38,7 @@ if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
 fi
 
 AUTH_HEADER=""
-if [ -n "$TOKEN" ]; then
+if [[ -n "$TOKEN" ]]; then
   AUTH_HEADER="Authorization: Bearer $TOKEN"
 fi
 
@@ -72,7 +72,7 @@ require_endpoint() {
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
   BODY=$(echo "$RESPONSE" | sed '$d')
   STATUS=$(echo "$RESPONSE" | tail -1)
-  if [ "$STATUS" = "200" ]; then
+  if [[ "$STATUS" = "200" ]]; then
     echo "    HTTP $STATUS — Success"
   else
     echo "    HTTP $STATUS"

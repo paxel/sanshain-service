@@ -39,10 +39,10 @@ trap "kill $SVC_PID || true" EXIT
 echo "Waiting for service to start on port $PORT..."
 MAX_RETRIES=30
 RETRY_COUNT=0
-until [ "$(curl -s http://localhost:$PORT/health)" == "OK" ]; do
+until [[ "$(curl -s http://localhost:$PORT/health)" == "OK" ]]; do
   sleep 2
   RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+  if [[ $RETRY_COUNT -ge $MAX_RETRIES ]]; then
     echo "Service failed to start on port $PORT (or the port is held by a different process)."
     exit 1
   fi
@@ -57,7 +57,7 @@ LOGIN_RESPONSE=$(curl -s -X POST http://localhost:$PORT/auth/login \
 
 TOKEN=$(echo $LOGIN_RESPONSE | jq -r .token)
 
-if [ "$TOKEN" == "null" ] || [ -z "$TOKEN" ]; then
+if [[ "$TOKEN" == "null" ]] || [[ -z "$TOKEN" ]]; then
   echo "Login failed. Response: $LOGIN_RESPONSE"
   exit 1
 fi

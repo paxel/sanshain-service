@@ -83,11 +83,11 @@ DATA_LINK=""
 
 cleanup() {
   local code=$?
-  [ -n "$SVC_PID" ] && kill "$SVC_PID" 2>/dev/null || true
-  [ -n "$RECEIVER_PID" ] && kill "$RECEIVER_PID" 2>/dev/null || true
+  [[ -n "$SVC_PID" ]] && kill "$SVC_PID" 2>/dev/null || true
+  [[ -n "$RECEIVER_PID" ]] && kill "$RECEIVER_PID" 2>/dev/null || true
   wait 2>/dev/null || true
-  [ -n "$DATA_LINK" ] && rm -f "$DATA_LINK"
-  if [ $code -ne 0 ]; then
+  [[ -n "$DATA_LINK" ]] && rm -f "$DATA_LINK"
+  if [[ $code -ne 0 ]]; then
     echo "record-walkthroughs: FAILED (exit $code); the instance's log is $TMP/service.log" >&2
   else
     rm -rf "$TMP"
@@ -102,11 +102,11 @@ say() { echo ">>> $*"; }
 # ---------------------------------------------------------------------------
 # Build and start
 
-if [ "${RECORD_SKIP_BUILD:-}" != "1" ]; then
+if [[ "${RECORD_SKIP_BUILD:-}" != "1" ]]; then
   say "Building the release binary"
   ${CARGO_BUILD_CMD:-cargo build --release}
 fi
-[ -x target/release/sanshain_service ] || fail "target/release/sanshain_service is missing"
+[[ -x target/release/sanshain_service ]] || fail "target/release/sanshain_service is missing"
 
 mkdir -p "$DEV" "$OPS"
 find "$DEV" "$OPS" -type f \( -name '*.http' -o -name '*.txt' -o -name '*.png' \) -delete
@@ -118,8 +118,8 @@ mkdir -p "$TMP/data"
 # `data` link (the image's /data), removed on exit, keeps the admin page
 # showing `sqlite:data/sanshain.db` instead of this machine's temp path.
 DATABASE_URL="sqlite:$TMP/data/sanshain.db?mode=rwc"
-[ -L "$REPO_ROOT/data" ] && rm -f "$REPO_ROOT/data"   # a stale link from an aborted run
-if [ ! -e "$REPO_ROOT/data" ]; then
+[[ -L "$REPO_ROOT/data" ]] && rm -f "$REPO_ROOT/data"   # a stale link from an aborted run
+if [[ ! -e "$REPO_ROOT/data" ]]; then
   ln -s "$TMP/data" "$REPO_ROOT/data"
   DATA_LINK="$REPO_ROOT/data"
   DATABASE_URL="sqlite:data/sanshain.db?mode=rwc"
@@ -138,11 +138,11 @@ fi
 SVC_PID=$!
 
 for _ in $(seq 1 60); do
-  if [ "$(curl -s "$BASE/health" 2>/dev/null)" = "OK" ]; then break; fi
+  if [[ "$(curl -s "$BASE/health" 2>/dev/null)" = "OK" ]]; then break; fi
   kill -0 "$SVC_PID" 2>/dev/null || fail "the service exited; see $TMP/service.log"
   sleep 1
 done
-[ "$(curl -s "$BASE/health")" = "OK" ] || fail "the service did not become healthy on $BASE"
+[[ "$(curl -s "$BASE/health")" = "OK" ]] || fail "the service did not become healthy on $BASE"
 
 # A receiver for the webhook step: records every POST it gets.
 mkdir -p "$TMP/deliveries"
@@ -226,7 +226,7 @@ request() {
     *) fail "unknown auth kind $auth" ;;
   esac
   local content_type=""
-  if [ -n "$body" ]; then
+  if [[ -n "$body" ]]; then
     content_type="application/json"
     args+=(-H "Content-Type: application/json" --data-binary "@$body")
   fi
@@ -234,13 +234,13 @@ request() {
   LAST_STATUS="$(curl "${args[@]}" "$BASE$path")" || fail "$dir/$file: curl failed"
   {
     echo "$method $path HTTP/1.1"
-    [ -n "$shown_auth" ] && echo "$shown_auth"
-    [ -n "$content_type" ] && echo "Content-Type: $content_type"
+    [[ -n "$shown_auth" ]] && echo "$shown_auth"
+    [[ -n "$content_type" ]] && echo "Content-Type: $content_type"
     local a
     for a in "$@"; do
       case "$a" in Accept:*|If-None-Match:*|Host:*) echo "$a" ;; esac
     done
-    if [ -n "$body" ]; then
+    if [[ -n "$body" ]]; then
       echo
       pretty "$body"
     fi
@@ -262,7 +262,7 @@ request() {
 expect() {
   local step="$1" status="$2"
   shift 2
-  if [ "$LAST_STATUS" != "$status" ]; then
+  if [[ "$LAST_STATUS" != "$status" ]]; then
     echo "record-walkthroughs: step $step: expected HTTP $status, got $LAST_STATUS" >&2
     echo "--- body:" >&2
     cat "$LAST_BODY" >&2
@@ -282,7 +282,7 @@ expect() {
 
 # expect_empty <step>: the last answer had no body.
 expect_empty() {
-  if [ -s "$LAST_BODY" ]; then
+  if [[ -s "$LAST_BODY" ]]; then
     echo "record-walkthroughs: step $1: expected an empty body, got:" >&2
     cat "$LAST_BODY" >&2
     exit 1
@@ -317,7 +317,7 @@ transcript() {
   local out="$dir/$file.txt"
   local log="$TMP/transcript.log"
   {
-    [ -n "$label" ] && echo "# $label"
+    [[ -n "$label" ]] && echo "# $label"
     echo "\$ ${SHOW:-$*}"
   } >"$log"
   if ! (cd "${WORKDIR:-$TMP}" && "$@") >>"$log" 2>&1; then
@@ -346,15 +346,15 @@ login() {
 # Clients
 
 CARGO_SANSHAIN="${CARGO_SANSHAIN:-}"
-if [ -z "$CARGO_SANSHAIN" ] && cargo sanshain --help >/dev/null 2>&1; then CARGO_SANSHAIN="cargo sanshain"; fi
+if [[ -z "$CARGO_SANSHAIN" ]] && cargo sanshain --help >/dev/null 2>&1; then CARGO_SANSHAIN="cargo sanshain"; fi
 SANSHAIN_JS="${SANSHAIN_JS:-}"
-if [ -z "$SANSHAIN_JS" ] && command -v sanshain >/dev/null 2>&1; then SANSHAIN_JS="sanshain"; fi
+if [[ -z "$SANSHAIN_JS" ]] && command -v sanshain >/dev/null 2>&1; then SANSHAIN_JS="sanshain"; fi
 SANSHAIN_GO="${SANSHAIN_GO:-}"
-if [ -z "$SANSHAIN_GO" ] && command -v sanshain-go >/dev/null 2>&1; then SANSHAIN_GO="sanshain-go"; fi
+if [[ -z "$SANSHAIN_GO" ]] && command -v sanshain-go >/dev/null 2>&1; then SANSHAIN_GO="sanshain-go"; fi
 SANSHAIN_CONAN="${SANSHAIN_CONAN:-}"
-if [ -z "$SANSHAIN_CONAN" ] && command -v sanshain-conan >/dev/null 2>&1; then SANSHAIN_CONAN="sanshain-conan"; fi
+if [[ -z "$SANSHAIN_CONAN" ]] && command -v sanshain-conan >/dev/null 2>&1; then SANSHAIN_CONAN="sanshain-conan"; fi
 MVN="${MVN:-}"
-if [ -z "$MVN" ] && command -v mvn >/dev/null 2>&1; then MVN="mvn"; fi
+if [[ -z "$MVN" ]] && command -v mvn >/dev/null 2>&1; then MVN="mvn"; fi
 
 # ---------------------------------------------------------------------------
 # The team's files
@@ -378,7 +378,7 @@ paths:
         "201":
           description: Created
 EOF
-    if [ "$variant" != "v2" ] && [ "$variant" != "v2-draft" ]; then
+    if [[ "$variant" != "v2" ]] && [[ "$variant" != "v2-draft" ]]; then
       cat <<'EOF'
   /payments/{id}:
     get:
@@ -407,7 +407,7 @@ EOF
           description: OK
 EOF
     fi
-    if [ "$variant" != "v1" ]; then
+    if [[ "$variant" != "v1" ]]; then
       cat <<'EOF'
   /payments/{id}/capture:
     post:
@@ -417,7 +417,7 @@ EOF
           description: OK
 EOF
     fi
-    if [ "$variant" = "v2-draft" ]; then
+    if [[ "$variant" = "v2-draft" ]]; then
       cat <<'EOF'
   /payments/{id}/refund:
     post:
@@ -432,7 +432,7 @@ EOF
 
 provide_body() {
   # provide_body <spec-file> <stability> [trunk]
-  if [ "${3:-}" = "trunk" ]; then
+  if [[ "${3:-}" = "trunk" ]]; then
     jq -n --arg y "$(cat "$1")" --arg st "$2" '{producername:"payments", stability:$st, openapi_yaml:$y, trunk:true}'
   else
     jq -n --arg y "$(cat "$1")" --arg st "$2" '{producername:"payments", stability:$st, openapi_yaml:$y}'
@@ -486,11 +486,11 @@ export SANSHAIN_URL="$BASE"
 say "Developer story"
 
 SESSION="$(login root "$ADMIN_PASSWORD")"
-[ -n "$SESSION" ] && [ "$SESSION" != "null" ] || fail "root login failed"
+[[ -n "$SESSION" ]] && [[ "$SESSION" != "null" ]] || fail "root login failed"
 redact "$SESSION" "<session token>"
 TOKEN="$(curl -sS -X POST "$BASE/auth/tokens" -H "Authorization: Bearer $SESSION" -H "Content-Type: application/json" \
   -d '{"name":"payments-ci","expires_in_days":30}' | jq -r .token)"
-[ "${TOKEN:0:4}" = "san_" ] || fail "minting the CI token failed"
+[[ "${TOKEN:0:4}" = "san_" ]] || fail "minting the CI token failed"
 redact "$TOKEN" "san_…"
 export SANSHAIN_TOKEN="$TOKEN"
 
@@ -498,7 +498,7 @@ export SANSHAIN_TOKEN="$TOKEN"
 spec_payments 1.0.0 v1 >"$TMP/payments/openapi.yaml"
 cp "$TMP/payments/sanshain.yaml" "$DEV/01-sanshain-yaml.txt"
 cp "$TMP/payments/openapi.yaml" "$DEV/01-openapi-yaml.txt"
-if [ -n "$CARGO_SANSHAIN" ]; then
+if [[ -n "$CARGO_SANSHAIN" ]]; then
   # shellcheck disable=SC2086
   SHOW="cargo sanshain provide --trunk" WORKDIR="$TMP/payments" transcript "$DEV" "01-first-provide" "payments/, trunk CI of the payments repository" $CARGO_SANSHAIN provide --trunk
 else
@@ -517,7 +517,7 @@ request "$DEV" "02-publish-ga" POST /provide token "$TMP/body.json"
 expect "developer/02" 202 '.version == "1.0.0"' '.stability == "ga"' '.promoted == true'
 
 # 03 — orders pins POST /payments at 1.0.0 with the JS client, then the same require by hand
-if [ -n "$SANSHAIN_JS" ]; then
+if [[ -n "$SANSHAIN_JS" ]]; then
   # shellcheck disable=SC2086
   SHOW="sanshain --trunk require" WORKDIR="$TMP/orders" transcript "$DEV" "03-orders-requires" "orders/, trunk CI of the orders repository" $SANSHAIN_JS --trunk require
   {
@@ -550,7 +550,7 @@ expect "developer/05" 409 '.proposed_version == "2.0.0"'
 
 # 06 — 2.0.0 accepted, published GA by the Go client
 spec_payments 2.0.0 v2 >"$TMP/payments/openapi.yaml"
-if [ -n "$SANSHAIN_GO" ]; then
+if [[ -n "$SANSHAIN_GO" ]]; then
   SHOW="SANSHAIN_GA=true sanshain-go -trunk provide" WORKDIR="$TMP/payments" transcript "$DEV" "06-major-ga" "payments/, release pipeline" env SANSHAIN_GA=true "$SANSHAIN_GO" -trunk provide
 else
   note_fallback "$DEV" "06-major-ga" "sanshain-go" "SANSHAIN_GA=true sanshain-go -trunk provide"
@@ -590,14 +590,14 @@ request "$DEV" "09-branch-cut" POST /admin/branches session "$TMP/body.json"
 expect "developer/09-branch" 201 ".name == \"$BRANCH\""
 request "$DEV" "09-scoped-report" GET "/report?scope=$BRANCH" token ""
 expect "developer/09-report" 200 ".scope_label == \"$BRANCH\"" '.dependency_graph | length == 1' '.dependency_graph[0] | .client == "orders" and .version == "1.0.0"'
-if [ -n "$SANSHAIN_CONAN" ]; then
+if [[ -n "$SANSHAIN_CONAN" ]]; then
   SHOW="sanshain-conan --tag $BRANCH require" WORKDIR="$TMP/orders" transcript "$DEV" "09-branch-require" "orders/, hotfix pipeline of $BRANCH" "$SANSHAIN_CONAN" --tag "$BRANCH" require
 else
   note_fallback "$DEV" "09-branch-require" "sanshain-conan" "sanshain-conan --tag $BRANCH require"
 fi
 
 # 10 — the catalog push with the Maven plugin; the context it recorded
-if [ -n "$MVN" ]; then
+if [[ -n "$MVN" ]]; then
   cat >"$TMP/payments/pom.xml" <<'EOF'
 <project xmlns="http://maven.apache.org/POM/4.0.0">
     <modelVersion>4.0.0</modelVersion>
@@ -676,7 +676,7 @@ fi
 
 # 02 — the first login and the admin password
 grep -h 'INITIAL SETUP' "$TMP/service.log" | sed -E 's/^.*(\[INITIAL SETUP\])/\1/' | scrub >"$OPS/02-initial-setup.txt"
-[ -s "$OPS/02-initial-setup.txt" ] || fail "operator/02: the service log has no [INITIAL SETUP] lines"
+[[ -s "$OPS/02-initial-setup.txt" ]] || fail "operator/02: the service log has no [INITIAL SETUP] lines"
 printf '{"username":"root","password":"%s"}' "$ADMIN_PASSWORD" >"$TMP/body.json"
 request "$OPS" "02-first-login" POST /auth/login "" "$TMP/body.json"
 expect "operator/02-login" 200 '.token | length > 0'
@@ -689,7 +689,7 @@ request "$OPS" "02-old-session-gone" GET /auth/me session ""
 expect "operator/02-session-gone" 401
 expect_empty "operator/02-session-gone"
 SESSION="$(login root "$ADMIN_PASSWORD")"
-[ -n "$SESSION" ] && [ "$SESSION" != "null" ] || fail "root login with the new password failed"
+[[ -n "$SESSION" ]] && [[ "$SESSION" != "null" ]] || fail "root login with the new password failed"
 redact "$SESSION" "<session token>"
 
 # 03 — OpenID Connect: configuration only, no identity provider in this recording
@@ -744,7 +744,7 @@ request "$OPS" "04-grant-maintainer" POST /admin/producers/payments/maintainers 
 expect "operator/04-maintainer" 201
 expect_empty "operator/04-maintainer"
 MARIA_SESSION="$(login maria "$MARIA_PASSWORD")"
-[ -n "$MARIA_SESSION" ] && [ "$MARIA_SESSION" != "null" ] || fail "maria's login failed"
+[[ -n "$MARIA_SESSION" ]] && [[ "$MARIA_SESSION" != "null" ]] || fail "maria's login failed"
 redact "$MARIA_SESSION" "<maria's session token>"
 request "$OPS" "04-effect" GET /auth/me maria ""
 expect "operator/04-effect" 200 '.roles == ["releaser"]' '.maintains == ["payments"]' '.is_root == false'
@@ -770,10 +770,10 @@ redact "$HOOK_SECRET" "whsec_…"
 request "$OPS" "06-test-hook" POST "/admin/webhooks/$HOOK_ID/test" session ""
 expect "operator/06-test" 202 '.event_id | length == 36'
 for _ in $(seq 1 30); do
-  [ -f "$TMP/deliveries/1.json" ] && break
+  [[ -f "$TMP/deliveries/1.json" ]] && break
   sleep 1
 done
-[ -f "$TMP/deliveries/1.json" ] || fail "operator/06: the receiver got no delivery within 30 s"
+[[ -f "$TMP/deliveries/1.json" ]] || fail "operator/06: the receiver got no delivery within 30 s"
 {
   jq -r '"\(.method) \(.url) HTTP/1.1"' "$TMP/deliveries/1.json"
   jq -r '.headers | to_entries[] | select(.key | test("^(content-type|user-agent|sanshain-event|x-sanshain-delivery|sanshain-signature)$")) | "\(.key): \(.value)"' "$TMP/deliveries/1.json" \
@@ -820,8 +820,8 @@ expect "operator/07-cleanup" 200 '.deleted == 0'
 request "$OPS" "08-snapshot" GET /admin/backup/sqlite token ""
 expect "operator/08-snapshot" 200
 grep -qi '^content-type: application/vnd.sqlite3' "$LAST_HEADERS" || fail "operator/08: expected a SQLite body"
-[ "$(stat -c %s "$LAST_BODY")" -gt 65536 ] || fail "operator/08: the snapshot is implausibly small"
-[ "$(head -c 15 "$LAST_BODY")" = "SQLite format 3" ] || fail "operator/08: the body is not a SQLite file"
+[[ "$(stat -c %s "$LAST_BODY")" -gt 65536 ]] || fail "operator/08: the snapshot is implausibly small"
+[[ "$(head -c 15 "$LAST_BODY")" = "SQLite format 3" ]] || fail "operator/08: the body is not a SQLite file"
 SNAPSHOT_NAME="$(grep -i '^content-disposition:' "$LAST_HEADERS" | sed -E 's/.*filename="([^"]+)".*/\1/' | tr -d '\r')"
 cat >"$OPS/08-restore.txt" <<EOF
 # Not recorded against a cluster: the restore procedure from Backup and restore,
@@ -844,7 +844,7 @@ expect "operator/09" 200 'length >= 10' '.[0].action == "DATABASE_SNAPSHOT"' 'ma
 
 # 10 — the metrics exposition
 METRICS="$(curl -sS "$BASE/metrics" | { grep '^sanshain_' || true; } | sort)"
-[ -n "$METRICS" ] || fail "operator/10: /metrics answered no sanshain_ lines"
+[[ -n "$METRICS" ]] || fail "operator/10: /metrics answered no sanshain_ lines"
 echo "$METRICS" | grep -q '^sanshain_version_rejected_total' || fail "operator/10: sanshain_version_rejected_total is missing"
 {
   echo "\$ curl -s $PUBLIC_BASE_URL/metrics | grep '^sanshain_'"

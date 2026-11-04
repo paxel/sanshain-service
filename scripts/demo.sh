@@ -24,13 +24,13 @@ ADMIN_USER="${SANSHAIN_USER:-root}"
 ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
 
-if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+if [[ -z "$TOKEN" ]] && [[ -n "$ADMIN_PASSWORD" ]]; then
   echo ">>> Logging in to obtain token..."
   LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
   TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
-  if [ "$TOKEN" = "null" ]; then
+  if [[ "$TOKEN" = "null" ]]; then
     echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
     TOKEN=""
   else
@@ -39,7 +39,7 @@ if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
 fi
 
 AUTH_HEADER=""
-if [ -n "$TOKEN" ]; then
+if [[ -n "$TOKEN" ]]; then
   AUTH_HEADER="Authorization: Bearer $TOKEN"
 fi
 
@@ -76,15 +76,15 @@ provide_expect() {
   BODY=$(echo "$RESPONSE" | sed '$d')
   STATUS=$(echo "$RESPONSE" | tail -1)
   echo "    HTTP $STATUS"
-  if [ "$STATUS" != "$expected" ]; then
+  if [[ "$STATUS" != "$expected" ]]; then
     echo "    UNEXPECTED! Expected $expected, got $STATUS"
     echo "$BODY" | head -5 | sed 's/^/    /'
   else
-    if [ "$STATUS" = "409" ]; then
+    if [[ "$STATUS" = "409" ]]; then
       PROPOSED=$(echo "$BODY" | jq -r '.proposed_version // empty' 2>/dev/null || true)
       echo "    Rejection reason:"
       echo "$BODY" | jq -r '.error' 2>/dev/null | head -3 | sed 's/^/      /'
-      [ -n "$PROPOSED" ] && echo "    Server proposes republishing as: $PROPOSED"
+      [[ -n "$PROPOSED" ]] && echo "    Server proposes republishing as: $PROPOSED"
     fi
   fi
   return 0
@@ -103,7 +103,7 @@ require_endpoint() {
     ${AUTH_HEADER:+-H "$AUTH_HEADER"})
   BODY=$(echo "$RESPONSE" | sed '$d')
   STATUS=$(echo "$RESPONSE" | tail -1)
-  if [ "$STATUS" = "200" ]; then
+  if [[ "$STATUS" = "200" ]]; then
     LINES=$(echo "$BODY" | wc -l)
     echo "    HTTP $STATUS — $LINES lines of YAML"
   else

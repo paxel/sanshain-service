@@ -21,13 +21,13 @@ ADMIN_PASSWORD="${SANSHAIN_PASSWORD:-}"
 TOKEN="${SANSHAIN_TOKEN:-}"
 BRANCH_NAME="${SANSHAIN_DEMO_BRANCH:-release-maribou}"
 
-if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
+if [[ -z "$TOKEN" ]] && [[ -n "$ADMIN_PASSWORD" ]]; then
   echo ">>> Logging in to obtain token..."
   LOGIN_RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}")
   TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r .token)
-  if [ "$TOKEN" = "null" ]; then
+  if [[ "$TOKEN" = "null" ]]; then
     echo "    Login failed. Proceeding without token (dev_mode must be enabled)."
     TOKEN=""
   else
@@ -36,7 +36,7 @@ if [ -z "$TOKEN" ] && [ -n "$ADMIN_PASSWORD" ]; then
 fi
 
 AUTH_HEADER=""
-if [ -n "$TOKEN" ]; then
+if [[ -n "$TOKEN" ]]; then
   AUTH_HEADER="Authorization: Bearer $TOKEN"
 fi
 

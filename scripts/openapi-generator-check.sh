@@ -26,7 +26,7 @@ BASE_URL="${1:-${SANSHAIN_URL:-http://localhost:3000}}"
 ADMIN_PASSWORD="${2:-${INITIAL_ADMIN_PASSWORD:-}}"
 GENERATOR_VERSION="7.26.0"
 
-if [ -z "$ADMIN_PASSWORD" ]; then
+if [[ -z "$ADMIN_PASSWORD" ]]; then
     echo "No admin password provided. Set INITIAL_ADMIN_PASSWORD or pass it as the second argument."
     exit 1
 fi
@@ -37,7 +37,7 @@ JAR="$CACHE_DIR/openapi-generator-cli-$GENERATOR_VERSION.jar"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-if [ ! -f "$JAR" ]; then
+if [[ ! -f "$JAR" ]]; then
     mkdir -p "$CACHE_DIR"
     echo "Downloading openapi-generator-cli $GENERATOR_VERSION..."
     curl -fsSL -o "$JAR.part" \
@@ -188,7 +188,7 @@ check() {
 
     local models
     models=$(find "$out/gen" -name '*.java' -printf '%f ' | tr -s ' ')
-    if [ -z "$models" ]; then
+    if [[ -z "$models" ]]; then
         echo "[FAIL] $producer: no model classes generated"
         exit 1
     fi

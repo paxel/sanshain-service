@@ -20,7 +20,7 @@ set -euo pipefail
 BASE_URL="${1:-${SANSHAIN_URL:-http://localhost:3000}}"
 ADMIN_USER="root"
 
-if [ -z "${2:-}" ] && [ -z "${INITIAL_ADMIN_PASSWORD:-}" ]; then
+if [[ -z "${2:-}" ]] && [[ -z "${INITIAL_ADMIN_PASSWORD:-}" ]]; then
     echo "No admin password provided. Please set INITIAL_ADMIN_PASSWORD or pass it as the second argument."
     exit 1
 fi
@@ -65,12 +65,12 @@ call_api() {
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
     local auth_header=()
-    if [ "$auth" = "true" ] && [ -n "$TOKEN" ]; then
+    if [[ "$auth" = "true" ]] && [[ -n "$TOKEN" ]]; then
         auth_header=("-H" "Authorization: Bearer $TOKEN")
     fi
 
     local data_header=()
-    if [ -n "$data" ]; then
+    if [[ -n "$data" ]]; then
         data_header=("-H" "Content-Type: application/json" "-d" "$data")
     fi
 
@@ -97,7 +97,7 @@ call_api_header() {
 assert_status() {
     local expected="$1"
     local msg="$2"
-    if [ "$LAST_STATUS" -eq "$expected" ]; then
+    if [[ "$LAST_STATUS" -eq "$expected" ]]; then
         log_success "$msg (Status: $LAST_STATUS)"
     else
         log_failure "$msg (Expected $expected, got $LAST_STATUS)"
@@ -114,7 +114,7 @@ assert_json() {
     local actual
     actual=$(echo "$LAST_BODY" | jq -r "$query" 2>/dev/null || echo "ERROR")
 
-    if [ "$actual" = "$expected" ]; then
+    if [[ "$actual" = "$expected" ]]; then
         log_success "$msg ($actual)"
     else
         log_failure "$msg (Expected $expected, got $actual)"
@@ -165,7 +165,7 @@ assert_status 401 "Login with wrong password rejected"
 # below — 2.0 needs no dev-mode switch for that.
 log_info "Attempting login with user: $ADMIN_USER"
 call_api POST "/auth/login" "{\"username\":\"$ADMIN_USER\", \"password\":\"$ADMIN_PASSWORD\"}" false
-if [ "$LAST_STATUS" -eq 200 ]; then
+if [[ "$LAST_STATUS" -eq 200 ]]; then
     TOKEN=$(echo "$LAST_BODY" | jq -r .token)
     log_success "Login successful, token obtained"
 else
@@ -325,7 +325,7 @@ call_api POST "/provide" "$PAYLOAD_FORGOT"
 assert_status 409 "GA 1.0.0 with different content rejected (forgotten bump)"
 assert_contains "immutable" "Rejection explains GA immutability"
 PROPOSED=$(echo "$LAST_BODY" | jq -r .proposed_version)
-if [ -n "$PROPOSED" ] && [ "$PROPOSED" != "null" ]; then
+if [[ -n "$PROPOSED" ]] && [[ "$PROPOSED" != "null" ]]; then
     log_success "Rejection proposes a free version ($PROPOSED)"
 else
     log_failure "Rejection carries no proposed_version"
@@ -355,7 +355,7 @@ assert_status 200 "Require existing endpoint at pinned version 1.0.0"
 
 # The resolution is named in the response headers
 call_api_header GET "/require?consumername=$CLIENT_NAME&producername=$SVC_NAME&version=1.0.0&path=/hello&method=GET" "x-sanshain-stability"
-if [ "$LAST_HEADER" = "ga" ]; then
+if [[ "$LAST_HEADER" = "ga" ]]; then
     log_success "X-Sanshain-Stability names the serving stability (ga)"
 else
     log_failure "X-Sanshain-Stability expected 'ga', got '$LAST_HEADER'"
@@ -433,7 +433,7 @@ ETAG_B=$(curl -s -o /dev/null -D - -X POST "$BASE_URL/require-bundle" \
     -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
     -d "$BUNDLE_B" | grep -i "^etag:" | tr -d '\r\n ')
 
-if [ "$ETAG_A" = "$ETAG_B" ] && [ -n "$ETAG_A" ]; then
+if [[ "$ETAG_A" = "$ETAG_B" ]] && [[ -n "$ETAG_A" ]]; then
     log_success "Bundle ETags match regardless of endpoint order"
 else
     log_failure "Bundle ETags differ: A='$ETAG_A' B='$ETAG_B'"
@@ -509,7 +509,7 @@ assert_status 200 "Restore snapshot max age"
 call_api POST "/admin/cleanup/snapshots" '{}'
 assert_status 200 "Trigger snapshot cleanup"
 DELETED=$(echo "$LAST_BODY" | jq -r .deleted)
-if [ "$DELETED" != "null" ] && [ "$DELETED" -ge 0 ] 2>/dev/null; then
+if [[ "$DELETED" =~ ^[0-9]+$ ]]; then
     log_success "Cleanup reports deleted snapshot count ($DELETED)"
 else
     log_failure "Cleanup response lacks a numeric .deleted (got '$DELETED')"
@@ -528,7 +528,7 @@ assert_status 200 "Dashboard numbers are public"
 assert_json ".provides_per_day | length" "30" "Dashboard covers 30 days"
 
 call_api GET "/api/dashboard/recent" "" false
-if [ "$LAST_STATUS" -eq 401 ] || [ "$LAST_STATUS" -eq 403 ]; then
+if [[ "$LAST_STATUS" -eq 401 ]] || [[ "$LAST_STATUS" -eq 403 ]]; then
     log_success "Latest provides need a sign-in (Status: $LAST_STATUS)"
 else
     log_failure "Latest provides need a sign-in (Expected 401/403, got $LAST_STATUS)"
@@ -599,10 +599,10 @@ echo "  TEST SUMMARY"
 echo "==========================================================================="
 echo -e "  API Calls:     $TOTAL_TESTS"
 echo -e "  Assertions:    ${GREEN}$PASSED_TESTS${NC}"
-echo -e "  Failed:        $([ $FAILED_TESTS -gt 0 ] && echo -e "${RED}$FAILED_TESTS${NC}" || echo -e "${GREEN}0${NC}")"
+echo -e "  Failed:        $([[ $FAILED_TESTS -gt 0 ]] && echo -e "${RED}$FAILED_TESTS${NC}" || echo -e "${GREEN}0${NC}")"
 echo "==========================================================================="
 
-if [ "$FAILED_TESTS" -eq 0 ]; then
+if [[ "$FAILED_TESTS" -eq 0 ]]; then
     echo -e "${GREEN}SUCCESS: All integration tests passed!${NC}"
     exit 0
 else
