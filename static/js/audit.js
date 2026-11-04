@@ -164,7 +164,7 @@ function renderDiffContent(id) {
 
 function resetFilters() {
   document.getElementById("audit-filters").reset();
-  loadTimeline();
+  void loadTimeline();
 }
 
 // Attach filter form handler
@@ -173,7 +173,7 @@ function initAuditFilters() {
   if (filterForm) {
     filterForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      loadTimeline();
+      void loadTimeline();
     });
   }
 }

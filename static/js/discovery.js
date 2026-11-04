@@ -183,7 +183,7 @@ function renderPaginatedYaml(container, yamlText, filename) {
     const copyBtn = document.getElementById("yaml-copy");
     if (copyBtn)
       copyBtn.onclick = () => {
-        navigator.clipboard.writeText(yamlText).then(() => {
+        void navigator.clipboard.writeText(yamlText).then(() => {
           copyBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
           setTimeout(() => {
             copyBtn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg> Copy`;
@@ -391,7 +391,7 @@ async function mountDiffView(container, options) {
   if (wsToggle) {
     wsToggle.addEventListener("change", (e) => {
       state.ignoreWhitespace = e.target.checked;
-      load();
+      void load();
     });
   }
   layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
@@ -448,7 +448,7 @@ async function checkDiscoveryAuth(onSuccess) {
       const res = await apiCall("/auth/me");
       if (res.ok) {
         const user = await res.json();
-        renderBanner(user);
+        void renderBanner(user);
         if (onSuccess) await onSuccess(user);
         return;
       }

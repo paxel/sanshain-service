@@ -229,7 +229,7 @@ async function renderBanner(user = null) {
 
     const data = await res.json();
     updateBannerAuth(data);
-    initSSEUpdates();
+    void initSSEUpdates();
     return data;
   } catch (_) {
     updateBannerAuth(null);

@@ -34,12 +34,12 @@ async function loadServices() {
 
 function goBackToServices() {
   history.pushState({}, "", window.location.pathname);
-  loadServices();
+  void loadServices();
 }
 
 function goBackToVersions(serviceName) {
   history.pushState({ service: serviceName }, "", `?service=${encodeURIComponent(serviceName)}`);
-  showProducerVersions(serviceName);
+  void showProducerVersions(serviceName);
 }
 
 function renderServiceList(allServicesIn) {
@@ -80,7 +80,7 @@ function renderServiceList(allServicesIn) {
       "bg-white p-5 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
     card.onclick = () => {
       history.pushState({ service: name }, "", `?service=${encodeURIComponent(name)}`);
-      showProducerVersions(name);
+      void showProducerVersions(name);
     };
     card.innerHTML = `
                 <div class="flex items-center justify-between">
@@ -212,7 +212,7 @@ async function showProducerVersions(serviceName) {
   list.appendChild(webhooks);
   // Asked only of those who may see it: anyone else would draw a 403.
   if (gateAllows(currentUser, "manage_producers", serviceName)) {
-    renderWebhookPanel(
+    void renderWebhookPanel(
       webhooksPanel,
       `/admin/producers/${encodeURIComponent(serviceName)}/webhooks`,
     ).then((visible) => {
@@ -336,7 +336,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
       "",
       `?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(v.version)}`,
     );
-    showVersionEndpoints(serviceName, apiType, v.version);
+    void showVersionEndpoints(serviceName, apiType, v.version);
   };
   card.innerHTML = `
             <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -387,11 +387,11 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
   });
   card.querySelector("[data-download]").addEventListener("click", (e) => {
     e.stopPropagation();
-    downloadFullApi(serviceName, apiType, v.version);
+    void downloadFullApi(serviceName, apiType, v.version);
   });
   card.querySelector("[data-delete]").addEventListener("click", (e) => {
     e.stopPropagation();
-    deleteVersion(serviceName, apiType, v.version);
+    void deleteVersion(serviceName, apiType, v.version);
   });
   const promoteBtn = card.querySelector("[data-promote]");
   if (promoteBtn) {
@@ -400,7 +400,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
       // Shared flow from common.js; the callback is this page's refresh.
       promoteVersion(serviceName, apiType, v.version, async () => {
         await loadAllProducers();
-        showProducerVersions(serviceName);
+        void showProducerVersions(serviceName);
       });
     });
   }
@@ -452,7 +452,7 @@ async function deleteVersion(serviceName, apiType, version) {
         return;
       }
       await loadAllProducers();
-      showProducerVersions(serviceName);
+      void showProducerVersions(serviceName);
     } catch (e) {
       alert("Failed to delete: " + e.message);
     }
@@ -724,7 +724,7 @@ async function handleDeepLink() {
 }
 
 // Initial load
-checkDiscoveryAuth(async (user) => {
+void checkDiscoveryAuth(async (user) => {
   currentUser = user;
   await loadAllProducers();
   await handleDeepLink();
@@ -732,10 +732,10 @@ checkDiscoveryAuth(async (user) => {
 
 // Handle back/forward navigation
 window.addEventListener("popstate", () => {
-  handleDeepLink();
+  void handleDeepLink();
 });
 
 window.addEventListener("sanshain-update", () => {
   console.log("Live update received, refreshing services...");
-  handleDeepLink();
+  void handleDeepLink();
 });

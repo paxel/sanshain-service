@@ -110,7 +110,7 @@ if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
 }
 
 // Auth load
-checkDiscoveryAuth(async () => {
+void checkDiscoveryAuth(async () => {
   await renderBanner();
   await (isFullSpecMode ? loadFullSpecVersions() : loadEndpointVersions());
 });
@@ -337,7 +337,7 @@ function renderActiveView() {
   if (isDiffMode) {
     renderDiffView();
   } else if (isStructureMode) {
-    renderStructure(activeVersion);
+    void renderStructure(activeVersion);
   } else {
     renderYamlView();
   }
@@ -385,7 +385,7 @@ function renderYamlView() {
   const lines = activeVersion.yaml_content.split("\n");
 
   if (isBlameOn) {
-    renderBlameView(activeVersion);
+    void renderBlameView(activeVersion);
   } else {
     let html = `<div class="flex items-start bg-slate-950 p-4 border border-slate-800 rounded-lg overflow-x-auto select-text">`;
     // Line numbers column
@@ -457,7 +457,7 @@ function renderDiffView() {
       ? `<div class="mt-1 text-[11px]" data-diff-origin="${escapeHtml(version)}"><span class="text-slate-400">${escapeHtml(version)}:</span>${html}</div>`
       : "";
   };
-  mountDiffView(viewerContainer, {
+  void mountDiffView(viewerContainer, {
     caption: `Comparing <span class="text-indigo-400 font-bold">${escapeHtml(fromVersion)}</span> &rarr; <span class="text-indigo-400 font-bold">${escapeHtml(toVersion)}</span>${originOf(fromVersion)}${originOf(toVersion)}`,
     emptyHtml: `No differences between ${escapeHtml(fromVersion)} and ${escapeHtml(toVersion)}.`,
     // Endpoint snippets are re-serialized when a spec is split, so they never
@@ -698,8 +698,8 @@ function showToast(message) {
 window.addEventListener("sanshain-update", () => {
   console.log("Live update received, refreshing versions...");
   if (isFullSpecMode) {
-    loadFullSpecVersions();
+    void loadFullSpecVersions();
   } else {
-    loadEndpointVersions();
+    void loadEndpointVersions();
   }
 });

@@ -209,7 +209,7 @@ function renderStructureView(container, view, { unfold, loadEndpoint, copy }) {
   root.addEventListener(
     "toggle",
     (e) => {
-      if (e.target.open) fill(e.target);
+      if (e.target.open) void fill(e.target);
     },
     true,
   );

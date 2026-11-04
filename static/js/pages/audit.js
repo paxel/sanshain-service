@@ -4,7 +4,7 @@
 // the same document position, so DOM timing is unchanged.
 
 function initAudit() {
-  checkDiscoveryAuth(() => loadTimeline());
+  void checkDiscoveryAuth(() => loadTimeline());
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initAudit);

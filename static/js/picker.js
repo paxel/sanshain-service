@@ -94,7 +94,7 @@ function createPicker(root, config) {
       // mousedown, not click: the input keeps its focus, so the list stays open.
       item.addEventListener("mousedown", (event) => {
         event.preventDefault();
-        choose(option);
+        void choose(option);
       });
       panel.append(item);
     });
@@ -153,7 +153,7 @@ function createPicker(root, config) {
       // Enter takes the entry and closes the list, so it covers nothing;
       // typing again reopens it. Clicks keep a multi-value list open.
       if (list.length) {
-        choose(list[highlighted]);
+        void choose(list[highlighted]);
         if (config.multiple) {
           input.value = "";
           hide();

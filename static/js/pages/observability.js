@@ -25,8 +25,8 @@ async function checkSession() {
       await renderBanner(data);
       applyAdminState();
       hideLoader();
-      loadObservability();
-      loadBranchCount();
+      void loadObservability();
+      void loadBranchCount();
     } else {
       window.location.href = "/account.html";
     }
@@ -55,10 +55,10 @@ function applyAdminState() {
 
 // --- Observability ---
 async function loadObservability() {
-  loadStats();
-  loadDebugConfig();
-  loadLogs();
-  loadAuditLogs();
+  void loadStats();
+  void loadDebugConfig();
+  void loadLogs();
+  void loadAuditLogs();
 }
 
 // The audit log needs `view_audit`; without it the panel says whose it is
@@ -337,9 +337,9 @@ function downloadLogs() {
 
 // Auto-refresh every 5s
 setInterval(() => {
-  loadStats();
-  loadLogs();
-  loadAuditLogs();
+  void loadStats();
+  void loadLogs();
+  void loadAuditLogs();
 }, 5000);
 
 // Fetch well past what is shown: rejections share this table, so a CI job
@@ -453,4 +453,4 @@ async function exportAuditLogs() {
   }
 }
 
-checkSession();
+void checkSession();

@@ -25,7 +25,7 @@ async function showClients() {
 
 function goBackToClients() {
   history.pushState({}, "", window.location.pathname);
-  showClients();
+  void showClients();
 }
 
 function renderClientList(clients) {
@@ -51,7 +51,7 @@ function renderClientList(clients) {
       "bg-white p-5 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
     card.onclick = () => {
       history.pushState({ name }, "", `?name=${encodeURIComponent(name)}`);
-      showClientDependencies(name);
+      void showClientDependencies(name);
     };
     // Consumer names are client-supplied and unvalidated: set as text,
     // bind handlers as listeners, never splice into markup.
@@ -136,7 +136,7 @@ async function showClientDependencies(clientName) {
     const webhooksPanel = document.createElement("div");
     webhooks.appendChild(webhooksPanel);
     list.appendChild(webhooks);
-    renderWebhookPanel(
+    void renderWebhookPanel(
       webhooksPanel,
       `/admin/consumers/${encodeURIComponent(clientName)}/webhooks`,
     ).then((visible) => {
@@ -294,16 +294,16 @@ async function handleDeepLink() {
 }
 
 // Initial load
-checkDiscoveryAuth(async () => {
+void checkDiscoveryAuth(async () => {
   await handleDeepLink();
 });
 
 // Handle back/forward navigation
 window.addEventListener("popstate", () => {
-  handleDeepLink();
+  void handleDeepLink();
 });
 
 window.addEventListener("sanshain-update", () => {
   console.log("Live update received, refreshing consumers...");
-  handleDeepLink();
+  void handleDeepLink();
 });

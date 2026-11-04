@@ -72,12 +72,12 @@ document.getElementById("createTokenForm").addEventListener("submit", async (e) 
   document.getElementById("tokenValueUsage").textContent = data.token;
   document.getElementById("tokenModal").classList.remove("hidden");
   document.getElementById("tokenName").value = "";
-  loadTokens();
+  void loadTokens();
 });
 
 document.getElementById("copyTokenBtn").addEventListener("click", () => {
   const token = document.getElementById("tokenValue").textContent;
-  navigator.clipboard.writeText(token).then(() => {
+  void navigator.clipboard.writeText(token).then(() => {
     document.getElementById("copyTokenBtn").textContent = "✅ Copied!";
     setTimeout(() => {
       document.getElementById("copyTokenBtn").textContent = "📋 Copy to Clipboard";
@@ -100,9 +100,9 @@ async function revokeToken(id) {
     },
   });
   csrfToken = null;
-  loadTokens();
+  void loadTokens();
 }
 
-fetchCsrfToken();
-renderBanner();
-loadTokens();
+void fetchCsrfToken();
+void renderBanner();
+void loadTokens();

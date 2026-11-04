@@ -427,7 +427,7 @@ function redrawGraph() {
     // Actually, Mermaid renderGraph takes a second parameter for detailed mode.
     // Let's modify service.html's renderGraph to accept report as first arg.
     if (typeof renderGraph === "function") {
-      renderGraph(filteredReport, mode === "detailed");
+      void renderGraph(filteredReport, mode === "detailed");
     }
   }
 }
@@ -952,10 +952,10 @@ function setStreamView(view) {
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
   initTimelineSlider();
-  refreshTimeline();
+  void refreshTimeline();
   // One redraw once the scope's periphery and producers are both in: drawing
   // the pins first would show the box and badges of no scope at all.
-  Promise.all([
+  void Promise.all([
     graphFetchScopePeriphery(view, window.graphBranchName, null),
     graphFetchScopeData(view, window.graphBranchName, null),
   ]).then(([periphery, scopeData]) => {
@@ -1060,9 +1060,9 @@ function initTimelineSlider() {
   slider.addEventListener("input", () => {
     const idx = parseInt(slider.value, 10);
     if (idx >= window.graphTimelineDates.length) {
-      setTimelinePosition(null);
+      void setTimelinePosition(null);
     } else {
-      setTimelinePosition(window.graphTimelineDates[idx]);
+      void setTimelinePosition(window.graphTimelineDates[idx]);
     }
   });
 }

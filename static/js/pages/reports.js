@@ -6,7 +6,7 @@
 async function showReports() {
   showLoader();
   try {
-    loadReports();
+    void loadReports();
     hideLoader();
   } catch (err) {
     console.error("Failed to show reports:", err);
@@ -84,11 +84,11 @@ async function loadReports() {
 
 window.addEventListener("sanshain-update", () => {
   console.log("Live update received, refreshing reports...");
-  showReports();
+  void showReports();
 });
 
 function initReports() {
-  checkDiscoveryAuth(() => showReports());
+  void checkDiscoveryAuth(() => showReports());
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initReports);

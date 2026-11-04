@@ -4,8 +4,8 @@
 // the same document position, so DOM timing is unchanged.
 
 hideLoader();
-renderBanner();
-loadDashboard();
+void renderBanner();
+void loadDashboard();
 
 // The dashboard: numbers for everyone, the latest provides with names only
 // for a signed-in user (the endpoint refuses everyone else).

@@ -36,7 +36,7 @@ function showAuth() {
   hideLoader();
   document.getElementById("auth-screen").classList.remove("hidden");
   document.getElementById("account-dashboard").classList.add("hidden");
-  applyLoginOptions();
+  void applyLoginOptions();
 }
 
 // What the sign-in card offers follows the instance's settings: the register
@@ -71,9 +71,9 @@ function showAccount() {
   hideLoader();
   document.getElementById("auth-screen").classList.add("hidden");
   document.getElementById("account-dashboard").classList.remove("hidden");
-  loadTokens();
-  loadServiceAccountChoices();
-  showPasswordChangeForLocalSignIns();
+  void loadTokens();
+  void loadServiceAccountChoices();
+  void showPasswordChangeForLocalSignIns();
 }
 
 // A session that signed in through LDAP or OIDC has no Sanshain password to
@@ -125,7 +125,7 @@ async function saveGravatarEmail(email) {
 
 document.getElementById("gravatar-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  saveGravatarEmail(document.getElementById("gravatar-email").value);
+  void saveGravatarEmail(document.getElementById("gravatar-email").value);
 });
 document.getElementById("gravatar-remove").addEventListener("click", () => saveGravatarEmail(""));
 
@@ -401,7 +401,7 @@ document.getElementById("token-form").addEventListener("submit", async (e) => {
       // A hidden field keeps its value through a reset: back to "Me" by hand.
       document.getElementById("token-for").value = "";
       if (tokenForPicker) tokenForPicker.refresh();
-      loadTokens();
+      void loadTokens();
     } else {
       errEl.textContent = `Failed to create token: ${await errorMessage(res)}`;
       errEl.classList.remove("hidden");
@@ -420,7 +420,7 @@ function copyToken() {
 async function revokeToken(id) {
   try {
     await apiCall(`/auth/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
-    loadTokens();
+    void loadTokens();
   } catch (_) {}
 }
 
@@ -440,7 +440,7 @@ async function checkSession() {
     const res = await apiCall("/auth/me");
     if (res.ok) {
       const data = await res.json();
-      renderBanner(data);
+      void renderBanner(data);
       showAccount();
     } else {
       showAuth();
@@ -450,4 +450,4 @@ async function checkSession() {
   }
 }
 
-fetchCsrfToken().then(() => checkSession());
+void fetchCsrfToken().then(() => checkSession());

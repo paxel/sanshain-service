@@ -23,7 +23,7 @@ function showDashboard() {
   document.getElementById("not-admin-screen").classList.add("hidden");
   document.getElementById("admin-dashboard").classList.remove("hidden");
   document.getElementById("create-branch-btn").addEventListener("click", createBranch);
-  loadAll();
+  void loadAll();
 }
 
 async function checkSession() {
@@ -54,7 +54,7 @@ async function checkSession() {
       // Global hooks and the allow-list are instance configuration (#47).
       if (hasPermission(data, "manage_settings")) {
         document.getElementById("webhooks-section").classList.remove("hidden");
-        loadWebhooks();
+        void loadWebhooks();
       }
     } else {
       window.location.href = "/account.html";
@@ -157,20 +157,20 @@ async function loadAll() {
   openAdminTab(initialAdminTab());
   // Each section loads only what the caller may read; the rest says whose it is.
   const can = (permission) => adminActor?.is_root || hasPermission(adminActor, permission);
-  if (can("manage_settings")) loadDatabaseInfo();
+  if (can("manage_settings")) void loadDatabaseInfo();
   else lockedNote("db-url", "manage_settings");
-  loadCacheConfig();
-  loadBranches();
-  loadTrunkMaxAge();
-  loadSnapshotMaxAge();
-  loadTicketUrlTemplateSetting();
-  loadDependencyMaxAge();
-  loadServices();
-  loadClients();
-  loadAutoApproveUsers();
+  void loadCacheConfig();
+  void loadBranches();
+  void loadTrunkMaxAge();
+  void loadSnapshotMaxAge();
+  void loadTicketUrlTemplateSetting();
+  void loadDependencyMaxAge();
+  void loadServices();
+  void loadClients();
+  void loadAutoApproveUsers();
   if (can("manage_auth_config")) {
-    loadAuthConfig();
-    loadDetailedErrors();
+    void loadAuthConfig();
+    void loadDetailedErrors();
   } else lockedNote("auth-config-locked", "manage_auth_config");
   // Ordered: the catalogue tells the user and group rows which roles
   // exist, the user list feeds the maintainer picker, and groups feed
@@ -189,8 +189,8 @@ async function loadAll() {
 
 // --- Webhooks (#47) ---
 async function loadWebhooks() {
-  loadWebhookAllowedHosts();
-  renderWebhookPanel(document.getElementById("webhooks-panel"), "/admin/webhooks");
+  void loadWebhookAllowedHosts();
+  void renderWebhookPanel(document.getElementById("webhooks-panel"), "/admin/webhooks");
 }
 
 async function loadWebhookAllowedHosts() {
@@ -309,7 +309,7 @@ async function saveCacheConfig() {
     if (res.ok) {
       document.getElementById("cache-action-result").textContent = "✓ Saved";
       setTimeout(() => (document.getElementById("cache-action-result").textContent = ""), 3000);
-      loadCacheConfig();
+      void loadCacheConfig();
     }
   } catch (_) {}
 }
@@ -320,7 +320,7 @@ async function clearCache() {
     if (res.ok) {
       document.getElementById("cache-action-result").textContent = "✓ Cache cleared";
       setTimeout(() => (document.getElementById("cache-action-result").textContent = ""), 3000);
-      loadCacheConfig();
+      void loadCacheConfig();
     }
   } catch (_) {}
 }
@@ -418,7 +418,7 @@ async function createBranch() {
   }
   document.getElementById("new-branch-name").value = "";
   document.getElementById("new-branch-as-of").value = "";
-  loadBranches();
+  void loadBranches();
 }
 
 async function renameBranch(name) {
@@ -432,7 +432,7 @@ async function renameBranch(name) {
     alert("Could not rename: " + (await errorMessage(res)));
     return;
   }
-  loadBranches();
+  void loadBranches();
 }
 
 async function deleteBranch(name) {
@@ -441,7 +441,7 @@ async function deleteBranch(name) {
     alert("Could not delete: " + (await errorMessage(res)));
     return;
   }
-  loadBranches();
+  void loadBranches();
 }
 
 async function loadSnapshotMaxAge() {
@@ -503,7 +503,7 @@ async function triggerSnapshotCleanup() {
       document.getElementById("snapshot-cleanup-result").textContent =
         `✓ Deleted ${data.deleted} snapshot${data.deleted !== 1 ? "s" : ""}`;
       setTimeout(() => (document.getElementById("snapshot-cleanup-result").textContent = ""), 5000);
-      loadServices();
+      void loadServices();
     }
   } catch (_) {}
 }
@@ -547,7 +547,7 @@ async function triggerDependencyCleanup() {
         () => (document.getElementById("dependency-cleanup-result").textContent = ""),
         5000,
       );
-      loadClients();
+      void loadClients();
     }
   } catch (_) {}
 }
@@ -597,7 +597,7 @@ async function flipSwitch(id) {
     sw.on = !sw.on;
     paintSwitch(id);
     instanceSettings(true);
-    loadUsers();
+    void loadUsers();
   } catch (e) {
     alert("Failed to save: " + e.message);
   }
@@ -736,7 +736,7 @@ async function grantRole(userId) {
     alert("Failed to grant: " + (await errorMessage(res)));
     return;
   }
-  loadUsers();
+  void loadUsers();
 }
 
 async function revokeRole(userId, role) {
@@ -758,7 +758,7 @@ async function revokeRole(userId, role) {
     alert("Failed to revoke: " + (await errorMessage(res)));
     return;
   }
-  loadUsers();
+  void loadUsers();
 }
 
 async function currentActor() {
@@ -906,7 +906,7 @@ async function createGroup() {
     return;
   }
   input.value = "";
-  loadGroups();
+  void loadGroups();
 }
 
 async function removeGroupMember(groupId, userId) {
@@ -915,7 +915,7 @@ async function removeGroupMember(groupId, userId) {
     alert("Failed to remove member: " + (await errorMessage(res)));
     return;
   }
-  loadGroups();
+  void loadGroups();
 }
 
 async function addGroupRole(groupId) {
@@ -936,7 +936,7 @@ async function setGroupRoles(groupId, role, add) {
     alert("Failed to update roles: " + (await errorMessage(res)));
     return;
   }
-  loadGroups();
+  void loadGroups();
 }
 
 async function deleteGroup(groupId) {
@@ -945,7 +945,7 @@ async function deleteGroup(groupId) {
     alert("Failed to delete: " + (await errorMessage(res)));
     return;
   }
-  loadGroups();
+  void loadGroups();
 }
 
 // Directory groups are found by searching LDAP while typing, so a team such
@@ -1008,7 +1008,7 @@ function mountDirectoryGroupPicker() {
     isSelected: () => false,
     onSearch: (text) => searchDirectoryGroups(text, () => directoryGroupPicker.refresh()),
     onPick: async (value) => {
-      if (await addDirectoryGroup(value.slice(3))) loadGroups();
+      if (await addDirectoryGroup(value.slice(3))) void loadGroups();
     },
     selectedLabel: () => "",
   });
@@ -1315,7 +1315,7 @@ document.getElementById("service-account-form").addEventListener("submit", async
     search.value = input.value.trim();
     userFilter.text = search.value;
     input.value = "";
-    loadUsers();
+    void loadUsers();
   } catch (err) {
     alert("Could not create the service account: " + err.message);
   }
@@ -1334,7 +1334,7 @@ async function renameServiceAccount(id, current) {
       alert("Could not set the display name: " + (await errorMessage(res)));
       return;
     }
-    loadUsers();
+    void loadUsers();
   } catch (err) {
     alert("Could not set the display name: " + err.message);
   }
@@ -1342,14 +1342,14 @@ async function renameServiceAccount(id, current) {
 async function approveUser(id) {
   try {
     await apiCall(`/admin/users/${id}/approve`, { method: "POST" });
-    loadUsers();
+    void loadUsers();
   } catch (_) {}
 }
 
 async function deleteUser(id) {
   try {
     await apiCall(`/admin/users/${id}`, { method: "DELETE" });
-    loadUsers();
+    void loadUsers();
   } catch (_) {}
 }
 
@@ -1404,7 +1404,7 @@ async function pasteSpecSubmit(dryRun) {
       );
       if (!dryRun) {
         document.getElementById("paste-spec-content").value = "";
-        loadServices();
+        void loadServices();
       }
     } else {
       const msg = await errorMessage(res);
@@ -1493,7 +1493,7 @@ async function setProducerExternal(name, external) {
       alert("Failed to save: " + (await errorMessage(res)));
       return;
     }
-    loadServices();
+    void loadServices();
   } catch (e) {
     alert("Failed to save: " + e.message);
   }
@@ -1562,7 +1562,7 @@ async function renderVersions(container, serviceName) {
 async function deleteService(name) {
   try {
     await apiCall(`/admin/producers/${encodeURIComponent(name)}`, { method: "DELETE" });
-    loadServices();
+    void loadServices();
   } catch (_) {}
 }
 
@@ -1591,7 +1591,7 @@ async function deleteVersion(service, apiType, version) {
         alert("Failed to delete: " + (await errorMessage(res)));
         return;
       }
-      loadServices();
+      void loadServices();
     },
   );
 }
@@ -1656,7 +1656,7 @@ function renderClients(clients) {
 async function deleteClient(name) {
   try {
     await apiCall(`/admin/consumers/${encodeURIComponent(name)}`, { method: "DELETE" });
-    loadClients();
+    void loadClients();
   } catch (_) {}
 }
 
@@ -1870,7 +1870,7 @@ async function nukeServices() {
     body: { confirmation: "DELETE ALL SERVICES" },
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
-  loadServices();
+  void loadServices();
 }
 
 async function nukeClients() {
@@ -1879,7 +1879,7 @@ async function nukeClients() {
     body: { confirmation: "DELETE ALL CLIENTS" },
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
-  loadClients();
+  void loadClients();
 }
 
 async function nukeUsers() {
@@ -1888,7 +1888,7 @@ async function nukeUsers() {
     body: { confirmation: "DELETE ALL USERS" },
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
-  loadUsers();
+  void loadUsers();
 }
 
 async function nukeDatabase() {
@@ -1897,7 +1897,7 @@ async function nukeDatabase() {
     body: { confirmation: "NUKE DATABASE" },
   });
   if (!res.ok) throw new Error("HTTP " + res.status);
-  loadAll();
+  void loadAll();
 }
 
 // Confirmation wrappers for the destructive-operations buttons. Each button
@@ -1971,7 +1971,7 @@ document.getElementById("metadata-form").addEventListener("submit", async (e) =>
     });
     if (res.ok) {
       closeMetadataModal();
-      loadServices();
+      void loadServices();
     } else {
       alert("Failed to save metadata: " + res.status);
     }
@@ -1981,4 +1981,4 @@ document.getElementById("metadata-form").addEventListener("submit", async (e) =>
 });
 
 // --- Init ---
-fetchCsrfToken().then(() => checkSession());
+void fetchCsrfToken().then(() => checkSession());

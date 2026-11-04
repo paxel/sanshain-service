@@ -236,7 +236,7 @@ function renderWebhookRow(basePath, hook, actions) {
     const res = await apiCall(`${hookPath}/test`, { method: "POST" });
     if (!res.ok) return fail(res, "Could not queue the test event");
     logEl.classList.remove("hidden");
-    renderWebhookLog(logEl, hookPath, actions);
+    void renderWebhookLog(logEl, hookPath, actions);
   });
   row.querySelector('[data-act="rotate"]').addEventListener("click", () => {
     webhookConfirm(
@@ -255,7 +255,7 @@ function renderWebhookRow(basePath, hook, actions) {
   });
   row.querySelector('[data-act="log"]').addEventListener("click", () => {
     const open = logEl.classList.toggle("hidden");
-    if (!open) renderWebhookLog(logEl, hookPath, actions);
+    if (!open) void renderWebhookLog(logEl, hookPath, actions);
   });
   row.querySelector('[data-act="delete"]').addEventListener("click", () => {
     webhookConfirm(`Delete the hook for ${hook.url}? Its delivery log goes with it.`, async () => {
@@ -315,7 +315,7 @@ async function renderWebhookLog(logEl, hookPath, actions) {
     tr.querySelector('[data-act="redeliver"]').addEventListener("click", async () => {
       const res = await apiCall(`${hookPath}/deliveries/${d.id}/redeliver`, { method: "POST" });
       if (!res.ok) return actions.showError(`Could not redeliver: ${await errorMessage(res)}`);
-      renderWebhookLog(logEl, hookPath, actions);
+      void renderWebhookLog(logEl, hookPath, actions);
     });
     tbody.appendChild(tr);
   }
