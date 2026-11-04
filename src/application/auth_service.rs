@@ -360,14 +360,15 @@ pub async fn get_ldap_config(repo: &impl SpecRepository) -> Result<Option<LdapCo
     }
 }
 
-/// The configuration the connection test binds with.
+/// The submitted LDAP configuration with a masked bind password resolved, for
+/// the connection test and for saving.
 ///
 /// A masked bind password stands for the stored one, but only while every
 /// other setting is the stored one too: the test then checks that the saved
-/// connection still works. With anything changed the password has to be typed
-/// again, so nobody can point the test at another server and hand it the
-/// stored password.
-pub async fn ldap_config_to_test(
+/// connection still works, and a save keeps it. With anything changed the
+/// password has to be typed again, so nobody can point the configuration at
+/// another server and hand it the stored password.
+pub async fn ldap_config_with_stored_password(
     repo: &impl SpecRepository,
     submitted: LdapConfig,
 ) -> Result<LdapConfig, AppError> {
@@ -377,11 +378,10 @@ pub async fn ldap_config_to_test(
     match get_ldap_config(repo).await? {
         Some(stored) if submitted.same_except_bind_password(&stored) => Ok(stored),
         Some(_) => Err(AppError::BadRequest(
-            "The settings differ from the saved ones: enter the bind password to test them."
-                .to_string(),
+            "The settings differ from the saved ones: enter the bind password again.".to_string(),
         )),
         None => Err(AppError::BadRequest(
-            "No bind password is saved yet: enter it to test the connection.".to_string(),
+            "No bind password is saved yet: enter it.".to_string(),
         )),
     }
 }
@@ -1073,7 +1073,7 @@ mod tests {
         let repo = MockRepo::new();
         set_ldap_config(&repo, &saved_ldap_config()).await.unwrap();
 
-        let tested = ldap_config_to_test(&repo, masked(saved_ldap_config()))
+        let tested = ldap_config_with_stored_password(&repo, masked(saved_ldap_config()))
             .await
             .unwrap();
 
@@ -1089,22 +1089,24 @@ mod tests {
             ..masked(saved_ldap_config())
         };
 
-        let refused = ldap_config_to_test(&repo, moved).await.unwrap_err();
+        let refused = ldap_config_with_stored_password(&repo, moved)
+            .await
+            .unwrap_err();
 
         assert!(matches!(refused, AppError::BadRequest(message)
-            if message == "The settings differ from the saved ones: enter the bind password to test them."));
+            if message == "The settings differ from the saved ones: enter the bind password again."));
     }
 
     #[tokio::test]
     async fn a_masked_password_without_a_saved_configuration_is_refused() {
         let repo = MockRepo::new();
 
-        let refused = ldap_config_to_test(&repo, masked(saved_ldap_config()))
+        let refused = ldap_config_with_stored_password(&repo, masked(saved_ldap_config()))
             .await
             .unwrap_err();
 
         assert!(matches!(refused, AppError::BadRequest(message)
-            if message == "No bind password is saved yet: enter it to test the connection."));
+            if message == "No bind password is saved yet: enter it."));
     }
 
     #[tokio::test]
@@ -1117,7 +1119,9 @@ mod tests {
             ..saved_ldap_config()
         };
 
-        let tested = ldap_config_to_test(&repo, typed.clone()).await.unwrap();
+        let tested = ldap_config_with_stored_password(&repo, typed.clone())
+            .await
+            .unwrap();
 
         assert_eq!(tested, typed);
     }

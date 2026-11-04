@@ -58,10 +58,22 @@ paths:
       x-permission: manage_auth_config
       x-scope: global
       description: |
-        Requires the `manage_auth_config` permission.
+        Requires the `manage_auth_config` permission. An LDAP `bind_password`
+        of `****` (the mask `GET /admin/auth-config` returns) keeps the stored
+        password, but only when every other LDAP field equals the stored
+        configuration; otherwise the request is refused with `400` and
+        nothing changes, so the stored password never goes to another server.
       responses:
         "200":
           description: Success.
+        "400":
+          description: |
+            An unknown mode, a missing or invalid configuration, or a masked
+            bind password with changed LDAP settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
@@ -86,7 +98,8 @@ paths:
         (the mask `GET /admin/auth-config` returns) binds with the stored
         password, but only when every other field equals the stored
         configuration; otherwise the request is refused with `400`, so the
-        stored password never goes to another server.
+        stored password never goes to another server. Saving follows the
+        same rule.
       responses:
         "200":
           description: Connected and bound.

@@ -343,6 +343,30 @@ async fn auth_config_get_put_and_password_masking() {
         "the masked placeholder must not overwrite the stored secret"
     );
 
+    // The masked placeholder with a changed server is refused, and nothing
+    // changes: the stored secret never goes to another server.
+    let mut moved = masked.clone();
+    moved["server_url"] = json!("ldap://127.0.0.2:9");
+    let (status, body) = send_json(
+        &app,
+        "PUT",
+        "/admin/auth-config",
+        &auth,
+        &json!({ "auth_mode": "ldap", "ldap_config": moved }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"],
+        "The settings differ from the saved ones: enter the bind password again."
+    );
+    let stored = services::get_ldap_config(&repo)
+        .await
+        .unwrap()
+        .expect("ldap config stored");
+    assert_eq!(stored.server_url, "ldap://127.0.0.1:9");
+    assert_eq!(stored.bind_password.as_deref(), Some("secret-bind-pw"));
+
     // Switching back to local mode works without a config.
     let (status, _) = send_json(
         &app,
@@ -453,7 +477,7 @@ async fn auth_config_test_uses_the_stored_password_only_for_unchanged_settings()
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(
         body["error"],
-        "The settings differ from the saved ones: enter the bind password to test them."
+        "The settings differ from the saved ones: enter the bind password again."
     );
 }
 

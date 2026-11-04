@@ -682,14 +682,14 @@ pub async fn set_auth_config(
     if let Some(oidc) = &payload.oidc_config {
         oidc.validate().map_err(AppError::BadRequest)?;
     }
+    // A masked bind password keeps the stored one only for unchanged
+    // settings; resolved before anything is stored, so a refusal changes nothing.
+    let ldap = match payload.ldap_config {
+        Some(ldap) => Some(services::ldap_config_with_stored_password(&state.repo, ldap).await?),
+        None => None,
+    };
     services::switch_auth_mode(&state.repo, mode).await?;
-    if let Some(mut ldap) = payload.ldap_config {
-        if let Some(ref pass) = ldap.bind_password
-            && pass == "****"
-            && let Ok(Some(old_config)) = services::get_ldap_config(&state.repo).await
-        {
-            ldap.bind_password = old_config.bind_password;
-        }
+    if let Some(ldap) = ldap {
         services::set_ldap_config(&state.repo, &ldap).await?;
     }
     if let Some(mut oidc) = payload.oidc_config {
@@ -722,7 +722,7 @@ pub async fn set_auth_config(
 
 /// Connect and bind with the service account of the submitted configuration.
 /// The masked password tests the stored one only for unchanged settings
-/// (`ldap_config_to_test`).
+/// (`ldap_config_with_stored_password`).
 ///
 /// A directory that could not be reached at all gets the network diagnosis
 /// appended to the `400`, one line each, so the admin sees the container's
@@ -737,7 +737,7 @@ pub async fn test_auth_config(
     use crate::infrastructure::net_diag;
 
     config.validate_server_url().map_err(AppError::BadRequest)?;
-    let config = services::ldap_config_to_test(&state.repo, config).await?;
+    let config = services::ldap_config_with_stored_password(&state.repo, config).await?;
     let server_url = config.server_url.clone();
     let provider = LdapAuthProvider::new(config);
     match provider.test_connection().await {
