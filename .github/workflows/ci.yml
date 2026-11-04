@@ -33,7 +33,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --verbose
 
       # Testcontainers tests pull this image on demand; concurrent in-test pulls
       # are flaky ("bytes remaining on stream"), so fetch it once up front.

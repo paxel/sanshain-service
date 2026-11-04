@@ -10,10 +10,9 @@ on:
         description: "Release tag (e.g. v0.1.0)"
         required: true
 
+# Read only by default; the release job asks for what publishing needs.
 permissions:
-  contents: write
-  packages: write
-  pull-requests: read
+  contents: read
 
 env:
   REGISTRY: ghcr.io

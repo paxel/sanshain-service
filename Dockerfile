@@ -11,7 +11,7 @@ COPY templates/ templates/
 COPY benches/ benches/
 #COPY tests/ tests/
 
-RUN cargo build --release
+RUN cargo build --release --locked
 
 # Stage 2: Runtime
 FROM alpine:3.24

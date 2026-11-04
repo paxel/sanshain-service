@@ -49,7 +49,7 @@ jobs:
         run: |
           export INITIAL_ADMIN_PASSWORD=root_password
           export INITIAL_AUTH_MODE=local
-          cargo build
+          cargo build --locked
           cargo run &
           PID=$!
           trap "kill $PID || true" EXIT
@@ -97,9 +97,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-      - run: npm ci
-      - run: npx eslint static/js/
-      - run: npx prettier --check static/js/
+      - run: npm ci --ignore-scripts
+      - run: ./node_modules/.bin/eslint static/js/
+      - run: ./node_modules/.bin/prettier --check static/js/
       # The Tailwind CSS is a committed artifact (prod serves static/ directly);
       # fail if it drifts from source.
       - run: npm run build:css && git diff --exit-code static/css/app.css
@@ -121,11 +121,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
       - name: Build service
-        run: cargo build
+        run: cargo build --locked
       - name: UI Smoke Tests
         run: |
           cargo run &
@@ -146,7 +146,7 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          npx playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js tests/ui/service_account.test.js tests/ui/graph_layout.test.js
+          ./node_modules/.bin/playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js tests/ui/service_account.test.js tests/ui/graph_layout.test.js
         env:
           INITIAL_ADMIN_PASSWORD: root_password
           INITIAL_AUTH_MODE: local
