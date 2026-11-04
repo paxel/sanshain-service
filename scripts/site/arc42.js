@@ -107,7 +107,10 @@ export function readExport(source, file = "export") {
   const motivation = paragraph.join(" ");
 
   const tables = [];
+  // The first line after the last table read; the lines before it are that table's.
+  let next = 0;
   for (let i = imageAt + 1; i < lines.length; i++) {
+    if (i < next) continue;
     const heading = /^####\s+(\S.*)$/.exec(lines[i].trimEnd());
     if (!heading || heading[1] === "Motivation") continue;
     let at = i + 1;
@@ -134,7 +137,7 @@ export function readExport(source, file = "export") {
       rows.push(cells);
     }
     tables.push({ title: heading[1], header, rows });
-    i = at - 1;
+    next = at;
   }
   return { title, image, motivation, tables };
 }
@@ -361,6 +364,8 @@ export function linkBoxes(svgInner, resolve, file = "diagram.svg") {
     return Boolean(b && point && within(b, point));
   };
   for (let i = 0; i + 1 < nodes.length; i++) {
+    // Nodes up to lastEnd belong to the box just wrapped.
+    if (i <= lastEnd) continue;
     if (nodes[i].tag !== "text" || nodes[i + 1].tag !== "text") continue;
     if (
       !decodeXml(nodes[i + 1].text)
@@ -391,7 +396,6 @@ export function linkBoxes(svgInner, resolve, file = "diagram.svg") {
     wraps.push({ from: nodes[start].start, to: nodes[end].end, href, name });
     boxes.push({ name, href });
     lastEnd = end;
-    i = end;
   }
   let out = "";
   let cursor = 0;
