@@ -105,4 +105,15 @@ mod tests {
         let text = to_string(&value).unwrap();
         assert_eq!(from_str::<Value>(&text).unwrap(), value);
     }
+
+    #[test]
+    fn empty_lines_in_block_scalars_carry_no_trailing_whitespace() {
+        let value: Value = from_str("info:\n  description: |\n    first\n\n    second\n").unwrap();
+        let text = to_string(&value).unwrap();
+        assert!(text.contains('|'), "expected a literal block, got:\n{text}");
+        for line in text.lines() {
+            assert_eq!(line, line.trim_end(), "trailing whitespace in:\n{text}");
+        }
+        assert_eq!(from_str::<Value>(&text).unwrap(), value);
+    }
 }
