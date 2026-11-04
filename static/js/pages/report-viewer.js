@@ -18,6 +18,17 @@ async function loadReport() {
     showError("No report source specified.");
     return;
   }
+  // The request carries the user's token, so it only goes to this service.
+  let url;
+  try {
+    url = new URL(src, window.location.origin);
+  } catch {
+    url = null;
+  }
+  if (!url || url.origin !== window.location.origin) {
+    showError("The report source must be on this server.");
+    return;
+  }
 
   // Derive filename from src
   const srcPath = src.split("?")[0].split("/").pop() || "report";
@@ -27,7 +38,7 @@ async function loadReport() {
     const headers = {};
     const token = localStorage.getItem("sanshain_token");
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const resp = await fetch(src, { headers });
+    const resp = await fetch(url, { headers });
     if (!resp.ok) {
       if (resp.status === 401 || resp.status === 403) {
         showError("Authentication required. Please log in first.");
