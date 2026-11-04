@@ -16,6 +16,10 @@
       An OIDC provider with a plain-http key set is refused at login; see <a href="#openid-connect">OpenID Connect</a>.
     </li>
     <li>
+      A refused login is logged and audited with its reason; see
+      <a href="#logins-sessions-and-tokens">Logins, sessions and tokens</a>.
+    </li>
+    <li>
       A spec nested deeper than 64 levels is refused with <code>400</code> (<a href="#provides-and-requires">Provides and requires</a>); the limit was 128.
     </li>
   </ul>
@@ -167,7 +171,43 @@
   <dt><code>POST /auth/login</code> answers <code>401</code></dt>
   <dd>
     Wrong username or password, or an empty password, which is refused before any check; with LDAP,
-    the directory refused and the local check refused too.
+    the directory refused and the local check refused too. The log line and audit entry below say
+    which.
+  </dd>
+  <dt><code>WARN Sign-in refused user=t***m@company.com reason="…"</code></dt>
+  <dd>
+    Every refused login, also as a <code>SIGN_IN_REFUSED</code> audit entry (type
+    <code>REJECT</code>). The typed name is masked: the part before an <code>@</code> keeps its first
+    and last character, the domain stays. To find someone's attempts, mask their name the same way.
+    The password is never logged. The reasons:
+    <ul>
+      <li><code>empty password</code>, <code>wrong password</code>.</li>
+      <li>
+        <code>no account</code>: no local account of that name, and no directory to ask.
+      </li>
+      <li><code>not approved</code>: approve the account under <strong>Users</strong>.</li>
+      <li><code>service account</code>: service accounts sign in with their tokens only.</li>
+      <li><code>administrators only</code>: the mode is Off or Dev.</li>
+      <li>
+        <code>no directory entry found by the user filter</code>: the directory has no entry for the
+        typed name. Usually the person typed their e-mail address and the User Filter only matches the
+        short name (or the other way round); widen the filter, for example
+        <code>(|(sAMAccountName={username})(mail={username}))</code>.
+      </li>
+      <li>
+        <code>account locked</code>, <code>account disabled</code>,
+        <code>password expired or must be changed</code>, <code>account expired</code>,
+        <code>outside the allowed hours or workstations</code>: what Active Directory reported. Fix
+        it in the directory. Other directories report these as <code>wrong password</code>.
+      </li>
+      <li>
+        <code>directory refused</code>: the directory refused for a reason not listed here.
+      </li>
+      <li>
+        <code>directory unreachable</code>, <code>directory error</code>: see
+        <a href="#ldap">LDAP</a>; <strong>Test Connection</strong> shows the full message.
+      </li>
+    </ul>
   </dd>
   <dt><code>POST /auth/login</code> answers <code>403</code></dt>
   <dd>

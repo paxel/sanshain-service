@@ -343,6 +343,39 @@ async fn off_refuses_everyone_else_and_ends_their_open_sessions() {
         body["error"].as_str().unwrap().contains("maintenance"),
         "{body}"
     );
+    let (status, _) = login(&app, "bob", "not-bob-pass").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let refused: Vec<(String, String)> = repo
+        .get_audit_logs(AuditLogFilter {
+            from_date: None,
+            to_date: None,
+            action_type: Some("REJECT".to_string()),
+            service_wildcard: None,
+            version_wildcard: None,
+            stream: None,
+            branch_id: None,
+            limit: 100,
+        })
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.action == "SIGN_IN_REFUSED")
+        .map(|e| (e.username, e.details))
+        .collect();
+    assert_eq!(
+        refused.len(),
+        2,
+        "one row per refusal, never the name or password: {refused:?}"
+    );
+    for (who, reason) in [
+        ("b***b", "administrators only"),
+        ("b***b", "wrong password"),
+    ] {
+        assert!(
+            refused.contains(&(who.to_string(), reason.to_string())),
+            "{refused:?}"
+        );
+    }
     let (status, _) = call(&app, "GET", "/auth/me", Some(&bob_token), None).await;
     assert_eq!(
         status,

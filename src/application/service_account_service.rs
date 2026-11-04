@@ -222,6 +222,22 @@ mod tests {
                 .unwrap_err();
             assert!(matches!(err, AppError::Unauthorized), "{password:?}");
         }
+        let reasons: Vec<String> = repo
+            .audit_logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.action == "SIGN_IN_REFUSED")
+            .map(|e| format!("{} {}", e.username, e.details))
+            .collect();
+        assert_eq!(
+            reasons,
+            [
+                "j***s empty password",
+                "j***s service account",
+                "j***s service account"
+            ]
+        );
         assert!(matches!(
             super::super::auth_service::login(&repo, "jenkins", "!service-account").await,
             Err(AppError::Unauthorized)

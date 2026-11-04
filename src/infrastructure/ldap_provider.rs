@@ -1,4 +1,4 @@
-use crate::domain::models::{AuthenticatedUser, LdapConfig};
+use crate::domain::models::{AuthenticatedUser, LdapConfig, SignInRefusal};
 use crate::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use ldap3::{
     LdapConnAsync, LdapConnSettings, LdapError, Scope, SearchEntry, SearchOptions, StdStream,
@@ -372,7 +372,10 @@ impl AuthProvider for LdapAuthProvider {
         username: &str,
         password: &str,
     ) -> Result<AuthenticatedUser, AuthProviderError> {
-        tracing::debug!("LDAP authenticating user: {}", username);
+        tracing::debug!(
+            "LDAP authenticating user: {}",
+            crate::domain::models::mask_username(username)
+        );
         let mut ldap = self.connect().await?;
 
         // Search for the user
@@ -395,7 +398,7 @@ impl AuthProvider for LdapAuthProvider {
 
         if rs.is_empty() {
             self.unbind(&mut ldap).await;
-            return Err(AuthProviderError::InvalidCredentials);
+            return Err(AuthProviderError::Refused(SignInRefusal::NoDirectoryEntry));
         }
 
         let entry = rs.into_iter().next().ok_or_else(|| {
@@ -428,7 +431,10 @@ impl AuthProvider for LdapAuthProvider {
             .await
             .map_err(|e| self.map_operation_error(e, |_| AuthProviderError::InvalidCredentials))?
             .success()
-            .map_err(|_| AuthProviderError::InvalidCredentials)?;
+            .map_err(|e| match e {
+                LdapError::LdapResult { result } => bind_refusal(result.rc, &result.text),
+                _ => AuthProviderError::InvalidCredentials,
+            })?;
 
         self.unbind(&mut user_ldap).await;
         self.unbind(&mut ldap).await;
@@ -450,6 +456,37 @@ impl AuthProvider for LdapAuthProvider {
         self.unbind(&mut ldap).await;
         Ok(())
     }
+}
+
+/// Why the directory refused a user's bind. Active Directory answers
+/// `invalidCredentials` (49) for every refusal and names the reason in the
+/// diagnostic text as `data <code>`; other directories leave the code out,
+/// which reads as a wrong password. The text itself is never passed on.
+fn bind_refusal(rc: u32, text: &str) -> AuthProviderError {
+    const INVALID_CREDENTIALS: u32 = 49;
+    if rc != INVALID_CREDENTIALS {
+        return AuthProviderError::Refused(SignInRefusal::DirectoryRefused);
+    }
+    let code = text
+        .split_once("data ")
+        .map(|(_, rest)| {
+            rest.chars()
+                .take_while(char::is_ascii_hexdigit)
+                .collect::<String>()
+                .to_ascii_lowercase()
+        })
+        .unwrap_or_default();
+    let refusal = match code.as_str() {
+        "" | "52e" => return AuthProviderError::InvalidCredentials,
+        "525" => SignInRefusal::NoDirectoryEntry,
+        "775" => SignInRefusal::AccountLocked,
+        "533" => SignInRefusal::AccountDisabled,
+        "532" | "773" => SignInRefusal::PasswordExpired,
+        "701" => SignInRefusal::AccountExpired,
+        "530" | "531" => SignInRefusal::NotAllowedNow,
+        _ => SignInRefusal::DirectoryRefused,
+    };
+    AuthProviderError::Refused(refusal)
 }
 
 /// The Sanshain username of a found entry: the configured attribute, or,
@@ -582,6 +619,40 @@ impl DirectoryGroups for LdapAuthProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_directory_names_why_a_bind_was_refused() {
+        let ad = |code: &str| {
+            format!(
+                "80090308: LdapErr: DSID-0C09044E, comment: AcceptSecurityContext error, data {code}, v4563\0"
+            )
+        };
+        let refusal = |rc: u32, text: &str| match bind_refusal(rc, text) {
+            AuthProviderError::Refused(r) => Some(r),
+            AuthProviderError::InvalidCredentials => None,
+            other => panic!("unexpected {other:?}"),
+        };
+        for (code, expected) in [
+            ("775", SignInRefusal::AccountLocked),
+            ("533", SignInRefusal::AccountDisabled),
+            ("532", SignInRefusal::PasswordExpired),
+            ("773", SignInRefusal::PasswordExpired),
+            ("701", SignInRefusal::AccountExpired),
+            ("530", SignInRefusal::NotAllowedNow),
+            ("531", SignInRefusal::NotAllowedNow),
+            ("525", SignInRefusal::NoDirectoryEntry),
+            ("569", SignInRefusal::DirectoryRefused),
+        ] {
+            assert_eq!(refusal(49, &ad(code)), Some(expected), "data {code}");
+        }
+        assert_eq!(refusal(49, &ad("52e")), None, "wrong password");
+        assert_eq!(refusal(49, &ad("52E")), None, "case does not matter");
+        assert_eq!(refusal(49, ""), None, "no code: OpenLDAP and the like");
+        assert_eq!(
+            refusal(53, "unwilling to perform"),
+            Some(SignInRefusal::DirectoryRefused)
+        );
+    }
 
     #[test]
     fn test_escape_ldap_filter() {

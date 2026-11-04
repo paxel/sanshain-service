@@ -732,6 +732,89 @@ impl From<SignInMethod> for AccountKind {
     }
 }
 
+/// Why a password sign-in was refused, for the service log and the audit
+/// log. The caller is told only 401 or 403; these say more, so they are
+/// never sent back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignInRefusal {
+    EmptyPassword,
+    /// No local account by that name, and no directory to ask.
+    NoAccount,
+    WrongPassword,
+    NotApproved,
+    /// Service accounts sign in with their tokens only.
+    ServiceAccount,
+    /// Off or Dev, and the person does not hold `manage_auth_config`.
+    AdminsOnly,
+    /// The directory's user filter found no entry for the typed name.
+    NoDirectoryEntry,
+    AccountLocked,
+    AccountDisabled,
+    /// Expired, or set to be changed at the next sign-in.
+    PasswordExpired,
+    AccountExpired,
+    /// Outside the allowed sign-in hours, or from a workstation not allowed.
+    NotAllowedNow,
+    /// The directory refused the bind for a reason not listed here.
+    DirectoryRefused,
+    DirectoryUnreachable,
+    /// The directory answered something unexpected, e.g. a failed search.
+    DirectoryError,
+}
+
+impl SignInRefusal {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SignInRefusal::EmptyPassword => "empty password",
+            SignInRefusal::NoAccount => "no account",
+            SignInRefusal::WrongPassword => "wrong password",
+            SignInRefusal::NotApproved => "not approved",
+            SignInRefusal::ServiceAccount => "service account",
+            SignInRefusal::AdminsOnly => "administrators only",
+            SignInRefusal::NoDirectoryEntry => "no directory entry found by the user filter",
+            SignInRefusal::AccountLocked => "account locked",
+            SignInRefusal::AccountDisabled => "account disabled",
+            SignInRefusal::PasswordExpired => "password expired or must be changed",
+            SignInRefusal::AccountExpired => "account expired",
+            SignInRefusal::NotAllowedNow => "outside the allowed hours or workstations",
+            SignInRefusal::DirectoryRefused => "directory refused",
+            SignInRefusal::DirectoryUnreachable => "directory unreachable",
+            SignInRefusal::DirectoryError => "directory error",
+        }
+    }
+
+    /// What the caller is told: 403 for an account that exists but may not
+    /// sign in yet, 401 for everything else.
+    pub fn error(&self) -> AppError {
+        match self {
+            SignInRefusal::NotApproved => AppError::Forbidden,
+            _ => AppError::Unauthorized,
+        }
+    }
+}
+
+/// A typed sign-in name, masked for the logs: the part before an `@` keeps
+/// its first and last character with three stars between, whatever its
+/// length; a part of one or two characters becomes three stars. A domain
+/// after the `@` is kept, so a log still shows whether a name or an e-mail
+/// address was typed.
+pub fn mask_username(typed: &str) -> String {
+    let typed = typed.trim();
+    let (local, domain) = match typed.rsplit_once('@') {
+        Some((local, domain)) => (local, Some(domain)),
+        None => (typed, None),
+    };
+    let chars: Vec<char> = local.chars().collect();
+    let masked = match (chars.first(), chars.last()) {
+        (Some(first), Some(last)) if chars.len() > 2 => format!("{first}***{last}"),
+        _ => "***".to_string(),
+    };
+    match domain {
+        Some(domain) => format!("{masked}@{domain}"),
+        None => masked,
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointRecord {
     pub id: Option<i64>,
@@ -1755,6 +1838,42 @@ pub struct DeliveryPassSummary {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_masked_name_keeps_its_ends_and_the_domain() {
+        use super::mask_username;
+        assert_eq!(mask_username("alex"), "a***x");
+        assert_eq!(mask_username("abc"), "a***c");
+        assert_eq!(
+            mask_username("averyveryverylongname"),
+            "a***e",
+            "length hidden"
+        );
+        assert_eq!(mask_username(" t.im@company.com "), "t***m@company.com");
+        assert_eq!(mask_username("al"), "***");
+        assert_eq!(mask_username("a"), "***");
+        assert_eq!(mask_username(""), "***");
+        assert_eq!(mask_username("al@company.com"), "***@company.com");
+        assert_eq!(mask_username("jörg"), "j***g");
+        assert_eq!(mask_username("a@b@corp.example"), "a***b@corp.example");
+    }
+
+    #[test]
+    fn only_an_unapproved_account_is_told_forbidden() {
+        use super::{AppError, SignInRefusal};
+        assert!(matches!(
+            SignInRefusal::NotApproved.error(),
+            AppError::Forbidden
+        ));
+        for other in [
+            SignInRefusal::WrongPassword,
+            SignInRefusal::AccountLocked,
+            SignInRefusal::NoDirectoryEntry,
+        ] {
+            assert!(matches!(other.error(), AppError::Unauthorized), "{other:?}");
+        }
+        assert_eq!(SignInRefusal::AccountLocked.as_str(), "account locked");
+    }
+
     #[test]
     fn ldap_server_url_needs_a_scheme_a_host_and_a_valid_port() {
         let check = |url: &str| {

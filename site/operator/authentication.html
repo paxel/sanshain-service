@@ -449,6 +449,16 @@
   refuses or is down.
 </p>
 
+<h3>When a login is refused</h3>
+<p>
+  The caller gets <code>401</code> (or <code>403</code> for an account still waiting for approval),
+  and the service writes the reason to its log and the audit log, with the typed name masked:
+  for example a search that found no entry for the name, or the state Active Directory reports for
+  the account (locked, disabled, password or account expired, outside the allowed hours). The list is
+  in <a href="troubleshooting.html#logins-sessions-and-tokens">Troubleshooting</a>. Nothing else
+  that the directory answered is written anywhere, since its messages can contain the person's DN.
+</p>
+
 <h3>One account per person</h3>
 <p>
   At every LDAP sign-in Sanshain also reads the entry's immutable ID, <code>objectGUID</code> in

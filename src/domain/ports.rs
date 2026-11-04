@@ -8,6 +8,10 @@ use thiserror::Error;
 pub enum AuthProviderError {
     #[error("Invalid credentials")]
     InvalidCredentials,
+    /// The directory refused the person for a reason it named: no entry
+    /// found, or an account status such as locked or disabled.
+    #[error("Refused: {}", .0.as_str())]
+    Refused(SignInRefusal),
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     /// The directory could not be reached at all: the hostname did not

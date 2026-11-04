@@ -9,7 +9,7 @@
 //! the client trust store is a process-wide `OnceLock`).
 
 use ldap3::{Ldap, LdapConnAsync, Mod};
-use sanshain_service::domain::models::LdapConfig;
+use sanshain_service::domain::models::{LdapConfig, SignInRefusal};
 use sanshain_service::domain::ports::DirectoryGroupSearch;
 use sanshain_service::domain::ports::{AuthProvider, AuthProviderError, DirectoryGroups};
 use sanshain_service::infrastructure::ldap_provider::LdapAuthProvider;
@@ -253,16 +253,16 @@ async fn ldap_plain_bind_search_groups_and_failure_modes() {
         Err(AuthProviderError::InvalidCredentials)
     ));
 
-    // Unknown user: search empty → InvalidCredentials.
+    // Unknown user: search empty → no directory entry.
     assert!(matches!(
         provider.authenticate("nobody", "x").await,
-        Err(AuthProviderError::InvalidCredentials)
+        Err(AuthProviderError::Refused(SignInRefusal::NoDirectoryEntry))
     ));
 
     // Filter injection: a crafted username must be escaped, not bypass auth.
     assert!(matches!(
         provider.authenticate("*)(uid=*", "x").await,
-        Err(AuthProviderError::InvalidCredentials)
+        Err(AuthProviderError::Refused(SignInRefusal::NoDirectoryEntry))
     ));
 
     // Bad service-account bind → ConnectionFailed (before any user lookup).

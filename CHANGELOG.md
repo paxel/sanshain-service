@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Breaking Changes
 - The OIDC login refuses a provider that serves its key set (`jwks_uri`) over plain http; serve it over https, with `EXTRA_CA_CERTS_DIR` for a private CA.
 
+### Added
+- A refused sign-in is logged as a warning and recorded in the audit log as a rejection (`SIGN_IN_REFUSED`), with the typed name masked (`t***m@company.com`) and the reason: wrong password, not approved, administrators only, no directory entry found by the user filter, or the account status Active Directory reports (locked, disabled, password or account expired, outside the allowed hours). The reply to the caller is unchanged.
+
 ### Changed
 - Built with Rust 1.99.1 and the current major versions of its libraries: sqlx 0.9, reqwest 0.13, tower-http 0.7, argon2 0.6, askama 0.16, OpenTelemetry 0.33 with tracing-opentelemetry 0.34, rmcp 3.7, sysinfo 0.39 and base64 0.23, with SQLite 3.51 built in instead of 3.46. The OIDC login moved from `openidconnect` to `openid` 0.25 and YAML from `serde_yaml_ng` to `serde-saphyr` 2; every other dependency is on its newest compatible release. Only `testcontainers`, used by the tests alone, waits for an upstream release.
 - The Docker image is based on Alpine 3.24 instead of 3.21, which reaches its end of support in November 2026.

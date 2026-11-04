@@ -69,6 +69,12 @@ pub async fn auth_login(
         )
         .await?
         {
+            services::record_sign_in_refusal(
+                &state.repo,
+                &payload.username,
+                crate::domain::models::SignInRefusal::AdminsOnly,
+            )
+            .await?;
             return Err(services::admins_only_refusal(&mode));
         }
     }

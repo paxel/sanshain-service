@@ -13,9 +13,12 @@ use super::auth_service::{
     generate_random_password, get_auth_mode, get_auto_approve_users, get_oidc_config,
     hash_password_async, verify_password_async,
 };
-use crate::domain::models::{AppError, AuthMode, AuthenticatedUser, Session, SignInMethod, User};
+use crate::domain::models::{
+    AppError, AuthMode, AuthenticatedUser, Session, SignInMethod, SignInRefusal, User,
+    mask_username,
+};
 use crate::domain::permissions::{Actor, Permission, RootUsers};
-use crate::domain::ports::{AuthProvider, NewAuditLog, SpecRepository};
+use crate::domain::ports::{AuthProvider, AuthProviderError, NewAuditLog, SpecRepository};
 use tracing::instrument;
 
 const BEFORE_OFF_KEY: &str = "auth_mode_before_off";
@@ -141,8 +144,9 @@ pub enum Verified {
 /// one. A local password that matches never reaches the directory, where a
 /// failed bind would count towards the account's lockout. A local account that
 /// is refused (wrong password, not yet approved) still gets the directory's
-/// answer; when both refuse, the local refusal stands, so "not approved"
-/// survives.
+/// answer; when both refuse, "not approved" stands, and otherwise the
+/// directory's reason. Every refusal is recorded by
+/// [`record_sign_in_refusal`].
 #[instrument(skip_all)]
 pub async fn verify_password_local_first(
     repo: &impl SpecRepository,
@@ -150,29 +154,82 @@ pub async fn verify_password_local_first(
     username: &str,
     password: &str,
 ) -> Result<Verified, AppError> {
+    match check_password(repo, directory, username, password).await? {
+        Ok(verified) => Ok(verified),
+        Err(refusal) => {
+            record_sign_in_refusal(repo, username, refusal).await?;
+            Err(refusal.error())
+        }
+    }
+}
+
+async fn check_password(
+    repo: &impl SpecRepository,
+    directory: Option<&impl AuthProvider>,
+    username: &str,
+    password: &str,
+) -> Result<Result<Verified, SignInRefusal>, AppError> {
     if password.is_empty() {
-        return Err(AppError::Unauthorized);
+        return Ok(Err(SignInRefusal::EmptyPassword));
     }
     let existing = repo.find_user(username).await?;
     if existing.as_ref().is_some_and(User::is_service_account) {
         // Not by password, not through the directory: its tokens are all it has.
-        return Err(AppError::Unauthorized);
+        return Ok(Err(SignInRefusal::ServiceAccount));
     }
     let local_refusal = match &existing {
         Some(user) if !verify_password_async(password, &user.password_hash).await? => {
-            AppError::Unauthorized
+            SignInRefusal::WrongPassword
         }
-        Some(user) if !user.approved => AppError::Forbidden,
-        Some(user) => return Ok(Verified::Local(user.clone())),
-        None => AppError::Unauthorized,
+        Some(user) if !user.approved => SignInRefusal::NotApproved,
+        Some(user) => return Ok(Ok(Verified::Local(user.clone()))),
+        None => SignInRefusal::NoAccount,
     };
-    match directory {
-        Some(provider) => match provider.authenticate(username, password).await {
-            Ok(identity) => Ok(Verified::Directory(existing, identity)),
-            Err(_) => Err(local_refusal),
-        },
-        None => Err(local_refusal),
+    let Some(provider) = directory else {
+        return Ok(Err(local_refusal));
+    };
+    Ok(match provider.authenticate(username, password).await {
+        Ok(identity) => Ok(Verified::Directory(existing, identity)),
+        Err(_) if local_refusal == SignInRefusal::NotApproved => Err(local_refusal),
+        Err(error) => Err(directory_refusal(&error)),
+    })
+}
+
+/// The reason behind a directory's refusal. A failed service bind and a
+/// directory that stalls are both [`AuthProviderError::ConnectionFailed`],
+/// so they read as a directory error, not as unreachable.
+fn directory_refusal(error: &AuthProviderError) -> SignInRefusal {
+    match error {
+        AuthProviderError::InvalidCredentials => SignInRefusal::WrongPassword,
+        AuthProviderError::Refused(refusal) => *refusal,
+        AuthProviderError::Unreachable(_) => SignInRefusal::DirectoryUnreachable,
+        AuthProviderError::ConnectionFailed(_) | AuthProviderError::Internal(_) => {
+            SignInRefusal::DirectoryError
+        }
     }
+}
+
+/// Note a refused sign-in in the service log and the audit log: the typed
+/// name masked ([`mask_username`]) and the reason, never the password.
+#[instrument(skip_all)]
+pub async fn record_sign_in_refusal(
+    repo: &impl SpecRepository,
+    typed: &str,
+    refusal: SignInRefusal,
+) -> Result<(), AppError> {
+    let who = mask_username(typed);
+    tracing::warn!(user = %who, reason = refusal.as_str(), "Sign-in refused");
+    repo.insert_audit_log(
+        &who,
+        NewAuditLog {
+            action: "SIGN_IN_REFUSED",
+            details: refusal.as_str(),
+            action_type: Some("REJECT"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 /// Whether `username` may sign in while only administrators may: their
@@ -623,6 +680,121 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, AppError::Unauthorized));
         assert_eq!(directory.binds(), 0);
+    }
+
+    /// A directory that refuses everyone with the error it was built with.
+    struct Refusing(fn() -> AuthProviderError);
+
+    impl AuthProvider for Refusing {
+        async fn authenticate(
+            &self,
+            _username: &str,
+            _password: &str,
+        ) -> Result<AuthenticatedUser, AuthProviderError> {
+            Err((self.0)())
+        }
+
+        async fn test_connection(&self) -> Result<(), AuthProviderError> {
+            Ok(())
+        }
+    }
+
+    /// The refusals in the audit log, as (actor, reason).
+    fn refusals(repo: &MockRepo) -> Vec<(String, String)> {
+        repo.audit_logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.action == "SIGN_IN_REFUSED")
+            .map(|e| {
+                assert_eq!(e.action_type.as_deref(), Some("REJECT"));
+                (e.username.clone(), e.details.clone())
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_audited_with_the_masked_name_and_the_reason() {
+        let repo = repo_with("newbie", "local-pass", false).await;
+        let cases: [(&str, &str, Option<Refusing>, AppError, &str); 6] = [
+            ("", "", None, AppError::Unauthorized, "empty password"),
+            (
+                "newbie",
+                "wrong",
+                None,
+                AppError::Unauthorized,
+                "wrong password",
+            ),
+            (
+                "newbie",
+                "local-pass",
+                Some(Refusing(|| {
+                    AuthProviderError::Refused(SignInRefusal::AccountLocked)
+                })),
+                AppError::Forbidden,
+                "not approved",
+            ),
+            (
+                "t.im@company.com",
+                "pw",
+                Some(Refusing(|| {
+                    AuthProviderError::Refused(SignInRefusal::AccountLocked)
+                })),
+                AppError::Unauthorized,
+                "account locked",
+            ),
+            (
+                "bob",
+                "pw",
+                Some(Refusing(|| AuthProviderError::Unreachable("down".into()))),
+                AppError::Unauthorized,
+                "directory unreachable",
+            ),
+            ("bob", "pw", None, AppError::Unauthorized, "no account"),
+        ];
+        let mut expected = Vec::new();
+        for (name, password, directory, error, reason) in cases {
+            let err = verify_password_local_first(&repo, directory.as_ref(), name, password)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                std::mem::discriminant(&err),
+                std::mem::discriminant(&error),
+                "{name}: {reason}"
+            );
+            expected.push((mask_username(name), reason.to_string()));
+        }
+        assert_eq!(refusals(&repo), expected);
+        assert_eq!(expected[3].0, "t***m@company.com");
+    }
+
+    #[tokio::test]
+    async fn the_directory_reason_wins_over_a_wrong_local_password() {
+        let repo = repo_with("axel", "local-pass", true).await;
+        let directory = Refusing(|| AuthProviderError::ConnectionFailed("bind".into()));
+        verify_password_local_first(&repo, Some(&directory), "axel", "other")
+            .await
+            .unwrap_err();
+        let directory = Refusing(|| AuthProviderError::InvalidCredentials);
+        verify_password_local_first(&repo, Some(&directory), "axel", "other")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refusals(&repo),
+            [
+                ("a***l".to_string(), "directory error".to_string()),
+                ("a***l".to_string(), "wrong password".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_success_is_not_audited_as_a_refusal() {
+        let repo = repo_with("axel", "local-pass", true).await;
+        verify_password_local_first(&repo, no_directory(), "axel", "local-pass")
+            .await
+            .unwrap();
+        assert!(refusals(&repo).is_empty());
     }
 
     #[tokio::test]
