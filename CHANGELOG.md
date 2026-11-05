@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.
 
 ### Fixed
+- Panning the graph no longer slows down the page after many redraws.
 - A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
 
 ---

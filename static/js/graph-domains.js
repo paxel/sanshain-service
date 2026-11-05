@@ -105,6 +105,9 @@ function graphDomainSvg(tag, attrs, text) {
 function renderDomainGraph(report, svgElement, direction) {
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
   svgElement.dataset.level = "domains";
+  // The full graph's handlers belong to the graph just removed.
+  if (window.graphDetachPan) window.graphDetachPan();
+  svgElement.onclick = null;
   const isMainView = window.graphStreamView === "main";
   const trunkVersionMap =
     isMainView && !window.graphTimelineAt ? graphTrunkVersionMap(report) : null;

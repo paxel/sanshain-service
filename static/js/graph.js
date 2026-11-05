@@ -473,7 +473,7 @@ function redrawGraph() {
     window.renderDomainGraph(filteredReport, customSvg, direction);
   } else if (mode === "custom" && customSvg) {
     // The domain view's own zoom and pan handlers go with it.
-    for (const handler of ["onwheel", "onmousedown", "onmousemove", "onmouseup", "onmouseleave"]) {
+    for (const handler of ["onmousemove", "onmouseup", "onmouseleave"]) {
       customSvg[handler] = null;
     }
     customSvg.dataset.level = "services";
@@ -1780,6 +1780,7 @@ window.graphLayoutUnrequiredBox = graphLayoutUnrequiredBox;
 // ── Main renderer ────────────────────────────────────────────────────
 
 function renderCustomGraph(report, svgElement, direction) {
+  graphDetachPan();
   // Clear previous content
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
@@ -3197,7 +3198,9 @@ function renderCustomGraph(report, svgElement, direction) {
     });
   });
 
-  svgElement.addEventListener("click", clearHighlight);
+  // Handler properties, not listeners: the canvas outlives every redraw, and
+  // added listeners piled up one set per redraw.
+  svgElement.onclick = clearHighlight;
 
   // ── Legend hover-to-highlight ────────────────────────────────────
   // Expose nodeElements/edgeElements so the legend hover code can access them
@@ -3238,37 +3241,36 @@ function renderCustomGraph(report, svgElement, direction) {
     mainG.setAttribute("transform", `translate(${panX},${panY}) scale(${scale})`);
   }
 
-  svgElement.addEventListener(
-    "wheel",
-    (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(0.2, Math.min(3, scale * delta));
+  svgElement.onwheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.2, Math.min(3, scale * delta));
 
-      // Convert mouse position from screen pixels to SVG viewBox coordinates
-      const rect = svgElement.getBoundingClientRect();
-      const vb = svgElement.viewBox.baseVal;
-      const mx = ((e.clientX - rect.left) / rect.width) * vb.width;
-      const my = ((e.clientY - rect.top) / rect.height) * vb.height;
+    // Convert mouse position from screen pixels to SVG viewBox coordinates
+    const rect = svgElement.getBoundingClientRect();
+    const vb = svgElement.viewBox.baseVal;
+    const mx = ((e.clientX - rect.left) / rect.width) * vb.width;
+    const my = ((e.clientY - rect.top) / rect.height) * vb.height;
 
-      // Zoom toward cursor in SVG space
-      panX = mx - (mx - panX) * (newScale / scale);
-      panY = my - (my - panY) * (newScale / scale);
-      scale = newScale;
-      updateTransform();
-    },
-    { passive: false },
-  );
+    // Zoom toward cursor in SVG space
+    panX = mx - (mx - panX) * (newScale / scale);
+    panY = my - (my - panY) * (newScale / scale);
+    scale = newScale;
+    updateTransform();
+  };
 
-  svgElement.addEventListener("mousedown", (e) => {
+  svgElement.onmousedown = (e) => {
     if (e.button !== 0) return;
     isPanning = true;
     startX = e.clientX;
     startY = e.clientY;
     svgElement.style.cursor = "grabbing";
-  });
+  };
 
-  window.addEventListener("mousemove", (e) => {
+  // A drag may leave the canvas, so moving and letting go are watched on the
+  // window: the previous redraw's pair is taken off first.
+  graphDetachPan();
+  const onMove = (e) => {
     if (!isPanning) return;
     const rect = svgElement.getBoundingClientRect();
     const vb = svgElement.viewBox.baseVal;
@@ -3279,13 +3281,26 @@ function renderCustomGraph(report, svgElement, direction) {
     startX = e.clientX;
     startY = e.clientY;
     updateTransform();
-  });
-
-  window.addEventListener("mouseup", () => {
+  };
+  const onUp = () => {
     isPanning = false;
     svgElement.style.cursor = "default";
-  });
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  _graphPanHandlers = { onMove, onUp };
 }
+
+// The window handlers of the drawn graph's pan, so a redraw or the domain
+// view can take them off.
+let _graphPanHandlers = null;
+function graphDetachPan() {
+  if (!_graphPanHandlers) return;
+  window.removeEventListener("mousemove", _graphPanHandlers.onMove);
+  window.removeEventListener("mouseup", _graphPanHandlers.onUp);
+  _graphPanHandlers = null;
+}
+window.graphDetachPan = graphDetachPan;
 
 /**
  * Returns the SVG markup string for copy/download.

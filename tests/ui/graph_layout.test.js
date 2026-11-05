@@ -444,3 +444,32 @@ test("z collapses the graph onto domains, counting and colouring the pins", asyn
   await expect(node(page, DOMAINS.alpha[0])).toHaveCount(1);
   await expect(node(page, DOMAINS.beta[0])).toHaveCount(0);
 });
+
+test("redrawing the graph does not pile up window listeners", async ({ page }) => {
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  const cdp = await page.context().newCDPSession(page);
+  const windowListeners = async (type) => {
+    const { result } = await cdp.send("Runtime.evaluate", { expression: "window" });
+    const { listeners } = await cdp.send("DOMDebugger.getEventListeners", {
+      objectId: result.objectId,
+    });
+    return listeners.filter((l) => l.type === type).length;
+  };
+  const before = [await windowListeners("mousemove"), await windowListeners("mouseup")];
+  // Each switch redraws; the domain view and back take the pan off and on.
+  for (const key of ["r", "r", "d", "d", "d", "z", "z"]) {
+    await page.locator("body").press(key);
+  }
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1);
+  expect([await windowListeners("mousemove"), await windowListeners("mouseup")]).toEqual(before);
+  // Panning still works after the redraws.
+  const transform = () => page.locator("#custom-graph > g").first().getAttribute("transform");
+  const start = await transform();
+  const box = await page.locator("#custom-graph").boundingBox();
+  await page.mouse.move(box.x + 50, box.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 150, box.y + 120);
+  await page.mouse.up();
+  expect(await transform()).not.toBe(start);
+});
