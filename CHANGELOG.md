@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Graph links carry the view, the sanshain-branch, the timeline range and instant, the display switches, the direction and the graph mode, so a link shows the same graph to whoever opens it.
 - `GET /admin/trunk/timeline` and `GET /admin/branches/{name}/timeline` accept optional `from` and `to`.
 
+### Changed
+- Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.
+
 ### Fixed
 - A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
 

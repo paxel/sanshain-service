@@ -164,6 +164,40 @@ test("domain frames do not overlap and hold their own nodes", async ({ page }) =
   }
 });
 
+test("a domain frame and its name are drawn in the domain's own colour", async ({ page }) => {
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  const drawn = await page.evaluate(() => {
+    const out = {};
+    for (const domain of ["alpha", "beta"]) {
+      const frame = document.querySelector(`#custom-graph rect[data-domain="${domain}"]`);
+      const label = document.querySelector(`#custom-graph text[data-domain-label="${domain}"]`);
+      out[domain] = {
+        stroke: frame.getAttribute("stroke"),
+        fill: frame.getAttribute("fill"),
+        dashed: frame.hasAttribute("stroke-dasharray"),
+        text: label.getAttribute("fill"),
+        size: label.getAttribute("font-size"),
+        expected: window.graphDomainColor(domain),
+      };
+    }
+    // The same name always gets the same colour, and no warning colour is used.
+    const again = window.graphDomainColor("alpha").border === out.alpha.expected.border;
+    const warnings = ["#9333ea", "#dc2626", "#ea580c", "#d97706"];
+    const clean = window.GRAPH_DOMAIN_PALETTE.every((c) => !warnings.includes(c.border));
+    return { out, again, clean };
+  });
+  expect(drawn.again).toBe(true);
+  expect(drawn.clean).toBe(true);
+  for (const d of Object.values(drawn.out)) {
+    expect(d.stroke).toBe(d.expected.border);
+    expect(d.fill).toBe(d.expected.fill);
+    expect(d.text).toBe(d.expected.text);
+    expect(d.dashed).toBe(false);
+    expect(d.size).toBe("12");
+  }
+});
+
 test("the Topics switch draws a channel nobody requires", async ({ page }) => {
   await openGraph(page);
   await expect(page.locator("#graph-unrequired-box")).toContainText(LONELY, { timeout: 20000 });
