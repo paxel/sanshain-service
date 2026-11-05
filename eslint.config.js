@@ -103,6 +103,8 @@ export default [
         graphDefaultTimelineRange: "readonly",
         graphIsTimelineDay: "readonly",
         graphUtcDay: "readonly",
+        graphStepTimeline: "readonly",
+        graphFitToView: "readonly",
       },
     },
     rules: {

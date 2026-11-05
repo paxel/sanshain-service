@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `GET /admin/trunk/timeline` and `GET /admin/branches/{name}/timeline` accept optional `from` and `to`.
 - A Domains switch on the graph writes the domain onto each node instead of grouping the services in frames, so the layout can arrange them freely.
 - Dense, a third density step after Compact, packs the graph's nodes and domain frames tightly for small monitors.
+- Single-key shortcuts on the graph page for its switches, the legend, fitting the view and stepping the timeline; `?` lists them.
 
 ### Changed
 - Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.

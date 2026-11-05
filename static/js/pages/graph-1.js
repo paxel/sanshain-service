@@ -972,7 +972,82 @@ function initGraphFocusPicker() {
   });
 }
 
+// ── Hotkeys ──────────────────────────────────────────────────────────
+// Single keys without Ctrl, Alt or Cmd, ignored while typing in a field. The
+// ? overlay lists this table, so it always shows what the keys do.
+const GRAPH_HOTKEYS = [
+  { key: "d", label: "Density: Normal, Compact, Dense", run: () => stepGraphDensity() },
+  { key: "g", label: "Domain frames on or off", run: () => toggleGraphDomains() },
+  { key: "r", label: "Rainbow", run: () => toggleGraphViewSwitch("rainbow") },
+  { key: "t", label: "Topics", run: () => toggleGraphViewSwitch("topics") },
+  { key: "v", label: "Vertical or horizontal", run: () => toggleGraphDirection() },
+  { key: "l", label: "Legend shown or hidden", run: () => toggleGraphLegend() },
+  { key: "[", label: "Previous change on the timeline", run: () => graphStepTimeline(-1) },
+  { key: "]", label: "Next change on the timeline", run: () => graphStepTimeline(1) },
+  { key: "0", label: "Fit to view", run: () => graphFitToView() },
+  { key: "?", label: "This list", run: () => toggleGraphKeys() },
+];
+
+function toggleGraphLegend() {
+  const legend = document.getElementById("graph-legend");
+  if (legend) legend.classList.toggle("hidden");
+}
+
+function graphKeysOpen() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  return !!overlay && !overlay.classList.contains("hidden");
+}
+
+function toggleGraphKeys() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  const list = document.getElementById("graph-keys-list");
+  if (!overlay || !list) return;
+  if (!list.childElementCount) {
+    for (const hotkey of [...GRAPH_HOTKEYS, { key: "Esc", label: "Close this list" }]) {
+      const dt = document.createElement("dt");
+      const kbd = document.createElement("kbd");
+      kbd.className =
+        "inline-block min-w-[1.5rem] text-center px-1.5 py-0.5 rounded-sm border border-slate-300 bg-slate-50 font-mono text-xs text-slate-700";
+      kbd.textContent = hotkey.key;
+      dt.appendChild(kbd);
+      const dd = document.createElement("dd");
+      dd.className = "text-slate-600";
+      dd.textContent = hotkey.label;
+      list.append(dt, dd);
+    }
+  }
+  overlay.classList.toggle("hidden");
+}
+
+function hideGraphKeys() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+function graphTypingIn(target) {
+  if (!target || !target.tagName) return false;
+  return (
+    ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable === true
+  );
+}
+
+function onGraphHotkey(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  // The timeline slider has its own arrow keys; letters still work there.
+  if (graphTypingIn(e.target) && e.target.id !== "graph-timeline-slider") return;
+  if (e.key === "Escape" && graphKeysOpen()) {
+    e.preventDefault();
+    hideGraphKeys();
+    return;
+  }
+  const hotkey = GRAPH_HOTKEYS.find((h) => h.key === e.key);
+  if (!hotkey) return;
+  e.preventDefault();
+  hotkey.run();
+}
+
 function initGraph() {
+  document.addEventListener("keydown", onGraphHotkey);
   initGraphFocusPicker();
   syncGraphViewButtons();
   void checkDiscoveryAuth(() => showGraph());

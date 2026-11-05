@@ -994,6 +994,7 @@ async function setStreamView(view, at = null, push = true) {
     el.classList.toggle("hidden", !views.includes(view));
   });
   window.graphTimelineAt = null;
+  window.graphTimelineTarget = null;
   window.graphTimelinePins = null;
   window.graphScopePeriphery = null;
   window.graphScopeData = null;
@@ -1177,6 +1178,7 @@ async function refreshTimeline(token = window._graphTimelineToken) {
   if (view === "dev") {
     row.classList.add("hidden");
     window.graphTimelineAt = null;
+    window.graphTimelineTarget = null;
     window.graphTimelinePins = null;
     return;
   }
@@ -1206,6 +1208,9 @@ async function refreshTimeline(token = window._graphTimelineToken) {
 async function setTimelinePosition(at) {
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
+  // The instant asked for last, applied or still loading: a step or a drag
+  // compares against it, not against the instant on screen.
+  window.graphTimelineTarget = at;
   // The handle and label move at once; the graph follows when it loads.
   graphShowTimelinePosition(at);
   const view = window.graphStreamView;
@@ -1257,6 +1262,7 @@ async function setTimelineRangeFromFields() {
   window.graphTimelineRange = { from, to };
   window.graphTimelineRangeChosen = true;
   window.graphTimelineAt = null;
+  window.graphTimelineTarget = null;
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
   if (window.updateGraphUrl) window.updateGraphUrl(true);
@@ -1266,13 +1272,30 @@ async function setTimelineRangeFromFields() {
 }
 window.setTimelineRangeFromFields = setTimelineRangeFromFields;
 
+// Step the timeline handle to the previous (-1) or next (+1) tick or edge —
+// the [ and ] keys; nothing in the dev view, which has no timeline.
+function graphStepTimeline(delta) {
+  const slider = document.getElementById("graph-timeline-slider");
+  if (!slider || window.graphStreamView === "dev") return;
+  const { stops } = graphCurrentStops();
+  const secs = Number(slider.value);
+  const stop =
+    delta < 0
+      ? stops.filter((s) => s.secs < secs).pop() || stops[0]
+      : stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+  slider.value = String(stop.secs);
+  if (stop.at === window.graphTimelineTarget) return;
+  void setTimelinePosition(stop.at);
+}
+window.graphStepTimeline = graphStepTimeline;
+
 function initTimelineSlider() {
   const slider = document.getElementById("graph-timeline-slider");
   if (!slider || slider.dataset.wired) return;
   slider.dataset.wired = "1";
   const moveTo = (stop) => {
     slider.value = String(stop.secs);
-    if (stop.at === window.graphTimelineAt) return;
+    if (stop.at === window.graphTimelineTarget) return;
     void setTimelinePosition(stop.at);
   };
   slider.addEventListener("input", () => {

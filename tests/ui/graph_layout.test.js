@@ -266,3 +266,44 @@ test("Rainbow gives every source its own colour, catalog lines included", async 
   expect(catalog.stroke).not.toBe("#64748b");
   expect(catalog.dash).toBe("4 3");
 });
+
+test("hotkeys flip the switches, list themselves and stay out of fields", async ({ page }) => {
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  await page.locator("body").press("d");
+  await expect(page.locator("#graph-density-label")).toHaveText("Compact");
+  await page.locator("body").press("g");
+  await expect(page.locator("#graph-domains-toggle")).toHaveAttribute("aria-pressed", "false");
+  await page.locator("body").press("r");
+  await expect(page.locator("#graph-rainbow-toggle")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("body").press("t");
+  await expect(page.locator("#graph-topics-toggle")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("body").press("v");
+  await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+  await page.locator("body").press("l");
+  await expect(page.locator("#graph-legend")).toBeHidden();
+  await page.locator("body").press("l");
+  await expect(page.locator("#graph-legend")).toBeVisible();
+
+  // ? lists the keys; Esc closes the list.
+  await page.locator("body").press("?");
+  const overlay = page.locator("#graph-keys-overlay");
+  await expect(overlay).toBeVisible();
+  await expect(overlay).toContainText("Density: Normal, Compact, Dense");
+  await page.locator("body").press("Escape");
+  await expect(overlay).toBeHidden();
+
+  // Typing in a field is typing, not a hotkey.
+  await page.locator("#graph-service-filter").press("d");
+  await expect(page.locator("#graph-density-label")).toHaveText("Compact");
+
+  // [ steps the timeline back to its left edge when nothing changed in between.
+  await page.goto("/graph.html?view=main&from=2020-01-01&to=2020-01-31");
+  await expect(page.locator("#graph-timeline-label")).toHaveText("2020-01-31 23:59", {
+    timeout: 20000,
+  });
+  await page.locator("body").press("[");
+  await expect(page.locator("#graph-timeline-label")).toHaveText("2020-01-01 00:00");
+  await page.locator("body").press("]");
+  await expect(page.locator("#graph-timeline-label")).toHaveText("2020-01-31 23:59");
+});
