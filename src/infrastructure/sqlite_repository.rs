@@ -874,10 +874,14 @@ impl SpecRepository for SqliteSpecRepository {
         let rows: Vec<(String,)> = match branch_id {
             None => {
                 sqlx::query_as(
+                    // Member versions count as on a branch: a trunk provide of a
+                    // new version with no trunk require moves the main graph too.
                     "SELECT DISTINCT d FROM (SELECT valid_from AS d FROM trunk_dependencies \
                        UNION SELECT valid_to AS d FROM trunk_dependencies WHERE valid_to IS NOT NULL \
                        UNION SELECT valid_from AS d FROM peripheral_dependencies WHERE track = 'trunk' \
-                       UNION SELECT valid_to AS d FROM peripheral_dependencies WHERE track = 'trunk' AND valid_to IS NOT NULL) ORDER BY d",
+                       UNION SELECT valid_to AS d FROM peripheral_dependencies WHERE track = 'trunk' AND valid_to IS NOT NULL \
+                       UNION SELECT valid_from AS d FROM trunk_member_versions \
+                       UNION SELECT valid_to AS d FROM trunk_member_versions WHERE valid_to IS NOT NULL) ORDER BY d",
                 )
                 .fetch_all(&self.pool)
                 .await
@@ -4734,10 +4738,24 @@ mod tests {
                 .is_empty()
         );
 
+        // Each new trunk version is a marker on the main timeline; a refresh is not.
+        assert_eq!(
+            repo.list_graph_change_dates(None).await.unwrap(),
+            vec![t1.to_string(), t2.to_string()]
+        );
+
         // Trunk TTL: not provided since the cutoff closes the record.
         repo.close_expired_trunk_data("2026-04-01T00:00:00Z", "2026-04-02T00:00:00Z")
             .await
             .unwrap();
+        assert_eq!(
+            repo.list_graph_change_dates(None).await.unwrap(),
+            vec![
+                t1.to_string(),
+                t2.to_string(),
+                "2026-04-02T00:00:00Z".to_string()
+            ]
+        );
         assert!(
             repo.list_member_versions(MemberTrack::Trunk, None)
                 .await

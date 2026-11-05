@@ -869,10 +869,23 @@ async fn test_postgres_member_versions_record_close_and_read_at_an_instant() {
         .unwrap();
     assert_eq!(past.len(), 1);
     assert_eq!(past[0].version.to_string(), "1.0.0");
+    // Each new trunk version is a marker on the main timeline; a refresh is not.
+    assert_eq!(
+        repo.list_graph_change_dates(None).await.unwrap(),
+        vec!["2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z"]
+    );
 
     repo.close_trunk_pins_for_service_api(sid, ApiType::OpenApi, "2026-04-01T00:00:00Z")
         .await
         .unwrap();
+    assert_eq!(
+        repo.list_graph_change_dates(None).await.unwrap(),
+        vec![
+            "2026-01-01T00:00:00Z",
+            "2026-02-01T00:00:00Z",
+            "2026-04-01T00:00:00Z"
+        ]
+    );
     assert!(
         repo.list_member_versions(MemberTrack::Trunk, None)
             .await

@@ -791,13 +791,25 @@ impl SpecRepository for MockRepo {
         branch_id: Option<i64>,
     ) -> Result<Vec<String>, RepositoryError> {
         let mut dates: Vec<String> = match branch_id {
-            None => self
-                .trunk_pins
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .iter()
-                .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
-                .collect(),
+            None => {
+                let mut dates: Vec<String> = self
+                    .trunk_pins
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .iter()
+                    .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                    .collect();
+                dates.extend(
+                    self.trunk_members
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .iter()
+                        .flat_map(|m| {
+                            std::iter::once(m.valid_from.clone()).chain(m.valid_to.clone())
+                        }),
+                );
+                dates
+            }
             Some(bid) => self
                 .branch_pins
                 .lock()
