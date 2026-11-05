@@ -1342,11 +1342,59 @@ async fn trunk_graph_is_reconstructable_at_a_date_with_change_markers() {
     sorted.sort();
     assert_eq!(strs, sorted);
 
-    // A branch has its own timeline endpoint.
+    // `from` and `to` cut the list at `mid`, both inclusive.
+    let mid_q = mid.replace(':', "%3A");
+    let ranged = |query: String| {
+        let ctx = &ctx;
+        async move {
+            let (status, _, body) =
+                send(ctx, "GET", &format!("/admin/trunk/timeline?{query}"), None).await;
+            assert_eq!(status, StatusCode::OK, "got: {body}");
+            as_json(&body)
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| d.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+    let before: Vec<String> = strs
+        .iter()
+        .filter(|d| **d <= mid.as_str())
+        .map(|d| d.to_string())
+        .collect();
+    let after: Vec<String> = strs
+        .iter()
+        .filter(|d| **d >= mid.as_str())
+        .map(|d| d.to_string())
+        .collect();
+    assert!(!before.is_empty() && !after.is_empty(), "got: {strs:?}");
+    assert_eq!(ranged(format!("to={mid_q}")).await, before);
+    assert_eq!(ranged(format!("from={mid_q}")).await, after);
+    // A start after the end is refused.
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/trunk/timeline?from=2026-03-01T00%3A00%3A00Z&to=2026-02-01T00%3A00%3A00Z",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got: {body}");
+
+    // A branch has its own timeline endpoint, with the same range.
     send(&ctx, "POST", "/admin/branches", Some(json!({"name": "R"}))).await;
     let (status, _, body) = send(&ctx, "GET", "/admin/branches/R/timeline", None).await;
     assert_eq!(status, StatusCode::OK, "got: {body}");
     assert!(!as_json(&body).as_array().unwrap().is_empty());
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/branches/R/timeline?to=2000-01-01T00%3A00%3A00Z",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert!(as_json(&body).as_array().unwrap().is_empty(), "got: {body}");
 }
 
 // ---------------------------------------------------------------------------

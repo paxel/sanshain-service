@@ -699,7 +699,11 @@ test.describe("Release-graph regressions", () => {
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    // The main view is drawn once its scope is in; a test that breaks the
+    // session must not do so while that request is still in flight.
+    const scope = page.waitForResponse((r) => r.url().includes("/admin/graph/scope?scope=main"));
     await page.click("#stream-main");
+    await scope;
     await expect(page.locator("#custom-graph")).toContainText(PINNED, { timeout: 10000 });
   }
 
@@ -2155,8 +2159,10 @@ test.describe("Graph (unrequired) box", () => {
     expect(compact).toBeLessThan(airy * 0.6);
     await page.click("#graph-direction-toggle");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
-    // Both survive a reload; the URL carries neither.
-    expect(page.url()).not.toMatch(/compact|direction/);
+    // Both survive a reload. The URL carries Compact, so a shared link shows
+    // it; a plain link takes the remembered switches.
+    expect(new URL(page.url()).searchParams.get("compact")).toBe("1");
+    expect(page.url()).not.toMatch(/direction/);
     await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     await expect(svg).toHaveAttribute("data-compact", "1");

@@ -49,6 +49,7 @@ function toggleGraphViewSwitch(name) {
   window.graphViewSwitches[name] = !window.graphViewSwitches[name];
   writeGraphViewPref(name, window.graphViewSwitches[name] ? "1" : "0");
   syncGraphViewButtons();
+  updateGraphUrl(false);
   if (currentGraphMode === "custom") {
     redrawGraph();
   }
@@ -98,10 +99,13 @@ function switchGraphMode(mode) {
   }
 }
 
+// Load the page's state from the address, draw, then open the view the
+// address names. Also what back and forward do.
 async function showGraph() {
   try {
-    restoreGraphFiltersFromUrl();
+    const pending = restoreGraphFiltersFromUrl();
     await loadGraph();
+    await applyGraphViewFromUrl(pending);
   } catch (err) {
     console.error("Failed to show graph:", err);
     hideLoader();
@@ -156,6 +160,7 @@ async function loadGraph() {
     // Branch selector (ADR-0005): every sanshain-branch is a view.
     try {
       const branches = await fetchJSON("/admin/branches");
+      window.graphBranchNames = branches.map((b) => b.name);
       const sel = document.getElementById("graph-branch-select");
       if (sel) {
         const current = sel.value;
@@ -688,6 +693,22 @@ function updateGraphUrl(push = false) {
   if (hide_protocols) params.set("hide_protocols", hide_protocols);
   if (highlights.length) params.set("highlight", highlights.join(","));
 
+  // The view, its range and instant: what a shared link must reproduce.
+  const view = window.graphStreamView;
+  if (view !== "dev") params.set("view", view);
+  if (view === "branch" && window.graphBranchName) params.set("branch", window.graphBranchName);
+  if (window.graphTimelineRangeChosen) {
+    params.set("from", window.graphTimelineRange.from);
+    params.set("to", window.graphTimelineRange.to);
+  }
+  if (view !== "dev" && window.graphTimelineAt) params.set("at", window.graphTimelineAt);
+  // The display switches, always: the receiver's remembered ones must not
+  // change what the sender saw.
+  for (const name of ["compact", "rainbow", "topics"]) {
+    params.set(name, window.graphViewSwitches[name] ? "1" : "0");
+  }
+  if (window.graphRedrawMode === "circular") params.set("redraw", "circular");
+
   const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
   const state = {
     focus: window.graphFocusTags,
@@ -747,12 +768,112 @@ function restoreGraphFiltersFromUrl() {
     snapshot: highlightSet.has("snapshot"),
   };
   updateHighlightButtons();
+
+  // A link that sets a display switch wins; a plain visit takes the
+  // browser's remembered one.
+  for (const name of ["compact", "rainbow", "topics"]) {
+    const value = params.get(name);
+    window.graphViewSwitches[name] =
+      value === null ? readGraphViewPref(name) === "1" : value === "1";
+  }
+  syncGraphViewButtons();
+
+  const pending = restoreGraphTimelineFromParams(params);
+  setGraphRedrawMode(params.get("redraw") === "circular" ? "circular" : "all");
+  return pending;
+}
+
+// The range and the instant of the address, and the view it names. A range
+// that is no pair of days in order gives the default; an instant outside the
+// range widens it to the instant's day. Returns the view to open once the
+// graph is loaded (see applyGraphViewFromUrl).
+function restoreGraphTimelineFromParams(params) {
+  const fallback = graphDefaultTimelineRange();
+  const from = params.get("from");
+  const to = params.get("to");
+  const range = { from: from || fallback.from, to: to || fallback.to };
+  let chosen = from !== null || to !== null;
+  if (!graphIsTimelineDay(range.from) || !graphIsTimelineDay(range.to) || range.from > range.to) {
+    range.from = fallback.from;
+    range.to = fallback.to;
+    chosen = false;
+  }
+
+  let view = params.get("view");
+  const branch = params.get("branch");
+  if (view === "branch" && !branch) view = "main";
+  if (view !== "main" && view !== "branch") view = "dev";
+
+  const rawAt = params.get("at");
+  // Only an RFC 3339 instant, as the server takes it; Date.parse alone also
+  // reads forms like "June 1 2025".
+  const rfc3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+  const atMs = rawAt && rfc3339.test(rawAt) ? Date.parse(rawAt) : Number.NaN;
+  const at = view !== "dev" && !Number.isNaN(atMs) ? rawAt : null;
+  if (at) {
+    const day = graphUtcDay(new Date(atMs));
+    if (day < range.from) {
+      range.from = day;
+      chosen = true;
+    }
+    if (day > range.to) {
+      range.to = day;
+      chosen = true;
+    }
+  }
+  window.graphTimelineRange = range;
+  window.graphTimelineRangeChosen = chosen;
+  // Set before the graph loads, which reads them and writes them back into
+  // the address.
+  window.graphStreamView = view;
+  window.graphBranchName = view === "branch" ? branch : null;
+  window.graphTimelineAt = at;
+  return { view, branch, at, switches: window._graphUserViewSwitches || 0 };
+}
+
+function showGraphNotice(text) {
+  const notice = document.getElementById("graph-url-notice");
+  if (!notice) return;
+  notice.textContent = text || "";
+  notice.classList.toggle("hidden", !text);
+}
+
+// Open the view the address named, unless the user switched views while the
+// page loaded. A branch that no longer exists opens main with the same range
+// and instant, and says so.
+async function applyGraphViewFromUrl(pending) {
+  const userSwitched = () => (window._graphUserViewSwitches || 0) !== pending.switches;
+  if (userSwitched()) return;
+  showGraphNotice("");
+  let view = pending.view;
+  if (view === "branch") {
+    let pins = null;
+    if ((window.graphBranchNames || []).includes(pending.branch)) {
+      try {
+        const res = await apiCall(`/admin/branches/${encodeURIComponent(pending.branch)}/graph`);
+        if (res.ok) pins = await res.json();
+      } catch (e) {
+        console.warn(`Could not load branch '${pending.branch}':`, e);
+      }
+    }
+    if (userSwitched()) return;
+    if (pins === null) {
+      showGraphNotice(`There is no sanshain-branch '${pending.branch}': showing main instead.`);
+      view = "main";
+    } else {
+      window.graphBranchPins = pins;
+      window.graphBranchName = pending.branch;
+      const sel = document.getElementById("graph-branch-select");
+      if (sel) sel.value = pending.branch;
+    }
+  }
+  await setStreamView(view, pending.at, false);
+  updateGraphUrl(false);
 }
 
 // Handle back/forward navigation
-window.addEventListener("popstate", async () => {
-  restoreGraphFiltersFromUrl();
-  await loadGraph();
+window.addEventListener("popstate", () => {
+  void showGraph();
 });
 
 window.addEventListener("sanshain-update", async () => {

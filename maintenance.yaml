@@ -241,16 +241,37 @@ paths:
       description: |
         The instants this branch's graph changed (every open/close event of
         its append-only pin store), distinct and ascending — the timeline
-        slider's markers (ADR-0005).
+        slider's markers (ADR-0005), optionally only those between `from` and
+        `to` (both inclusive).
       parameters:
         - name: name
           in: path
           required: true
           schema:
             type: string
+        - name: from
+          in: query
+          required: false
+          description: Only instants at or after this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only instants at or before this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: The change instants as a JSON array of RFC 3339 strings.
+        "400":
+          description: "`from` or `to` is no RFC 3339 instant, or `from` is after `to`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
@@ -295,10 +316,32 @@ paths:
       x-scope: global
       description: |
         The instants the main graph changed, distinct and ascending — the
-        timeline slider's markers (ADR-0005).
+        timeline slider's markers (ADR-0005), optionally only those between
+        `from` and `to` (both inclusive).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Only instants at or after this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only instants at or before this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: The change instants as a JSON array of RFC 3339 strings.
+        "400":
+          description: "`from` or `to` is no RFC 3339 instant, or `from` is after `to`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:

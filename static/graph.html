@@ -471,8 +471,15 @@
         </div>
         <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
 
+        <div
+          id="graph-url-notice"
+          role="status"
+          class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm"
+        ></div>
+
         <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
-             past instant; markers are the change dates of the append-only store. -->
+             past instant. The slider spans the chosen range of UTC days evenly;
+             its ticks are the change dates of the append-only store. -->
         <div
           id="graph-timeline-row"
           class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200"
@@ -481,15 +488,33 @@
             >Timeline</span
           >
           <input
-            type="range"
-            id="graph-timeline-slider"
-            aria-label="Timeline position"
-            min="0"
-            max="0"
-            value="0"
-            step="1"
-            class="grow accent-amber-600"
+            type="date"
+            id="graph-timeline-from"
+            aria-label="Timeline start (UTC day)"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            data-change="setTimelineRangeFromFields"
           />
+          <div class="relative grow min-w-[12rem]">
+            <input
+              type="range"
+              id="graph-timeline-slider"
+              aria-label="Timeline position"
+              min="0"
+              max="0"
+              value="0"
+              step="1"
+              class="w-full accent-amber-600"
+            />
+            <div id="graph-timeline-ticks" class="relative h-2 mx-2" aria-hidden="true"></div>
+          </div>
+          <input
+            type="date"
+            id="graph-timeline-to"
+            aria-label="Timeline end (UTC day)"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            data-change="setTimelineRangeFromFields"
+          />
+          <span class="text-[10px] font-bold text-slate-500">UTC</span>
           <span
             id="graph-timeline-label"
             class="text-xs font-mono text-slate-600 min-w-[10rem] text-right"

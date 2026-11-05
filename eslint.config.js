@@ -98,6 +98,11 @@ export default [
         readGraphViewPref: "readonly",
         writeGraphViewPref: "readonly",
         graphFocusPicker: "writable",
+        setGraphRedrawMode: "readonly",
+        setStreamView: "readonly",
+        graphDefaultTimelineRange: "readonly",
+        graphIsTimelineDay: "readonly",
+        graphUtcDay: "readonly",
       },
     },
     rules: {

@@ -916,13 +916,16 @@ function setGraphRedrawMode(mode) {
           : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
     }
   });
+  if (window.updateGraphUrl) window.updateGraphUrl(false);
   redrawGraph();
 }
 window.setGraphRedrawMode = setGraphRedrawMode;
 
-// Switch between the dev and main stream views (ADR-0004). The legend is
+// Switch between the dev, main and branch views (ADR-0004/0005). The legend is
 // view-aware: entries carrying data-stream-only show only in their view.
-function setStreamView(view) {
+// `at` opens the view at that instant (a shared link); `push` adds a history
+// entry, which a switch by the user does and a restore from the address not.
+async function setStreamView(view, at = null, push = true) {
   window.graphStreamView = view;
   if (view !== "branch") {
     window.graphBranchName = null;
@@ -951,26 +954,177 @@ function setStreamView(view) {
   // A view switch outdates every timeline/periphery request still in flight.
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
+  if (push) {
+    // A switch by the user wins over a view still being opened from the address.
+    window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
+    if (window.updateGraphUrl) window.updateGraphUrl(true);
+  }
   initTimelineSlider();
-  void refreshTimeline();
+  await refreshTimeline(token);
+  if (token !== window._graphTimelineToken) return;
+  // A range ending before today opens at its right edge, the end of that day.
+  const target = view === "dev" ? null : at || graphTimelineEdges().end;
+  if (target) {
+    await setTimelinePosition(target);
+    return;
+  }
   // One redraw once the scope's periphery and producers are both in: drawing
   // the pins first would show the box and badges of no scope at all.
-  void Promise.all([
+  const [periphery, scopeData] = await Promise.all([
     graphFetchScopePeriphery(view, window.graphBranchName, null),
     graphFetchScopeData(view, window.graphBranchName, null),
-  ]).then(([periphery, scopeData]) => {
-    if (token !== window._graphTimelineToken) return;
-    window.graphScopePeriphery = periphery;
-    window.graphScopeData = scopeData;
-    redrawGraph();
-  });
+  ]);
+  if (token !== window._graphTimelineToken) return;
+  window.graphScopePeriphery = periphery;
+  window.graphScopeData = scopeData;
+  redrawGraph();
 }
 window.setStreamView = setStreamView;
 
 // ── Timeline (ADR-0005) ──────────────────────────────────────────────
-// The slider indexes the graph's change dates; the last position is "now".
+// The slider spans the chosen range of UTC days evenly, one step per second;
+// the change dates are ticks, and the handle snaps to the nearest one or to
+// an edge. The left edge is 00:00 of the start day, the right edge "now" when
+// the range ends today and the end of the end day otherwise.
 
-async function refreshTimeline() {
+const GRAPH_TIMELINE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function graphUtcDay(date) {
+  return date.toISOString().slice(0, 10);
+}
+window.graphUtcDay = graphUtcDay;
+
+// The default range: the last 3 months up to today, in UTC days.
+function graphDefaultTimelineRange(now = new Date()) {
+  const from = new Date(now.getTime());
+  from.setUTCMonth(from.getUTCMonth() - 3);
+  return { from: graphUtcDay(from), to: graphUtcDay(now) };
+}
+window.graphDefaultTimelineRange = graphDefaultTimelineRange;
+
+// A real calendar day written YYYY-MM-DD (2026-02-30 is not).
+function graphIsTimelineDay(day) {
+  if (typeof day !== "string" || !GRAPH_TIMELINE_DAY.test(day)) return false;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && graphUtcDay(parsed) === day;
+}
+window.graphIsTimelineDay = graphIsTimelineDay;
+
+// The range on screen, and whether someone chose it: only a chosen range goes
+// into the address, so a link without one opens on the viewer's last 3 months.
+window.graphTimelineRange = graphDefaultTimelineRange();
+window.graphTimelineRangeChosen = false;
+// When the right edge was "now" at the last refresh.
+window.graphTimelineNowMs = Date.now();
+
+// The two edges as instants; `end` is null when the range reaches today.
+function graphTimelineEdges(range = window.graphTimelineRange, now = new Date()) {
+  return {
+    start: `${range.from}T00:00:00Z`,
+    end: range.to >= graphUtcDay(now) ? null : `${range.to}T23:59:59Z`,
+  };
+}
+window.graphTimelineEdges = graphTimelineEdges;
+
+// The snap stops along the slider, in seconds from the left edge: both edges
+// and every change date strictly between them. The right edge's `at` is null
+// when it stands for "now".
+function graphTimelineStops(range, dates, nowMs) {
+  const { start, end } = graphTimelineEdges(range, new Date(nowMs));
+  const startMs = Date.parse(start);
+  const endMs = end ? Date.parse(end) : nowMs;
+  const max = Math.max(0, Math.round((endMs - startMs) / 1000));
+  const stops = [{ secs: 0, at: start }];
+  for (const d of dates) {
+    const secs = Math.round((Date.parse(d) - startMs) / 1000);
+    if (secs > 0 && secs < max) stops.push({ secs, at: d });
+  }
+  stops.push({ secs: max, at: end });
+  return { stops, max };
+}
+window.graphTimelineStops = graphTimelineStops;
+
+function graphNearestStop(stops, secs) {
+  return stops.reduce((best, s) =>
+    Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best,
+  );
+}
+window.graphNearestStop = graphNearestStop;
+
+function graphCurrentStops() {
+  return graphTimelineStops(
+    window.graphTimelineRange,
+    window.graphTimelineDates,
+    window.graphTimelineNowMs,
+  );
+}
+
+// Where an instant sits on the slider; the right edge for "now".
+function graphTimelineSecondsOf(at) {
+  const { stops, max } = graphCurrentStops();
+  if (!at) return max;
+  const secs = Math.round((Date.parse(at) - Date.parse(stops[0].at)) / 1000);
+  return Math.min(max, Math.max(0, secs));
+}
+
+function graphTimelineLabel(at) {
+  return at ? at.slice(0, 16).replace("T", " ") : "now";
+}
+
+// Move the handle and the label to `at` (null = the right edge).
+function graphShowTimelinePosition(at) {
+  const slider = document.getElementById("graph-timeline-slider");
+  const label = document.getElementById("graph-timeline-label");
+  if (slider) slider.value = String(graphTimelineSecondsOf(at));
+  if (label) label.textContent = graphTimelineLabel(at);
+}
+
+const GRAPH_DAY_FIELD_OK = ["border-slate-300", "bg-white"];
+const GRAPH_DAY_FIELD_BAD = ["border-red-500", "bg-red-50"];
+
+function graphMarkDayField(field, valid) {
+  field.classList.remove(...(valid ? GRAPH_DAY_FIELD_BAD : GRAPH_DAY_FIELD_OK));
+  field.classList.add(...(valid ? GRAPH_DAY_FIELD_OK : GRAPH_DAY_FIELD_BAD));
+  field.setAttribute("aria-invalid", valid ? "false" : "true");
+}
+
+// Bring the range fields, the slider's scale, its ticks, the handle and the
+// Now button in line with the range and the change dates.
+function syncTimelineControls() {
+  const slider = document.getElementById("graph-timeline-slider");
+  if (!slider) return;
+  const { stops, max } = graphCurrentStops();
+  slider.min = "0";
+  slider.max = String(max);
+  graphShowTimelinePosition(window.graphTimelineAt);
+  const ticks = document.getElementById("graph-timeline-ticks");
+  if (ticks) {
+    ticks.replaceChildren();
+    for (const stop of stops.slice(1, -1)) {
+      const tick = document.createElement("span");
+      tick.className = "absolute top-0 h-2 w-px bg-amber-500";
+      tick.style.left = `${max ? (stop.secs / max) * 100 : 0}%`;
+      tick.title = graphTimelineLabel(stop.at);
+      ticks.appendChild(tick);
+    }
+  }
+  const nowBtn = document.getElementById("graph-timeline-now");
+  if (nowBtn) nowBtn.classList.toggle("hidden", graphTimelineEdges().end !== null);
+  for (const [id, value] of [
+    ["graph-timeline-from", window.graphTimelineRange.from],
+    ["graph-timeline-to", window.graphTimelineRange.to],
+  ]) {
+    const field = document.getElementById(id);
+    if (!field) continue;
+    field.value = value;
+    graphMarkDayField(field, true);
+  }
+}
+
+// Fetch the change dates of the view within the range and redraw the
+// controls. A newer view switch, range change or position (a newer token)
+// wins over this one.
+async function refreshTimeline(token = window._graphTimelineToken) {
   const row = document.getElementById("graph-timeline-row");
   if (!row) return;
   const view = window.graphStreamView;
@@ -980,63 +1134,51 @@ async function refreshTimeline() {
     window.graphTimelinePins = null;
     return;
   }
-  const url =
+  const range = window.graphTimelineRange;
+  const base =
     view === "main"
       ? "/admin/trunk/timeline"
       : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/timeline`;
+  const from = encodeURIComponent(`${range.from}T00:00:00Z`);
+  const to = encodeURIComponent(`${range.to}T23:59:59Z`);
+  let dates = [];
   try {
-    const res = await apiCall(url);
-    window.graphTimelineDates = res.ok ? await res.json() : [];
+    const res = await apiCall(`${base}?from=${from}&to=${to}`);
+    dates = res.ok ? await res.json() : [];
   } catch (e) {
     console.warn("Could not load the timeline:", e);
-    window.graphTimelineDates = [];
   }
-  const slider = document.getElementById("graph-timeline-slider");
-  slider.max = String(window.graphTimelineDates.length);
-  slider.value = slider.max;
-  document.getElementById("graph-timeline-label").textContent = "now";
+  if (token !== window._graphTimelineToken) return;
+  window.graphTimelineDates = dates;
+  window.graphTimelineNowMs = Date.now();
+  syncTimelineControls();
   // Greyed for those without release_ga (data-needs on the button), not hidden.
   row.classList.remove("hidden");
 }
 
+// Show the graph of the view at `at`, or the current graph for null ("now").
 async function setTimelinePosition(at) {
-  const slider = document.getElementById("graph-timeline-slider");
-  const label = document.getElementById("graph-timeline-label");
-  if (at === null) {
-    const token = (window._graphTimelineToken || 0) + 1;
-    window._graphTimelineToken = token;
-    slider.value = slider.max;
-    label.textContent = "now";
-    const [periphery, scopeData] = await Promise.all([
-      graphFetchScopePeriphery(window.graphStreamView, window.graphBranchName, null),
-      graphFetchScopeData(window.graphStreamView, window.graphBranchName, null),
-    ]);
-    if (token !== window._graphTimelineToken) return;
-    window.graphTimelineAt = null;
-    window.graphTimelinePins = null;
-    window.graphScopePeriphery = periphery;
-    window.graphScopeData = scopeData;
-    redrawGraph();
-    return;
-  }
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
+  // The handle and label move at once; the graph follows when it loads.
+  graphShowTimelinePosition(at);
   const view = window.graphStreamView;
-  const url =
-    view === "main"
-      ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
-      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
-  // Dragging the slider fires one request per instant it crosses, and they can
+  // Dragging the slider fires one request per stop it crosses, and they can
   // land out of order — on a slow link an earlier response arriving last would
   // leave the graph on an instant the user already scrubbed past. Only the
   // newest request may apply its result.
-  const token = (window._graphTimelineToken || 0) + 1;
-  window._graphTimelineToken = token;
-  // The label tracks the handle immediately; the graph follows when it loads.
-  label.textContent = at.slice(0, 16).replace("T", " ");
   try {
-    const res = await apiCall(url);
-    if (!res.ok || token !== window._graphTimelineToken) return;
-    const pins = await res.json();
-    if (token !== window._graphTimelineToken) return;
+    let pins = null;
+    if (at) {
+      const url =
+        view === "main"
+          ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
+          : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
+      const res = await apiCall(url);
+      if (!res.ok || token !== window._graphTimelineToken) return;
+      pins = await res.json();
+      if (token !== window._graphTimelineToken) return;
+    }
     const [periphery, scopeData] = await Promise.all([
       graphFetchScopePeriphery(view, window.graphBranchName, at),
       graphFetchScopeData(view, window.graphBranchName, at),
@@ -1046,6 +1188,7 @@ async function setTimelinePosition(at) {
     window.graphTimelineAt = at;
     window.graphScopePeriphery = periphery;
     window.graphScopeData = scopeData;
+    if (window.updateGraphUrl) window.updateGraphUrl(false);
     redrawGraph();
   } catch (e) {
     console.warn("Could not load the graph at that instant:", e);
@@ -1053,17 +1196,60 @@ async function setTimelinePosition(at) {
 }
 window.setTimelinePosition = setTimelinePosition;
 
+// The range fields: a day after the other is refused — both turn red and the
+// range on screen stays — anything else becomes the range, a history entry.
+async function setTimelineRangeFromFields() {
+  const fromField = document.getElementById("graph-timeline-from");
+  const toField = document.getElementById("graph-timeline-to");
+  if (!fromField || !toField) return;
+  const from = fromField.value;
+  const to = toField.value;
+  const valid = graphIsTimelineDay(from) && graphIsTimelineDay(to) && from <= to;
+  graphMarkDayField(fromField, valid);
+  graphMarkDayField(toField, valid);
+  if (!valid) return;
+  window.graphTimelineRange = { from, to };
+  window.graphTimelineRangeChosen = true;
+  window.graphTimelineAt = null;
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
+  await refreshTimeline(token);
+  if (token !== window._graphTimelineToken) return;
+  await setTimelinePosition(graphTimelineEdges().end);
+}
+window.setTimelineRangeFromFields = setTimelineRangeFromFields;
+
 function initTimelineSlider() {
   const slider = document.getElementById("graph-timeline-slider");
   if (!slider || slider.dataset.wired) return;
   slider.dataset.wired = "1";
+  const moveTo = (stop) => {
+    slider.value = String(stop.secs);
+    if (stop.at === window.graphTimelineAt) return;
+    void setTimelinePosition(stop.at);
+  };
   slider.addEventListener("input", () => {
-    const idx = Number.parseInt(slider.value, 10);
-    if (idx >= window.graphTimelineDates.length) {
-      void setTimelinePosition(null);
-    } else {
-      void setTimelinePosition(window.graphTimelineDates[idx]);
+    const { stops } = graphCurrentStops();
+    moveTo(graphNearestStop(stops, Number(slider.value)));
+  });
+  // The arrow keys step from tick to tick, Home and End to the edges.
+  slider.addEventListener("keydown", (e) => {
+    const { stops } = graphCurrentStops();
+    const secs = Number(slider.value);
+    let stop = null;
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      stop = stops.filter((s) => s.secs < secs).pop() || stops[0];
+    } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      stop = stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+    } else if (e.key === "Home") {
+      stop = stops[0];
+    } else if (e.key === "End") {
+      stop = stops[stops.length - 1];
     }
+    if (!stop) return;
+    e.preventDefault();
+    moveTo(stop);
   });
 }
 
@@ -1091,6 +1277,9 @@ window.createBranchHere = createBranchHere;
 // Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
 // references included — and draw it with the shared pipeline.
 async function selectBranchView(name) {
+  // Counted at once: the branch's pins are still loading when the view the
+  // address named might be applied.
+  window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
   if (!name) {
     setStreamView("dev");
     return;

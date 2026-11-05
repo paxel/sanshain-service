@@ -1861,25 +1861,43 @@ pub async fn admin_graph_scope(
     Ok(Json(services::get_graph_scope(&state.repo, &scope).await?))
 }
 
-/// The instants the main graph changed — the timeline slider's markers.
-pub async fn admin_trunk_timeline(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(state.repo.list_graph_change_dates(None).await?))
+#[derive(Deserialize)]
+pub struct TimelineQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
-/// The instants a branch's graph changed.
+/// The instants the main graph changed — the timeline slider's ticks —
+/// optionally between `from` and `to`.
+pub async fn admin_trunk_timeline(
+    State(state): State<AppState>,
+    Query(query): Query<TimelineQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::get_graph_change_dates(
+            &state.repo,
+            None,
+            query.from.as_deref(),
+            query.to.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+/// The instants a branch's graph changed, optionally between `from` and `to`.
 pub async fn admin_branch_timeline(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let branch = state
-        .repo
-        .find_branch(&name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
     Ok(Json(
-        state.repo.list_graph_change_dates(Some(branch.id)).await?,
+        services::get_graph_change_dates(
+            &state.repo,
+            Some(&name),
+            query.from.as_deref(),
+            query.to.as_deref(),
+        )
+        .await?,
     ))
 }
 

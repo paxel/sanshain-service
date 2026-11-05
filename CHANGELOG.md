@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [2.13.0]
 
+### Added
+- The graph's timeline shows the last 3 months by default; its start and end are UTC days you can change, and the slider spaces the changes by time.
+- Graph links carry the view, the sanshain-branch, the timeline range and instant, and the display switches, so a link shows the same graph to whoever opens it.
+- `GET /admin/trunk/timeline` and `GET /admin/branches/{name}/timeline` accept optional `from` and `to`.
+
 ### Fixed
 - A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
 
