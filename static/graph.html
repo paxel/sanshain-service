@@ -126,7 +126,7 @@
 
     <main class="container mx-auto flex-1 p-6">
       <div id="graph-section">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+        <div id="graph-title-row" class="flex flex-wrap justify-between items-center gap-3 mb-6">
           <h2 class="text-xl font-semibold flex items-center">
             <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -140,7 +140,7 @@
             </span>
             Dependency Graph
           </h2>
-          <div class="flex items-center space-x-3">
+          <div data-fs-panel="mode" class="flex items-center space-x-3">
             <div
               class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white"
             >
@@ -176,7 +176,7 @@
           id="graph-toolbar-row"
           class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
         >
-          <div class="flex items-center gap-2 grow">
+          <div data-fs-panel="focus" class="flex items-center gap-2 grow">
             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
               >Focus</span
             >
@@ -184,7 +184,8 @@
             <div id="graph-focus-picker" class="shrink-0 w-48"></div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2 ml-auto">
+          <div id="graph-toolbar-controls" class="flex flex-wrap items-center gap-2 ml-auto">
+            <div data-fs-panel="view" class="flex flex-wrap items-center gap-2">
             <!-- Stream view (ADR-0004): Dev = latest recorded activity;
                      Main = the trunk pin set, producers at trunk version. -->
             <div
@@ -239,7 +240,9 @@
                 Circular
               </button>
             </div>
+            </div>
             <div
+              data-fs-panel="filters"
               class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
@@ -289,6 +292,7 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
             <div
+              data-fs-panel="highlights"
               class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
@@ -319,6 +323,7 @@
                 Snapshot-pinned
               </button>
             </div>
+            <div data-fs-panel="switches" class="flex flex-wrap items-center gap-2">
             <button
               id="graph-direction-toggle"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
@@ -386,6 +391,24 @@
               Fit
             </button>
             <button
+              id="graph-fullscreen-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="stepGraphFullscreen"
+              title="Fullscreen (f): the graph fills the window, a second f the screen; Esc goes back"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"
+                />
+              </svg>
+              Fullscreen
+            </button>
+            </div>
+            <div data-fs-panel="export" class="flex flex-wrap items-center gap-2">
+            <button
               id="graph-copy"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               title="Copy code to clipboard"
@@ -426,9 +449,11 @@
               </svg>
               PNG
             </button>
+            </div>
           </div>
         </div>
 
+        <div data-fs-panel="compare" class="flex flex-col">
         <!-- Compare (ADR-0005): a structured diff between any two graph
              selections — release vs release, release vs main, any at a date. -->
         <div
@@ -477,6 +502,7 @@
           </button>
         </div>
         <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
+        </div>
 
         <div
           id="graph-url-notice"
@@ -925,6 +951,151 @@
         </div>
       </div>
     </main>
+
+    <!-- Fullscreen (f): the icon column; each icon opens its panel of the
+         toolbar beside it (data-fs-panel). Hidden outside fullscreen. -->
+    <nav
+      id="graph-fs-rail"
+      aria-label="Graph controls"
+      class="hidden fixed left-0 top-0 bottom-0 z-40 w-11 flex-col items-center gap-1 py-2 bg-white border-r border-slate-200"
+    >
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["focus"]'
+        data-fs-icon="focus"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Focus: spotlight services"
+        aria-label="Focus: spotlight services"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["view"]'
+        data-fs-icon="view"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="View: dev, main or a branch"
+        aria-label="View: dev, main or a branch"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["filters"]'
+        data-fs-icon="filters"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Protocol filters"
+        aria-label="Protocol filters"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["highlights"]'
+        data-fs-icon="highlights"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Highlights"
+        aria-label="Highlights"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l2.5 6.5L21 10l-5 4.5L17.5 21 12 17.5 6.5 21 8 14.5 3 10l6.5-.5z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["switches"]'
+        data-fs-icon="switches"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Switches: direction, density, Rainbow, Topics, Domain frames"
+        aria-label="Switches: direction, density, Rainbow, Topics, Domain frames"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 4v16M12 4v16M18 4v16" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["mode"]'
+        data-fs-icon="mode"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Graph, Mermaid or Detailed"
+        aria-label="Graph, Mermaid or Detailed"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v14H4z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["export"]'
+        data-fs-icon="export"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Copy and download"
+        aria-label="Copy and download"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["compare"]'
+        data-fs-icon="compare"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Compare two graphs"
+        aria-label="Compare two graphs"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12M8 7l4-4M8 7l4 4M16 17H4m12 0l-4-4m4 4l-4 4" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphLegend"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Legend shown or hidden (l)"
+        aria-label="Legend shown or hidden (l)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphTimelineBar"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Timeline bar shown or hidden (b)"
+        aria-label="Timeline bar shown or hidden (b)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M7 8v8M17 8v8" />
+        </svg>
+      </button>
+      <button
+        data-click="stepGraphFullscreen"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Fill the screen (f)"
+        aria-label="Fill the screen (f)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />
+        </svg>
+      </button>
+      <button
+        data-click="exitGraphFullscreen"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Leave fullscreen (Esc)"
+        aria-label="Leave fullscreen (Esc)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </nav>
 
     <!-- The hotkeys (?): filled from GRAPH_HOTKEYS in graph-1.js. -->
     <div

@@ -60,3 +60,99 @@
     pointer-events: none;
   }
 }
+
+/*
+  Fullscreen graph (graph.html, `f`): the page around the graph goes, the
+  toolbar's groups (data-fs-panel) become panels beside the icon column, one
+  open at a time (data-fs-shown), and the graph fills what the column, the
+  legend and the timeline bar leave free (--fs-left, --fs-right, --fs-bottom,
+  set by graph-1.js). Unlayered, so it wins over the utilities on the same
+  elements.
+*/
+body[data-graph-fs] #site-banner,
+body[data-graph-fs] footer,
+body[data-graph-fs] #graph-title-row > h2,
+body[data-graph-fs] #graph-cycle-warning,
+body[data-graph-fs] [data-fs-panel] {
+  display: none;
+}
+body[data-graph-fs] main {
+  padding: 0;
+  max-width: none;
+}
+body[data-graph-fs] #graph-title-row,
+body[data-graph-fs] #graph-toolbar-row,
+body[data-graph-fs] #graph-toolbar-controls {
+  display: contents;
+}
+body[data-graph-fs] [data-fs-panel][data-fs-shown] {
+  position: fixed;
+  left: 3.25rem;
+  top: 0.5rem;
+  z-index: 45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(100vw - 4rem);
+  max-height: calc(100vh - 1rem);
+  overflow: auto;
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--color-white);
+  border: 1px solid var(--color-slate-200);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+body[data-graph-fs] [data-fs-panel='compare'][data-fs-shown] {
+  flex-direction: column;
+  align-items: stretch;
+}
+body[data-graph-fs] #graph-fs-rail {
+  display: flex;
+}
+body[data-graph-fs][data-fs-rail-hidden] #graph-fs-rail,
+body[data-graph-fs][data-fs-rail-hidden] [data-fs-panel][data-fs-shown],
+body[data-graph-timeline-hidden] #graph-timeline-row {
+  display: none;
+}
+body[data-graph-fs] #graph-container {
+  position: fixed;
+  z-index: 30;
+  top: 0;
+  left: var(--fs-left, 0);
+  right: var(--fs-right, 0);
+  bottom: var(--fs-bottom, 0);
+  padding: 0.25rem;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+body[data-graph-fs] #graph-legend {
+  position: fixed;
+  z-index: 35;
+  top: 0;
+  right: 0;
+  bottom: var(--fs-bottom, 0);
+  height: auto;
+  overflow: auto;
+  border-radius: 0;
+}
+body[data-graph-fs] #graph-timeline-row {
+  position: fixed;
+  z-index: 35;
+  left: var(--fs-left, 0);
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0;
+}
+body[data-graph-fs] #graph-url-notice {
+  position: fixed;
+  z-index: 45;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+}

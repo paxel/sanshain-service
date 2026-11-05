@@ -972,10 +972,146 @@ function initGraphFocusPicker() {
   });
 }
 
+// ── Fullscreen ───────────────────────────────────────────────────────
+// Level 1 fills the browser window with the graph, level 2 the screen (the
+// browser's own fullscreen). The look is CSS on body[data-graph-fs]; this
+// keeps the level, the open panel and the space the column, the legend and
+// the timeline bar take.
+let graphFsLevel = 0;
+
+function graphFsBody() {
+  return document.body;
+}
+
+// The free space for the graph, as the CSS variables the fullscreen rules use.
+function layoutGraphFullscreen() {
+  const body = graphFsBody();
+  const visible = (el) => !!el && el.offsetWidth > 0 && el.offsetHeight > 0;
+  const rail = document.getElementById("graph-fs-rail");
+  const legend = document.getElementById("graph-legend");
+  const timeline = document.getElementById("graph-timeline-row");
+  const left = graphFsLevel && visible(rail) ? rail.offsetWidth : 0;
+  const right = graphFsLevel && visible(legend) ? legend.offsetWidth : 0;
+  const bottom = graphFsLevel && visible(timeline) ? timeline.offsetHeight : 0;
+  const next = `${left}|${right}|${bottom}`;
+  if (body.dataset.fsLayout === next) return;
+  body.dataset.fsLayout = next;
+  body.style.setProperty("--fs-left", `${left}px`);
+  body.style.setProperty("--fs-right", `${right}px`);
+  body.style.setProperty("--fs-bottom", `${bottom}px`);
+  // The canvas takes its size from the space it is given.
+  if (currentGraphMode === "custom") redrawGraph();
+}
+
+function setGraphFsLevel(level) {
+  graphFsLevel = level;
+  const body = graphFsBody();
+  if (level) body.dataset.graphFs = String(level);
+  else {
+    delete body.dataset.graphFs;
+    closeGraphFsPanel();
+  }
+  const wantScreen = level === 2;
+  const inScreen = !!document.fullscreenElement;
+  if (wantScreen && !inScreen && document.documentElement.requestFullscreen) {
+    // Refused without a key press or click: stay in the window.
+    document.documentElement.requestFullscreen().catch(() => setGraphFsLevel(1));
+  } else if (!wantScreen && inScreen && document.exitFullscreen) {
+    void document.exitFullscreen().catch(() => {});
+  }
+  delete body.dataset.fsLayout;
+  layoutGraphFullscreen();
+}
+
+// f: window, then screen, then back to the page.
+function stepGraphFullscreen() {
+  setGraphFsLevel((graphFsLevel + 1) % 3);
+}
+
+function exitGraphFullscreen() {
+  setGraphFsLevel(0);
+}
+
+function closeGraphFsPanel() {
+  document.querySelectorAll("[data-fs-shown]").forEach((el) => delete el.dataset.fsShown);
+  document
+    .querySelectorAll("[data-fs-icon]")
+    .forEach((el) => el.classList.remove("bg-indigo-100", "text-indigo-700"));
+}
+
+function graphFsPanelOpen() {
+  return !!document.querySelector("[data-fs-shown]");
+}
+
+// One panel at a time; its icon again closes it.
+function toggleGraphFsPanel(name) {
+  const panel = document.querySelector(`[data-fs-panel="${name}"]`);
+  const wasOpen = !!panel && panel.dataset.fsShown !== undefined;
+  closeGraphFsPanel();
+  if (!panel || wasOpen) return;
+  panel.dataset.fsShown = "1";
+  const icon = document.querySelector(`[data-fs-icon="${name}"]`);
+  if (icon) icon.classList.add("bg-indigo-100", "text-indigo-700");
+}
+
+// c: the icon column (and its open panel) shown or hidden.
+function toggleGraphFsRail() {
+  const body = graphFsBody();
+  if (body.dataset.fsRailHidden !== undefined) delete body.dataset.fsRailHidden;
+  else body.dataset.fsRailHidden = "1";
+  layoutGraphFullscreen();
+}
+
+// b: the timeline bar shown or hidden, in and out of fullscreen.
+function toggleGraphTimelineBar() {
+  const body = graphFsBody();
+  if (body.dataset.graphTimelineHidden !== undefined) delete body.dataset.graphTimelineHidden;
+  else body.dataset.graphTimelineHidden = "1";
+  layoutGraphFullscreen();
+}
+
+// Esc: the key list, then an open panel, then one fullscreen level.
+function graphEscape() {
+  if (graphKeysOpen()) {
+    hideGraphKeys();
+    return true;
+  }
+  if (graphFsPanelOpen()) {
+    closeGraphFsPanel();
+    return true;
+  }
+  if (graphFsLevel) {
+    setGraphFsLevel(graphFsLevel - 1);
+    return true;
+  }
+  return false;
+}
+
+function initGraphFullscreen() {
+  // The browser leaves its fullscreen on its own Esc: back to the window.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && graphFsLevel === 2) setGraphFsLevel(1);
+  });
+  window.addEventListener("resize", () => layoutGraphFullscreen());
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => layoutGraphFullscreen());
+    for (const id of ["graph-timeline-row", "graph-legend", "graph-fs-rail"]) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+  }
+  // A click into the graph closes the open panel.
+  const container = document.getElementById("graph-container");
+  if (container) container.addEventListener("mousedown", () => closeGraphFsPanel());
+}
+
 // ── Hotkeys ──────────────────────────────────────────────────────────
 // Single keys without Ctrl, Alt or Cmd, ignored while typing in a field. The
 // ? overlay lists this table, so it always shows what the keys do.
 const GRAPH_HOTKEYS = [
+  { key: "f", label: "Fullscreen: window, screen, back", run: () => stepGraphFullscreen() },
+  { key: "c", label: "Control column shown or hidden", run: () => toggleGraphFsRail() },
+  { key: "b", label: "Timeline bar shown or hidden", run: () => toggleGraphTimelineBar() },
   { key: "d", label: "Density: Normal, Compact, Dense", run: () => stepGraphDensity() },
   { key: "g", label: "Domain frames on or off", run: () => toggleGraphDomains() },
   { key: "r", label: "Rainbow", run: () => toggleGraphViewSwitch("rainbow") },
@@ -991,6 +1127,7 @@ const GRAPH_HOTKEYS = [
 function toggleGraphLegend() {
   const legend = document.getElementById("graph-legend");
   if (legend) legend.classList.toggle("hidden");
+  layoutGraphFullscreen();
 }
 
 function graphKeysOpen() {
@@ -1003,7 +1140,8 @@ function toggleGraphKeys() {
   const list = document.getElementById("graph-keys-list");
   if (!overlay || !list) return;
   if (!list.childElementCount) {
-    for (const hotkey of [...GRAPH_HOTKEYS, { key: "Esc", label: "Close this list" }]) {
+    const esc = { key: "Esc", label: "Back: this list, a panel, a fullscreen level" };
+    for (const hotkey of [...GRAPH_HOTKEYS, esc]) {
       const dt = document.createElement("dt");
       const kbd = document.createElement("kbd");
       kbd.className =
@@ -1033,13 +1171,13 @@ function graphTypingIn(target) {
 
 function onGraphHotkey(e) {
   if (e.ctrlKey || e.altKey || e.metaKey) return;
-  // The timeline slider has its own arrow keys; letters still work there.
-  if (graphTypingIn(e.target) && e.target.id !== "graph-timeline-slider") return;
-  if (e.key === "Escape" && graphKeysOpen()) {
-    e.preventDefault();
-    hideGraphKeys();
+  // Esc goes back even from inside a field of an open panel.
+  if (e.key === "Escape") {
+    if (graphEscape()) e.preventDefault();
     return;
   }
+  // The timeline slider has its own arrow keys; letters still work there.
+  if (graphTypingIn(e.target) && e.target.id !== "graph-timeline-slider") return;
   const hotkey = GRAPH_HOTKEYS.find((h) => h.key === e.key);
   if (!hotkey) return;
   e.preventDefault();
@@ -1048,6 +1186,7 @@ function onGraphHotkey(e) {
 
 function initGraph() {
   document.addEventListener("keydown", onGraphHotkey);
+  initGraphFullscreen();
   initGraphFocusPicker();
   syncGraphViewButtons();
   void checkDiscoveryAuth(() => showGraph());

@@ -2320,7 +2320,14 @@ function renderCustomGraph(report, svgElement, direction) {
   const centerY = (minY + maxY) / 2;
 
   // Viewport-sized canvas: fill available window height
-  const availableH = window.innerHeight - svgElement.getBoundingClientRect().top - 40;
+  // In fullscreen the canvas fills its container instead.
+  const holder = svgElement.parentElement;
+  const availableH =
+    document.body.dataset.graphFs && holder
+      ? holder.clientHeight -
+        parseFloat(getComputedStyle(holder).paddingTop) -
+        parseFloat(getComputedStyle(holder).paddingBottom)
+      : window.innerHeight - svgElement.getBoundingClientRect().top - 40;
   svgElement.style.height = Math.max(availableH, 300) + "px";
   const vw = svgElement.clientWidth;
   const vh = svgElement.clientHeight;

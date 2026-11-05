@@ -307,3 +307,75 @@ test("hotkeys flip the switches, list themselves and stay out of fields", async 
   await page.locator("body").press("]");
   await expect(page.locator("#graph-timeline-label")).toHaveText("2020-01-31 23:59");
 });
+
+test("fullscreen hides the page, keeps the controls beside the graph and steps back", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  const box = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().toJSON());
+
+  await page.locator("body").press("f");
+  await expect(page.locator("body")).toHaveAttribute("data-graph-fs", "1");
+  await expect(page.locator("#site-banner")).toBeHidden();
+  await expect(page.locator("#graph-toolbar-row [data-fs-panel='focus']")).toBeHidden();
+  const rail = page.locator("#graph-fs-rail");
+  await expect(rail).toBeVisible();
+  const railBox = await box("#graph-fs-rail");
+  const legendBox = await box("#graph-legend");
+  let graph = await box("#graph-container");
+  expect(graph.top).toBe(0);
+  expect(Math.round(graph.left)).toBe(Math.round(railBox.width));
+  expect(Math.round(graph.right)).toBe(Math.round(legendBox.left));
+  // The canvas fills the height it is given.
+  const svg = await box("#custom-graph");
+  expect(svg.height).toBeGreaterThan(600);
+  await page.screenshot({ path: "test-results/fullscreen.png" });
+
+  // An icon opens its panel beside the column; Esc closes it first.
+  await page.click("[data-fs-icon='switches']");
+  await expect(page.locator("[data-fs-panel='switches']")).toBeVisible();
+  await expect(page.locator("#graph-density-toggle")).toBeVisible();
+  await page.click("[data-fs-icon='focus']");
+  await expect(page.locator("[data-fs-panel='switches']")).toBeHidden();
+  await expect(page.locator("[data-fs-panel='focus']")).toBeVisible();
+  await page.screenshot({ path: "test-results/fullscreen-panel.png" });
+  await page.locator("body").press("Escape");
+  await expect(page.locator("[data-fs-panel='focus']")).toBeHidden();
+  await expect(page.locator("body")).toHaveAttribute("data-graph-fs", "1");
+
+  // c and l give their space to the graph.
+  await page.locator("body").press("c");
+  await expect(rail).toBeHidden();
+  await page.locator("body").press("l");
+  await expect(page.locator("#graph-legend")).toBeHidden();
+  await expect.poll(async () => (await box("#graph-container")).left).toBe(0);
+  graph = await box("#graph-container");
+  expect(Math.round(graph.right)).toBe(1280);
+  await page.locator("body").press("c");
+  await page.locator("body").press("l");
+
+  // Esc leaves the window level: the page is back.
+  await page.locator("body").press("Escape");
+  await expect(page.locator("body")).not.toHaveAttribute("data-graph-fs", /./);
+  await expect(page.locator("#site-banner")).toBeVisible();
+  await expect(rail).toBeHidden();
+  await expect(page.locator("#graph-toolbar-row [data-fs-panel='focus']")).toBeVisible();
+});
+
+test("b hides the timeline bar, in fullscreen its space goes to the graph", async ({ page }) => {
+  await openGraph(page);
+  await page.goto("/graph.html?view=main");
+  const row = page.locator("#graph-timeline-row");
+  await expect(row).toBeVisible({ timeout: 20000 });
+  await page.locator("body").press("f");
+  const bottom = () =>
+    page.locator("#graph-container").evaluate((el) => el.getBoundingClientRect().bottom);
+  const withBar = await bottom();
+  await page.locator("body").press("b");
+  await expect(row).toBeHidden();
+  await expect.poll(bottom).toBeGreaterThan(withBar);
+  await page.locator("body").press("b");
+  await expect(row).toBeVisible();
+});
