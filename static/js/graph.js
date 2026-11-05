@@ -96,6 +96,8 @@ window.GRAPH_DENSITIES = ["normal", "compact", "dense"];
 // How domains are drawn: "group" puts a domain's services in one frame;
 // "node" writes the domain onto each node and lets the layout arrange freely.
 window.graphDomainsMode = "group";
+// Experimental (z): "domains" draws one node per domain instead of services.
+window.graphLevel = "services";
 
 // How long the mouse rests on a node or edge before its panel opens.
 const GRAPH_HOVER_DELAY_MS = 2000;
@@ -462,7 +464,19 @@ function redrawGraph() {
   const customSvg = document.getElementById("custom-graph");
   const mermaidDiv = document.getElementById("mermaid-graph");
 
-  if (mode === "custom" && customSvg) {
+  if (
+    mode === "custom" &&
+    customSvg &&
+    window.graphLevel === "domains" &&
+    window.renderDomainGraph
+  ) {
+    window.renderDomainGraph(filteredReport, customSvg, direction);
+  } else if (mode === "custom" && customSvg) {
+    // The domain view's own zoom and pan handlers go with it.
+    for (const handler of ["onwheel", "onmousedown", "onmousemove", "onmouseup", "onmouseleave"]) {
+      customSvg[handler] = null;
+    }
+    customSvg.dataset.level = "services";
     renderCustomGraph(filteredReport, customSvg, direction);
   } else if (mermaidDiv) {
     // renderGraph is defined in service.html and it uses lastGraphReport globally.
@@ -911,6 +925,23 @@ function getFilteredReport(report) {
             if (d.client === name) focusNodes.add(d.service);
             if (d.service === name) focusNodes.add(d.client);
           });
+        });
+        continue;
+      }
+      // `domain:<name>` focuses every service of the domain, plus their
+      // neighbours: where a click in the domain view leads.
+      if (target.startsWith("domain:")) {
+        const wanted = target.slice(7).trim();
+        const members = new Set(
+          (report.services_detailed || [])
+            .filter((s) => (s.domain || "").toLowerCase() === wanted)
+            .map((s) => s.name),
+        );
+        deps.forEach((d) => {
+          if (members.has(d.client) || members.has(d.service)) {
+            focusNodes.add(d.client);
+            focusNodes.add(d.service);
+          }
         });
         continue;
       }

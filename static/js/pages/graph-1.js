@@ -66,6 +66,23 @@ function syncGraphViewButtons() {
   }
 }
 
+// z: the experimental domain view and back.
+function toggleGraphLevel() {
+  window.graphLevel = window.graphLevel === "domains" ? "services" : "domains";
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") redrawGraph();
+}
+
+// A click on a domain node: the full graph, focused on that domain.
+function openGraphDomain(domain) {
+  window.graphLevel = "services";
+  window.graphFocusTags = [`domain:${domain}`];
+  renderFocusTags();
+  updateGraphUrl(true);
+  redrawGraph();
+}
+window.openGraphDomain = openGraphDomain;
+
 function toggleGraphDomains() {
   window.graphDomainsMode = window.graphDomainsMode === "group" ? "node" : "group";
   writeGraphViewPref("domains", window.graphDomainsMode);
@@ -753,6 +770,7 @@ function updateGraphUrl(push = false) {
     params.set(name, window.graphViewSwitches[name] ? "1" : "0");
   }
   params.set("domains", window.graphDomainsMode);
+  if (window.graphLevel === "domains") params.set("level", "domains");
   params.set("direction", currentGraphDirection);
   params.set("mode", currentGraphMode);
   if (window.graphRedrawMode === "circular") params.set("redraw", "circular");
@@ -828,6 +846,7 @@ function restoreGraphFiltersFromUrl() {
     window.graphViewSwitches[name] =
       value === null ? readGraphViewPref(name) === "1" : value === "1";
   }
+  window.graphLevel = params.get("level") === "domains" ? "domains" : "services";
   const domains = params.get("domains");
   window.graphDomainsMode =
     domains === "group" || domains === "node"
@@ -1112,6 +1131,7 @@ const GRAPH_HOTKEYS = [
   { key: "f", label: "Fullscreen: window, screen, back", run: () => stepGraphFullscreen() },
   { key: "c", label: "Control column shown or hidden", run: () => toggleGraphFsRail() },
   { key: "b", label: "Timeline bar shown or hidden", run: () => toggleGraphTimelineBar() },
+  { key: "z", label: "Domain view (experimental)", run: () => toggleGraphLevel() },
   { key: "d", label: "Density: Normal, Compact, Dense", run: () => stepGraphDensity() },
   { key: "g", label: "Domain frames on or off", run: () => toggleGraphDomains() },
   { key: "r", label: "Rainbow", run: () => toggleGraphViewSwitch("rainbow") },

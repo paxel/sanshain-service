@@ -303,6 +303,13 @@
   column, the timeline bar and the legend to give their space to the graph.
 </p>
 <p>
+  Experimental: <kbd>z</kbd> collapses the graph onto its domains, an arc42 level-0 picture. Each
+  domain is one node in its colour and services without a domain stay nodes of their own. The pins
+  between two of them are one arrow per direction with their count, coloured by the strongest
+  warning among them; the pins inside a domain are counted on its node. Clicking a domain opens the
+  full graph focused on it (<code>domain:&lt;name&gt;</code> in the focus field).
+</p>
+<p>
   Badges on a node show its protocols in the current view: solid badges on the top edge for what it
   provides (braces for REST, two-way arrows for gRPC, an envelope for messaging, a hexagon for a
   peripheral resource), outlined badges on the bottom edge for how it requires others. A

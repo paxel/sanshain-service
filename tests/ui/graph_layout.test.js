@@ -379,3 +379,68 @@ test("b hides the timeline bar, in fullscreen its space goes to the graph", asyn
   await page.locator("body").press("b");
   await expect(row).toBeVisible();
 });
+
+test("z collapses the graph onto domains, counting and colouring the pins", async ({ page }) => {
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+
+  // The collapse itself, on a report of its own: two pins from a lone service
+  // into one domain make one arrow of 2, coloured by the worse pin; a pin
+  // inside a domain is counted on it.
+  const collapsed = await page.evaluate(() => {
+    const report = {
+      services_detailed: [
+        { name: "a", domain: "pay" },
+        { name: "b", domain: "pay" },
+        { name: "x", domain: "ship" },
+      ],
+      dependency_graph: [
+        { client: "lone", service: "a" },
+        { client: "lone", service: "b" },
+        { client: "a", service: "b" },
+        { client: "x", service: "a" },
+      ],
+      missing_endpoints: [{ client: "lone", service: "b" }],
+    };
+    const flags = new Map([["a-->b", { outdated: true }]]);
+    // Outdated colours only while its highlight is on.
+    const off = window
+      .graphCollapseDomains(report, flags, {})
+      .units.find((u) => u.id === "domain:pay").internalLevel;
+    const { units, edges } = window.graphCollapseDomains(report, flags, { outdated: true });
+    return {
+      off,
+      units: units.map((u) => [u.id, u.internal, u.internalLevel]).sort(),
+      edges: edges.map((e) => [e.from, e.to, e.count, e.level]).sort(),
+    };
+  });
+  expect(collapsed.off).toBe(0);
+  expect(collapsed.units).toEqual([
+    ["domain:pay", 1, 3],
+    ["domain:ship", 0, 0],
+    ["lone", 0, 0],
+  ]);
+  expect(collapsed.edges).toEqual([
+    ["domain:ship", "domain:pay", 1, 0],
+    ["lone", "domain:pay", 2, 6],
+  ]);
+
+  await page.locator("body").press("z");
+  const svg = page.locator("#custom-graph");
+  await expect(svg).toHaveAttribute("data-level", "domains");
+  await expect.poll(() => new URL(page.url()).searchParams.get("level")).toBe("domains");
+  const alpha = page.locator('#custom-graph g[data-unit="domain:alpha"]');
+  await expect(alpha).toHaveCount(1);
+  await expect(page.locator(`#custom-graph g[data-unit="${CONSUMERS[0]}"]`)).toHaveCount(1);
+  await expect(
+    page.locator(`#custom-graph path[data-from="${CONSUMERS[0]}"][data-to="domain:alpha"]`),
+  ).toHaveAttribute("data-count", "1");
+
+  // A domain node opens the full graph focused on that domain.
+  await alpha.click();
+  await expect(svg).toHaveAttribute("data-level", "services");
+  await expect.poll(() => new URL(page.url()).searchParams.get("focus")).toBe("domain:alpha");
+  expect(new URL(page.url()).searchParams.get("level")).toBeNull();
+  await expect(node(page, DOMAINS.alpha[0])).toHaveCount(1);
+  await expect(node(page, DOMAINS.beta[0])).toHaveCount(0);
+});
