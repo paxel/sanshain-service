@@ -179,29 +179,25 @@ async function loadLogs() {
   } catch (_) {}
 }
 
+// The logs at the chosen level and above, oldest first: what the view shows
+// and what Copy exports.
+function filteredLogs(filter) {
+  const levels = {
+    ALL: ["errors", "warnings", "infos", "debugs"],
+    INFO: ["errors", "warnings", "infos"],
+    WARN: ["errors", "warnings"],
+    ERROR: ["errors"],
+  };
+  return (levels[filter] || levels.ALL)
+    .flatMap((level) => currentLogs[level])
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
 function renderLogs() {
   const container = document.getElementById("log-container");
   const filter = document.getElementById("log-filter").value;
 
-  let errors = [...currentLogs.errors];
-  let warnings = [...currentLogs.warnings];
-  let infos = [...currentLogs.infos];
-  let debugs = [...currentLogs.debugs];
-
-  if (filter === "INFO") {
-    debugs = [];
-  } else if (filter === "WARN") {
-    debugs = [];
-    infos = [];
-  } else if (filter === "ERROR") {
-    debugs = [];
-    infos = [];
-    warnings = [];
-  }
-
-  const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp),
-  );
+  const allLogs = filteredLogs(filter);
 
   if (allLogs.length === 0) {
     container.innerHTML = '<div class="text-slate-500 italic">No logs captured yet.</div>';
@@ -248,23 +244,7 @@ function logLocalTime(timestamp) {
 
 function getLogsAsText() {
   const filter = document.getElementById("log-filter").value;
-  let errors = [...currentLogs.errors];
-  let warnings = [...currentLogs.warnings];
-  let infos = [...currentLogs.infos];
-  let debugs = [...currentLogs.debugs];
-  if (filter === "INFO") {
-    debugs = [];
-  } else if (filter === "WARN") {
-    debugs = [];
-    infos = [];
-  } else if (filter === "ERROR") {
-    debugs = [];
-    infos = [];
-    warnings = [];
-  }
-  const allLogs = [...errors, ...warnings, ...infos, ...debugs].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp),
-  );
+  const allLogs = filteredLogs(filter);
   // Same [service@version] context as the on-screen view: without it,
   // exported provide/require lines name no producer at all.
   return allLogs

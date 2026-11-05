@@ -295,42 +295,6 @@ async function loadGraph() {
   }
 }
 
-function detectCycles(adjMap) {
-  const WHITE = 0,
-    GRAY = 1,
-    BLACK = 2;
-  const color = {};
-  const parent = {};
-  const cycleEdges = new Set();
-
-  for (const node of adjMap.keys()) color[node] = WHITE;
-
-  function dfs(u) {
-    color[u] = GRAY;
-    for (const v of adjMap.get(u) || []) {
-      if (color[v] === undefined) color[v] = WHITE;
-      if (color[v] === GRAY) {
-        cycleEdges.add(`${u}-->${v}`);
-        let cur = u;
-        while (cur && cur !== v) {
-          const p = parent[cur];
-          if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
-          cur = p;
-        }
-      } else if (color[v] === WHITE) {
-        parent[v] = u;
-        dfs(v);
-      }
-    }
-    color[u] = BLACK;
-  }
-
-  for (const node of adjMap.keys()) {
-    if (color[node] === WHITE) dfs(node);
-  }
-  return cycleEdges;
-}
-
 function sanitizeId(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
@@ -361,7 +325,7 @@ async function renderGraph(report, detailed) {
       );
   });
 
-  const cycleEdges = detectCycles(adjMap);
+  const cycleEdges = graphDetectCycles(adjMap);
   const hasCycles = cycleEdges.size > 0;
 
   if (hasCycles) {

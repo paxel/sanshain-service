@@ -104,6 +104,7 @@ export default [
         graphIsTimelineDay: "readonly",
         graphUtcDay: "readonly",
         graphStepTimeline: "readonly",
+        graphDetectCycles: "readonly",
         injectLoader: "readonly",
         graphTrunkVersionMap: "readonly",
         graphLayoutGaps: "readonly",

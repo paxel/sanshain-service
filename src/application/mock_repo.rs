@@ -295,6 +295,22 @@ impl MockRepo {
         }
     }
 
+    /// A stored pin as the repository answers it, participants by name.
+    fn pin_info(&self, r: &MockTrunkPin) -> TrunkPinInfo {
+        TrunkPinInfo {
+            client: self.client_name(r.client_id).unwrap_or_default(),
+            service: self.service_name(r.service_id).unwrap_or_default(),
+            api_type: r.api_type,
+            version: r.version,
+            path: r.path.clone(),
+            normalized_path: r.normalized_path.clone(),
+            method: r.method.clone(),
+            valid_from: r.valid_from.clone(),
+            last_required_at: r.last_required_at.clone(),
+            dangling: false,
+        }
+    }
+
     fn client_name(&self, client_id: i64) -> Option<String> {
         self.clients
             .lock()
@@ -746,18 +762,7 @@ impl SpecRepository for MockRepo {
                         None => r.valid_to.is_none(),
                     }
             })
-            .map(|(_, r)| TrunkPinInfo {
-                client: self.client_name(r.client_id).unwrap_or_default(),
-                service: self.service_name(r.service_id).unwrap_or_default(),
-                api_type: r.api_type,
-                version: r.version,
-                path: r.path.clone(),
-                normalized_path: r.normalized_path.clone(),
-                method: r.method.clone(),
-                valid_from: r.valid_from.clone(),
-                last_required_at: r.last_required_at.clone(),
-                dangling: false,
-            })
+            .map(|(_, r)| self.pin_info(r))
             .collect())
     }
 
@@ -771,18 +776,7 @@ impl SpecRepository for MockRepo {
             .filter(|r| {
                 r.valid_from.as_str() <= at && r.valid_to.as_deref().is_none_or(|to| to > at)
             })
-            .map(|r| TrunkPinInfo {
-                client: self.client_name(r.client_id).unwrap_or_default(),
-                service: self.service_name(r.service_id).unwrap_or_default(),
-                api_type: r.api_type,
-                version: r.version,
-                path: r.path.clone(),
-                normalized_path: r.normalized_path.clone(),
-                method: r.method.clone(),
-                valid_from: r.valid_from.clone(),
-                last_required_at: r.last_required_at.clone(),
-                dangling: false,
-            })
+            .map(|r| self.pin_info(r))
             .collect())
     }
 
