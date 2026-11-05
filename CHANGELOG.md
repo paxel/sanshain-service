@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.
+- The Admin link in the navigation shows only to those who may open the admin dashboard, on every page.
 
 ### Fixed
 - Panning the graph no longer slows down the page after many redraws.
