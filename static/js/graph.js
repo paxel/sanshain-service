@@ -21,6 +21,7 @@ const GRAPH_VIEW_KEYS = {
   rainbow: "sanshain_graph_rainbow",
   topics: "sanshain_graph_topics",
   periphery: "sanshain_graph_periphery",
+  domains: "sanshain_graph_domains",
 };
 function readGraphViewPref(name) {
   try {
@@ -88,6 +89,9 @@ window.graphProtocolFilters = {
 // resolution inputs: Compact tightens the layout gaps, Rainbow colours the
 // plain edges per source node. The page script remembers them per browser.
 window.graphViewSwitches = { compact: false, rainbow: false, topics: false };
+// How domains are drawn: "group" puts a domain's services in one frame;
+// "node" writes the domain onto each node and lets the layout arrange freely.
+window.graphDomainsMode = "group";
 
 // How long the mouse rests on a node or edge before its panel opens.
 const GRAPH_HOVER_DELAY_MS = 2000;
@@ -1413,6 +1417,9 @@ function _graphEscapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// The height the domain line adds to a node when domains sit on the nodes.
+const GRAPH_DOMAIN_LINE_H = 16;
+
 function _measureNode(name, hasIcon) {
   const fontSize = 16;
   const charW = 9; // estimated average char width for 16px bold sans
@@ -1887,10 +1894,18 @@ function renderCustomGraph(report, svgElement, direction) {
     report.services_detailed.forEach((s) => serviceMetaMap.set(s.name, s));
   }
 
-  const domains = new Set();
-  for (const node of layoutNodes) {
+  // Grouped, a domain is a dagre cluster and a block of its own; on the
+  // nodes, it is only a line and a colour on each node.
+  const groupDomains = window.graphDomainsMode !== "node";
+  const nodeDomain = (node) => {
     const meta = serviceMetaMap.get(node);
-    if (meta && meta.domain) domains.add(meta.domain);
+    return meta && meta.domain ? meta.domain : "";
+  };
+  const domains = new Set();
+  if (groupDomains) {
+    for (const node of layoutNodes) {
+      if (nodeDomain(node)) domains.add(nodeDomain(node));
+    }
   }
 
   // Set domain clusters
@@ -1906,6 +1921,12 @@ function renderCustomGraph(report, svgElement, direction) {
         ? node.slice("topic:".length)
         : node;
     const m = _measureNode(label, !!(meta && meta.icon));
+    if (!groupDomains && nodeDomain(node)) {
+      // One more line for the domain, below the name.
+      m.domain = nodeDomain(node);
+      m.height += GRAPH_DOMAIN_LINE_H;
+      m.width = Math.max(m.width, Math.ceil(m.domain.length * 6.5) + 40);
+    }
     // Main view: the version label sits bottom-right, beside the requires
     // badges on the bottom-left; keep both on the node.
     const requiresCount = (nodeBadges.get(node) || { requires: [] }).requires.length;
@@ -1913,7 +1934,7 @@ function renderCustomGraph(report, svgElement, direction) {
     nodeMetrics.set(node, m);
     if (islandNodes.has(node)) continue;
     g.setNode(node, { label: node, width: m.width, height: m.height });
-    if (meta && meta.domain) {
+    if (groupDomains && meta && meta.domain) {
       g.setParent(node, `domain:${meta.domain}`);
     }
   }
@@ -2028,10 +2049,7 @@ function renderCustomGraph(report, svgElement, direction) {
   // a gap wide enough for two frames' padding; without domains there is one
   // block and the layout is the plain lane packing.
   const DOMAIN_FRAME_PADDING = 40;
-  const blockOf = (node) => {
-    const meta = serviceMetaMap.get(node);
-    return meta && meta.domain ? `domain:${meta.domain}` : "";
-  };
+  const blockOf = (node) => (groupDomains && nodeDomain(node) ? `domain:${nodeDomain(node)}` : "");
   const blockNodes = new Map();
   for (const node of layoutNodes) {
     const key = blockOf(node);
@@ -2642,6 +2660,34 @@ function renderCustomGraph(report, svgElement, direction) {
     const meta = serviceMetaMap.get(node);
     const lineH = 20;
     const totalTextH = m.lines.length * lineH;
+    // The domain on the node: a coloured edge on the left and its name in a
+    // line below the service name, which moves up to make room.
+    const domainShift = m.domain ? GRAPH_DOMAIN_LINE_H / 2 : 0;
+    if (m.domain) {
+      const color = graphDomainColor(m.domain);
+      group.dataset.nodeDomain = m.domain;
+      const edge = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      edge.setAttribute("x", cx - hw + 2);
+      edge.setAttribute("y", cy - hh + 6);
+      edge.setAttribute("width", "4");
+      edge.setAttribute("height", Math.max(0, nd.height - 12));
+      edge.setAttribute("rx", "2");
+      edge.setAttribute("fill", color.border);
+      edge.dataset.domainEdge = "1";
+      group.appendChild(edge);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      line.setAttribute("x", nd.x);
+      line.setAttribute("y", nd.y + totalTextH / 2 + domainShift - GRAPH_DOMAIN_LINE_H / 2 + 2);
+      line.setAttribute("text-anchor", "middle");
+      line.setAttribute("dominant-baseline", "central");
+      line.setAttribute("fill", color.text);
+      line.setAttribute("font-size", "11");
+      line.setAttribute("font-weight", "600");
+      line.setAttribute("font-family", "ui-sans-serif, system-ui, sans-serif");
+      line.dataset.domainLine = "1";
+      line.textContent = m.domain;
+      group.appendChild(line);
+    }
     const hasIcon = !!(meta && meta.icon);
     const textXOffset = hasIcon ? 15 : 0;
 
@@ -2659,7 +2705,7 @@ function renderCustomGraph(report, svgElement, direction) {
     m.lines.forEach((line, i) => {
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
       text.setAttribute("x", nd.x + textXOffset);
-      text.setAttribute("y", nd.y - totalTextH / 2 + i * lineH + lineH / 2);
+      text.setAttribute("y", nd.y - totalTextH / 2 - domainShift + i * lineH + lineH / 2);
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("dominant-baseline", "central");
       text.setAttribute("fill", textColor);

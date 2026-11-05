@@ -198,6 +198,33 @@ test("a domain frame and its name are drawn in the domain's own colour", async (
   }
 });
 
+test("ungrouped, the domain is written on the node and no frame is drawn", async ({ page }) => {
+  await openGraph(page);
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  await expect(page.locator("#graph-domains-toggle")).toHaveAttribute("aria-pressed", "true");
+  await page.click("#graph-domains-toggle");
+  await expect(page.locator("#graph-domains-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#custom-graph rect[data-domain]")).toHaveCount(0);
+  const a1 = node(page, DOMAINS.alpha[0]);
+  await expect(a1).toHaveAttribute("data-node-domain", "alpha");
+  await expect(a1.locator("text[data-domain-line]")).toHaveText("alpha");
+  const edge = await a1
+    .locator("rect[data-domain-edge]")
+    .evaluate((el) => [el.getAttribute("fill"), window.graphDomainColor("alpha").border]);
+  expect(edge[0]).toBe(edge[1]);
+  // A service without a domain carries no domain line.
+  await expect(node(page, LONELY).locator("text[data-domain-line]")).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get("domains")).toBe("node");
+  // Remembered: a plain visit stays ungrouped; a link that says group wins.
+  await page.goto("/graph.html");
+  await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+  await expect(page.locator("#custom-graph rect[data-domain]")).toHaveCount(0);
+  await page.goto("/graph.html?domains=group");
+  await expect(page.locator('#custom-graph rect[data-domain="alpha"]')).toHaveCount(1, {
+    timeout: 20000,
+  });
+});
+
 test("the Topics switch draws a channel nobody requires", async ({ page }) => {
   await openGraph(page);
   await expect(page.locator("#graph-unrequired-box")).toContainText(LONELY, { timeout: 20000 });

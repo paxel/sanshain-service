@@ -17,6 +17,7 @@ let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB
 window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
 window.graphViewSwitches.topics = readGraphViewPref("topics") === "1";
+window.graphDomainsMode = readGraphViewPref("domains") === "node" ? "node" : "group";
 
 const GRAPH_SWITCH_BASE =
   "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors shadow-xs";
@@ -27,12 +28,27 @@ const GRAPH_SWITCH_OFF = "bg-white border-slate-300 text-slate-600 hover:bg-slat
 function syncGraphViewButtons() {
   const label = document.getElementById("graph-direction-label");
   if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
-  for (const name of ["compact", "rainbow", "topics"]) {
+  const pressed = {
+    compact: window.graphViewSwitches.compact,
+    rainbow: window.graphViewSwitches.rainbow,
+    topics: window.graphViewSwitches.topics,
+    domains: window.graphDomainsMode === "group",
+  };
+  for (const [name, on] of Object.entries(pressed)) {
     const btn = document.getElementById(`graph-${name}-toggle`);
     if (!btn) continue;
-    const on = window.graphViewSwitches[name];
     btn.className = `${GRAPH_SWITCH_BASE} ${on ? GRAPH_SWITCH_ON : GRAPH_SWITCH_OFF}`;
     btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+
+function toggleGraphDomains() {
+  window.graphDomainsMode = window.graphDomainsMode === "group" ? "node" : "group";
+  writeGraphViewPref("domains", window.graphDomainsMode);
+  syncGraphViewButtons();
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") {
+    redrawGraph();
   }
 }
 
@@ -80,6 +96,8 @@ function switchGraphMode(mode) {
   if (compactBtn) compactBtn.classList.toggle("hidden", mode !== "custom");
   if (rainbowBtn) rainbowBtn.classList.toggle("hidden", mode !== "custom");
   if (topicsBtn) topicsBtn.classList.toggle("hidden", mode !== "custom");
+  const domainsBtn = document.getElementById("graph-domains-toggle");
+  if (domainsBtn) domainsBtn.classList.toggle("hidden", mode !== "custom");
   if (copyBtn) copyBtn.classList.remove("hidden");
   if (dlBtn) dlBtn.classList.remove("hidden");
   if (dlPngBtn) dlPngBtn.classList.remove("hidden");
@@ -709,6 +727,7 @@ function updateGraphUrl(push = false) {
   for (const name of ["compact", "rainbow", "topics"]) {
     params.set(name, window.graphViewSwitches[name] ? "1" : "0");
   }
+  params.set("domains", window.graphDomainsMode);
   params.set("direction", currentGraphDirection);
   params.set("mode", currentGraphMode);
   if (window.graphRedrawMode === "circular") params.set("redraw", "circular");
@@ -780,6 +799,13 @@ function restoreGraphFiltersFromUrl() {
     window.graphViewSwitches[name] =
       value === null ? readGraphViewPref(name) === "1" : value === "1";
   }
+  const domains = params.get("domains");
+  window.graphDomainsMode =
+    domains === "group" || domains === "node"
+      ? domains
+      : readGraphViewPref("domains") === "node"
+        ? "node"
+        : "group";
   const direction = params.get("direction");
   currentGraphDirection =
     direction === "LR" || direction === "TB"
