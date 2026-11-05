@@ -40,6 +40,7 @@ function toggleGraphDirection() {
   currentGraphDirection = currentGraphDirection === "TB" ? "LR" : "TB";
   writeGraphViewPref("direction", currentGraphDirection);
   syncGraphViewButtons();
+  updateGraphUrl(false);
   if (currentGraphMode === "custom") {
     redrawGraph();
   }
@@ -83,6 +84,7 @@ function switchGraphMode(mode) {
   if (dlBtn) dlBtn.classList.remove("hidden");
   if (dlPngBtn) dlPngBtn.classList.remove("hidden");
   if (toolbarRow) toolbarRow.classList.remove("hidden");
+  updateGraphUrl(false);
 
   if (lastGraphReport) {
     const customSvg = document.getElementById("custom-graph");
@@ -707,6 +709,8 @@ function updateGraphUrl(push = false) {
   for (const name of ["compact", "rainbow", "topics"]) {
     params.set(name, window.graphViewSwitches[name] ? "1" : "0");
   }
+  params.set("direction", currentGraphDirection);
+  params.set("mode", currentGraphMode);
   if (window.graphRedrawMode === "circular") params.set("redraw", "circular");
 
   const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
@@ -776,9 +780,20 @@ function restoreGraphFiltersFromUrl() {
     window.graphViewSwitches[name] =
       value === null ? readGraphViewPref(name) === "1" : value === "1";
   }
+  const direction = params.get("direction");
+  currentGraphDirection =
+    direction === "LR" || direction === "TB"
+      ? direction
+      : readGraphViewPref("direction") === "LR"
+        ? "LR"
+        : "TB";
   syncGraphViewButtons();
 
   const pending = restoreGraphTimelineFromParams(params);
+  // Both write the address, so they come once all of its state is restored.
+  // The mode is not remembered per browser: custom unless the link names one.
+  const mode = params.get("mode");
+  switchGraphMode(["mermaid", "detailed"].includes(mode) ? mode : "custom");
   setGraphRedrawMode(params.get("redraw") === "circular" ? "circular" : "all");
   return pending;
 }

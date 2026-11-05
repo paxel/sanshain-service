@@ -99,6 +99,19 @@ test.describe("Graph timeline and links", () => {
     await expect(page.locator("#graph-branch-select")).toHaveValue(BRANCH);
   });
 
+  test("a link sets the direction and the graph mode", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/graph.html?direction=LR&mode=mermaid");
+    await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    await expect(page.locator("#graph-mode-mermaid")).toHaveClass(/bg-indigo-600/);
+    await expect.poll(() => param(page, "mode")).toBe("mermaid");
+    expect(param(page, "direction")).toBe("LR");
+    // A plain visit opens the custom mode.
+    await page.goto("/graph.html");
+    await expect(page.locator("#graph-mode-custom")).toHaveClass(/bg-indigo-600/);
+    await expect.poll(() => param(page, "mode")).toBe("custom");
+  });
+
   test("a range ending in the past opens at the end of its last day", async ({ page }) => {
     await signIn(page);
     await page.goto("/graph.html?view=main&from=2026-01-01&to=2026-01-31");

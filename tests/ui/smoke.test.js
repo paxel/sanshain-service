@@ -2159,10 +2159,10 @@ test.describe("Graph (unrequired) box", () => {
     expect(compact).toBeLessThan(airy * 0.6);
     await page.click("#graph-direction-toggle");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
-    // Both survive a reload. The URL carries Compact, so a shared link shows
-    // it; a plain link takes the remembered switches.
+    // Both survive a reload. The URL carries them, so a shared link shows
+    // them; a plain link takes the remembered switches.
     expect(new URL(page.url()).searchParams.get("compact")).toBe("1");
-    expect(page.url()).not.toMatch(/direction/);
+    expect(new URL(page.url()).searchParams.get("direction")).toBe("LR");
     await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     await expect(svg).toHaveAttribute("data-compact", "1");
