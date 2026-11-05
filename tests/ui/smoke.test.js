@@ -2137,7 +2137,9 @@ test.describe("Graph (unrequired) box", () => {
     expect(lr.boxY).toBeGreaterThan(lr.maxBottom);
   });
 
-  test("Compact tightens the layout; it and the direction are remembered", async ({ page }) => {
+  test("Compact and Dense tighten the layout; density and direction are remembered", async ({
+    page,
+  }) => {
     await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const height = () =>
@@ -2150,27 +2152,37 @@ test.describe("Graph (unrequired) box", () => {
         return bottom - top;
       });
     const svg = page.locator("#custom-graph");
-    await expect(svg).toHaveAttribute("data-compact", "0");
+    const toggle = page.locator("#graph-density-toggle");
+    await expect(svg).toHaveAttribute("data-density", "normal");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     const airy = await height();
-    await page.click("#graph-compact-toggle");
-    await expect(svg).toHaveAttribute("data-compact", "1");
-    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "compact");
+    await expect(page.locator("#graph-density-label")).toHaveText("Compact");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
     const compact = await height();
     expect(compact).toBeLessThan(airy * 0.6);
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "dense");
+    await expect(page.locator("#graph-density-label")).toHaveText("Dense");
+    const dense = await height();
+    expect(dense).toBeLessThan(compact * 0.8);
     await page.click("#graph-direction-toggle");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
     // Both survive a reload. The URL carries them, so a shared link shows
     // them; a plain link takes the remembered switches.
-    expect(new URL(page.url()).searchParams.get("compact")).toBe("1");
+    expect(new URL(page.url()).searchParams.get("density")).toBe("dense");
     expect(new URL(page.url()).searchParams.get("direction")).toBe("LR");
     await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
-    await expect(svg).toHaveAttribute("data-compact", "1");
-    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(svg).toHaveAttribute("data-density", "dense");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    // A third step goes back to Normal.
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "normal");
     // Not a custom-renderer control: hidden in the other modes.
     await page.click("#graph-mode-mermaid");
-    await expect(page.locator("#graph-compact-toggle")).toBeHidden();
+    await expect(toggle).toBeHidden();
     await expect(page.locator("#graph-direction-toggle")).toBeHidden();
   });
 

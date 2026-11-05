@@ -18,6 +18,7 @@
 const GRAPH_VIEW_KEYS = {
   direction: "sanshain_graph_direction",
   compact: "sanshain_graph_compact",
+  density: "sanshain_graph_density",
   rainbow: "sanshain_graph_rainbow",
   topics: "sanshain_graph_topics",
   periphery: "sanshain_graph_periphery",
@@ -88,7 +89,10 @@ window.graphProtocolFilters = {
 // The view switches of the custom renderer, presentation only and never
 // resolution inputs: Compact tightens the layout gaps, Rainbow colours the
 // plain edges per source node. The page script remembers them per browser.
-window.graphViewSwitches = { compact: false, rainbow: false, topics: false };
+window.graphViewSwitches = { rainbow: false, topics: false };
+// How tight the custom layout is: "normal", "compact" or "dense".
+window.graphDensity = "normal";
+window.GRAPH_DENSITIES = ["normal", "compact", "dense"];
 // How domains are drawn: "group" puts a domain's services in one frame;
 // "node" writes the domain onto each node and lets the layout arrange freely.
 window.graphDomainsMode = "group";
@@ -97,18 +101,25 @@ window.graphDomainsMode = "group";
 const GRAPH_HOVER_DELAY_MS = 2000;
 window.GRAPH_HOVER_DELAY_MS = GRAPH_HOVER_DELAY_MS;
 
-// The gaps of the custom layout: dagre's own and the compaction pass's. Compact
-// trims them for installs whose graph outgrows the screen; the airy default
-// stays for the small ones.
-function graphLayoutGaps(isLR, compact) {
-  if (compact) {
+// The gaps of the custom layout: dagre's own, the compaction pass's and the
+// padding of a domain frame. Compact trims them for installs whose graph
+// outgrows the screen; Dense keeps the nodes as they are and leaves only room
+// for the edges and badges between them, for small monitors; the airy default
+// stays for the small installs.
+function graphLayoutGaps(isLR, density) {
+  if (density === "dense") {
     return isLR
-      ? { nodesep: 40, ranksep: 80, edgesep: 40, gap: 14, groupGap: 40 }
-      : { nodesep: 50, ranksep: 110, edgesep: 40, gap: 16, groupGap: 50 };
+      ? { nodesep: 18, ranksep: 50, edgesep: 16, gap: 6, groupGap: 16, framePadding: 22 }
+      : { nodesep: 24, ranksep: 60, edgesep: 16, gap: 8, groupGap: 20, framePadding: 22 };
+  }
+  if (density === "compact") {
+    return isLR
+      ? { nodesep: 40, ranksep: 80, edgesep: 40, gap: 14, groupGap: 40, framePadding: 40 }
+      : { nodesep: 50, ranksep: 110, edgesep: 40, gap: 16, groupGap: 50, framePadding: 40 };
   }
   return isLR
-    ? { nodesep: 100, ranksep: 150, edgesep: 80, gap: 25, groupGap: 100 }
-    : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120 };
+    ? { nodesep: 100, ranksep: 150, edgesep: 80, gap: 25, groupGap: 100, framePadding: 40 }
+    : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120, framePadding: 40 };
 }
 window.graphLayoutGaps = graphLayoutGaps;
 
@@ -1754,8 +1765,11 @@ function renderCustomGraph(report, svgElement, direction) {
   // cluster bounds, edge tangents).
   const dir = direction === "LR" ? "LR" : "TB";
   const isLR = dir === "LR";
-  const gaps = graphLayoutGaps(isLR, !!switches.compact);
-  svgElement.dataset.compact = switches.compact ? "1" : "0";
+  const density = window.GRAPH_DENSITIES.includes(window.graphDensity)
+    ? window.graphDensity
+    : "normal";
+  const gaps = graphLayoutGaps(isLR, density);
+  svgElement.dataset.density = density;
   const rainbow = !!switches.rainbow;
   svgElement.dataset.rainbow = rainbow ? "1" : "0";
 
@@ -2048,7 +2062,7 @@ function renderCustomGraph(report, svgElement, direction) {
   // overlapped. Blocks sit side by side in the order dagre placed them, with
   // a gap wide enough for two frames' padding; without domains there is one
   // block and the layout is the plain lane packing.
-  const DOMAIN_FRAME_PADDING = 40;
+  const DOMAIN_FRAME_PADDING = gaps.framePadding;
   const blockOf = (node) => (groupDomains && nodeDomain(node) ? `domain:${nodeDomain(node)}` : "");
   const blockNodes = new Map();
   for (const node of layoutNodes) {

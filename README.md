@@ -25,7 +25,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 - **Spec Splitting**: Clients download only the YAML snippets they need, avoiding massive dependency bloat.
 - **Versioned, Pinned**: Producers publish immutable GA versions (or snapshots only their provider may overwrite); Consumers pin the exact version they build against. No fallback, no surprises.
 - **Contract Safety**: A forgotten version bump or a breaking change hiding behind a minor bump is rejected at the door, with the correct next version proposed.
-- **Live Graph**: Visualizes microservice dependencies in real-time, highlighting outdated and snapshot-pinned Consumers; Compact, Rainbow and Topics switches keep large graphs readable.
+- **Live Graph**: Visualizes microservice dependencies in real-time, highlighting outdated and snapshot-pinned Consumers; density (Normal, Compact, Dense), Domain frames, Rainbow and Topics switches keep large graphs readable.
 - **Client-First**: Designed for CI/CD automation with dedicated plugins.
 
 ---

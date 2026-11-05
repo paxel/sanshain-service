@@ -14,7 +14,7 @@ let lastMermaidCode = "";
 let currentGraphMode = "custom";
 
 let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
-window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
+window.graphDensity = graphRememberedDensity();
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
 window.graphViewSwitches.topics = readGraphViewPref("topics") === "1";
 window.graphDomainsMode = readGraphViewPref("domains") === "node" ? "node" : "group";
@@ -25,11 +25,35 @@ const GRAPH_SWITCH_ON = "bg-indigo-600 border-indigo-600 text-white";
 const GRAPH_SWITCH_OFF = "bg-white border-slate-300 text-slate-600 hover:bg-slate-50";
 
 // Reflect the remembered switches in the toolbar.
+// The remembered density; a browser that only remembers the former Compact
+// switch gets Compact.
+function graphRememberedDensity() {
+  const density = readGraphViewPref("density");
+  if (window.GRAPH_DENSITIES.includes(density)) return density;
+  return readGraphViewPref("compact") === "1" ? "compact" : "normal";
+}
+
+function stepGraphDensity() {
+  const all = window.GRAPH_DENSITIES;
+  window.graphDensity = all[(all.indexOf(window.graphDensity) + 1) % all.length];
+  writeGraphViewPref("density", window.graphDensity);
+  syncGraphViewButtons();
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") {
+    redrawGraph();
+  }
+}
+
 function syncGraphViewButtons() {
   const label = document.getElementById("graph-direction-label");
   if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
+  const densityLabel = document.getElementById("graph-density-label");
+  if (densityLabel) {
+    densityLabel.textContent =
+      window.graphDensity.charAt(0).toUpperCase() + window.graphDensity.slice(1);
+  }
   const pressed = {
-    compact: window.graphViewSwitches.compact,
+    density: window.graphDensity !== "normal",
     rainbow: window.graphViewSwitches.rainbow,
     topics: window.graphViewSwitches.topics,
     domains: window.graphDomainsMode === "group",
@@ -84,7 +108,7 @@ function switchGraphMode(mode) {
     }
   });
   const dirBtn = document.getElementById("graph-direction-toggle");
-  const compactBtn = document.getElementById("graph-compact-toggle");
+  const compactBtn = document.getElementById("graph-density-toggle");
   const rainbowBtn = document.getElementById("graph-rainbow-toggle");
   const topicsBtn = document.getElementById("graph-topics-toggle");
   const copyBtn = document.getElementById("graph-copy");
@@ -724,7 +748,8 @@ function updateGraphUrl(push = false) {
   if (view !== "dev" && window.graphTimelineAt) params.set("at", window.graphTimelineAt);
   // The display switches, always: the receiver's remembered ones must not
   // change what the sender saw.
-  for (const name of ["compact", "rainbow", "topics"]) {
+  params.set("density", window.graphDensity);
+  for (const name of ["rainbow", "topics"]) {
     params.set(name, window.graphViewSwitches[name] ? "1" : "0");
   }
   params.set("domains", window.graphDomainsMode);
@@ -794,7 +819,11 @@ function restoreGraphFiltersFromUrl() {
 
   // A link that sets a display switch wins; a plain visit takes the
   // browser's remembered one.
-  for (const name of ["compact", "rainbow", "topics"]) {
+  const density = params.get("density");
+  window.graphDensity = window.GRAPH_DENSITIES.includes(density)
+    ? density
+    : graphRememberedDensity();
+  for (const name of ["rainbow", "topics"]) {
     const value = params.get(name);
     window.graphViewSwitches[name] =
       value === null ? readGraphViewPref(name) === "1" : value === "1";

@@ -267,10 +267,13 @@
   hovering the edge says <code>superseded by X ga</code>.
 </p>
 <p>
-  Three switches shape the drawing itself and are remembered in the browser rather than in the URL:
-  <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, and
-  <strong>Compact</strong> tightens the gaps between nodes and ranks for an install whose graph has
-  outgrown the screen, <strong>Rainbow</strong> gives every caller's plain arrows and catalog
+  These switches shape the drawing itself. Each is remembered in the browser and written into the
+  page's address, so a shared link shows the drawing its sender saw:
+  <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, the density button steps
+  through <strong>Normal</strong>, <strong>Compact</strong> (tighter gaps between nodes and ranks,
+  for an install whose graph has outgrown the screen) and <strong>Dense</strong> (nodes as they are,
+  with only room for the edges between them and little space in the domain frames, for a small
+  monitor), <strong>Rainbow</strong> gives every caller's plain arrows and catalog
   <code>dependsOn</code> lines a colour of its own, so a fan-out can be followed through the
   crossings: the callers in the graph, sorted by name, take colours as far apart as the hues the
   warnings leave free (circular, missing, outdated and stale edges keep their warning colours), and
@@ -280,9 +283,11 @@
   nobody publishes is a dashed topic, and the topic's panel lists its publishers and subscribers.
 </p>
 <p>
-  Producers that carry a domain sit in a frame per domain. Each domain's nodes are packed as a
-  block and the blocks stand side by side, so frames never overlap, however many domains a catalog
-  brings.
+  Producers that carry a domain sit in a frame per domain, drawn in a colour of the domain's own
+  that it keeps in every view. Each domain's nodes are packed as a block and the blocks stand side
+  by side, so frames never overlap, however many domains a catalog brings. Switching
+  <strong>Domain frames</strong> off writes the domain onto each node instead, as a coloured edge
+  and a line under the name, and lets the layout arrange the nodes freely.
 </p>
 <p>
   Badges on a node show its protocols in the current view: solid badges on the top edge for what it

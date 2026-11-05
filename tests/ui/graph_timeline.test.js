@@ -74,20 +74,20 @@ test.describe("Graph timeline and links", () => {
       branch: BRANCH,
       from: "2026-01-01",
       to: today,
-      compact: "1",
+      density: "compact",
     });
     await page.goto(`/graph.html?${query}`);
     await expect(page.locator("#graph-timeline-row")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("#graph-branch-select")).toHaveValue(BRANCH);
     await expect(page.locator("#graph-timeline-from")).toHaveValue("2026-01-01");
     await expect(page.locator("#graph-timeline-to")).toHaveValue(today);
-    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#graph-density-label")).toHaveText("Compact");
     await expect(page.locator("#graph-timeline-now")).toBeVisible();
     await expect(page.locator("#graph-url-notice")).toBeHidden();
     expect(param(page, "view")).toBe("branch");
     expect(param(page, "branch")).toBe(BRANCH);
     expect(param(page, "from")).toBe("2026-01-01");
-    expect(param(page, "compact")).toBe("1");
+    expect(param(page, "density")).toBe("compact");
 
     // Switching to main keeps the range and adds a history entry.
     await page.click("#stream-main");

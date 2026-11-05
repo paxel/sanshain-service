@@ -336,13 +336,12 @@
               <span id="graph-direction-label">Vertical</span>
             </button>
             <button
-              id="graph-compact-toggle"
+              id="graph-density-toggle"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
-              data-click="toggleGraphViewSwitch"
-              data-click-args='["compact"]'
-              title="Tighter gaps between nodes and ranks, for a graph that outgrows the screen (remembered in this browser)"
+              data-click="stepGraphDensity"
+              title="Normal, Compact or Dense: tighter gaps between nodes, ranks and domain frames, for a graph that outgrows the screen (remembered in this browser)"
             >
-              Compact
+              <span id="graph-density-label">Normal</span>
             </button>
             <button
               id="graph-rainbow-toggle"
