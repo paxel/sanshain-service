@@ -4,6 +4,14 @@ Sanshain ("Sunshine" in Japanese) is a Rust service that manages, splits, and di
 specifications (OpenAPI, AsyncAPI, gRPC/Proto). **Producers** "provide" their full spec; **Consumers**
 "require" only the snippets they need (see `CONTEXT.md`).
 
+## Know the service before you speak
+
+`docs/agents/service-facts.md` is the map of how the service behaves, each fact with the file that
+is its authority (Claude Code loads it with this file; other agents read it now). Before proposing
+a change, answering a question about behaviour, or asking the user anything, read the matching
+topic **and open its source**. A question the map or its sources answer is not a question for the
+user; a claim that is in neither is a guess and must be called one.
+
 ## Core Technologies
 - **Backend**: Rust (2024 edition), [Axum](https://github.com/tokio-rs/axum).
 - **Runtime**: [Tokio](https://tokio.rs/) (async).
@@ -71,6 +79,9 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
 
 ## Documentation Upkeep
 Update these as part of the same change, not as a follow-up:
+- **`docs/agents/service-facts.md`**: every fact the change alters, and every path it moves or
+  deletes. `tests/site/agent-facts.test.js` fails on a pointer to a file that no longer exists;
+  keep the map under ~400 lines (it is loaded into every session).
 - **`README.md`**: new features, endpoints, or configuration options.
 - **`CHANGELOG.md`**: every user-facing change, [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, under the current unreleased/version heading.
 - **`api.yaml`**: the contract Producers and Consumers speak (provide/require/report). Keep in sync

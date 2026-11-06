@@ -1,0 +1,245 @@
+# Service facts for agents
+
+The facts an agent needs before proposing, asking or coding, each with the source that is the
+authority. Loaded into every session through `CLAUDE.md`. Read the matching topic **and its
+source** before asking the user or proposing anything; a question the sources answer is not a
+question. When a change alters a fact here, the same commit updates it (`AGENTS.md`, Documentation
+Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-site.js`).
+
+## Model
+
+- Producer publishes complete specs (OpenAPI, AsyncAPI 2.x/3.x, gRPC/proto); Consumer requires
+  single endpoints at an exact Pin. Roles, not entities: one system is usually both and is listed
+  in each role. Tables say `services` (Producer) and `clients` (Consumer); only the repository
+  layer uses those words. Wire names `producername`/`consumername` only (1.x aliases refused).
+- Tooling = software calling Sanshain for a system (the clients below, curl). Never "client" in
+  domain text, never a domain entity. Sanshain never sees git; clients never read git.
+- Version: strict `MAJOR.MINOR.PATCH` from the spec (`info.version`; proto: mandatory
+  `// sanshain-version:` comment, 400 when missing or conflicting). Never assigned by Sanshain.
+  Version line = one Producer × one API type.
+- No branches since 2.0 (ADR-0003). Stability is declared per provide: `snapshot` (default) or
+  `ga` (the client's ga switch, set by CI on release pipelines only).
+- Sources: `CONTEXT.md`, `docs/adr/0003-versions-replace-branches.md`, `site/start/concepts.html`.
+
+## Version rules (provide)
+
+- Snapshot: overwritable only by the user who last provided it; anyone else's different content
+  is `409 snapshot_owned` (next free minor proposed); identical bytes from anyone are a no-op.
+  (ADR-0003 still says last-writer-wins; the code and site changed that.) Never compat-checked.
+  Expires when neither provided nor required for `snapshot_max_age_days` (30, 0 disables).
+- GA: immutable; identical bytes no-op; different = `409 immutable_ga` + `proposed_version`. A GA
+  claims its number forever (`409 snapshot_on_ga`). GA of a snapshot number = promotion in place
+  (`promoted: true`; byte-identical keeps the snapshot's provider). Needs `release_ga`
+  (`releaser` role), also for no-ops: `403 ga_requires_releaser`.
+- Mislabel check: GA breaking vs. the highest GA below without a major bump =
+  `409 breaking_without_major`. Removing an element deprecated in the previous GA is not breaking;
+  the marker must sit on the removed element (no whole-spec switch).
+- Normalized before anything (CRLF/CR→LF, BOM removed); hash and no-op compare the normalized
+  text (`docs/adr/0008-ga-content-immutable-apart-from-line-endings.md`). Duplicate endpoints after path normalization: 400.
+- Answer `202 {version, stability, content_hash, changes{inserts,updates,deletes}, promoted}`
+  (+ `harvested_subscriptions` for AsyncAPI). `dry_run`: full checks, persists nothing, no
+  webhooks; ga dry run still needs releaser.
+- Retire: provide with `retired: true` and nothing else (body/stability/trunk/tag = 400); clears
+  the family's capability tag, closes its trunk pins, releases AsyncAPI contracts; history stays.
+  Needs releaser or a maintainer grant.
+- Escape hatch: audited delete-version (`manage_producers`, Producer-scoped); frees the number.
+- Code: `src/application/provide_service.rs`, `version_rules.rs`; splitting `src/openapi.rs`,
+  `src/asyncapi.rs`, `src/proto.rs`.
+- Sources: `site/developer/api-lifecycle.html`, `site/developer/sanshain-yaml.html`.
+
+## Require and resolution
+
+- Exact pin, no ranges/latest/default. One entry for the pinned version, GA else snapshot, no
+  fallback, no waiting. Served (records the dependency; headers `x-sanshain-stability`,
+  `x-sanshain-resolution`), Absent `410` (version lacks the endpoint), Unknown `404` (no such
+  version or Producer). A failed require records nothing; resolution never creates entities.
+- `POST /require-bundle`: several endpoints of one Producer at one pin, one merged document,
+  shared schemas once; 410 names the missing endpoints.
+- ETag + `If-None-Match` → `304`. `X-Sanshain-Deprecated: true` on deprecated endpoints.
+- `format=openapi` on an AsyncAPI require: payload schemas as OpenAPI 3.0.3.
+- Matching: OpenAPI path + verb (parameter names, double/trailing slashes normalized); AsyncAPI
+  channel (2.x key, 3.x address) + `PUB`/`SUB`; proto fully qualified service + rpc
+  (case-sensitive).
+- Code: `src/application/require_service.rs`. Source: `site/developer/sanshain-yaml.html`.
+
+## Origin (why a version exists)
+
+- Only provides carry an Origin: `build_url`, `change_url` (PR/MR), `tickets` (≤20 ids),
+  `note` (one line ≤200). Requires and catalog pushes carry none.
+- It comes from the pipeline, never from a person. Clients fill the two URLs from runner
+  variables: GitHub Actions (run URL; PR URL on `refs/pull/<n>/…`), GitLab CI (`CI_JOB_URL`; MR
+  URL in MR pipelines), Jenkins (`BUILD_URL`; `CHANGE_URL` on multibranch PR builds). Bitbucket
+  Pipelines, Azure, CircleCI, Buildkite, TeamCity fill nothing: set `SANSHAIN_BUILD_URL`/
+  `SANSHAIN_CHANGE_URL`. Precedence: client flag > `SANSHAIN_*` env > runner variables. Tickets
+  and note only from flags or `SANSHAIN_TICKETS`/`SANSHAIN_NOTE`.
+- Latest provide carrying any field wins; a no-op re-provide only fills empty fields. The build
+  link shows only from a trunk build (branch builds' links die after the merge).
+- Shown on the version row, diff, blame; MCP answers; `version.published` webhook. Ticket ids link
+  through the admin's ticket URL template.
+- Sources: `site/developer/ci-integration.html` ("Why: the origin of a build"),
+  `site/developer/api-lifecycle.html`, `CONTEXT.md` (Origin).
+
+## Clients (tooling)
+
+- Separate repos, none in this one: `paxel/sanshain-maven-plugin`, `paxel/sanshain-rs`
+  (cargo-sanshain), `paxel/sanshain-go`, `paxel/sanshain-js` (CLI + GitHub Action),
+  `paxel/sanshain-conan`. Changing client behaviour is work in those repos.
+- All read `sanshain.yaml`: `serviceName`, `sanshainUrl`, `compression`, `bestEffort`,
+  `catalogInfo`, `strict`, `provides[file, apiType, retired]`,
+  `requires[serviceName, version, outputDirectory, endpoints[method,path], apiType, format]`.
+  No secrets; no version, no stability in the file.
+- Env: `SANSHAIN_URL`, `SANSHAIN_TOKEN`, `SANSHAIN_GA`, `SANSHAIN_TRUNK`, `SANSHAIN_TAG`,
+  `SANSHAIN_BEST_EFFORT`, the origin variables. Strict mode fails on any `Sanshain-Warning`.
+- Commands: provide, require, catalog. Dry run only Maven (`-Dsanshain.dry.run`) and JS CLI.
+- Client 2.x ↔ service 2.x; origin needs service ≥2.9.0, catalog push ≥2.4.0.
+- Sources: `site/developer/clients.html`, `site/developer/sanshain-yaml.html`.
+
+## Streams and graphs
+
+- Per call one stream: none (dev), `trunk` (default-branch CI), `tag=<sanshain-branch>`
+  (release/hotfix). Streams never change version rules or what is served.
+- Dev graph: all activity, thinned by `dependency_max_age_days` (30). Main graph: trunk pins,
+  last write per (consumer, producer, api type, endpoint) wins; trunk provides mark "trunk's
+  current version" (`trunk_member_versions`). Stale after half `trunk_max_age_days` (90), closed
+  after it. All graph writes append-only (`valid_from`/`valid_to`), so main and branches have a
+  timeline; history is never deleted.
+- Unknown tag, or trunk + tag: succeeds, dev only, `Sanshain-Warning` (ADR-0005 amendment).
+  Branches never auto-created.
+- Sanshain-branch: named copy of main (or another branch) at an instant (retroactive allowed),
+  `POST /admin/branches` (`release_ga`, session only). `main`/`dev`/`trunk` reserved. Versions
+  referenced by value: a deleted version dangles and heals on re-provide; deleting a referenced
+  Producer/Consumer is `409`.
+- Reports and MCP take `scope=dev|main[@instant]|<branch>[@instant]`; `dev@…` is 400.
+- Code: `src/application/branch_service.rs`, `report_service.rs`; UI `static/js/graph.js`,
+  `static/js/pages/graph-1.js`, `static/js/graph-domains.js`.
+- Sources: `docs/adr/0004-trunk-flag-and-graph-views.md`, `docs/adr/0005-sanshain-branches-and-timeline.md`, `site/developer/release-graphs.html`.
+
+## AsyncAPI specifics
+
+- 2.x `publish`/`subscribe` read from the application's perspective (inverse of the spec text);
+  3.x `send`/`receive`. Stored id: 2.x channel key, 3.x channel address.
+- GA `publish` messages register message contracts per (channel, message name; else title):
+  first publisher owns; others must match semantically (`409 message_contract_conflict`).
+- `subscribe`/`receive` are harvested on every provide as version-less consumer edges
+  (`harvested_subscriptions`), inheriting the provide's trunk flag, not on tag provides;
+  unfulfilled ones point at a dashed `<channel> ?` node. Drift blocks at GA (409), advisory on
+  snapshots (ADR-0006).
+- Sources: `docs/adr/0006-asyncapi-subscribe-harvesting.md`, `site/developer/api-lifecycle.html`, `src/asyncapi.rs`.
+
+## Catalog push (Backstage)
+
+- `PUT /catalog/{systemname}` `{catalog_info_yaml, trunk}`; reads only the Component named like
+  the system: `spec.dependsOn` `resource:` refs → Peripheral Resources (lower-cased, default
+  namespace rules); `component:` refs naming no known system → Missing components;
+  `spec.owner`, `spec.system` (fills an empty domain, never overwrites an admin's),
+  `metadata.description`, `metadata.tags` (≤20, focus `tag:<name>`), source-location annotation,
+  `metadata.links` (≤20). `consumesApis`/`providesApis`/lifecycle ignored; edges between known
+  systems are never read from Backstage.
+- Trunk push replaces trunk and dev sets; plain push only dev. No TTL. Unreadable file: `200`,
+  `recorded: false`, `Sanshain-Warning`, previous state kept.
+- Code: `src/backstage.rs`, `src/application/catalog_service.rs`.
+- Sources: `docs/adr/0007-periphery-from-backstage-catalog-info.md`, `docs/adr/0010-backstage-context-beyond-the-periphery.md`, `site/developer/sanshain-yaml.html`.
+
+## Products — decided, not implemented
+
+- ADR-0011 (`docs/adr/0011-products-are-envelopes-not-tenants.md`) accepted; issue #76 open; no code, no routes, no `product:` focus yet. Envelope of
+  systems by name (manual or Helm umbrella `Chart.yaml`), grants nothing; Product Maintainer edits
+  membership only; UI only, routes would go to `maintenance.yaml`.
+
+## Authentication and permissions
+
+- Modes (`auth_mode`): `disabled` (Off/maintenance: API 503, only admins sign in), `dev` (needs
+  `ALLOW_INSECURE_DEV_MODE=true`; provide/require/catalog/MCP without token as `dev_user`),
+  `local` (registration and auto-approve switches), `ldap`, `oidc`. Local accounts always sign in
+  by password in ldap/oidc. Fresh instance starts Off unless `INITIAL_AUTH_MODE`.
+- Humans: session (7 days, `POST /auth/login`). Builds/assistants: API token `san_…`, scope `full`
+  or `read_only` (read_only refused on provide/require/catalog). `/admin/*` takes sessions only
+  (API token → 401), except the SQLite backup download (full token). User managers issue tokens
+  for service accounts (`for_user`).
+- Ten permissions: manage_users, manage_roles, manage_producers, manage_consumers, view_audit,
+  manage_settings, manage_auth_config, view_observability, run_destructive_operations,
+  release_ga. Fixed roles: admin, user_manager, viewer, releaser, maintainer (Producer-scoped
+  assignment, never global). admin/releaser grants are admin-guarded. Root = `SANSHAIN_ROOT_USERS`
+  (config, unrevocable, holds future permissions too).
+- Groups: native or LDAP (by DN, membership read live, cached
+  `SANSHAIN_DIRECTORY_GROUP_TTL_SECS`). OIDC grants only via `admin_group`.
+- LDAP settings: a changed form must carry the bind password again for Test Connection and save;
+  only an unchanged form uses the stored one.
+- Every `/admin/*` route declares a `RouteGuard` (test in `src/lib.rs`).
+- Code: `src/domain/permissions.rs`, `src/application/authz.rs`, `auth_service.rs`,
+  `sign_in_service.rs`, `src/presentation/middleware.rs`.
+- Sources: `site/operator/authentication.html`, `site/operator/roles.html` (its token section
+  predates service-account tokens), `site/reference/api-usage.html`.
+
+## Webhooks
+
+- Events only: `version.published`, `provide.rejected`, `version.deprecated`,
+  `dependency.recorded`, `branch.cut`, `catalog.recorded` (+ `webhook.test`). Never admin/audit
+  events.
+- Outbox row written in the fact's transaction, fan-out decided then; worker delivers with
+  retries (24 h cutoff). Generic URL + secret, HMAC-SHA256; body formats json/slack/teams.
+  Receivers must be on the admin allow-list (`webhook_allowed_hosts`, empty refuses system hooks).
+- Scopes: global (admin), Producer's, Consumer's (events of every Producer it requires).
+- Code: `src/application/webhook_service.rs`, `webhook_delivery.rs`. Sources: `docs/adr/0009-webhooks-outbox-and-egress-allowlist.md`,
+  `site/operator/webhooks.html`.
+
+## MCP
+
+- `POST /mcp`, stateless Streamable HTTP, API tokens only (read-only recommended), sessions 401.
+  Tools: list_services, describe_service, find_endpoint, get_spec, get_graph, diff_versions,
+  blame, endpoint_structure. 60 calls/min/token, 64 KiB per answer (summary + hint above).
+  Read-only; never users, settings, audit, observability.
+- Code: `src/presentation/mcp.rs`, `src/presentation/mcp/tools.rs`,
+  `src/application/mcp_service.rs`. Source: `site/developer/mcp.html`.
+
+## Administration and operations
+
+- Admin page tabs: Sign-in, Users, General. Retention pass every `CLEANUP_INTERVAL_SECS`:
+  snapshot expiry, dependency cleanup, trunk close, credentials, webhook log (30 d), CSRF tokens.
+- Danger Zone (`run_destructive_operations`): nuke producers/consumers/users/database, each with a
+  typed confirmation.
+- Audit: every provide, require, catalog push and admin action, with actor and stream;
+  `/audit.html` needs `view_audit`.
+- External Producer flag (grey node), set by admin upload or per row.
+- Backup: SQLite `GET /admin/backup/sqlite` (VACUUM INTO, full token of an admin); PostgreSQL
+  `pg_dump`. Helm CronJob optional.
+- Deployment: one binary, one port 3000, image `ghcr.io/paxel/sanshain-service:v<x>`, UID 1000,
+  `/data`. Exactly one instance (StatefulSet, 1 replica; the chart refuses more). Migrations
+  forward-only, run at start, fatal on failure. `/health`, `/ready`, `/version`, `/metrics`
+  unauthenticated.
+- Configuration: every env variable in `site/operator/configuration.html`; invalid values stop the
+  start. Runtime settings in the DB via `/admin/settings/*`. Data caches hold entries ≤10 s.
+- Sources: `site/operator/administration.html`, `configuration.html`, `deployment.html`,
+  `backup.html`, `observability.html`, `troubleshooting.html`.
+
+## Contracts and docs that must move with code
+
+- `api.yaml`: Producer/Consumer API (provide/require/report/catalog…), ~25 Producers pin it.
+  `maintenance.yaml`: `/admin/*` with each route's permission. Router tests in `src/lib.rs` fail
+  when a route is in neither (or the allowlist).
+- `CHANGELOG.md`: current version only, `## [X.Y.Z]` without date; older in `OLDER_CHANGES.md`.
+- `site/`: user docs per release; site tests in `tests/site/`; tables of config and permissions are
+  checked (`tests/site_config_table_test.rs`, `tests/site_permissions_table_test.rs`).
+- Screenshots/walkthroughs: `just screenshots`, `just record-walkthroughs` (writes
+  `site/evidence/`).
+
+## Code layout
+
+- DDD layers, enforced by `tests/architecture_boundaries_test.rs`: `src/domain/` (models, ports,
+  permissions; no frameworks) → `src/application/` (one `*_service.rs` per use case area,
+  re-exported by `services.rs`; `mock_repo.rs` is the test repository) → `src/infrastructure/`
+  (sqlite/postgres repositories, parallel on purpose; `cached_repository.rs`; LDAP/OIDC; TLS;
+  migrations per dialect, never edited once applied) → `src/presentation/` (thin Axum handlers
+  `handlers/{api,admin,auth,roles,webhooks,pages}.rs`, `middleware.rs`, MCP). Router in
+  `src/lib.rs`, startup in `src/main.rs`.
+- Spec handling: `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs`, `src/structure.rs`
+  (structure view), `src/backstage.rs`.
+- Frontend: static pages `static/*.html` + `static/js/` (vanilla, classic scripts, CSP: no inline
+  JS); header/nav/footer from `static/js/site-chrome.js`; Tailwind built to `static/css/app.css`
+  (committed). Askama templates `templates/` (landing, dashboard).
+- Tests: Rust in `tests/*.rs` (Postgres via testcontainers), UI Playwright in `tests/ui/` (import
+  `test` from `tests/ui/fixtures.js`; CI runs the files listed in `.github/workflows/quality.yml`),
+  site in `tests/site/`. `scripts/itest.sh` against a running service.
+- CI: `ci.yml`, `quality.yml` (fmt, clippy, tests, tarpaulin floor, UI), `security.yml`,
+  `pages.yml` (site), `release.yml`, `sonar.yml` (SonarQube Cloud on `summer`).
+- Branches: `summer` is main; release branches `release/X.Y`.
