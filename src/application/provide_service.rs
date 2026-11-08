@@ -67,7 +67,7 @@ pub async fn provide_spec_with_origin(
     let origin = origin
         .normalized()
         .map_err(|reason| AppError::BadRequest(format!("origin: {reason}")))?;
-    provide_spec_inner(repo, params, &origin, version_annotations).await
+    provide_spec_inner(repo, params, &origin, version_annotations, Run::Provide).await
 }
 
 /// Promote a stored snapshot to GA without re-uploading (#28).
@@ -266,7 +266,80 @@ pub async fn provide_spec(
     repo: &impl SpecRepository,
     params: ProvideSpecParams<'_>,
 ) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(repo, params, &VersionOrigin::default(), &[]).await
+    provide_spec_inner(repo, params, &VersionOrigin::default(), &[], Run::Provide).await
+}
+
+/// What the version rules say about a document a review submits.
+#[derive(Debug)]
+pub enum ProvideVerdict {
+    /// The provide would pass: the dry run's answer.
+    Accepted(ProvideResponse),
+    /// A version rule or an AsyncAPI message contract refuses it, under the
+    /// rule the audit and `provide.rejected` name.
+    Rejected {
+        rule: &'static str,
+        message: String,
+        proposed: Option<SemVer>,
+    },
+}
+
+/// Review a document against its stored version line (#89): the provide's
+/// every rule as `reviewer` would meet it, as a dry run, so nothing is
+/// stored, audited or sent. The GA gate is not asked: a review answers what
+/// the line says, not whether this caller may release. An invalid document
+/// or a failing read is the error; a refusal is the verdict.
+pub async fn review_provide(
+    repo: &impl SpecRepository,
+    producername: &str,
+    api_type: ApiType,
+    content: &str,
+    stability: Stability,
+    reviewer: Option<&str>,
+) -> Result<ProvideVerdict, AppError> {
+    let params = ProvideSpecParams {
+        producername,
+        api_type,
+        content,
+        stability,
+        dry_run: true,
+        trunk: false,
+        tag: None,
+        caller: None,
+        require_prior_content_match: false,
+    };
+    let run = Run::Review { reviewer };
+    match provide_spec_inner(repo, params, &VersionOrigin::default(), &[], run).await {
+        Ok(response) => Ok(ProvideVerdict::Accepted(response)),
+        Err(AppError::VersionConflict {
+            message,
+            proposed,
+            rule,
+        }) => Ok(ProvideVerdict::Rejected {
+            rule,
+            message,
+            proposed: Some(proposed),
+        }),
+        // A dry run writes nothing, so a conflict can only come from the
+        // message contracts or the subscription harvest, as in
+        // `record_contract_rejection`.
+        Err(AppError::Conflict(message) | AppError::BreakingChange(message)) => {
+            Ok(ProvideVerdict::Rejected {
+                rule: "message_contract_conflict",
+                message,
+                proposed: None,
+            })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Who a run of the provide rules answers to.
+#[derive(Clone, Copy)]
+enum Run<'a> {
+    /// A provide: the GA gate checks the caller's permissions.
+    Provide,
+    /// A review: a dry run as `reviewer` meets the line, past the GA gate.
+    Review { reviewer: Option<&'a str> },
 }
 
 async fn provide_spec_inner(
@@ -274,6 +347,7 @@ async fn provide_spec_inner(
     params: ProvideSpecParams<'_>,
     origin: &VersionOrigin,
     version_annotations: &[Annotation],
+    run: Run<'_>,
 ) -> Result<ProvideResponse, AppError> {
     let ProvideSpecParams {
         producername,
@@ -287,8 +361,12 @@ async fn provide_spec_inner(
         require_prior_content_match,
     } = params;
     // One identity: authorization and audit attribution both come from the
-    // Actor, so they cannot drift apart.
-    let username: Option<&str> = caller.as_ref().map(|a| a.username.as_str());
+    // Actor, so they cannot drift apart. A review has no Actor, only the
+    // user the snapshot ownership is checked for, and never writes.
+    let (username, dry_run): (Option<&str>, bool) = match run {
+        Run::Provide => (caller.as_ref().map(|a| a.username.as_str()), dry_run),
+        Run::Review { reviewer } => (reviewer, true),
+    };
     // The stream actually recorded — dev only when the declared one cannot
     // be honoured (the warning travels back to the caller instead).
     let stream = resolve_stream(repo, trunk, tag).await?;
@@ -324,7 +402,8 @@ async fn provide_spec_inner(
     // so an unauthorized attempt cannot even create the service. All GA
     // shapes are gated, including promotions and the idempotent no-op: a 202
     // must never tell a misconfigured CI that its credentials can release.
-    if stability == Stability::Ga
+    if matches!(run, Run::Provide)
+        && stability == Stability::Ga
         && !caller
             .as_ref()
             .is_some_and(|a| a.has_permission(Permission::ReleaseGa))
@@ -537,7 +616,11 @@ async fn provide_spec_inner(
                 },
             )
             .await;
-            return Err(AppError::VersionConflict { message, proposed });
+            return Err(AppError::VersionConflict {
+                message,
+                proposed,
+                rule: reason,
+            });
         }
         // A snapshot belongs to whoever last provided it: different bytes
         // under its number are accepted from that user alone. Two developers
@@ -574,7 +657,11 @@ async fn provide_spec_inner(
                 },
             )
             .await;
-            return Err(AppError::VersionConflict { message, proposed });
+            return Err(AppError::VersionConflict {
+                message,
+                proposed,
+                rule: "snapshot_owned",
+            });
         }
         _ => {}
     }
@@ -615,7 +702,11 @@ async fn provide_spec_inner(
             },
         )
         .await;
-        return Err(AppError::VersionConflict { message, proposed });
+        return Err(AppError::VersionConflict {
+            message,
+            proposed,
+            rule: "breaking_without_major",
+        });
     }
 
     // `changes` counts are relative to what this exact version stored before
@@ -1241,6 +1332,153 @@ mod tests {
             origin_for_identical_provide(Some(branch_stored), &linkless, true),
             None
         );
+    }
+
+    const V1: &str = "openapi: 3.0.0\ninfo:\n  title: t\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n  /b:\n    get:\n      responses:\n        '200': { description: ok }\n";
+
+    async fn provide(
+        repo: &crate::application::mock_repo::MockRepo,
+        content: &str,
+        stability: Stability,
+        caller: Actor,
+    ) {
+        provide_spec(
+            repo,
+            ProvideSpecParams {
+                producername: "svc",
+                api_type: ApiType::OpenApi,
+                content,
+                stability,
+                dry_run: false,
+                trunk: false,
+                tag: None,
+                caller: Some(caller),
+                require_prior_content_match: false,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn review(
+        repo: &crate::application::mock_repo::MockRepo,
+        content: &str,
+        stability: Stability,
+        reviewer: &str,
+    ) -> ProvideVerdict {
+        review_provide(
+            repo,
+            "svc",
+            ApiType::OpenApi,
+            content,
+            stability,
+            Some(reviewer),
+        )
+        .await
+        .unwrap()
+    }
+
+    fn rejected(verdict: ProvideVerdict) -> (&'static str, String, Option<SemVer>) {
+        match verdict {
+            ProvideVerdict::Rejected {
+                rule,
+                message,
+                proposed,
+            } => (rule, message, proposed),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_review_names_the_rule_a_ga_breaks_without_the_releaser_role() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        provide(&repo, V1, Stability::Ga, Actor::test_releaser()).await;
+
+        let changed = V1.replace("/b:", "/c:");
+        let (rule, message, proposed) =
+            rejected(review(&repo, &changed, Stability::Ga, "nobody").await);
+        assert_eq!(rule, "immutable_ga");
+        assert!(message.contains("GA and immutable"), "{message}");
+        assert_eq!(proposed.map(|v| v.to_string()).as_deref(), Some("2.0.0"));
+
+        let dropped = V1
+            .replace("version: 1.0.0", "version: 1.1.0")
+            .replace("/b:", "/c:");
+        let (rule, _, proposed) = rejected(review(&repo, &dropped, Stability::Ga, "nobody").await);
+        assert_eq!(rule, "breaking_without_major");
+        assert_eq!(proposed.map(|v| v.to_string()).as_deref(), Some("2.0.0"));
+
+        let (rule, _, _) = rejected(review(&repo, &changed, Stability::Snapshot, "nobody").await);
+        assert_eq!(rule, "snapshot_on_ga");
+    }
+
+    #[tokio::test]
+    async fn a_review_meets_snapshot_ownership_as_its_reviewer_and_stores_nothing() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        provide(
+            &repo,
+            V1,
+            Stability::Snapshot,
+            Actor::test_releaser_named("alice"),
+        )
+        .await;
+        let changed = V1.replace("/b:", "/c:");
+
+        let (rule, message, proposed) =
+            rejected(review(&repo, &changed, Stability::Snapshot, "bob").await);
+        assert_eq!(rule, "snapshot_owned");
+        assert!(message.contains("provided by 'alice'"), "{message}");
+        assert_eq!(proposed.map(|v| v.to_string()).as_deref(), Some("1.1.0"));
+
+        let ProvideVerdict::Accepted(own) =
+            review(&repo, &changed, Stability::Snapshot, "alice").await
+        else {
+            panic!("the owner may overwrite her snapshot");
+        };
+        assert_eq!(own.changes.inserts, 1);
+        assert_eq!(own.changes.deletes, 1);
+
+        let ProvideVerdict::Accepted(promotion) = review(&repo, V1, Stability::Ga, "nobody").await
+        else {
+            panic!("identical bytes as GA are a promotion");
+        };
+        assert!(promotion.promoted);
+
+        let new_version = V1.replace("version: 1.0.0", "version: 3.0.0");
+        let ProvideVerdict::Accepted(fresh) =
+            review(&repo, &new_version, Stability::Ga, "nobody").await
+        else {
+            panic!("a new number is free");
+        };
+        assert_eq!(fresh.changes.inserts, 2);
+
+        let sid = repo.find_service("svc").await.unwrap().unwrap();
+        let line = repo.list_spec_versions(sid).await.unwrap();
+        assert_eq!(line.len(), 1, "a review stores nothing: {line:?}");
+        assert_eq!(line[0].stability, Stability::Snapshot);
+        assert_eq!(line[0].provided_by, "alice");
+        let audit = repo.audit_logs.lock().unwrap();
+        assert!(
+            audit.iter().all(|l| l.action != "VERSION_REJECTED"),
+            "a review audits nothing: {audit:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_review_of_an_invalid_document_is_the_error() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        let err = review_provide(
+            &repo,
+            "svc",
+            ApiType::OpenApi,
+            "openapi: 3.0.0\ninfo:\n  title: t\npaths: {}\n",
+            Stability::Ga,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)), "{err:?}");
+        assert_eq!(repo.find_service("svc").await.unwrap(), None);
     }
 
     #[test]

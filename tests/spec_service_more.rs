@@ -811,7 +811,9 @@ async fn snapshot_overwrite_by_another_actor_is_refused_and_audited() {
     );
     params.caller = Some(sanshain_service::domain::permissions::Actor::test_releaser_named("bob"));
     match spec_service::provide_spec(&repo, params).await {
-        Err(AppError::VersionConflict { message, proposed }) => {
+        Err(AppError::VersionConflict {
+            message, proposed, ..
+        }) => {
             assert!(message.contains("provided by 'alice'"), "{message}");
             assert_eq!(proposed.to_string(), "1.1.0");
         }

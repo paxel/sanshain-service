@@ -33,11 +33,18 @@ pub enum AppError {
     Internal(String),
     #[error("Breaking Change: {0}")]
     BreakingChange(String),
-    /// A Provide refused by the version rules (GA immutability, or a breaking
-    /// change without a major bump). Answers `409` and carries the next free
-    /// version the Producer should publish as instead.
+    /// A Provide refused by the version rules (GA immutability, snapshot
+    /// ownership, or a breaking change without a major bump). Answers `409`
+    /// and carries the next free version the Producer should publish as
+    /// instead. `rule` names the rule (`immutable_ga`, `snapshot_on_ga`,
+    /// `snapshot_owned`, `breaking_without_major`), as the audit and the
+    /// `provide.rejected` event do; the HTTP body does not carry it.
     #[error("Version Conflict: {message}")]
-    VersionConflict { message: String, proposed: SemVer },
+    VersionConflict {
+        message: String,
+        proposed: SemVer,
+        rule: &'static str,
+    },
 }
 
 impl From<crate::domain::ports::RepositoryError> for AppError {
