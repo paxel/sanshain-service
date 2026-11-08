@@ -289,6 +289,8 @@ pub struct ClientFacts {
     pub build_tool: BuildTool,
     pub name: &'static str,
     pub repository: &'static str,
+    /// The client's own page in the developer documentation.
+    pub guide: &'static str,
     pub version: &'static str,
     /// The install line, or for Maven the plugin coordinates in `pom.xml`.
     pub install: &'static str,
@@ -317,6 +319,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         build_tool: BuildTool::Maven,
         name: "sanshain-maven-plugin",
         repository: "https://github.com/paxel/sanshain-maven-plugin",
+        guide: "https://paxel.github.io/sanshain-service/developer/clients/maven.html",
         version: "2.5.0",
         install: "io.github.paxel.sanshain:sanshain-maven-plugin:2.5.0",
         provide: "mvn sanshain:provide",
@@ -333,6 +336,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         build_tool: BuildTool::Cargo,
         name: "cargo-sanshain",
         repository: "https://github.com/paxel/sanshain-rs",
+        guide: "https://paxel.github.io/sanshain-service/developer/clients/rust.html",
         version: "4.0.0",
         install: "cargo install cargo-sanshain",
         provide: "cargo sanshain provide",
@@ -349,6 +353,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         build_tool: BuildTool::Go,
         name: "sanshain-go",
         repository: "https://github.com/paxel/sanshain-go",
+        guide: "https://paxel.github.io/sanshain-service/developer/clients/go.html",
         version: "2.5.0",
         install: "go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest",
         provide: "sanshain-go provide",
@@ -365,6 +370,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         build_tool: BuildTool::Npm,
         name: "sanshain",
         repository: "https://github.com/paxel/sanshain-js",
+        guide: "https://paxel.github.io/sanshain-service/developer/clients/javascript.html",
         version: "2.6.0",
         install: "npm install --save-dev sanshain",
         provide: "npx sanshain provide",
@@ -381,6 +387,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         build_tool: BuildTool::Conan,
         name: "sanshain-conan",
         repository: "https://github.com/paxel/sanshain-conan",
+        guide: "https://paxel.github.io/sanshain-service/developer/clients/conan.html",
         version: "2.5.0",
         install: "pip install sanshain-conan",
         provide: "sanshain-conan provide",
@@ -539,8 +546,7 @@ const MIN_SERVICE: [MinService; 3] = [
     },
 ];
 
-const DOCS: [&str; 3] = [
-    "https://paxel.github.io/sanshain-service/developer/clients.html",
+const DOCS: [&str; 2] = [
     "https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html",
     "https://paxel.github.io/sanshain-service/developer/ci-integration.html",
 ];
@@ -864,7 +870,7 @@ pub fn setup_guide(
             "find_endpoint",
             "draft_sanshain_yaml",
         ],
-        docs: DOCS,
+        docs: [facts.guide, DOCS[0], DOCS[1]],
     })
 }
 
@@ -885,6 +891,34 @@ mod tests {
         }
         assert_eq!(client(BuildTool::Cargo).name, "cargo-sanshain");
         assert_eq!(client(BuildTool::Npm).version, "2.6.0");
+    }
+
+    #[test]
+    fn every_client_guide_points_at_its_own_page() {
+        for tool in [
+            BuildTool::Maven,
+            BuildTool::Cargo,
+            BuildTool::Go,
+            BuildTool::Npm,
+            BuildTool::Conan,
+        ] {
+            let facts = client(tool);
+            let page = facts
+                .guide
+                .strip_prefix("https://paxel.github.io/sanshain-service/")
+                .unwrap_or_default();
+            assert!(page.starts_with("developer/clients/"), "{}", facts.guide);
+            let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("site")
+                .join(page);
+            assert!(file.is_file(), "{} has no page", facts.guide);
+            let guide = setup_guide(SetupRole::Both, tool, None, None).unwrap();
+            assert_eq!(guide.docs[0], facts.guide);
+        }
+        assert_eq!(
+            client(BuildTool::Npm).guide,
+            "https://paxel.github.io/sanshain-service/developer/clients/javascript.html"
+        );
     }
 
     #[test]
