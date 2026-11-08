@@ -69,7 +69,7 @@ mvn verify                      # runs the goals bound to initialize</code></pre
     underscores, the leading one is dropped); an entry with two or more endpoints is one
     <a href="../../start/glossary.html#bundle">bundle</a>, saved as
     <code>&lt;serviceName&gt;_bundle.yaml</code>. A proto entry is saved with
-    <code>.proto</code>; write <code>apiType: proto</code> on such requires. The file goes to
+    <code>.proto</code> (<code>apiType: proto</code> or <code>grpc</code>). The file goes to
     <code>outputDirectory</code>, default <code>target/generated-sources/sanshain</code> under the
     project; the directory is created when missing. An entry without endpoints warns
     <code>No endpoints defined for service: &lt;name&gt;</code> and is skipped.
@@ -378,7 +378,8 @@ mvn verify                      # runs the goals bound to initialize</code></pre
       <td><code>requires[].apiType</code></td>
       <td><code>openapi</code></td>
       <td>1.0.0</td>
-      <td>R. <code>openapi</code>, <code>asyncapi</code> or <code>proto</code>.</td>
+      <td>R. <code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
+        means proto).</td>
     </tr>
     <tr>
       <td>—</td>
