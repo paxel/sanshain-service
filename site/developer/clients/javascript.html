@@ -654,9 +654,11 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     <tr>
       <td><code>403</code></td>
       <td>
-        <code>Refused (403): &lt;reason&gt;</code>, then a hint that publishing GA needs the
-        <code>releaser</code> role, that retiring needs it or a maintainer grant, and how to publish
-        a snapshot instead. Exit 1.
+        <code>Refused (403): &lt;reason&gt;</code>. When the service refused for want of the
+        <code>releaser</code> role, a hint follows that publishing GA needs the role, that retiring
+        needs it or a maintainer grant, and how to publish a snapshot instead. Any other
+        <code>403</code>, such as a read-only token's (which needs scope <code>full</code>), shows the
+        service's message alone. Exit 1.
       </td>
     </tr>
     <tr>
