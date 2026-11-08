@@ -187,8 +187,10 @@ cargo sanshain require        # download the pinned snippets
 cargo sanshain catalog        # push catalog-info.yaml
 cargo sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
 <p>
-  The subcommand README has the flags and CI recipes; the library README has the configuration
-  reference and the <code>Client</code> API for builds that embed the client.
+  The flags of each command, the configuration it reads, the failure modes, CI recipes and the
+  <code>Client</code> API for builds that embed the library are on the
+  <a href="clients/rust.html">Rust client</a> page. Unlike the other clients it keeps no ETag state
+  and downloads every require in full.
 </p>
 
 <h2>Go</h2>
