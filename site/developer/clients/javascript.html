@@ -261,7 +261,8 @@ npx sanshain catalog --trunk</code></pre>
       <td>1.0.0</td>
       <td>
         A spec file to provide, and its type: <code>openapi</code>, <code>asyncapi</code> or
-        <code>proto</code>.
+        <code>proto</code> (<code>grpc</code> means proto). Any other value fails before any
+        request.
       </td>
     </tr>
     <tr>
@@ -764,11 +765,12 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
       </td>
     </tr>
     <tr>
-      <td>Unsupported <code>apiType</code> on a require</td>
+      <td>Unsupported <code>apiType</code> on a provide or a require</td>
       <td>
-        <code>requires[0] (&lt;producer&gt;): unsupported apiType '&lt;value&gt;' — use openapi,
-        asyncapi or proto (grpc means proto)</code>. Exit 1, before any request, also with best
-        effort.
+        <code>provides[0]: unsupported apiType '&lt;value&gt;' — use openapi, asyncapi or proto
+        (grpc means proto)</code> (a require's starts <code>requires[0] (&lt;producer&gt;): </code>,
+        a single <code>provide</code> entry's <code>provide: </code>). Exit 1, before any request,
+        also with best effort.
       </td>
     </tr>
     <tr>
