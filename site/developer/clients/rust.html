@@ -739,7 +739,7 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
       <td>
         <code>configuration error: cannot read sanshain.yaml: &lt;cause&gt; — every Sanshain client reads its configuration from sanshain.yaml in the project root</code>;
         <code>configuration error: missing 'sanshainUrl' — set it in sanshain.yaml or via the SANSHAIN_URL environment variable</code>.
-        Exit 1.
+        Exit 1; outside strict mode best effort turns the missing URL into a warning.
       </td>
     </tr>
   </tbody>
