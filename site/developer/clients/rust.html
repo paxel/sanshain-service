@@ -401,9 +401,7 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
       <td>Best effort</td>
       <td>
         <code>--best-effort</code> (it can only switch on); then <code>SANSHAIN_BEST_EFFORT</code>
-        unless it is empty (any other value decides either way); then <code>bestEffort</code>. A
-        <code>sanshain.yaml</code> that cannot be read or does not validate can only be softened by
-        the flag or the variable.
+        unless it is empty (any other value decides either way); then <code>bestEffort</code>.
       </td>
     </tr>
     <tr>
@@ -576,7 +574,7 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
 <p>
   <strong>Best effort</strong> is on with <code>--best-effort</code>,
   <code>SANSHAIN_BEST_EFFORT=true</code> or <code>bestEffort: true</code>. A failed call (an error
-  status, an unreachable server, a missing URL) is printed, followed by
+  status, an unreachable server, a missing URL outside strict mode) is printed, followed by
   <code>Continuing (best effort)</code>, and the command exits 0.
 </p>
 <ul>
@@ -585,18 +583,17 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
     <code>Error requiring &lt;serviceName&gt; &lt;version&gt;: &lt;error&gt;</code>.
   </li>
   <li>
-    <code>provide</code> skips a missing spec file with <code>Spec file not found: &lt;path&gt;</code>
-    and stops at the first failed call. When every file was missing, it prints
+    <code>provide</code> carries on with the next entry after a failed call, and skips a missing
+    spec file with <code>Spec file not found: &lt;path&gt;</code>. When every file was missing, it
+    prints
     <code>No specification files found to provide. Skipping. Set strict: true to fail in this case.</code>
-  </li>
-  <li>
-    A <code>sanshain.yaml</code> that cannot be read or does not validate prints
-    <code>Warning loading config: &lt;error&gt;</code> and <code>Continuing (best effort)</code>,
-    but only with the flag or the variable.
   </li>
 </ul>
 <p>
-  Best effort never softens strict mode: every strict failure above still fails.
+  Best effort never softens a configuration error: a <code>sanshain.yaml</code> that is missing,
+  cannot be read or does not validate (1.x fields included) fails also with best effort. Nor does
+  it soften strict mode: every strict failure above still fails, and so does a missing URL
+  (<code>strict: configuration error: missing 'sanshainUrl' — …</code>).
 </p>
 
 <h2 id="failure-modes">Failure modes</h2>
