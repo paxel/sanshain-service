@@ -240,7 +240,7 @@ npx sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
 <pre><code>- uses: paxel/sanshain-js@main
   with:
     command: provide
-    ga: ${{ github.ref == 'refs/heads/main' }}
+    ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}
     trunk: ${{ github.ref == 'refs/heads/main' }}
   env:
     SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}

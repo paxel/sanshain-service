@@ -456,11 +456,16 @@ jobs:
       - uses: paxel/sanshain-js@main
         with:
           command: provide
-          ga: ${{ github.ref == 'refs/heads/main' }}
+          ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}
           trunk: ${{ github.ref == 'refs/heads/main' }}
         env:
           SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
           SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}</code></pre>
+<p>
+  <code>ga</code> is <code>'true'</code> on main and empty elsewhere, never <code>false</code>: an
+  empty value is unset in every client, while <code>false</code> keeps a build a snapshot even under
+  <code>autoGa: true</code>. With <code>autoGa</code> the <code>ga</code> line can go.
+</p>
 <p>Or with <code>curl</code>, as a pull-request check:</p>
 <pre><code>      - name: Validate the API contract (dry run)
         run: |

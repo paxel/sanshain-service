@@ -697,16 +697,23 @@ fn variables(role: SetupRole, ci: Option<CiSystem>, url: Option<&str>) -> Vec<Va
 }
 
 /// The GitHub Actions steps the docs show: the JavaScript client's Action,
-/// or a run step with the switches in the environment.
+/// or a run step with the switches in the environment. The ga switch is
+/// `'true'` on main and empty elsewhere, never `false`: every client reads an
+/// empty value as unset, while an explicit `false` would keep a build a
+/// snapshot even under `autoGa: true`.
 fn github_steps(facts: &ClientFacts, role: SetupRole) -> String {
     const ON_MAIN: &str = "${{ github.ref == 'refs/heads/main' }}";
+    const GA_ON_MAIN: &str = "${{ github.ref == 'refs/heads/main' && 'true' || '' }}";
     const ENV: &str = "    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
                        SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n";
     let mut steps = String::new();
     let mut step = |command: &str, run: &str, ga: bool| {
         let ga_line = |indent: &str, key: &str| {
             if ga {
-                format!("{indent}{key}: {ON_MAIN}\n")
+                format!(
+                    "{indent}# GA on main; or drop this line and set autoGa: true in sanshain.yaml\n\
+                     {indent}{key}: {GA_ON_MAIN}\n"
+                )
             } else {
                 String::new()
             }
@@ -1251,7 +1258,8 @@ mod tests {
                 "- run: mvn sanshain:provide\n  env:\n    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
                  SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n    \
                  SANSHAIN_TRUNK: ${{ github.ref == 'refs/heads/main' }}\n    \
-                 SANSHAIN_GA: ${{ github.ref == 'refs/heads/main' }}\n"
+                 # GA on main; or drop this line and set autoGa: true in sanshain.yaml\n    \
+                 SANSHAIN_GA: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}\n"
             )
         );
         let yaml: crate::yaml::Value = crate::yaml::from_str(&guide.sanshain_yaml).unwrap();
@@ -1306,6 +1314,32 @@ mod tests {
         );
         assert_eq!(yaml["requires"][0]["version"], "1.0.0");
         assert_eq!(yaml.get("provides"), None);
+    }
+
+    #[test]
+    fn an_npm_producer_on_github_sets_ga_on_main_only_never_false() {
+        let guide = setup_guide(
+            SetupRole::Producer,
+            BuildTool::Npm,
+            Some(CiSystem::GithubActions),
+            Some(&corp()),
+        )
+        .unwrap();
+        let snippet = guide.ci_setup.and_then(|c| c.snippet).unwrap();
+        assert_eq!(
+            snippet,
+            "- uses: paxel/sanshain-js@main\n  with:\n    command: provide\n    \
+             # GA on main; or drop this line and set autoGa: true in sanshain.yaml\n    \
+             ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}\n    \
+             trunk: ${{ github.ref == 'refs/heads/main' }}\n  env:\n    \
+             SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
+             SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n"
+        );
+        let workflow: crate::yaml::Value = crate::yaml::from_str(&snippet).unwrap();
+        assert_eq!(
+            workflow[0]["with"]["ga"], "${{ github.ref == 'refs/heads/main' && 'true' || '' }}",
+            "the snippet stays valid YAML with the comment"
+        );
     }
 
     #[test]
