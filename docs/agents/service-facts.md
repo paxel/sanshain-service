@@ -232,8 +232,13 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 
 - `POST /mcp`, stateless Streamable HTTP, API tokens only (read-only recommended), sessions 401.
   Tools: list_services, describe_service, find_endpoint, get_spec, get_graph, diff_versions,
-  blame, endpoint_structure. 60 calls/min/token, 64 KiB per answer (summary + hint above).
-  Read-only; never users, settings, audit, observability.
+  blame, endpoint_structure; setup: draft_sanshain_yaml (the file from named provides/requires/
+  catalog/autoGa/annotations, never stored). 60 calls/min/token, 64 KiB per answer (summary + hint
+  above). Read-only; never users, settings, audit, observability.
+- Setup answers carry `instance {url, derived}`: `PUBLIC_BASE_URL` (`McpConfig.public_base_url`),
+  else `X-Forwarded-Proto`/`X-Forwarded-Host`/`Host` of the request (`derived: true`). Builds use a
+  separate `full` token from `/account.html`; the MCP token stays read-only. Code:
+  `src/application/setup_service.rs`.
 - Code: `src/presentation/mcp.rs`, `src/presentation/mcp/tools.rs`,
   `src/application/mcp_service.rs`. Source: `site/developer/mcp.html`.
 

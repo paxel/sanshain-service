@@ -188,6 +188,17 @@ async fn seed() -> Seed {
 /// body (`Null` when it is not JSON).
 #[cfg(test)]
 async fn rpc(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+    rpc_with_headers(app, token, &[], body).await
+}
+
+/// [`rpc`] with extra request headers, e.g. what a proxy adds.
+#[cfg(test)]
+async fn rpc_with_headers(
+    app: &axum::Router,
+    token: Option<&str>,
+    headers: &[(&str, &str)],
+    body: Value,
+) -> (StatusCode, Value) {
     let mut builder = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -199,6 +210,9 @@ async fn rpc(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCod
         .header(axum::http::header::CONTENT_TYPE, "application/json");
     if let Some(token) = token {
         builder = builder.header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
     let res = app
         .clone()
@@ -419,7 +433,7 @@ async fn call_json(app: &axum::Router, token: &str, tool: &str, arguments: Value
 }
 
 #[tokio::test]
-async fn tools_list_names_the_seven_tools_with_schemas() {
+async fn tools_list_names_the_tools_with_schemas() {
     let seed = seed().await;
     let (status, body) = rpc(&seed.app, Some(&seed.full), tools_list_request()).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -435,7 +449,8 @@ async fn tools_list_names_the_seven_tools_with_schemas() {
             "get_graph",
             "diff_versions",
             "blame",
-            "endpoint_structure"
+            "endpoint_structure",
+            "draft_sanshain_yaml"
         ]
     );
     for tool in tools {
@@ -1051,5 +1066,135 @@ async fn endpoint_structure_answers_the_tree_with_last_changed_versions() {
     assert!(
         cut["hint"].as_str().unwrap().contains("two levels"),
         "{cut}"
+    );
+}
+
+/// A tool's JSON answer to a request carrying `headers`.
+#[cfg(test)]
+async fn call_json_with_headers(
+    app: &axum::Router,
+    token: &str,
+    headers: &[(&str, &str)],
+    tool: &str,
+    arguments: Value,
+) -> Value {
+    let (status, body) =
+        rpc_with_headers(app, Some(token), headers, call_request(tool, arguments)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result = &body["result"];
+    assert_eq!(result["isError"], false, "{tool} refused: {body}");
+    let text = result["content"][0]["text"].as_str().unwrap_or_default();
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("{tool} answered non-JSON ({e}): {text}"))
+}
+
+#[tokio::test]
+async fn draft_sanshain_yaml_answers_the_file_and_the_instance_address() {
+    let seed = seed().await;
+    let draft = call_json(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({
+            "service_name": "web",
+            "auto_ga": true,
+            "provides": [{ "file": "openapi.yaml" }],
+            "requires": [{
+                "service_name": "orders", "version": "1.0.0",
+                "output_directory": "generated/orders",
+                "endpoints": [{ "method": "GET", "path": "/orders/{id}" }]
+            }],
+            "annotations": [{ "scope": "system", "name": "jenkins", "value": "https://ci.corp/{{JOB}}" }]
+        }),
+    )
+    .await;
+    assert_eq!(draft["file"], "sanshain.yaml");
+    let content = draft["content"].as_str().unwrap();
+    assert!(
+        content.starts_with("serviceName: web\nautoGa: true\n"),
+        "{content}"
+    );
+    assert!(content.contains("path: /orders/{id}"), "{content}");
+    assert!(
+        !content.contains("sanshainUrl"),
+        "the address stays in the environment"
+    );
+    assert_eq!(
+        draft["instance"],
+        json!({ "url": "http://sanshain.example", "derived": true }),
+        "derived from the Host the request reached"
+    );
+    assert_eq!(draft["environment"][0]["name"], "SANSHAIN_URL");
+    assert_eq!(draft["environment"][0]["value"], "http://sanshain.example");
+    assert_eq!(
+        draft["environment"][1]["mint_at"],
+        "http://sanshain.example/account.html"
+    );
+    assert_eq!(draft["auto_ga"]["token_role"], "releaser");
+    assert_eq!(draft["annotations"]["min_service_version"], "2.13.0");
+
+    let behind_proxy = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-host", "sanshain.corp"),
+        ],
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web" }),
+    )
+    .await;
+    assert_eq!(
+        behind_proxy["instance"],
+        json!({ "url": "https://sanshain.corp", "derived": true })
+    );
+    assert_eq!(behind_proxy["auto_ga"], Value::Null);
+    assert_eq!(behind_proxy["content"], "serviceName: web\n");
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({
+            "service_name": "web",
+            "requires": [{
+                "service_name": "orders", "version": "1.x",
+                "output_directory": "generated/orders",
+                "endpoints": [{ "method": "GET", "path": "/orders" }]
+            }]
+        }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("exact MAJOR.MINOR.PATCH"),
+        "{text}"
+    );
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web", "provides": [{ "file": "a.yaml", "stability": "ga" }] }),
+    )
+    .await;
+    assert!(is_error && text.contains("unknown field"), "{text}");
+}
+
+#[tokio::test]
+async fn the_configured_public_base_url_is_not_derived() {
+    let seed = seed_with(McpConfig {
+        public_base_url: Some("https://sanshain.corp".to_string()),
+        ..Default::default()
+    })
+    .await;
+    let draft = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[("x-forwarded-host", "elsewhere.corp")],
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web" }),
+    )
+    .await;
+    assert_eq!(
+        draft["instance"],
+        json!({ "url": "https://sanshain.corp", "derived": false })
     );
 }

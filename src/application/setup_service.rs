@@ -4,7 +4,259 @@
 //! against the client table of `site/developer/clients.html`, so the page
 //! and the answers cannot drift apart.
 
+use crate::domain::models::{AnnotationEntry, AnnotationScope, Annotations, ApiType, AppError};
 use serde::Serialize;
+
+/// The address of this Sanshain instance as a setup answer names it:
+/// `PUBLIC_BASE_URL` when the operator set it, otherwise the address the
+/// caller reached, marked `derived` because a proxy may have rewritten it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct InstanceUrl {
+    pub url: String,
+    pub derived: bool,
+}
+
+/// The request headers the instance address is derived from.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RequestAddress<'a> {
+    pub forwarded_proto: Option<&'a str>,
+    pub forwarded_host: Option<&'a str>,
+    pub host: Option<&'a str>,
+}
+
+/// The first entry of a header a chain of proxies may have appended to.
+fn first_entry(value: Option<&str>) -> Option<&str> {
+    value
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+}
+
+/// `configured` (`PUBLIC_BASE_URL`, already validated at start) when set;
+/// else `X-Forwarded-Proto` (`http` when absent or neither `http` nor
+/// `https`) and `X-Forwarded-Host`, falling back to `Host`. A host holding
+/// anything but the characters of a host and port is not used; without a
+/// usable host the address is unknown.
+pub fn instance_url(configured: Option<&str>, request: &RequestAddress) -> Option<InstanceUrl> {
+    if let Some(url) = configured.map(|u| u.trim().trim_end_matches('/'))
+        && !url.is_empty()
+    {
+        return Some(InstanceUrl {
+            url: url.to_string(),
+            derived: false,
+        });
+    }
+    let scheme = match first_entry(request.forwarded_proto).map(str::to_ascii_lowercase) {
+        Some(p) if p == "https" => "https",
+        _ => "http",
+    };
+    let host = first_entry(request.forwarded_host).or_else(|| first_entry(request.host))?;
+    let plausible = host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']'));
+    plausible.then(|| InstanceUrl {
+        url: format!("{scheme}://{host}"),
+        derived: true,
+    })
+}
+
+/// One `provides` entry of a drafted `sanshain.yaml`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraftProvide {
+    pub file: String,
+    pub api_type: Option<ApiType>,
+    pub retired: bool,
+}
+
+/// One endpoint of a drafted `requires` entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraftEndpoint {
+    pub method: String,
+    pub path: String,
+}
+
+/// One `requires` entry of a drafted `sanshain.yaml`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraftRequire {
+    pub service_name: String,
+    pub version: String,
+    pub output_directory: String,
+    pub endpoints: Vec<DraftEndpoint>,
+    pub api_type: Option<ApiType>,
+    /// `format: openapi`: the payload schemas of an AsyncAPI requirement as
+    /// an OpenAPI document.
+    pub format_openapi: bool,
+}
+
+/// What a caller names for its `sanshain.yaml`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DraftRequest {
+    pub service_name: String,
+    pub catalog_info: Option<String>,
+    pub auto_ga: bool,
+    pub annotations: Vec<AnnotationEntry>,
+    pub provides: Vec<DraftProvide>,
+    pub requires: Vec<DraftRequire>,
+}
+
+/// The file as the clients read it, in the order the documentation writes
+/// it. Defaults are left out, so the draft says only what was asked for.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SanshainYaml<'a> {
+    service_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog_info: Option<&'a str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    auto_ga: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    annotations: Vec<YamlAnnotation<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    provides: Vec<YamlProvide<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    requires: Vec<YamlRequire<'a>>,
+}
+
+#[derive(Serialize)]
+struct YamlAnnotation<'a> {
+    scope: AnnotationScope,
+    name: &'a str,
+    value: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YamlProvide<'a> {
+    file: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_type: Option<ApiType>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    retired: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YamlRequire<'a> {
+    service_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_type: Option<ApiType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<&'static str>,
+    version: String,
+    output_directory: &'a str,
+    endpoints: Vec<YamlEndpoint<'a>>,
+}
+
+#[derive(Serialize)]
+struct YamlEndpoint<'a> {
+    method: &'a str,
+    path: &'a str,
+}
+
+fn required<'a>(value: &'a str, what: &str) -> Result<&'a str, AppError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(AppError::BadRequest(format!("{what} must not be empty")));
+    }
+    Ok(value)
+}
+
+/// An exact pin, `MAJOR.MINOR.PATCH` and nothing else: the file is the
+/// contract a reader trusts, so it carries the stored form.
+fn exact_pin(raw: &str, producer: &str) -> Result<String, AppError> {
+    let raw = raw.trim();
+    let three_numbers = raw.split('.').count() == 3
+        && raw
+            .split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+    let parsed = three_numbers
+        .then(|| raw.parse::<crate::domain::models::SemVer>().ok())
+        .flatten();
+    parsed.map(|v| v.to_string()).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "the pin of '{producer}' is '{raw}': a require pins an exact MAJOR.MINOR.PATCH, no ranges and no latest"
+        ))
+    })
+}
+
+/// A `sanshain.yaml` from what the caller names. Refuses what every client
+/// or the service would refuse later: an empty name, file or path, a pin
+/// that is not exact, a require without endpoints, `format: openapi`
+/// outside AsyncAPI, and annotations out of the service's bounds.
+pub fn draft_sanshain_yaml(request: &DraftRequest) -> Result<String, AppError> {
+    let service_name = required(&request.service_name, "service_name")?;
+    Annotations::from_entries(&request.annotations)
+        .map_err(|e| AppError::BadRequest(format!("annotations: {e}")))?;
+    let annotations = request
+        .annotations
+        .iter()
+        .map(|a| YamlAnnotation {
+            scope: a.scope,
+            name: a.name.trim(),
+            value: a.value.trim(),
+        })
+        .collect();
+    let provides = request
+        .provides
+        .iter()
+        .map(|p| {
+            Ok(YamlProvide {
+                file: required(&p.file, "a provide's file")?,
+                api_type: p.api_type.filter(|t| *t != ApiType::OpenApi),
+                retired: p.retired,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let requires = request
+        .requires
+        .iter()
+        .map(|r| {
+            let producer = required(&r.service_name, "a require's service_name")?;
+            if r.endpoints.is_empty() {
+                return Err(AppError::BadRequest(format!(
+                    "the require of '{producer}' names no endpoints"
+                )));
+            }
+            if r.format_openapi && r.api_type != Some(ApiType::AsyncApi) {
+                return Err(AppError::BadRequest(format!(
+                    "the require of '{producer}': format openapi only goes with api_type asyncapi"
+                )));
+            }
+            let endpoints = r
+                .endpoints
+                .iter()
+                .map(|e| {
+                    Ok(YamlEndpoint {
+                        method: required(&e.method, "an endpoint's method")?,
+                        path: required(&e.path, "an endpoint's path")?,
+                    })
+                })
+                .collect::<Result<Vec<_>, AppError>>()?;
+            Ok(YamlRequire {
+                service_name: producer,
+                api_type: r.api_type.filter(|t| *t != ApiType::OpenApi),
+                format: r.format_openapi.then_some("openapi"),
+                version: exact_pin(&r.version, producer)?,
+                output_directory: required(&r.output_directory, "a require's output_directory")?,
+                endpoints,
+            })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let file = SanshainYaml {
+        service_name,
+        catalog_info: request
+            .catalog_info
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty()),
+        auto_ga: request.auto_ga,
+        annotations,
+        provides,
+        requires,
+    };
+    crate::yaml::to_string(&file)
+        .map_err(|e| AppError::Internal(format!("could not write sanshain.yaml: {e}")))
+}
 
 /// The build tool a system builds with, one per official client.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -202,5 +454,259 @@ mod tests {
             .map(|c| c.build_tool.as_str())
             .collect();
         assert_eq!(with, ["maven", "npm"]);
+    }
+
+    #[test]
+    fn instance_url_prefers_the_configured_base_url() {
+        let request = RequestAddress {
+            forwarded_proto: Some("https"),
+            forwarded_host: Some("proxy.corp"),
+            host: Some("internal:3000"),
+        };
+        assert_eq!(
+            instance_url(Some("https://sanshain.corp/"), &request),
+            Some(InstanceUrl {
+                url: "https://sanshain.corp".to_string(),
+                derived: false
+            })
+        );
+        assert_eq!(
+            instance_url(Some("  "), &request),
+            Some(InstanceUrl {
+                url: "https://proxy.corp".to_string(),
+                derived: true
+            }),
+            "a blank configuration counts as unset"
+        );
+    }
+
+    #[test]
+    fn instance_url_is_derived_from_the_forwarded_headers_then_the_host() {
+        let derived = |proto, forwarded, host| {
+            instance_url(
+                None,
+                &RequestAddress {
+                    forwarded_proto: proto,
+                    forwarded_host: forwarded,
+                    host,
+                },
+            )
+            .map(|u| (u.url, u.derived))
+        };
+        assert_eq!(
+            derived(None, None, Some("sanshain.example:3000")),
+            Some(("http://sanshain.example:3000".to_string(), true))
+        );
+        assert_eq!(
+            derived(Some("HTTPS, http"), Some("a.corp, b.internal"), Some("x")),
+            Some(("https://a.corp".to_string(), true)),
+            "the first proxy's entry is the caller's"
+        );
+        assert_eq!(
+            derived(Some("gopher"), None, Some("[::1]:3000")),
+            Some(("http://[::1]:3000".to_string(), true))
+        );
+        assert_eq!(derived(Some("https"), None, None), None);
+        assert_eq!(derived(None, Some(" "), Some("")), None);
+        assert_eq!(
+            derived(None, Some("evil.corp/phish?x="), Some("ok")),
+            None,
+            "a host with a path is not an address"
+        );
+    }
+
+    fn orders_require() -> DraftRequire {
+        DraftRequire {
+            service_name: "orders".to_string(),
+            version: "1.2.0".to_string(),
+            output_directory: "generated/orders".to_string(),
+            endpoints: vec![
+                DraftEndpoint {
+                    method: "GET".to_string(),
+                    path: "/orders/{id}".to_string(),
+                },
+                DraftEndpoint {
+                    method: "POST".to_string(),
+                    path: "/orders".to_string(),
+                },
+            ],
+            api_type: None,
+            format_openapi: false,
+        }
+    }
+
+    #[test]
+    fn draft_writes_only_what_was_named_in_the_documented_order() {
+        let yaml = draft_sanshain_yaml(&DraftRequest {
+            service_name: "billing".to_string(),
+            catalog_info: Some("catalog-info.yaml".to_string()),
+            auto_ga: true,
+            annotations: vec![
+                AnnotationEntry {
+                    scope: AnnotationScope::Version,
+                    name: "requirements".to_string(),
+                    value: "https://wiki.corp/{{ID}}".to_string(),
+                },
+                AnnotationEntry {
+                    scope: AnnotationScope::System,
+                    name: "job".to_string(),
+                    value: "{{JOB_URL}}".to_string(),
+                },
+            ],
+            provides: vec![
+                DraftProvide {
+                    file: "openapi.yaml".to_string(),
+                    api_type: Some(ApiType::OpenApi),
+                    retired: false,
+                },
+                DraftProvide {
+                    file: "billing.proto".to_string(),
+                    api_type: Some(ApiType::Proto),
+                    retired: true,
+                },
+            ],
+            requires: vec![
+                orders_require(),
+                DraftRequire {
+                    service_name: "events".to_string(),
+                    version: "2.0.0".to_string(),
+                    output_directory: "generated/events".to_string(),
+                    endpoints: vec![DraftEndpoint {
+                        method: "PUB".to_string(),
+                        path: "orders.created".to_string(),
+                    }],
+                    api_type: Some(ApiType::AsyncApi),
+                    format_openapi: true,
+                },
+            ],
+        })
+        .unwrap();
+        let read: crate::yaml::Value = crate::yaml::from_str(&yaml).unwrap();
+        let keys: Vec<&str> = read
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "serviceName",
+                "catalogInfo",
+                "autoGa",
+                "annotations",
+                "provides",
+                "requires"
+            ],
+            "{yaml}"
+        );
+        assert_eq!(read["autoGa"], true);
+        assert_eq!(read["annotations"][0]["scope"], "version");
+        assert_eq!(read["annotations"][0]["value"], "https://wiki.corp/{{ID}}");
+        assert_eq!(
+            read["annotations"][1],
+            serde_json::json!({ "scope": "system", "name": "job", "value": "{{JOB_URL}}" }),
+            "a value that starts like a flow mapping is quoted: {yaml}"
+        );
+        assert_eq!(
+            read["provides"],
+            serde_json::json!([
+                { "file": "openapi.yaml" },
+                { "file": "billing.proto", "apiType": "proto", "retired": true }
+            ]),
+            "openapi is the default and not written"
+        );
+        assert_eq!(
+            read["requires"][0],
+            serde_json::json!({
+                "serviceName": "orders", "version": "1.2.0",
+                "outputDirectory": "generated/orders",
+                "endpoints": [
+                    { "method": "GET", "path": "/orders/{id}" },
+                    { "method": "POST", "path": "/orders" }
+                ]
+            })
+        );
+        assert_eq!(read["requires"][1]["apiType"], "asyncapi");
+        assert_eq!(read["requires"][1]["format"], "openapi");
+    }
+
+    #[test]
+    fn draft_of_a_bare_name_is_one_line() {
+        let yaml = draft_sanshain_yaml(&DraftRequest {
+            service_name: " web ".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(yaml.trim(), "serviceName: web");
+    }
+
+    #[test]
+    fn draft_refuses_what_the_clients_or_the_service_would_refuse() {
+        let refused = |request: DraftRequest| match draft_sanshain_yaml(&request) {
+            Err(AppError::BadRequest(message)) => message,
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        assert_eq!(
+            refused(DraftRequest::default()),
+            "service_name must not be empty"
+        );
+        for pin in ["1.2", "latest", "^1.2.0", "1.2.x", "v1.2.0"] {
+            let mut require = orders_require();
+            require.version = pin.to_string();
+            let message = refused(DraftRequest {
+                service_name: "web".to_string(),
+                requires: vec![require],
+                ..Default::default()
+            });
+            assert!(
+                message.contains("exact MAJOR.MINOR.PATCH"),
+                "{pin}: {message}"
+            );
+        }
+        let mut require = orders_require();
+        require.endpoints.clear();
+        assert!(
+            refused(DraftRequest {
+                service_name: "web".to_string(),
+                requires: vec![require],
+                ..Default::default()
+            })
+            .contains("names no endpoints")
+        );
+        let mut require = orders_require();
+        require.format_openapi = true;
+        assert!(
+            refused(DraftRequest {
+                service_name: "web".to_string(),
+                requires: vec![require],
+                ..Default::default()
+            })
+            .contains("only goes with api_type asyncapi")
+        );
+        assert!(
+            refused(DraftRequest {
+                service_name: "web".to_string(),
+                annotations: vec![AnnotationEntry {
+                    scope: AnnotationScope::System,
+                    name: "bad name".to_string(),
+                    value: "x".to_string(),
+                }],
+                ..Default::default()
+            })
+            .starts_with("annotations: name 'bad name'")
+        );
+        assert_eq!(
+            refused(DraftRequest {
+                service_name: "web".to_string(),
+                provides: vec![DraftProvide {
+                    file: " ".to_string(),
+                    api_type: None,
+                    retired: false,
+                }],
+                ..Default::default()
+            }),
+            "a provide's file must not be empty"
+        );
     }
 }

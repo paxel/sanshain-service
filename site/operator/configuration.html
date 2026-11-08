@@ -345,10 +345,11 @@
       <td>unset</td>
       <td>
         The URL people open Sanshain at (<code>https://sanshain.corp</code>), for the deep links in
-        webhook messages and for the admin page named in the first-start message; a trailing slash
-        is dropped and it must start with <code>http://</code> or <code>https://</code>. Unset, the
-        deep links use the origin of the OIDC redirect URL (with neither, they are omitted) and the
-        first-start message names the bind address.
+        webhook messages, for the admin page named in the first-start message and for the instance
+        address the MCP setup tools answer; a trailing slash is dropped and it must start with
+        <code>http://</code> or <code>https://</code>. Unset, the deep links use the origin of the
+        OIDC redirect URL (with neither, they are omitted), the first-start message names the bind
+        address, and the MCP setup tools answer the address the request reached, marked derived.
       </td>
     </tr>
   </tbody>

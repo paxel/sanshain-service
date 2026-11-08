@@ -1,14 +1,17 @@
-//! The eight tools the MCP server offers (https://paxel.github.io/sanshain-service/developer/mcp.html). Their names,
+//! The tools the MCP server offers (https://paxel.github.io/sanshain-service/developer/mcp.html). Their names,
 //! parameters and JSON schemas are the contract AI clients are written
 //! against; the answers are compact JSON carrying the scope they were
-//! computed for, and only catalog data.
+//! computed for, and only catalog data. The setup tools answer guidance
+//! for connecting a system instead, with the instance address; none
+//! changes anything.
 
 use super::{ToolError, ToolOutput};
 use crate::AppState;
 use crate::application::mcp_service::{self, GraphFilter, ScopeStamp};
 use crate::application::services;
+use crate::application::setup_service::{self, InstanceUrl};
 use crate::application::text_diff::DiffLineOp;
-use crate::domain::models::{ApiType, EndpointSearch, SemVer};
+use crate::domain::models::{AnnotationEntry, AnnotationScope, ApiType, EndpointSearch, SemVer};
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -155,6 +158,93 @@ pub struct EndpointStructureParams {
     pub with_examples: Option<bool>,
 }
 
+/// Where an annotation is stored, as `sanshain.yaml` spells it.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolAnnotationScope {
+    Version,
+    System,
+}
+
+/// The one alternative answer format a require can ask for.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolRequireFormat {
+    OpenApi,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftAnnotationParams {
+    /// `version`: stored with every provided version; `system`: stored once
+    /// for the system, the latest call winning.
+    pub scope: ToolAnnotationScope,
+    /// Letters, digits, `-` and `_`, at most 40.
+    pub name: String,
+    /// The value; `{{NAME}}` placeholders are filled by the build. A value
+    /// starting with http(s) is shown as a link.
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftProvideParams {
+    /// The specification file, relative to `sanshain.yaml`. Its version is
+    /// read from the file (`info.version`, or a proto's
+    /// `// sanshain-version:` comment).
+    pub file: String,
+    /// `openapi` (default), `asyncapi` or `proto`.
+    pub api_type: Option<ToolApiType>,
+    /// The system no longer provides this family (default false).
+    pub retired: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftEndpointParams {
+    /// HTTP verb, `PUB`/`SUB`, or the rpc name.
+    pub method: String,
+    /// OpenAPI path, AsyncAPI channel, or the fully qualified proto service.
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRequireParams {
+    /// The Producer to require from, as `list_services` names it.
+    pub service_name: String,
+    /// The exact pin, `MAJOR.MINOR.PATCH`: no ranges, no latest.
+    pub version: String,
+    /// Where the answered document is written, relative to `sanshain.yaml`.
+    pub output_directory: String,
+    /// The endpoints required at that pin; at least one.
+    pub endpoints: Vec<DraftEndpointParams>,
+    /// `openapi` (default), `asyncapi` or `proto`.
+    pub api_type: Option<ToolApiType>,
+    /// `openapi`, only with `api_type` `asyncapi`: the payload schemas as an
+    /// OpenAPI document.
+    pub format: Option<ToolRequireFormat>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftSanshainYamlParams {
+    /// The system's name: its Producer name, Consumer name and catalog name.
+    pub service_name: String,
+    /// The Backstage `catalog-info.yaml` the build pushes, relative to
+    /// `sanshain.yaml`.
+    pub catalog_info: Option<String>,
+    /// `true`: every build that declares a stream (trunk or tag) provides
+    /// GA, every other build a snapshot (default false).
+    pub auto_ga: Option<bool>,
+    /// Named entries the build fills in and Sanshain shows.
+    pub annotations: Option<Vec<DraftAnnotationParams>>,
+    /// The specification files this system publishes.
+    pub provides: Option<Vec<DraftProvideParams>>,
+    /// The endpoints this system depends on, one entry per Producer and pin.
+    pub requires: Option<Vec<DraftRequireParams>>,
+}
+
 /// The tool catalog, in the order clients see it. Fails only when a
 /// parameter type's schema is not an object, which a unit test pins.
 pub fn catalog() -> Result<Vec<Tool>, String> {
@@ -251,6 +341,19 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              body for writing a curl. `version` defaults to the latest. A tree too large to answer \
              comes back two levels deep with a hint.",
         )?,
+        tool::<DraftSanshainYamlParams>(
+            "draft_sanshain_yaml",
+            "Writes a `sanshain.yaml` from what you name: the system (`service_name`), the spec files \
+             it provides (`provides`: file, api_type, retired), the endpoints it requires (`requires`: \
+             Producer, exact `MAJOR.MINOR.PATCH` pin, output_directory, endpoints as method + path, \
+             api_type, format), its Backstage `catalog_info`, `auto_ga` (trunk and tag builds provide \
+             GA) and `annotations` (scope, name, value with `{{NAME}}` placeholders). Answers the file \
+             as text for you to write next to the build file, the instance address (`derived` when \
+             it was taken from this request rather than configured), and the environment the build \
+             needs. Nothing is stored or provided. Look the names and pins up first with \
+             `list_services`, `describe_service` and `find_endpoint`; a pin that is not exact, a \
+             require without endpoints or an invalid annotation is refused with a message.",
+        )?,
     ])
 }
 
@@ -317,6 +420,7 @@ fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, ToolError> {
 /// client should read.
 pub async fn dispatch(
     state: &AppState,
+    instance: Option<&InstanceUrl>,
     tool: &str,
     arguments: Value,
 ) -> Result<ToolOutput, ToolError> {
@@ -329,6 +433,7 @@ pub async fn dispatch(
         "diff_versions" => diff_versions(state, params(tool, arguments)?).await,
         "blame" => blame(state, params(tool, arguments)?).await,
         "endpoint_structure" => endpoint_structure(state, params(tool, arguments)?).await,
+        "draft_sanshain_yaml" => draft_sanshain_yaml(instance, params(tool, arguments)?),
         _ => Err(ToolError(format!(
             "unknown tool '{tool}' — tools/list names the available ones"
         ))),
@@ -584,6 +689,112 @@ async fn endpoint_structure(
     Ok(ToolOutput { body, over_budget })
 }
 
+/// The environment a build needs beside `sanshain.yaml`, which carries
+/// neither the address nor the token.
+fn build_environment(instance: Option<&InstanceUrl>) -> Value {
+    let url = instance.map(|i| i.url.as_str());
+    json!([
+        { "name": "SANSHAIN_URL", "value": url },
+        {
+            "name": "SANSHAIN_TOKEN",
+            "value": "a full-scope API token the user mints on the account page, never the MCP token",
+            "mint_at": format!("{}/account.html", url.unwrap_or_default()),
+        },
+    ])
+}
+
+fn draft_sanshain_yaml(
+    instance: Option<&InstanceUrl>,
+    p: DraftSanshainYamlParams,
+) -> Result<ToolOutput, ToolError> {
+    let request = setup_service::DraftRequest {
+        service_name: p.service_name,
+        catalog_info: p.catalog_info,
+        auto_ga: p.auto_ga.unwrap_or(false),
+        annotations: p
+            .annotations
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| AnnotationEntry {
+                scope: match a.scope {
+                    ToolAnnotationScope::Version => AnnotationScope::Version,
+                    ToolAnnotationScope::System => AnnotationScope::System,
+                },
+                name: a.name,
+                value: a.value,
+            })
+            .collect(),
+        provides: p
+            .provides
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| setup_service::DraftProvide {
+                file: d.file,
+                api_type: d.api_type.map(ApiType::from),
+                retired: d.retired.unwrap_or(false),
+            })
+            .collect(),
+        requires: p
+            .requires
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| setup_service::DraftRequire {
+                service_name: r.service_name,
+                version: r.version,
+                output_directory: r.output_directory,
+                endpoints: r
+                    .endpoints
+                    .into_iter()
+                    .map(|e| setup_service::DraftEndpoint {
+                        method: e.method,
+                        path: e.path,
+                    })
+                    .collect(),
+                api_type: r.api_type.map(ApiType::from),
+                format_openapi: r.format.is_some(),
+            })
+            .collect(),
+    };
+    let content = setup_service::draft_sanshain_yaml(&request)?;
+    let auto_ga = request.auto_ga.then(|| {
+        json!({
+            "streams": ["SANSHAIN_TRUNK", "SANSHAIN_TAG"],
+            "token_role": "releaser",
+            "explicit_ga_wins": "SANSHAIN_GA=false keeps one build a snapshot",
+            "unbumped_change_on_trunk": "409 immutable_ga with proposed_version",
+        })
+    });
+    let annotations = (!request.annotations.is_empty()).then(|| {
+        json!({
+            "min_service_version": "2.13.0",
+            "placeholders": "the client's --set NAME=value (Maven -DNAME=value), else SANSHAIN_SET_NAME",
+        })
+    });
+    let header = json!({
+        "instance": instance, "file": "sanshain.yaml",
+        "environment": build_environment(instance),
+        "auto_ga": auto_ga, "annotations": annotations,
+    });
+    let body = with_fields(&header, [("content", Value::String(content.clone()))]);
+    let over_budget = with_fields(
+        &header,
+        [
+            ("bytes", json!(content.len())),
+            ("provides", json!(request.provides.len())),
+            ("requires", json!(request.requires.len())),
+            (
+                "hint",
+                Value::String(
+                    "the file is too large to answer: draft the requires in parts and join their \
+                     lists under one requires key"
+                        .to_string(),
+                ),
+            ),
+        ],
+    );
+    Ok(ToolOutput { body, over_budget })
+}
+
 /// `base`, a JSON object, with `fields` added or replaced.
 fn with_fields<const N: usize>(base: &Value, fields: [(&str, Value); N]) -> Value {
     let mut object = base.as_object().cloned().unwrap_or_default();
@@ -611,7 +822,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_catalog_has_the_eight_tools_with_closed_schemas() {
+    fn the_catalog_has_the_tools_with_closed_schemas() {
         let tools = catalog().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
@@ -624,7 +835,8 @@ mod tests {
                 "get_graph",
                 "diff_versions",
                 "blame",
-                "endpoint_structure"
+                "endpoint_structure",
+                "draft_sanshain_yaml"
             ]
         );
         for tool in &tools {
@@ -645,6 +857,18 @@ mod tests {
                 Some(true)
             );
         }
+        let draft = &tools[8];
+        assert_eq!(
+            draft.input_schema["properties"]["requires"]["items"]["properties"]["endpoints"]["items"]
+                ["additionalProperties"],
+            Value::Bool(false),
+            "nested entries refuse unknown fields too: {:?}",
+            draft.input_schema
+        );
+        assert_eq!(
+            draft.input_schema["properties"]["annotations"]["items"]["properties"]["scope"]["enum"],
+            json!(["version", "system"])
+        );
         let get_spec = &tools[3];
         let required = get_spec.input_schema["required"].as_array().unwrap();
         assert_eq!(required, &[json!("service"), json!("api_type")]);

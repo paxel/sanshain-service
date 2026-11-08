@@ -1,11 +1,12 @@
-<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the eight tools, and the limits." -->
+<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the tools, setting a system up, and the limits." -->
 <p class="lede">
   <a href="../start/glossary.html#sanshain">Sanshain</a> exposes its catalog to AI assistants over
   the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>. An assistant with the
   endpoint configured answers "who provides the orders API and who depends on it?", "where is the
   endpoint that creates an invoice?", "what changed in <code>payments</code> between 2.3.0 and
-  2.4.0?" or "show me the spec of <code>inventory</code>" straight from the catalog. Read-only, and
-  only the catalog: never users, roles, settings, authentication, audit or observability data.
+  2.4.0?" or "show me the spec of <code>inventory</code>" straight from the catalog, and helps set a
+  system up with Sanshain. Read-only, and only the catalog: never users, roles, settings,
+  authentication, audit or observability data.
 </p>
 
 <h2>In short</h2>
@@ -18,7 +19,8 @@
   <li>
     <strong>Tools</strong>: <code>list_services</code>, <code>describe_service</code>,
     <code>find_endpoint</code>, <code>get_spec</code>, <code>get_graph</code>,
-    <code>diff_versions</code>, <code>blame</code>, <code>endpoint_structure</code>.
+    <code>diff_versions</code>, <code>blame</code>, <code>endpoint_structure</code>; for setting a
+    system up <code>draft_sanshain_yaml</code>.
   </li>
   <li>
     <strong>Limits</strong>: 60 tool calls per minute per token, 64 KiB per answer; larger answers
@@ -255,6 +257,54 @@
   together. Every schema refuses unknown parameters.
 </p>
 
+<h3>Setting a system up</h3>
+<p>
+  An assistant connecting a system to Sanshain looks up the Producers and pins with the tools above,
+  then asks <code>draft_sanshain_yaml</code> for the file and writes it itself. No tool changes
+  anything: minting the build's token and the first provide stay the user's steps.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Tool</th>
+      <th>Parameters</th>
+      <th>Answers</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>draft_sanshain_yaml</code></td>
+      <td>
+        <code>service_name</code>, <code>provides?</code> (<code>file</code>,
+        <code>api_type?</code>, <code>retired?</code>),
+        <code>requires?</code> (<code>service_name</code>, <code>version</code>,
+        <code>output_directory</code>, <code>endpoints</code>, <code>api_type?</code>,
+        <code>format?</code>), <code>catalog_info?</code>, <code>auto_ga?</code>,
+        <code>annotations?</code>
+      </td>
+      <td>
+        The <a href="sanshain-yaml.html"><code>sanshain.yaml</code></a> as <code>content</code>,
+        defaults left out and without <code>sanshainUrl</code>; the <code>instance</code> address;
+        the <code>environment</code> the build needs (<code>SANSHAIN_URL</code>,
+        <code>SANSHAIN_TOKEN</code> and where to mint it); with <code>auto_ga</code> what it takes
+        (the releaser role, a declared stream), with <code>annotations</code> the service version
+        and how placeholders are filled. A pin that is not an exact <code>MAJOR.MINOR.PATCH</code>,
+        a require without endpoints, <code>format</code> outside AsyncAPI or an annotation out of
+        bounds is refused with a message.
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The build needs its own <code>full</code> token, minted on <code>/account.html</code>; the
+  assistant's MCP token stays read-only, and CI keeps its service-account token. Every setup answer
+  names the instance as <code>{url, derived}</code>: <code>PUBLIC_BASE_URL</code> when the operator
+  set it (<code>derived: false</code>), otherwise the address the request reached, from
+  <code>X-Forwarded-Proto</code> and <code>X-Forwarded-Host</code> (the first entry of each) or the
+  <code>Host</code> header (<code>derived: true</code>). A derived address is what a proxy passed
+  on, so behind a proxy that rewrites it, set <code>PUBLIC_BASE_URL</code>.
+</p>
+
 <h3>Over-budget answers</h3>
 <p>An answer above <code>MCP_MAX_RESULT_BYTES</code> is never truncated silently:</p>
 <ul>
@@ -282,7 +332,11 @@
   </li>
   <li>
     <code>list_services</code>, <code>describe_service</code> and <code>find_endpoint</code> answer
-    counts and a hint.
+    counts and a hint;
+  </li>
+  <li>
+    <code>draft_sanshain_yaml</code> answers the file's size and entry counts with a hint to draft
+    the requires in parts.
   </li>
 </ul>
 
