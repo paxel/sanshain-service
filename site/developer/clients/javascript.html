@@ -789,11 +789,11 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
   </li>
   <li>
     <strong>Require</strong> uses <code>GET /require</code> (<code>/require/asyncapi</code>,
-    <code>/require/grpc</code> for <code>apiType: proto</code>) for an entry with one endpoint. It
-    writes <code>&lt;outputDirectory&gt;/&lt;producer&gt;.yaml</code>. An entry with several
-    endpoints goes to <code>POST /require-bundle</code> and is written as
-    <code>&lt;producer&gt;_bundle.yaml</code>. Proto results end in <code>.proto</code>. For gRPC,
-    write <code>apiType: proto</code> on requires.
+    <code>/require/grpc</code> for <code>apiType: proto</code> or <code>grpc</code>) for an entry
+    with one endpoint. It writes <code>&lt;outputDirectory&gt;/&lt;producer&gt;.yaml</code>. An entry
+    with several endpoints goes to <code>POST /require-bundle</code> and is written as
+    <code>&lt;producer&gt;_bundle.yaml</code>; a bundle sends <code>grpc</code> as
+    <code>api_type: proto</code>. Proto results end in <code>.proto</code>.
   </li>
   <li>
     <strong>Catalog</strong> sends <code>PUT /catalog/&lt;serviceName&gt;</code> and prints
