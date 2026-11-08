@@ -735,10 +735,11 @@ mvn verify                      # runs the goals bound to initialize</code></pre
         <code>Cannot read catalogInfo file &lt;path&gt;: &lt;reason&gt;</code></td>
     </tr>
     <tr>
-      <td>Unsupported <code>apiType</code> on a provide</td>
+      <td>Unsupported <code>apiType</code> on a provide or a require</td>
       <td>An <code>Invalid sanshain.yaml for Sanshain 2.0:</code> line
         <code>provides[0]: Unsupported apiType: &lt;value&gt; — use openapi, asyncapi or proto (grpc
-        means proto)</code>, before any call.</td>
+        means proto)</code> (a require's line starts <code>requires[0] (&lt;producer&gt;):</code>),
+        before any call.</td>
     </tr>
   </tbody>
 </table>
