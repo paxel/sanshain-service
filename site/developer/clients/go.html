@@ -538,18 +538,20 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
   </li>
   <li>
     The key is <code>producer|version|METHOD|path</code> for one endpoint and
-    <code>producer|version|bundle</code> for a bundle, with <code>|format=openapi</code> appended
-    when a format is asked for.
+    <code>producer|version|bundle</code> for a bundle, then <code>|format=openapi</code> when a
+    format is asked for, then <code>|out=&lt;outputDirectory&gt;</code>, the output directory as
+    resolved next to <code>sanshain.yaml</code>, so the same endpoint required into two
+    directories is written to both.
   </li>
   <li>
-    The next require sends <code>If-None-Match</code>. On <code>304</code> the client prints
+    The next require sends <code>If-None-Match</code>, unless the output file is missing; then the
+    answer is written again. On <code>304</code> the client prints
     <code>⏭ &lt;serviceName&gt; spec unchanged (304), skipping code generation.</code> and writes
     nothing. The entry is written after a file was saved, only when the answer carried an ETag.
   </li>
   <li>
-    There is no clean command. Delete <code>.sanshain-cache.json</code> to force a download; deleting
-    only the downloaded file is not enough, since an unchanged spec answers <code>304</code> and is
-    not written again.
+    There is no clean command. Delete <code>.sanshain-cache.json</code>, or the downloaded file, to
+    force a download.
   </li>
   <li>Provides are not cached: every provide uploads, and an identical upload is a
     <a href="../../start/glossary.html#idempotent-no-op">no-op</a> on the server.</li>
