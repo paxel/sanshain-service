@@ -827,7 +827,7 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
 <p>
   <code>Sanshain(self, config_path=None)</code> is built inside a recipe method. Without
   <code>config_path</code> it loads <code>sanshain.yaml</code> from the recipe's export-sources
-  folder, else from the recipe folder. Relative paths in the file are resolved against the folder
+  folder, else from the recipe folder, else from its <code>source_folder</code>. Relative paths in the file are resolved against the folder
   the file was loaded from. A <code>conan install</code> carries no plugin flags, so the helper
   reads only the environment:
 </p>
