@@ -418,8 +418,7 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td>Best effort</td>
       <td><code>--best-effort</code> (it can only switch on); then <code>SANSHAIN_BEST_EFFORT</code>
         when not empty, which overrides the file both ways (<code>yes</code> counts as off); then
-        <code>bestEffort</code>. When the file cannot be loaded, only the flag and the variable
-        count.</td>
+        <code>bestEffort</code>.</td>
     </tr>
     <tr>
       <td>Strict</td>
@@ -591,18 +590,17 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
 </ul>
 <p>
   Best effort is switched on by <code>--best-effort</code>, <code>SANSHAIN_BEST_EFFORT=true</code>
-  or <code>bestEffort: true</code> (see <a href="#precedence">Precedence</a>). A failed command then
-  prints <code>Warning: &lt;error&gt;</code> and exits 0. A configuration that cannot be loaded, the
-  1.x fields and invalid entries included, prints <code>Warning loading config: &lt;error&gt;</code>;
-  the command then runs without configuration, prints the <code>No serviceName configured</code>
-  notice and exits 0.
+  or <code>bestEffort: true</code> (see <a href="#precedence">Precedence</a>). A failed call (an
+  error status, a network error) or an unreadable spec or catalog file then prints
+  <code>Warning: &lt;error&gt;</code>, and the command goes on with the next
+  <code>provides</code> or <code>requires</code> entry and exits 0.
 </p>
 <p>
-  Best effort does not soften the strict failures for unknown fields, trunk and tag together,
-  unfilled placeholders, Sanshain warnings, or the catalog's missing <code>serviceName</code> and
-  <code>catalogInfo</code>. It does soften the strict failures of <code>provide</code> and
-  <code>require</code> for a missing <code>serviceName</code>, <code>provides</code> or
-  <code>requires</code>: they print <code>Warning: …</code> and exit 0.
+  Best effort never softens a configuration error: a <code>sanshain.yaml</code> that cannot be
+  loaded, the 1.x fields, invalid entries and an unsupported provide <code>apiType</code>
+  included, fails with <code>Error loading config: &lt;error&gt;</code>. Nor does it soften any
+  strict failure above: missing configuration in every command, unknown fields, trunk and tag
+  together, unfilled placeholders and Sanshain warnings.
 </p>
 
 <h2 id="failure-modes">Failure modes</h2>
@@ -727,6 +725,13 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
       <td>1.x field</td>
       <td><code>Error loading config: '&lt;field&gt;' is no longer supported — &lt;hint&gt;</code>
         (prefixed with the entry, such as <code>requires[0]: </code>). Exit 1.</td>
+    </tr>
+    <tr>
+      <td>Unsupported <code>apiType</code> on a provide</td>
+      <td>
+        <code>Error loading config: provide[0]: unsupported apiType: &lt;value&gt; — use openapi,
+        asyncapi or proto (grpc means proto)</code>. Exit 1, before any request.
+      </td>
     </tr>
     <tr>
       <td>Invalid requires entry</td>
