@@ -630,17 +630,20 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
     <tr>
       <td><code>403</code> on provide</td>
       <td>
-        <code>provide refused (403): &lt;message&gt;</code>, then that publishing GA requires the
-        <code>releaser</code> role, or to publish a snapshot by leaving <code>--ga</code> /
-        <code>SANSHAIN_GA</code> unset and <code>autoGa</code> off (or setting
-        <code>SANSHAIN_GA=false</code>). Exit 1.
+        <code>provide refused (403): &lt;message&gt;</code>. When the service refused for want of the
+        <code>releaser</code> role, it adds that publishing GA requires the role, or to publish a
+        snapshot by leaving <code>--ga</code> / <code>SANSHAIN_GA</code> unset and
+        <code>autoGa</code> off (or setting <code>SANSHAIN_GA=false</code>). Any other
+        <code>403</code>, such as a read-only token's (which needs scope <code>full</code>), shows
+        the service's message alone. Exit 1.
       </td>
     </tr>
     <tr>
       <td><code>403</code> or <code>404</code> on a retire</td>
       <td>
-        <code>retire refused (403): …</code> naming the releaser role or a maintainer grant on the
-        Producer; <code>retire failed (404): …</code> when nothing was ever provided under that name.
+        <code>retire refused (403): …</code>, naming the releaser role or a maintainer grant on the
+        Producer when the service refused for want of the role (any other <code>403</code> shows the
+        service's message alone); <code>retire failed (404): …</code> when nothing was ever provided under that name.
       </td>
     </tr>
     <tr>
