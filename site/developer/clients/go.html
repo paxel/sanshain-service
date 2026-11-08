@@ -70,8 +70,8 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
     endpoint uses <code>GET /require</code> (<code>/require/asyncapi</code>,
     <code>/require/grpc</code>) and writes <code>&lt;outputDirectory&gt;/&lt;serviceName&gt;.yaml</code>;
     an entry with two or more endpoints uses <code>POST /require-bundle</code> and writes
-    <code>&lt;serviceName&gt;_bundle.yaml</code>. With <code>apiType: proto</code> the file ends in
-    <code>.proto</code>; write <code>proto</code>, not <code>grpc</code>, on a requires entry. The
+    <code>&lt;serviceName&gt;_bundle.yaml</code>. With <code>apiType: proto</code> (or
+    <code>grpc</code>) the file ends in <code>.proto</code>. The
     directory is created, the file is written readable by the owner only, and the client prints
     <code>Saved &lt;file&gt; to &lt;directory&gt;</code>.
   </li>
@@ -318,7 +318,8 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td><code>requires[].apiType</code></td>
       <td><code>openapi</code></td>
       <td>1.0.0</td>
-      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code>.</td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
+        means proto).</td>
     </tr>
     <tr>
       <td>—</td>
