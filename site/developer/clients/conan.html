@@ -690,10 +690,12 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <tr>
       <td><code>403</code></td>
       <td>
-        <code>Refused (403): &lt;body&gt;</code>, then a line that says publishing GA needs the
-        <code>releaser</code> role, retiring needs it or a maintainer grant, and a snapshot is the
-        fallback (leave <code>--ga</code> / <code>SANSHAIN_GA</code> unset and <code>autoGa</code>
-        off, or set <code>SANSHAIN_GA=false</code>). Exits 1.
+        <code>Refused (403): &lt;body&gt;</code>. When the service refused for want of the
+        <code>releaser</code> role, a line follows that says publishing GA needs the role, retiring
+        needs it or a maintainer grant, and a snapshot is the fallback (leave <code>--ga</code> /
+        <code>SANSHAIN_GA</code> unset and <code>autoGa</code> off, or set
+        <code>SANSHAIN_GA=false</code>). Any other <code>403</code>, such as a read-only token's
+        (which needs scope <code>full</code>), shows the service's body alone. Exits 1.
       </td>
     </tr>
     <tr>
