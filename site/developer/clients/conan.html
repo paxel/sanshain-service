@@ -557,17 +557,20 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <a href="../../start/glossary.html#etag">ETag</a> in
     <code>.sanshain-cache/state.json</code>. That path is relative to the <strong>working
     directory</strong>, not to <code>sanshain.yaml</code>. On the next run the client sends the
-    ETag as <code>If-None-Match</code>.
+    ETag as <code>If-None-Match</code>, but only while the output file is there: a missing file is
+    fetched again with a <code>200</code>.
   </li>
   <li>
     The key is <code>&lt;serviceName&gt;|&lt;version&gt;|&lt;METHOD&gt;|&lt;path&gt;</code> for a
     single endpoint and <code>&lt;serviceName&gt;|&lt;version&gt;|bundle</code> for a bundle. With
-    <code>format</code> set, <code>|format=&lt;format&gt;</code> is appended.
+    <code>format</code> set, <code>|format=&lt;format&gt;</code> is appended, and then always
+    <code>|out=&lt;outputDirectory&gt;</code> (as written in <code>sanshain.yaml</code>, with forward
+    slashes), so the same endpoint required into two directories is fetched for each.
   </li>
 </ul>
 <pre><code>{
   "requires": {
-    "user-service|1.2.0|GET|/api/v1/users": {
+    "user-service|1.2.0|GET|/api/v1/users|out=gen": {
       "etag": "\"sha256:def456...\"",
       "last_fetched": "2026-04-25T12:00:00+00:00"
     }
@@ -580,8 +583,7 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
   <li>
     On <code>304</code> the client prints
     <code>⏭ &lt;serviceName&gt; spec unchanged (304), skipping code generation.</code> and leaves
-    the output file as it is. A 304 does not write the file again, even if it was deleted. When you
-    clean the generated folder, delete <code>.sanshain-cache/</code> as well.
+    the output file as it is.
   </li>
   <li>
     An unreadable or broken state file is ignored, and the client starts fresh.
