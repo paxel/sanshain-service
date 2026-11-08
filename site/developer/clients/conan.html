@@ -84,7 +84,8 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
     <a href="../../start/glossary.html#bundle"><code>POST /require-bundle</code></a>, and the merged
     document is written as one file. The file is
     <code>&lt;outputDirectory&gt;/&lt;serviceName&gt;.yaml</code>, or <code>.proto</code> for
-    <code>apiType: proto</code> (use <code>proto</code>, not <code>grpc</code>, on requires). The
+    <code>apiType: proto</code> or <code>grpc</code> (a bundle sends <code>grpc</code> as
+    <code>api_type: proto</code>). The
     client writes the bytes exactly as received and creates the directory if needed. It prints
     <code>Requiring N endpoints from &lt;serviceName&gt; (version: &lt;pin&gt;, type:
     &lt;apiType&gt;)...</code> and <code>Saved to &lt;file&gt;</code>.
@@ -327,7 +328,8 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
       <td><code>requires[].apiType</code></td>
       <td><code>openapi</code></td>
       <td>1.0.0</td>
-      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code>.</td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
+        means proto).</td>
     </tr>
     <tr>
       <td>—</td>
