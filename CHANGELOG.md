@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Panning the graph no longer slows down the page after many redraws.
 - A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
 - An AsyncAPI message given as a local `$ref` (`#/components/messages/…`, also inside `oneOf`) now registers its message contract on a GA provide and is harvested as a subscription; before, only messages written inline counted.
+- The GitHub Actions examples of the site name the JavaScript client's Action as `paxel/sanshain-js@summer`; the `@main` they named does not exist, so the step failed to resolve.
 
 ---
 

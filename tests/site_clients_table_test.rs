@@ -10,8 +10,8 @@
 //! the other lacks.
 
 use regex::Regex;
-use sanshain_service::application::setup_service::CLIENTS;
-use std::path::Path;
+use sanshain_service::application::setup_service::{CLIENTS, GITHUB_ACTION};
+use std::path::{Path, PathBuf};
 
 const TABLE_PAGE: &str = "site/developer/clients.html";
 const TABLE_ID: &str = "clients";
@@ -95,5 +95,50 @@ fn the_client_table_matches_the_setup_facts() -> Result<(), String> {
             client.build_tool.as_str()
         );
     }
+    Ok(())
+}
+
+/// Every `.html` file under `dir`, depth first.
+fn html_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.is_dir() {
+            html_files(&path, out)?;
+        } else if path.extension().is_some_and(|e| e == "html") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// A workflow step naming the JavaScript client's Action uses the ref the
+/// setup answers give (#93): the repository has no `main` branch, so a
+/// step written `paxel/sanshain-js@main` fails to resolve.
+#[test]
+fn every_page_names_the_action_the_setup_facts_give() -> Result<(), String> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("site");
+    let mut files = Vec::new();
+    html_files(&root, &mut files)?;
+    let uses = Regex::new(r"paxel/sanshain-js@[A-Za-z0-9_/-]+(?:\.[A-Za-z0-9_/-]+)*")
+        .map_err(|e| e.to_string())?;
+    let mut seen = 0;
+    for file in &files {
+        let html = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        for found in uses.find_iter(&html) {
+            seen += 1;
+            assert_eq!(
+                found.as_str(),
+                GITHUB_ACTION,
+                "{} names the Action as {}; src/application/setup_service.rs (GITHUB_ACTION) says {GITHUB_ACTION}",
+                file.display(),
+                found.as_str()
+            );
+        }
+    }
+    assert!(
+        seen >= 2,
+        "the site should show the Action in clients.html and ci-integration.html"
+    );
     Ok(())
 }

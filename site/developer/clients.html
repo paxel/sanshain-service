@@ -237,7 +237,7 @@ npx sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
   <code>ga</code>, <code>trunk</code>, <code>tag</code>, <code>tickets</code>, <code>note</code> and
   <code>working-directory</code>; the build and pull-request URLs come from GitHub's own variables:
 </p>
-<pre><code>- uses: paxel/sanshain-js@main
+<pre><code>- uses: paxel/sanshain-js@summer
   with:
     command: provide
     ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}

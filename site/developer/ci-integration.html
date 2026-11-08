@@ -453,7 +453,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: paxel/sanshain-js@main
+      - uses: paxel/sanshain-js@summer
         with:
           command: provide
           ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}

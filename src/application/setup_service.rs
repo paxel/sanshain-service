@@ -307,6 +307,10 @@ pub struct ClientFacts {
     pub output_root: &'static str,
 }
 
+/// The JavaScript client's GitHub Action as a workflow step names it:
+/// the repository's default branch, `summer` (it has no `main`).
+pub const GITHUB_ACTION: &str = "paxel/sanshain-js@summer";
+
 /// The five official clients, in the order `clients.html` lists them.
 pub const CLIENTS: [ClientFacts; 5] = [
     ClientFacts {
@@ -720,7 +724,7 @@ fn github_steps(facts: &ClientFacts, role: SetupRole) -> String {
         };
         if facts.build_tool == BuildTool::Npm {
             steps.push_str(&format!(
-                "- uses: paxel/sanshain-js@main\n  with:\n    command: {command}\n{}    \
+                "- uses: {GITHUB_ACTION}\n  with:\n    command: {command}\n{}    \
                  trunk: {ON_MAIN}\n  env:\n{ENV}",
                 ga_line("    ", "ga")
             ));
@@ -1301,7 +1305,7 @@ mod tests {
         assert_eq!(
             guide.ci_setup.and_then(|c| c.snippet).as_deref(),
             Some(
-                "- uses: paxel/sanshain-js@main\n  with:\n    command: require\n    \
+                "- uses: paxel/sanshain-js@summer\n  with:\n    command: require\n    \
                  trunk: ${{ github.ref == 'refs/heads/main' }}\n  env:\n    \
                  SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
                  SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n"
@@ -1328,7 +1332,7 @@ mod tests {
         let snippet = guide.ci_setup.and_then(|c| c.snippet).unwrap();
         assert_eq!(
             snippet,
-            "- uses: paxel/sanshain-js@main\n  with:\n    command: provide\n    \
+            "- uses: paxel/sanshain-js@summer\n  with:\n    command: provide\n    \
              # GA on main; or drop this line and set autoGa: true in sanshain.yaml\n    \
              ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}\n    \
              trunk: ${{ github.ref == 'refs/heads/main' }}\n  env:\n    \
