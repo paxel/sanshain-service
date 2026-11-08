@@ -72,7 +72,7 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
     <code>/require/grpc</code>. Two or more endpoints arrive as one merged document through
     <code>POST /require-bundle</code>. The file is written to
     <code>&lt;outputDirectory&gt;/&lt;serviceName&gt;.yaml</code>, or <code>.proto</code> for
-    <code>apiType: proto</code>, and the directories are created. Give each entry its own
+    <code>apiType: proto</code> (or <code>grpc</code>), and the directories are created. Give each entry its own
     <code>outputDirectory</code>: two entries for the same Producer in one directory write the same
     file.
   </li>
@@ -163,7 +163,8 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
       <td><code>provides[].apiType</code>, <code>requires[].apiType</code></td>
       <td><code>openapi</code></td>
       <td>—</td>
-      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (not <code>grpc</code>).</td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
+        means proto since 4.0.0; before, it was refused).</td>
     </tr>
     <tr>
       <td>—</td>
