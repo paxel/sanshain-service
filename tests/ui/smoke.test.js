@@ -1432,6 +1432,7 @@ test.describe("Graph provides/requires badges", () => {
   const TRUNK = "s7-trunk-svc"; // trunk REST line, dev-only messaging line
   const TRUNK_CONSUMER = "s7-trunk-consumer";
   const SUB = "s7-subscriber"; // pins A's channel
+  const PRODUCT = "s7-product"; // a Product of GRPC (#76)
   const openapi = (title) =>
     [
       "openapi: 3.0.3",
@@ -1617,6 +1618,29 @@ test.describe("Graph provides/requires badges", () => {
       }),
       "catalog push",
     );
+    // A Product (#76) of the gRPC service, from a chart whose infrastructure
+    // subchart is skipped, plus a member that is no system.
+    const created = await request.post("/admin/products", {
+      headers,
+      data: { name: PRODUCT },
+    });
+    if (created.status() !== 409) await ok(created, "create Product");
+    await ok(
+      await request.post(`/admin/products/${PRODUCT}/chart`, {
+        headers,
+        data: {
+          chart_yaml: [
+            "apiVersion: v2",
+            `name: ${PRODUCT}`,
+            "dependencies:",
+            "  - name: greeter-chart",
+            `    alias: ${GRPC}`,
+            "  - name: redis",
+          ].join("\n"),
+        },
+      }),
+      "import the Product's Chart.yaml",
+    );
   });
 
   const openGraph = async (page) => {
@@ -1698,6 +1722,34 @@ test.describe("Graph provides/requires badges", () => {
     await page.goto("/graph.html?focus=tag:s7-tagged");
     await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
     await expect(node(page, GRPC)).toHaveCount(1);
+    await expect(node(page, ASYNC_B)).toHaveCount(0);
+    await expect(node(page, TRUNK)).toHaveCount(0);
+  });
+
+  test("a Product page lists its members and a product: focus narrows the graph", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    await page.goto("/products.html");
+    const card = page.locator(`[data-product="${PRODUCT}"]`);
+    await expect(card).toContainText("1 member", { timeout: 10000 });
+    await card.click();
+    await expect(page.locator("#product-name")).toHaveText(PRODUCT);
+    const row = page.locator(`[data-member="${GRPC}"]`);
+    await expect(row.locator('[data-role="producer"]')).toHaveCount(1);
+    await expect(row.locator('[data-origin="helm"]')).toHaveCount(1);
+    // root may edit: the controls are live.
+    await expect(row.locator('[data-click="removeProductMember"]')).toBeEnabled();
+    await expect(page.locator("#product-chart-import")).toBeEnabled();
+    await expect(page.locator("#product-graph-link")).toHaveAttribute(
+      "href",
+      `/graph.html?focus=${encodeURIComponent(`product:${PRODUCT}`)}`,
+    );
+    // The focus keeps the member and its neighbours, like tag:.
+    await page.click("#product-graph-link");
+    await expect(node(page, GRPC)).toHaveCount(1, { timeout: 20000 });
+    await expect(node(page, ASYNC_A)).toHaveCount(1);
+    await expect(node(page, REST)).toHaveCount(0);
     await expect(node(page, ASYNC_B)).toHaveCount(0);
     await expect(node(page, TRUNK)).toHaveCount(0);
   });

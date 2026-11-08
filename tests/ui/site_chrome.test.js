@@ -7,6 +7,7 @@ const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const PAGES = [
   ["/producers.html", true],
   ["/consumers.html", true],
+  ["/products.html", true],
   ["/graph.html", true],
   ["/reports.html", true],
   ["/account.html", true],
@@ -14,7 +15,7 @@ const PAGES = [
   ["/observability.html", false],
   ["/admin.html", false],
 ];
-const OPEN_LINKS = ["Producers", "Consumers", "Graph", "Reports", "Observability"];
+const OPEN_LINKS = ["Producers", "Consumers", "Products", "Graph", "Reports", "Observability"];
 
 async function signIn(page) {
   await page.goto("/account.html");
@@ -35,6 +36,7 @@ test("every page carries the same header and its footer", async ({ page }) => {
     await expect(nav.locator("a"), path).toHaveText([
       "Producers",
       "Consumers",
+      "Products",
       "Graph",
       "Reports",
       "Audit",

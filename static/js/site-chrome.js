@@ -33,6 +33,7 @@
         <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1">
           ${link("/producers.html", "Producers")}
           ${link("/consumers.html", "Consumers")}
+          ${link("/products.html", "Products")}
           ${link("/graph.html", "Graph")}
           ${link("/reports.html", "Reports")}
           ${gated("nav-audit-link", "/audit.html", "Audit")}

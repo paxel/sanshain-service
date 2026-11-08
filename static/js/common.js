@@ -42,7 +42,8 @@ function hasAnyPermission(user, permissions) {
 // --- Gated controls ---
 //
 // A control marked `data-needs="<permission>"` (and, for one Producer's
-// actions, `data-needs-producer="<name>"`) is greyed out and inert for a caller
+// actions, `data-needs-producer="<name>"`; for one Product's membership,
+// `data-needs-product="<name>"`) is greyed out and inert for a caller
 // who may not use it, with a title naming the permission — never hidden, so
 // the user learns the feature exists and whom to ask. A maintainer grant on
 // the named Producer counts like the global permission, as the server's
@@ -51,16 +52,20 @@ function hasAnyPermission(user, permissions) {
 let gateUser = null;
 let gateObserver = null;
 
-function gateAllows(user, permission, producer) {
+function gateAllows(user, permission, producer, product) {
   if (!user) return false;
   if (user.is_root || hasPermission(user, permission)) return true;
+  // A Product Maintainer (#76) may edit that Product's member list.
+  if (product) {
+    return Array.isArray(user.maintains_products) && user.maintains_products.includes(product);
+  }
   return Boolean(producer) && Array.isArray(user.maintains) && user.maintains.includes(producer);
 }
 
 function gateElement(el) {
   const permission = el.dataset.needs;
   if (!permission || !gateUser) return;
-  if (gateAllows(gateUser, permission, el.dataset.needsProducer)) {
+  if (gateAllows(gateUser, permission, el.dataset.needsProducer, el.dataset.needsProduct)) {
     if (el.hasAttribute("data-gated")) {
       el.removeAttribute("data-gated");
       el.removeAttribute("aria-disabled");
@@ -74,7 +79,12 @@ function gateElement(el) {
   el.setAttribute("data-gated", "");
   el.setAttribute("aria-disabled", "true");
   if ("disabled" in el) el.disabled = true;
-  el.title = `Needs the ${permission} permission${el.dataset.needsProducer ? " or a maintainer grant on " + el.dataset.needsProducer : ""} — ask an administrator`;
+  const scoped = el.dataset.needsProduct
+    ? " or being a Product Maintainer of " + el.dataset.needsProduct
+    : el.dataset.needsProducer
+      ? " or a maintainer grant on " + el.dataset.needsProducer
+      : "";
+  el.title = `Needs the ${permission} permission${scoped} — ask an administrator`;
 }
 
 function applyGates(root = document) {

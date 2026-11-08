@@ -1,4 +1,4 @@
-<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff, blame and the structure view, Consumers, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
+<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff, blame and the structure view, Consumers, Products, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
 <p class="lede">
   Everything a build records is browsable. This chapter walks the pages a developer opens: Producers
   and their <a href="../start/glossary.html#version-line">version lines</a>, the spec viewer,
@@ -231,6 +231,30 @@
   <figcaption>The Consumers page; a Consumer opens to its pins.</figcaption>
 </figure>
 
+<h2>Products</h2>
+<p>
+  <code>/products.html</code> lists every <a href="../start/glossary.html#product">Product</a>, an
+  envelope of the systems that make up something you ship, with its member count. A Product's page
+  shows each member with its roles (<strong>Producer</strong>, <strong>Consumer</strong>, or
+  <strong>not in Sanshain</strong> while no system of that name exists; it is live again when one
+  provides or requires) and its origin: <strong>Helm</strong> members come from the last pasted
+  umbrella <code>Chart.yaml</code> and leave when a chart no longer lists them,
+  <strong>manual</strong> ones were ticked by hand and stay. <strong>Show in graph</strong> opens
+  the graph focused on <code>product:&lt;name&gt;</code>.
+</p>
+<p>
+  Its <a href="../start/glossary.html#product-maintainer">Product Maintainers</a> and the admins
+  tick systems into the Product (every Producer and Consumer is offered), remove members, and
+  paste the chart: each dependency's <code>alias</code>, else its <code>name</code>, is matched to
+  a system name exactly. The import applies at once and reports what it added, removed and skipped;
+  a name that is no Producer and no Consumer, such as <code>redis</code>, is skipped, and a chart
+  that does not parse or lists no dependencies changes nothing. Admins create and delete Products
+  (deleting one leaves its systems as they are); whoever holds <code>manage_roles</code> ticks the
+  users and groups maintaining it (a directory group is first added on the admin page). Being a
+  Product Maintainer gives no power over the member systems. See
+  <a href="../operator/roles.html">Roles and permissions</a>.
+</p>
+
 <h2>The dependency graph</h2>
 <p>
   <code>/graph.html</code> renders the graph as an interactive SVG. The toolbar selects one of three
@@ -258,7 +282,8 @@
 <p>
   All views share the focus filter (type to find a service and tick it to spotlight its
   neighbourhood, untick to let go; or type <code>tag:&lt;name&gt;</code> and press Enter for every
-  system whose catalog carries the tag), the Circular
+  system whose catalog carries the tag, or <code>product:&lt;name&gt;</code> for the member systems
+  of a <a href="../start/glossary.html#product">Product</a>), the Circular
   layout, the protocol filters (OpenAPI, AsyncAPI, Proto), the <strong>Periphery</strong> switch for
   <a href="../start/glossary.html#peripheral-resource">peripheral resources</a> (remembered in the
   browser; a link that hides protocols still decides it), and the

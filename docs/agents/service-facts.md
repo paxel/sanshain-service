@@ -199,8 +199,12 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   Product Maintainer); maintainers `manage_roles` (user or group, directory groups by DN live).
   `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Not in `api.yaml`,
   reports or release cuts. Nuke database removes Products.
+- UI: `static/products.html` (list, `?name=` page; controls gated by `data-needs-product`), nav
+  link; graph focus `product:<name>` beside `tag:` in `static/js/graph.js` (members fetched from
+  `GET /admin/products/{name}`, then members + neighbours).
 - Code: `src/application/product_service.rs`, `src/helm.rs`, `src/application/authz.rs`,
-  `src/presentation/handlers/products.rs`. Source: `site/operator/roles.html`.
+  `src/presentation/handlers/products.rs`, `static/js/pages/products.js`. Sources:
+  `site/operator/roles.html`, `site/developer/web-ui.html`.
 
 ## Authentication and permissions
 

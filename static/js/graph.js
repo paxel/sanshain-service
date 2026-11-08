@@ -928,6 +928,20 @@ function getFilteredReport(report) {
         });
         continue;
       }
+      // `product:<name>` (#76) focuses the Product's member systems, plus
+      // their neighbours, like `tag:`. A member not in Sanshain has no node.
+      if (target.startsWith("product:")) {
+        const members = graphProductMembers(tag.slice(8).trim());
+        members.forEach((name) => {
+          if (!deps.some((d) => d.client === name || d.service === name)) return;
+          focusNodes.add(name);
+          deps.forEach((d) => {
+            if (d.client === name) focusNodes.add(d.service);
+            if (d.service === name) focusNodes.add(d.client);
+          });
+        });
+        continue;
+      }
       // `domain:<name>` focuses every service of the domain, plus their
       // neighbours: where a click in the domain view leads.
       if (target.startsWith("domain:")) {
@@ -1411,6 +1425,38 @@ function failBranchSelection(name, reason) {
 }
 window.selectBranchView = selectBranchView;
 
+// The member names of the Products a `product:<name>` focus names (#76),
+// fetched once per Product from its read route. Unknown until loaded, and
+// empty for a Product that does not exist.
+const graphProductMemberCache = new Map();
+
+function graphProductMembers(product) {
+  return graphProductMemberCache.get(product) || [];
+}
+
+async function graphLoadFocusProducts() {
+  const wanted = window.graphFocusTags
+    .filter((t) => t.toLowerCase().startsWith("product:"))
+    .map((t) => t.slice(8).trim())
+    .filter((p) => p && !graphProductMemberCache.has(p));
+  if (wanted.length === 0) return;
+  await Promise.all(
+    wanted.map(async (product) => {
+      let members = [];
+      try {
+        const res = await apiCall(`/admin/products/${encodeURIComponent(product)}`);
+        if (res.ok) members = ((await res.json()).members || []).map((m) => m.system);
+        else console.warn(`No Product '${product}' to focus on`);
+      } catch (e) {
+        console.warn(`Could not load Product '${product}':`, e);
+      }
+      graphProductMemberCache.set(product, members);
+    }),
+  );
+  redrawGraph();
+}
+window.graphLoadFocusProducts = graphLoadFocusProducts;
+
 function addFocusTag(name) {
   if (!name || !name.trim()) return;
   const trimmed = name.trim();
@@ -1419,6 +1465,7 @@ function addFocusTag(name) {
   renderFocusTags();
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
+  void graphLoadFocusProducts();
 }
 window.addFocusTag = addFocusTag;
 

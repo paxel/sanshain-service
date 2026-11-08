@@ -764,6 +764,7 @@ function restoreGraphFiltersFromUrl() {
     window.graphFocusTags = [];
   }
   renderFocusTags();
+  void window.graphLoadFocusProducts();
 
   const hide_protocols = params.get("hide_protocols");
   const hiddenSet = new Set(hide_protocols ? hide_protocols.split(",").filter(Boolean) : []);
@@ -935,7 +936,8 @@ window.addEventListener("sanshain-update", async () => {
 });
 
 // The Focus picker: tick services to spotlight them, untick to let go. Text
-// that names no service (such as `tag:payments`) is taken with Enter.
+// that names no service (such as `tag:payments` or `product:shop`) is taken
+// with Enter.
 let graphFocusServices = [];
 function initGraphFocusPicker() {
   const root = document.getElementById("graph-focus-picker");
