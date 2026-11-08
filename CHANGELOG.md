@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - MCP `setup_guide` answers, for a system's role, build tool and CI, the client with its install line and build-file snippet, the commands, the build's token and where it goes, the variables and a `sanshain.yaml` skeleton, as structured facts.
 - MCP `draft_sanshain_yaml` writes a system's `sanshain.yaml` (provides, requires, catalog info, `autoGa`, annotations) from the names and pins an assistant looked up, and answers the instance address and the environment the build needs; it changes nothing.
 - Products (ADR-0011): named envelopes of systems on a new Products page, kept by Product Maintainers (users or groups, also directory groups) who pick known systems or paste the Helm umbrella `Chart.yaml` (each dependency's `alias`, else `name`; unknown names skipped and reported, members added by hand kept), each member shown with its roles or as "not in Sanshain", and a `product:<name>` graph focus; a Product grants no power over its members (routes under `/admin/products`, all audited).
+- The site documents each of the five clients on a page of its own (Maven, Rust, Go, JavaScript with the GitHub Action, Conan): install, every option with the client version it arrived in, the precedence, caching, strict mode and best effort, the failure modes and CI recipes; the client READMEs now point there.
 
 ### Changed
 - Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.

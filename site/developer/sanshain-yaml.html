@@ -107,8 +107,9 @@ requires:
       <td>no</td>
       <td><code>false</code></td>
       <td>
-        Ask for gzip-compressed answers. Honoured by the Maven (default <code>true</code> there), Go
-        and JavaScript clients; the Rust and Conan clients accept the key and ignore it.
+        Send the bodies of provide, bundle and catalog push gzip-compressed. Honoured by the Maven
+        (default <code>true</code> there, which also asks for compressed answers), Go and JavaScript
+        clients; the Rust and Conan clients accept the key and ignore it.
       </td>
     </tr>
     <tr>
@@ -116,8 +117,9 @@ requires:
       <td>no</td>
       <td><code>false</code></td>
       <td>
-        Turn failed calls into warnings. Read by the Rust, Go, Maven and Conan clients; the
-        JavaScript client takes <code>SANSHAIN_BEST_EFFORT</code> instead.
+        Turn failed calls into warnings. Read by every client; <code>SANSHAIN_BEST_EFFORT</code>
+        and the clients' own switches turn it on too (each
+        <a href="clients.html">client's page</a> has its precedence).
       </td>
     </tr>
     <tr>

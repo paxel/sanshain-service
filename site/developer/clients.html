@@ -1,17 +1,25 @@
-<!-- page: title="Clients" track="developer" order=3 summary="The official clients, one per ecosystem: Maven, cargo, Go, JavaScript with its GitHub Action, Conan. Install, commands, the ga switch, streams and strict mode, with a link to each client's own documentation." -->
+<!-- page: title="Clients" track="developer" order=3 summary="The official clients, one per ecosystem: Maven, cargo, Go, JavaScript with its GitHub Action, Conan. Install, commands, the ga switch, streams and strict mode, with a link to each client's complete page." -->
 <p class="lede">
   Builds do not call <code>curl</code>. Each client reads
   <a href="sanshain-yaml.html"><code>sanshain.yaml</code></a>
   and speaks the same contract; what differs is how it is installed and invoked. This chapter gives
-  the shape of each one and links its own documentation, which stays the authority for flags and
-  edge cases.
+  the shape of each one; each client's own page has every option with the client version it arrived
+  in, the precedence, caching, strict mode and best effort, the failure modes and CI recipes:
+  <a href="clients/maven.html">Maven</a>, <a href="clients/rust.html">Rust</a>,
+  <a href="clients/go.html">Go</a>, <a href="clients/javascript.html">JavaScript</a>,
+  <a href="clients/conan.html">Conan</a>.
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
+  <p class="eyebrow">What changed in 2.13.0</p>
   <ul>
     <li>
-      No client needs an update for 2.12. A required spec written by 2.12 differs once in its YAML style, not in content; a build that commits it sees that diff once.
+      Each client has a complete page of its own on this site, which is now the authority for its
+      configuration and usage; the client READMEs keep the install, a minimal example and a link.
+    </li>
+    <li>
+      The client versions in the table bring <code>autoGa</code> and annotations; annotations need
+      Sanshain Service 2.13.0.
     </li>
   </ul>
 </div>
@@ -82,10 +90,11 @@
 <h2>What every client has in common</h2>
 <ul>
   <li>
-    <strong>Compatibility</strong>: client 2.x speaks Sanshain Service 2.x. The catalog push and
-    <code>format: openapi</code> need Sanshain Service 2.4.0 or later, the origin of a provide 2.9.0
-    or later (an older service refuses it; the client warns and provides without it); everything
-    else works with any 2.x service.
+    <strong>Compatibility</strong>: every client speaks Sanshain Service 2.x (the Rust client is
+    versioned on its own and is at 4.x). The catalog push and <code>format: openapi</code> need
+    Sanshain Service 2.4.0 or later, the origin of a provide 2.9.0 or later, annotations 2.13.0 or
+    later (an older service refuses the origin or the annotations; the client warns and sends the
+    call again without them); everything else works with any 2.x service.
   </li>
   <li><strong>Three commands</strong>: provide, require, catalog, each a separate step.</li>
   <li>
@@ -111,6 +120,13 @@
     <a href="ci-integration.html#why-the-origin-of-a-build">CI integration</a>.
   </li>
   <li>
+    <strong>Annotations</strong>: the <code>{{NAME}}</code> placeholders of the
+    <a href="sanshain-yaml.html#annotations">annotations</a> in <code>sanshain.yaml</code> are filled
+    by Maven's <code>-DNAME=value</code> or the CLIs' <code>--set NAME=value</code>, with
+    <code>SANSHAIN_SET_NAME</code> as the fallback in every client; an entry left unfilled is left
+    out with a warning.
+  </li>
+  <li>
     <strong>Dry runs</strong>: Maven (<code>-Dsanshain.dry.run=true</code>) and the JavaScript CLI
     (<code>--dry-run</code>) send <code>dry_run</code>; the Rust, Go and Conan clients and the
     GitHub Action do not.
@@ -129,9 +145,11 @@
   </li>
   <li>
     <strong>Caching</strong>: provides always upload (the server's
-    <a href="../start/glossary.html#idempotent-no-op">no-op</a> makes that free); requires keep the
+    <a href="../start/glossary.html#idempotent-no-op">no-op</a> makes that free). The Maven, Go,
+    JavaScript and Conan CLIs keep each require's
     <a href="../start/glossary.html#etag">ETag</a> in a state file and skip rewriting on
-    <code>304</code>.
+    <code>304</code>; the Rust client and the Conan <code>conanfile.py</code> helper keep none and
+    download every require in full.
   </li>
   <li>
     <strong>Rejections</strong>: a <code>409</code> is printed with its

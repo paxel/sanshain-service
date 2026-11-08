@@ -117,8 +117,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 
 - Every client does the same steps: load `sanshain.yaml`, resolve settings by precedence (flag >
   env > file > default), resolve the Origin (flag > `SANSHAIN_*` > runner variables, e.g.
-  `sanshain-go/internal/api/origin.go`), call provide/require/catalog, keep require ETags in a state
-  file. A client change usually lands in all five with the same rule text.
+  `sanshain-go/internal/api/origin.go`), call provide/require/catalog; the Maven, Go, JS and Conan CLIs keep
+  require ETags in a state file (sanshain-rs and the conanfile helper keep none). A client change usually lands in all five with the same rule text.
 - All read `sanshain.yaml`: `serviceName`, `sanshainUrl`, `compression`, `bestEffort`,
   `catalogInfo`, `strict`, `autoGa`, `annotations[scope, name, value]`,
   `provides[file, apiType, retired]`,
@@ -133,6 +133,11 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   equal to the table in `site/developer/clients.html`. A client release updates both.
 - Clients speak service 2.x (sanshain-rs is versioned on its own, 4.x); origin needs service
   ≥2.9.0, catalog push ≥2.4.0, annotations ≥2.13.0 (older: retried without, with a warning).
+- The site is the authority for each client (#93): one page per client,
+  `site/developer/clients/*.html` (maven, rust, go, javascript, conan), every option with the client
+  version it arrived in; the client READMEs keep install, a minimal example and a link. A client
+  change updates its page. The Action ref is `GITHUB_ACTION` in `setup_service.rs`
+  (`paxel/sanshain-js@summer`, no `main` branch), checked across `site/` by the same test.
 - Sources: `site/developer/clients.html`, `site/developer/sanshain-yaml.html`.
 
 ## Streams and graphs
