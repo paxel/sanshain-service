@@ -4,6 +4,7 @@ pub use super::auth_service::*;
 pub use super::branch_service::*;
 pub use super::catalog_service::*;
 pub use super::dashboard_service::*;
+pub use super::product_service::*;
 pub use super::provide_service::*;
 pub use super::report_service::*;
 pub use super::require_service::*;

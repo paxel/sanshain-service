@@ -19,6 +19,7 @@ pub mod asyncapi;
 pub mod backstage;
 pub mod descriptions;
 pub mod domain;
+pub mod helm;
 pub mod infrastructure;
 pub mod openapi;
 pub mod presentation;

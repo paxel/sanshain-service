@@ -8,6 +8,7 @@ pub mod catalog_service;
 pub mod dashboard_service;
 pub mod directory_roles;
 pub mod mcp_service;
+pub mod product_service;
 pub mod provide_service;
 pub mod report_service;
 pub mod require_service;
