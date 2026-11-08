@@ -618,11 +618,13 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
     <tr>
       <td><code>403</code></td>
       <td>
-        Provide: <code>provide refused (403): &lt;message&gt;</code>, followed by a hint that a GA
-        provide needs the <code>releaser</code> role or should stay a snapshot (no
-        <code>--ga</code>, no <code>SANSHAIN_GA</code>, <code>autoGa</code> off, or
-        <code>SANSHAIN_GA=false</code>). Retire: <code>retire refused (403): &lt;message&gt;</code>,
-        naming the releaser role or a maintainer grant. Exit 1.
+        Provide: <code>provide refused (403): &lt;message&gt;</code>. When the service refused for
+        want of the <code>releaser</code> role, a hint follows that a GA provide needs the role or
+        should stay a snapshot (no <code>--ga</code>, no <code>SANSHAIN_GA</code>,
+        <code>autoGa</code> off, or <code>SANSHAIN_GA=false</code>). Retire:
+        <code>retire refused (403): &lt;message&gt;</code>, followed, for the same refusal, by the
+        releaser role or a maintainer grant. Any other <code>403</code>, such as a read-only
+        token's (which needs scope <code>full</code>), shows the service's message alone. Exit 1.
       </td>
     </tr>
     <tr>
