@@ -1465,6 +1465,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_review_names_a_message_contract_another_producer_owns() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        let doc = |payload: &str| {
+            format!(
+                "asyncapi: 2.6.0\ninfo: {{ title: t, version: 1.0.0 }}\nchannels:\n  orders:\n    publish:\n      message:\n        name: OrderPlaced\n        payload: {payload}\n"
+            )
+        };
+        let owned = doc("{ type: object }");
+        provide_spec(
+            &repo,
+            ProvideSpecParams {
+                producername: "shop",
+                api_type: ApiType::AsyncApi,
+                content: &owned,
+                stability: Stability::Ga,
+                dry_run: false,
+                trunk: false,
+                tag: None,
+                caller: Some(Actor::test_releaser()),
+                require_prior_content_match: false,
+            },
+        )
+        .await
+        .unwrap();
+        let other = doc("{ type: string }");
+        let verdict = review_provide(
+            &repo,
+            "billing",
+            ApiType::AsyncApi,
+            &other,
+            Stability::Ga,
+            Some("nobody"),
+        )
+        .await
+        .unwrap();
+        let (rule, message, proposed) = rejected(verdict);
+        assert_eq!(rule, "message_contract_conflict");
+        assert!(message.contains("owned by service 'shop'"), "{message}");
+        assert_eq!(proposed, None);
+    }
+
+    #[tokio::test]
     async fn a_review_of_an_invalid_document_is_the_error() {
         let repo = crate::application::mock_repo::MockRepo::new();
         let err = review_provide(
