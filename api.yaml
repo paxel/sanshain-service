@@ -319,8 +319,8 @@ paths:
             a `400`; versions are annotated on a provide). Stored with the
             Consumer on a successful require, the latest call winning per name.
             Mind proxy URL limits with many long values; `/require-bundle`
-            takes the same entries in its body. Services before 2.13.0 ignore
-            the parameter.
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
@@ -436,8 +436,8 @@ paths:
             a `400`; versions are annotated on a provide). Stored with the
             Consumer on a successful require, the latest call winning per name.
             Mind proxy URL limits with many long values; `/require-bundle`
-            takes the same entries in its body. Services before 2.13.0 ignore
-            the parameter.
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
@@ -553,8 +553,8 @@ paths:
             a `400`; versions are annotated on a provide). Stored with the
             Consumer on a successful require, the latest call winning per name.
             Mind proxy URL limits with many long values; `/require-bundle`
-            takes the same entries in its body. Services before 2.13.0 ignore
-            the parameter.
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
