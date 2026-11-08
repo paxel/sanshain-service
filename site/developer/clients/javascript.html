@@ -925,7 +925,7 @@ async function publish(spec) {
     <tr>
       <td><code>trunk</code></td>
       <td>no</td>
-      <td><code>'false'</code></td>
+      <td><code>''</code></td>
       <td><code>SANSHAIN_TRUNK</code></td>
     </tr>
     <tr>
@@ -956,10 +956,10 @@ async function publish(spec) {
 </table>
 <ul>
   <li>
-    The Action's own step always sets <code>SANSHAIN_GA</code>, <code>SANSHAIN_TRUNK</code>,
-    <code>SANSHAIN_TAG</code>, <code>SANSHAIN_TICKETS</code> and <code>SANSHAIN_NOTE</code> from
-    these inputs. Pass those settings as inputs, not as environment variables; a variable of the
-    same name set on the job or step is replaced by the input's value.
+    A non-empty input sets <code>SANSHAIN_GA</code>, <code>SANSHAIN_TRUNK</code>,
+    <code>SANSHAIN_TAG</code>, <code>SANSHAIN_TICKETS</code> or <code>SANSHAIN_NOTE</code> and
+    replaces a variable of the same name set on the job or workflow. An empty input, the default,
+    keeps that variable as it is.
   </li>
   <li>
     Everything without an input goes through the environment of the step: the URL
