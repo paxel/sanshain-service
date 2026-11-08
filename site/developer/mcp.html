@@ -1,12 +1,12 @@
-<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the tools, setting a system up, and the limits." -->
+<!-- page: title="MCP for AI assistants" track="developer" order=7 summary="Let an AI assistant query the catalog over the Model Context Protocol: the token, the endpoint, client configuration for Claude Code, Cursor and VS Code, the tools, setting a system up, reviewing a spec, and the limits." -->
 <p class="lede">
   <a href="../start/glossary.html#sanshain">Sanshain</a> exposes its catalog to AI assistants over
   the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>. An assistant with the
   endpoint configured answers "who provides the orders API and who depends on it?", "where is the
   endpoint that creates an invoice?", "what changed in <code>payments</code> between 2.3.0 and
-  2.4.0?" or "show me the spec of <code>inventory</code>" straight from the catalog, and helps set a
-  system up with Sanshain. Read-only, and only the catalog: never users, roles, settings,
-  authentication, audit or observability data.
+  2.4.0?" or "show me the spec of <code>inventory</code>" straight from the catalog, helps set a
+  system up with Sanshain and reviews a spec before it is provided. Read-only, and only the catalog:
+  never users, roles, settings, authentication, audit or observability data.
 </p>
 
 <h2>In short</h2>
@@ -20,7 +20,8 @@
     <strong>Tools</strong>: <code>list_services</code>, <code>describe_service</code>,
     <code>find_endpoint</code>, <code>get_spec</code>, <code>get_graph</code>,
     <code>diff_versions</code>, <code>blame</code>, <code>endpoint_structure</code>; for setting a
-    system up <code>setup_guide</code> and <code>draft_sanshain_yaml</code>.
+    system up <code>setup_guide</code> and <code>draft_sanshain_yaml</code>; before a provide
+    <code>review_spec</code>.
   </li>
   <li>
     <strong>Limits</strong>: 60 tool calls per minute per token, 64 KiB per answer; larger answers
@@ -325,6 +326,60 @@
   on, so behind a proxy that rewrites it, set <code>PUBLIC_BASE_URL</code>.
 </p>
 
+<h3>Reviewing a spec</h3>
+<p>
+  <code>review_spec</code> takes <code>service</code>, <code>api_type</code>, the whole spec text as
+  <code>content</code> and <code>stability?</code> (<code>ga</code> by default, or
+  <code>snapshot</code>). It runs what a <a href="api-lifecycle.html">provide</a> would, as a dry
+  run against the stored version line of <code>service</code>, and stores, audits and sends nothing.
+  It needs no releaser role: it answers what the line says, the build's own provide still needs the
+  role to release. Snapshot ownership is checked for the user of the MCP token.
+</p>
+<ul>
+  <li>
+    <code>validation</code>: whether the text parses, the version read from it, the content hash
+    after normalization and the endpoints it splits into, or the <code>error</code> a provide would
+    answer <code>400</code> with.
+  </li>
+  <li>
+    <code>version_rules</code> (absent when the text is invalid): <code>accepted</code>, or the
+    refusing <code>rule</code> (<code>immutable_ga</code>, <code>snapshot_on_ga</code>,
+    <code>snapshot_owned</code>, <code>breaking_without_major</code>,
+    <code>message_contract_conflict</code>) with its <code>message</code> and
+    <code>proposed_version</code>; <code>unchanged</code> when the bytes are the version's already,
+    <code>promoted</code> for a snapshot released in place, the endpoint <code>changes</code>, the
+    <code>requires_role</code> of a GA provide, and the <code>line</code>: how many versions it has,
+    the <code>existing</code> entry under this number and the <code>previous_ga</code>.
+  </li>
+  <li>
+    <code>findings</code>, only those that matter in Sanshain, each with a <code>code</code>, a
+    <code>message</code> and the endpoint (<code>method</code>, <code>path</code>) or the
+    <code>location</code>:
+    <ul>
+      <li>
+        <code>missing_version_marker</code>: a proto without <code>// sanshain-version:</code>;
+      </li>
+      <li>
+        <code>absolute_server_url</code>: a top-level server naming a host, copied into every
+        Consumer's snippet (a relative URL or server variables are portable);
+      </li>
+      <li>
+        <code>unnamed_message</code>: an AsyncAPI message with neither name nor title, so no message
+        contract is shared and no subscription harvested;
+      </li>
+      <li>
+        <code>removed_without_deprecation</code>: an endpoint of the previous GA that is gone and
+        was not marked deprecated there, also under a major bump;
+      </li>
+      <li>
+        <code>missing_summary</code>: an endpoint without a summary or description, which the
+        endpoint lists and the MCP answers show.
+      </li>
+    </ul>
+  </li>
+</ul>
+<p>No style linting: a spec without findings can still be a poor one.</p>
+
 <h3>Over-budget answers</h3>
 <p>An answer above <code>MCP_MAX_RESULT_BYTES</code> is never truncated silently:</p>
 <ul>
@@ -360,7 +415,11 @@
   </li>
   <li>
     <code>draft_sanshain_yaml</code> answers the file's size and entry counts with a hint to draft
-    the requires in parts.
+    the requires in parts;
+  </li>
+  <li>
+    <code>review_spec</code> answers the validation with the endpoint count, the version rules and
+    the findings counted per code, with a hint.
   </li>
 </ul>
 

@@ -285,8 +285,9 @@ depends on whom, and diff_versions / blame for how a specification changed. Scop
 everything ever provided or required, `main` is what trunk builds currently pin, a sanshain-branch name \
 is a release cut. To connect a system to Sanshain, setup_guide answers the client, commands, token and \
 variables for its build tool and CI, and draft_sanshain_yaml writes its sanshain.yaml from the names and \
-pins you looked up; neither changes anything. Answers are compact JSON; a large answer is replaced by a \
-summary with a hint on how to narrow it.";
+pins you looked up; neither changes anything. Before a spec is provided, review_spec checks it against \
+its Producer's version line as a dry run, with the findings that matter in Sanshain; it stores nothing. \
+Answers are compact JSON; a large answer is replaced by a summary with a hint on how to narrow it.";
 
 /// The MCP server behind `/mcp`. One instance serves one request; the caller
 /// is read from that request's extensions.
@@ -367,7 +368,7 @@ impl ServerHandler for SanshainMcp {
             .map(Value::Object)
             .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
         let instance = self.instance(&context);
-        match tools::dispatch(&self.state, instance.as_ref(), &tool, arguments).await {
+        match tools::dispatch(&self.state, &caller, instance.as_ref(), &tool, arguments).await {
             Ok(output) => Ok(frame(&tool, output, self.state.mcp.max_result_bytes).into()),
             Err(ToolError(message)) => {
                 record_call(&tool, "error", 0);

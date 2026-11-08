@@ -5,13 +5,16 @@
 //! for connecting a system instead, with the instance address; none
 //! changes anything.
 
-use super::{ToolError, ToolOutput};
+use super::{McpCaller, ToolError, ToolOutput};
 use crate::AppState;
 use crate::application::mcp_service::{self, GraphFilter, ScopeStamp};
+use crate::application::review_service::{self, ReviewRequest};
 use crate::application::services;
 use crate::application::setup_service::{self, InstanceUrl};
 use crate::application::text_diff::DiffLineOp;
-use crate::domain::models::{AnnotationEntry, AnnotationScope, ApiType, EndpointSearch, SemVer};
+use crate::domain::models::{
+    AnnotationEntry, AnnotationScope, ApiType, EndpointSearch, SemVer, Stability,
+};
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -288,6 +291,29 @@ pub struct DraftSanshainYamlParams {
     pub requires: Option<Vec<DraftRequireParams>>,
 }
 
+/// The stability a provide declares.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolStability {
+    Snapshot,
+    Ga,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSpecParams {
+    /// The Producer whose version line the spec is checked against, as
+    /// `list_services` names it; a name not yet provided is a new line.
+    pub service: String,
+    /// `openapi`, `asyncapi` or `proto`.
+    pub api_type: ToolApiType,
+    /// The whole specification text, as the build would provide it.
+    pub content: String,
+    /// The stability the provide would declare: `ga` (default) or
+    /// `snapshot`.
+    pub stability: Option<ToolStability>,
+}
+
 /// The tool catalog, in the order clients see it. Fails only when a
 /// parameter type's schema is not an object, which a unit test pins.
 pub fn catalog() -> Result<Vec<Tool>, String> {
@@ -412,6 +438,24 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              `list_services`, `describe_service` and `find_endpoint`; a pin that is not exact, a \
              require without endpoints or an invalid annotation is refused with a message.",
         )?,
+        tool::<ReviewSpecParams>(
+            "review_spec",
+            "Checks a specification before it is provided, against the stored version line of \
+             `service`, as a dry run: nothing is stored, audited or sent. Answers the provide's \
+             `validation` (whether the text parses, the version read from it, the content hash and \
+             the endpoints it splits into, or the error a provide would answer 400 with), \
+             `version_rules` for the `stability` you name (`ga` by default): `accepted`, else the \
+             refusing `rule` (`immutable_ga`, `snapshot_on_ga`, `snapshot_owned` as this token's \
+             user, `breaking_without_major`, `message_contract_conflict`) with its message and \
+             `proposed_version`; `unchanged` for a no-op, `promoted` for a snapshot released in \
+             place, the endpoint `changes`, the role a GA provide needs, and the `line` it was \
+             checked against (`existing` entry, `previous_ga`). And `findings`, Sanshain's only: \
+             `absolute_server_url` (copied into every Consumer snippet), `unnamed_message` \
+             (AsyncAPI, no shared message contract), `removed_without_deprecation` (an endpoint of \
+             the previous GA gone without its marker), `missing_summary` (shown in the UI and by \
+             MCP), `missing_version_marker` (proto). No style linting. Releasing stays the \
+             build's provide with its own token.",
+        )?,
     ])
 }
 
@@ -478,6 +522,7 @@ fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, ToolError> {
 /// client should read.
 pub async fn dispatch(
     state: &AppState,
+    caller: &McpCaller,
     instance: Option<&InstanceUrl>,
     tool: &str,
     arguments: Value,
@@ -493,6 +538,7 @@ pub async fn dispatch(
         "endpoint_structure" => endpoint_structure(state, params(tool, arguments)?).await,
         "setup_guide" => setup_guide(instance, params(tool, arguments)?),
         "draft_sanshain_yaml" => draft_sanshain_yaml(instance, params(tool, arguments)?),
+        "review_spec" => review_spec(state, caller, params(tool, arguments)?).await,
         _ => Err(ToolError(format!(
             "unknown tool '{tool}' — tools/list names the available ones"
         ))),
@@ -889,6 +935,51 @@ fn draft_sanshain_yaml(
     Ok(ToolOutput { body, over_budget })
 }
 
+async fn review_spec(
+    state: &AppState,
+    caller: &McpCaller,
+    p: ReviewSpecParams,
+) -> Result<ToolOutput, ToolError> {
+    let stability = match p.stability {
+        Some(ToolStability::Snapshot) => Stability::Snapshot,
+        Some(ToolStability::Ga) | None => Stability::Ga,
+    };
+    let review = review_service::review_spec(
+        &state.repo,
+        ReviewRequest {
+            producer: &p.service,
+            api_type: ApiType::from(p.api_type),
+            content: &p.content,
+            stability,
+            reviewer: Some(&caller.user.username),
+        },
+    )
+    .await?;
+    let per_code: serde_json::Map<String, Value> = review_service::FINDING_CODES
+        .iter()
+        .map(|code| {
+            let count = review.findings.iter().filter(|f| f.code == *code).count();
+            (code.to_string(), json!(count))
+        })
+        .filter(|(_, count)| count != &json!(0))
+        .collect();
+    let over_budget = json!({
+        "producer": review.producer, "api_type": review.api_type, "stability": review.stability,
+        "validation": {
+            "valid": review.validation.valid, "error": review.validation.error,
+            "version": review.validation.version, "content_hash": review.validation.content_hash,
+            "endpoints": review.validation.endpoints.len(),
+        },
+        "version_rules": review.version_rules,
+        "findings": per_code,
+        "hint": "too many findings to answer whole: the counts per code are above; fix one kind and review again",
+    });
+    Ok(ToolOutput {
+        body: to_value(&review)?,
+        over_budget,
+    })
+}
+
 /// `base`, a JSON object, with `fields` added or replaced.
 fn with_fields<const N: usize>(base: &Value, fields: [(&str, Value); N]) -> Value {
     let mut object = base.as_object().cloned().unwrap_or_default();
@@ -931,8 +1022,17 @@ mod tests {
                 "blame",
                 "endpoint_structure",
                 "setup_guide",
-                "draft_sanshain_yaml"
+                "draft_sanshain_yaml",
+                "review_spec"
             ]
+        );
+        assert_eq!(
+            tools[10].input_schema["required"],
+            json!(["service", "api_type", "content"])
+        );
+        assert_eq!(
+            tools[10].input_schema["properties"]["stability"]["enum"],
+            json!(["snapshot", "ga", null])
         );
         for tool in &tools {
             assert_eq!(tool.input_schema["type"], "object", "{}", tool.name);

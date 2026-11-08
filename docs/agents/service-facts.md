@@ -240,6 +240,11 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   else `X-Forwarded-Proto`/`X-Forwarded-Host`/`Host` of the request (`derived: true`). Builds use a
   separate `full` token from `/account.html`; the MCP token stays read-only. Code:
   `src/application/setup_service.rs`.
+- review_spec (service, api_type, content, stability default ga): `review_provide` = the provide
+  as a dry run past the GA gate (no releaser needed; snapshot ownership as the token's user;
+  `VersionConflict.rule` names the rule), plus findings: missing_version_marker,
+  absolute_server_url, unnamed_message, removed_without_deprecation (endpoint level, vs. the
+  previous GA, also under a major), missing_summary. Code: `src/application/review_service.rs`.
 - Code: `src/presentation/mcp.rs`, `src/presentation/mcp/tools.rs`,
   `src/application/mcp_service.rs`. Source: `site/developer/mcp.html`.
 

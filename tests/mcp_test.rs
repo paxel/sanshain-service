@@ -112,6 +112,8 @@ struct Seed {
     session: String,
     full: String,
     read_only: String,
+    /// A read-only token of a user without any role.
+    plain: String,
 }
 
 // `cfg(test)` is always true in this crate; the attribute marks the helpers as
@@ -135,6 +137,10 @@ async fn seed_with(mcp: McpConfig) -> Seed {
         services::create_api_token(&repo, user.id, "ai", 30, ApiTokenScope::ReadOnly)
             .await
             .unwrap();
+    let dev = repo.create_user("dev", &hash, true).await.unwrap();
+    let (_, plain) = services::create_api_token(&repo, dev.id, "ai", 30, ApiTokenScope::ReadOnly)
+        .await
+        .unwrap();
 
     for (content, trunk) in [(ORDERS_1_0_0, true), (ORDERS_1_1_0, false)] {
         services::provide_spec(
@@ -176,6 +182,7 @@ async fn seed_with(mcp: McpConfig) -> Seed {
         session: session.token,
         full,
         read_only,
+        plain,
     }
 }
 
@@ -451,7 +458,8 @@ async fn tools_list_names_the_tools_with_schemas() {
             "blame",
             "endpoint_structure",
             "setup_guide",
-            "draft_sanshain_yaml"
+            "draft_sanshain_yaml",
+            "review_spec"
         ]
     );
     for tool in tools {
@@ -1284,4 +1292,209 @@ async fn setup_guide_over_budget_answers_the_commands_and_a_hint() {
         "npm install --save-dev sanshain"
     );
     assert_eq!(guide["sanshain_yaml"], Value::Null);
+}
+
+/// `/orders` (GET and POST, neither deprecated) dropped from 1.1.0.
+const ORDERS_1_2_0: &str = r#"openapi: 3.0.0
+info:
+  title: orders
+  version: 1.2.0
+servers:
+  - url: https://orders.corp.example
+paths:
+  /orders/{id}:
+    get:
+      summary: Fetch one order
+      responses:
+        '200': { description: ok }
+"#;
+
+#[cfg(test)]
+fn finding_codes(review: &Value) -> Vec<(String, String, String)> {
+    review["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            let text = |key: &str| f[key].as_str().unwrap_or_default().to_string();
+            (text("code"), text("method"), text("path"))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn review_spec_checks_the_line_as_a_dry_run_without_the_releaser_role() {
+    let seed = seed().await;
+    let versions = |d: &Value| d["versions"].as_array().unwrap().len();
+    let before = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+
+    // A GA of a released number with other bytes, from a role-less read-only token.
+    let changed = ORDERS_1_1_0.replace("Fetch one order", "Fetch an order");
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": changed }),
+    )
+    .await;
+    assert_eq!(review["stability"], "ga", "ga is the default: {review}");
+    assert_eq!(review["validation"]["valid"], true);
+    assert_eq!(review["validation"]["version"], "1.1.0");
+    assert_eq!(review["version_rules"]["accepted"], false);
+    assert_eq!(review["version_rules"]["rule"], "immutable_ga");
+    assert_eq!(review["version_rules"]["proposed_version"], "1.1.1");
+    assert_eq!(review["version_rules"]["requires_role"], "releaser");
+    assert_eq!(
+        review["version_rules"]["line"]["existing"]["stability"],
+        "ga"
+    );
+
+    // Dropping /orders in a minor: the mislabel check and the findings.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0 }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["rule"], "breaking_without_major");
+    assert_eq!(review["version_rules"]["proposed_version"], "2.0.0");
+    assert_eq!(review["version_rules"]["line"]["previous_ga"], "1.1.0");
+    let expected = [
+        ("absolute_server_url", "", ""),
+        ("removed_without_deprecation", "GET", "/orders"),
+        ("removed_without_deprecation", "POST", "/orders"),
+    ]
+    .map(|(c, m, p)| (c.to_string(), m.to_string(), p.to_string()));
+    let mut codes = finding_codes(&review);
+    codes.sort();
+    assert_eq!(codes, expected, "{review}");
+
+    // As a snapshot the rules pass; the findings stay.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({
+            "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0,
+            "stability": "snapshot",
+        }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["accepted"], true, "{review}");
+    assert_eq!(review["version_rules"]["changes"]["inserts"], 1);
+    assert_eq!(review["version_rules"]["requires_role"], Value::Null);
+    assert_eq!(finding_codes(&review).len(), 3, "{review}");
+
+    // The released bytes again: a no-op, and the endpoints without a summary.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_1_0 }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["accepted"], true);
+    assert_eq!(review["version_rules"]["unchanged"], true);
+    let mut codes = finding_codes(&review);
+    codes.sort();
+    assert_eq!(
+        codes,
+        [
+            ("missing_summary", "GET", "/orders"),
+            ("missing_summary", "POST", "/orders")
+        ]
+        .map(|(c, m, p)| (c.to_string(), m.to_string(), p.to_string()))
+    );
+
+    // A proto without its marker: the 400 a provide answers, and the finding.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({
+            "service": "billing", "api_type": "proto",
+            "content": "syntax = \"proto3\";\nservice Billing {\n  // Charge a card.\n  rpc Charge (Req) returns (Res);\n}\n",
+        }),
+    )
+    .await;
+    assert_eq!(review["validation"]["valid"], false);
+    assert!(
+        review["validation"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("no version marker"),
+        "{review}"
+    );
+    assert_eq!(review["version_rules"], Value::Null);
+    assert_eq!(
+        finding_codes(&review),
+        [(
+            "missing_version_marker".to_string(),
+            String::new(),
+            String::new()
+        )]
+    );
+
+    // Nothing was stored: no version, no Producer.
+    let after = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(versions(&after), versions(&before));
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "billing" }),
+    )
+    .await;
+    assert!(is_error, "a review never creates a Producer: {text}");
+}
+
+#[tokio::test]
+async fn review_spec_refuses_bad_parameters_and_over_budget_answers_counts() {
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 700,
+        ..Default::default()
+    })
+    .await;
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": "x", "stability": "beta" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("invalid parameters for review_spec"),
+        "{text}"
+    );
+
+    let review = call_json(
+        &seed.app,
+        &seed.full,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0 }),
+    )
+    .await;
+    assert!(
+        review["hint"].as_str().unwrap().contains("counts per code"),
+        "{review}"
+    );
+    assert_eq!(review["validation"]["endpoints"], 1);
+    assert_eq!(
+        review["findings"],
+        json!({ "absolute_server_url": 1, "removed_without_deprecation": 2 })
+    );
+    assert_eq!(review["version_rules"]["rule"], "breaking_without_major");
 }
