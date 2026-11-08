@@ -599,8 +599,7 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
 </p>
 <p>
   Best effort never softens a configuration error: a <code>sanshain.yaml</code> that cannot be
-  loaded, the 1.x fields, invalid entries and an unsupported provide <code>apiType</code>
-  included, fails with <code>Error loading config: &lt;error&gt;</code>. Nor does it soften any
+  loaded, the 1.x fields, invalid entries and an unsupported <code>apiType</code> included, fails with <code>Error loading config: &lt;error&gt;</code>. Nor does it soften any
   strict failure above: missing configuration in every command, unknown fields, trunk and tag
   together, unfilled placeholders and Sanshain warnings.
 </p>
@@ -732,10 +731,11 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
         (prefixed with the entry, such as <code>requires[0]: </code>). Exit 1.</td>
     </tr>
     <tr>
-      <td>Unsupported <code>apiType</code> on a provide</td>
+      <td>Unsupported <code>apiType</code> on a provide or a require</td>
       <td>
         <code>Error loading config: provide[0]: unsupported apiType: &lt;value&gt; — use openapi,
-        asyncapi or proto (grpc means proto)</code>. Exit 1, before any request.
+        asyncapi or proto (grpc means proto)</code> (a require's starts
+        <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request.
       </td>
     </tr>
     <tr>
