@@ -2012,8 +2012,76 @@ pub struct DeliveryPassSummary {
     pub dead: u64,
 }
 
+// --- Products (#76, ADR-0011) ---
+
+/// Where a Product member came from. Each member has exactly one: `helm`
+/// members follow the last pasted umbrella `Chart.yaml`, `manual` members
+/// survive every import.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ProductMemberOrigin {
+    Helm,
+    Manual,
+}
+
+impl ProductMemberOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProductMemberOrigin::Helm => "helm",
+            ProductMemberOrigin::Manual => "manual",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "helm" => Some(ProductMemberOrigin::Helm),
+            "manual" => Some(ProductMemberOrigin::Manual),
+            _ => None,
+        }
+    }
+}
+
+/// One member of a Product: a system by name, with its origin. No link to
+/// the Producer or Consumer rows — a member outlives its system's roles.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProductMember {
+    pub system: String,
+    pub origin: ProductMemberOrigin,
+}
+
+/// A Product (ADR-0011): a named envelope of systems, with its members
+/// sorted by system name.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Product {
+    pub id: i64,
+    pub name: String,
+    pub created_at: String,
+    pub members: Vec<ProductMember>,
+}
+
+/// What applying a chart's system names changed: members added, and
+/// `helm` members removed because the chart no longer lists them. Both
+/// sorted. A `manual` member the chart lists only changes its origin and
+/// appears in neither.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProductImportChanges {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_product_member_origin_round_trips_its_wire_name() {
+        use super::ProductMemberOrigin;
+        for origin in [ProductMemberOrigin::Helm, ProductMemberOrigin::Manual] {
+            assert_eq!(ProductMemberOrigin::parse(origin.as_str()), Some(origin));
+        }
+        assert_eq!(ProductMemberOrigin::Helm.as_str(), "helm");
+        assert_eq!(ProductMemberOrigin::Manual.as_str(), "manual");
+        assert_eq!(ProductMemberOrigin::parse("chart"), None);
+    }
+
     #[test]
     fn a_masked_name_keeps_its_ends_and_the_domain() {
         use super::mask_username;

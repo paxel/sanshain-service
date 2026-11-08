@@ -24,6 +24,8 @@ use std::sync::{Arc, OnceLock};
 mod common;
 #[path = "common/credential_expiry.rs"]
 mod credential_expiry;
+#[path = "common/product_membership.rs"]
+mod product_membership;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -1182,4 +1184,20 @@ async fn test_postgres_annotations_per_name_fill_only_and_system_scope() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn test_postgres_product_membership_round_trip() {
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool);
+    repo.run_migrations().await.unwrap();
+    product_membership::product_membership_round_trips(&repo).await;
 }

@@ -1578,6 +1578,128 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_maintained_producers(user_id).await
     }
 
+    // --- Products (#76) ---
+
+    async fn create_product(&self, name: &str, now_iso: &str) -> Result<Product, RepositoryError> {
+        self.inner.create_product(name, now_iso).await
+    }
+
+    async fn delete_product(&self, product_id: i64) -> Result<bool, RepositoryError> {
+        self.inner.delete_product(product_id).await
+    }
+
+    async fn list_products(&self) -> Result<Vec<Product>, RepositoryError> {
+        self.inner.list_products().await
+    }
+
+    async fn find_product(&self, name: &str) -> Result<Option<Product>, RepositoryError> {
+        self.inner.find_product(name).await
+    }
+
+    async fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .add_product_member(product_id, system, origin)
+            .await
+    }
+
+    async fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.remove_product_member(product_id, system).await
+    }
+
+    async fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> Result<ProductImportChanges, RepositoryError> {
+        self.inner.apply_product_import(product_id, systems).await
+    }
+
+    async fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .add_product_user_maintainer(product_id, user_id)
+            .await
+    }
+
+    async fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .remove_product_user_maintainer(product_id, user_id)
+            .await
+    }
+
+    async fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .add_product_group_maintainer(product_id, group_id)
+            .await
+    }
+
+    async fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner
+            .remove_product_group_maintainer(product_id, group_id)
+            .await
+    }
+
+    async fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        self.inner
+            .list_product_user_maintainer_ids(product_id)
+            .await
+    }
+
+    async fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        self.inner
+            .list_product_group_maintainer_ids(product_id)
+            .await
+    }
+
+    async fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        self.inner.maintains_product(user_id, product_id).await
+    }
+
+    async fn list_maintained_products(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_maintained_products(user_id).await
+    }
+
+    async fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        self.inner.list_group_maintained_products(group_ids).await
+    }
+
     // --- Service Tags ---
 
     async fn add_service_tags(

@@ -87,6 +87,7 @@ use super::pin_rows::{
     PinRow, SystemContextRow, VersionOriginRow, links_json, periphery_track_key, pin_row_to_info,
     system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
+use super::product_rows::{ProductMemberRow, ProductRow, import_plan, products_from_rows};
 use super::webhook_rows::{
     DeliveryRow, WebhookRow, data_from_json, data_json, delivery_columns, delivery_from_row,
     encode_event_types, webhook_columns, webhook_from_row,
@@ -1966,6 +1967,18 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        // Products (#76) are instance data like release cuts.
+        for statement in [
+            "DELETE FROM product_members",
+            "DELETE FROM product_user_maintainers",
+            "DELETE FROM product_group_maintainers",
+            "DELETE FROM products",
+        ] {
+            sqlx::query(statement)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
         sqlx::query("DELETE FROM webhook_deliveries")
             .execute(&mut *tx)
             .await
@@ -2735,6 +2748,16 @@ impl SpecRepository for PostgresSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
+            "UPDATE product_user_maintainers SET user_id = $1 WHERE user_id = $2 \
+             AND product_id NOT IN (SELECT product_id FROM product_user_maintainers WHERE user_id = $3)",
+        )
+        .bind(into)
+        .bind(from)
+        .bind(into)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
             "UPDATE user_favorites SET user_id = $1 WHERE user_id = $2 \
              AND NOT EXISTS (SELECT 1 FROM user_favorites f WHERE f.user_id = $3 \
              AND f.item_type = user_favorites.item_type AND f.item_name = user_favorites.item_name)",
@@ -3033,6 +3056,11 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM product_group_maintainers WHERE group_id = $1")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM user_groups WHERE id = $1")
             .bind(group_id)
             .execute(&self.pool)
@@ -3299,6 +3327,319 @@ impl SpecRepository for PostgresSpecRepository {
         )
         .bind(user_id)
         .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn create_product(&self, name: &str, now_iso: &str) -> Result<Product, RepositoryError> {
+        let res: Result<(i64,), sqlx::Error> =
+            sqlx::query_as("INSERT INTO products (name, created_at) VALUES ($1, $2) RETURNING id")
+                .bind(name)
+                .bind(now_iso)
+                .fetch_one(&self.pool)
+                .await;
+        match res {
+            Ok((id,)) => Ok(Product {
+                id,
+                name: name.to_string(),
+                created_at: now_iso.to_string(),
+                members: Vec::new(),
+            }),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                Err(RepositoryError::Conflict)
+            }
+            Err(e) => Err(RepositoryError::Internal(e.to_string())),
+        }
+    }
+
+    async fn delete_product(&self, product_id: i64) -> Result<bool, RepositoryError> {
+        // Cascade would handle these, but removing them explicitly keeps the
+        // two backends behaving identically.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for statement in [
+            "DELETE FROM product_members WHERE product_id = $1",
+            "DELETE FROM product_user_maintainers WHERE product_id = $1",
+            "DELETE FROM product_group_maintainers WHERE product_id = $1",
+        ] {
+            sqlx::query(statement)
+                .bind(product_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        let result = sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_products(&self) -> Result<Vec<Product>, RepositoryError> {
+        let rows: Vec<ProductRow> =
+            sqlx::query_as("SELECT id, name, created_at FROM products ORDER BY name")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let members: Vec<ProductMemberRow> =
+            sqlx::query_as("SELECT product_id, system_name, origin FROM product_members")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        products_from_rows(rows, members)
+    }
+
+    async fn find_product(&self, name: &str) -> Result<Option<Product>, RepositoryError> {
+        let row: Option<ProductRow> =
+            sqlx::query_as("SELECT id, name, created_at FROM products WHERE name = $1")
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let members: Vec<ProductMemberRow> = sqlx::query_as(
+            "SELECT product_id, system_name, origin FROM product_members WHERE product_id = $1",
+        )
+        .bind(row.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(products_from_rows(vec![row], members)?.into_iter().next())
+    }
+
+    async fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "INSERT INTO product_members (product_id, system_name, origin) VALUES ($1, $2, $3) ON CONFLICT (product_id, system_name) DO NOTHING",
+        )
+        .bind(product_id)
+        .bind(system)
+        .bind(origin.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> Result<bool, RepositoryError> {
+        let result =
+            sqlx::query("DELETE FROM product_members WHERE product_id = $1 AND system_name = $2")
+                .bind(product_id)
+                .bind(system)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> Result<ProductImportChanges, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let current: Vec<(String, String)> =
+            sqlx::query_as("SELECT system_name, origin FROM product_members WHERE product_id = $1")
+                .bind(product_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let plan = import_plan(&current, systems)?;
+        for system in &plan.upsert {
+            sqlx::query(
+                "INSERT INTO product_members (product_id, system_name, origin) VALUES ($1, $2, 'helm') \
+                 ON CONFLICT (product_id, system_name) DO UPDATE SET origin = 'helm'",
+            )
+            .bind(product_id)
+            .bind(system)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        for system in &plan.remove {
+            sqlx::query("DELETE FROM product_members WHERE product_id = $1 AND system_name = $2")
+                .bind(product_id)
+                .bind(system)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(plan.changes)
+    }
+
+    async fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO product_user_maintainers (product_id, user_id) VALUES ($1, $2) ON CONFLICT (product_id, user_id) DO NOTHING",
+        )
+        .bind(product_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM product_user_maintainers WHERE product_id = $1 AND user_id = $2",
+        )
+        .bind(product_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "INSERT INTO product_group_maintainers (product_id, group_id) VALUES ($1, $2) ON CONFLICT (product_id, group_id) DO NOTHING",
+        )
+        .bind(product_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let result = sqlx::query(
+            "DELETE FROM product_group_maintainers WHERE product_id = $1 AND group_id = $2",
+        )
+        .bind(product_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT user_id FROM product_user_maintainers WHERE product_id = $1 ORDER BY user_id",
+        )
+        .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let rows: Vec<(i64,)> = sqlx::query_as(
+            "SELECT group_id FROM product_group_maintainers WHERE product_id = $1 ORDER BY group_id",
+        )
+        .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM (
+                 SELECT 1 FROM product_user_maintainers
+                  WHERE product_id = $1 AND user_id = $2
+                 UNION ALL
+                 SELECT 1 FROM product_group_maintainers pgm
+                   JOIN user_group_members gm ON gm.group_id = pgm.group_id
+                  WHERE pgm.product_id = $3 AND gm.user_id = $4
+             ) AS assignments",
+        )
+        .bind(product_id)
+        .bind(user_id)
+        .bind(product_id)
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(row.0 > 0)
+    }
+
+    async fn list_maintained_products(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT p.name FROM products p
+               JOIN product_user_maintainers m ON m.product_id = p.id
+              WHERE m.user_id = $1
+             UNION
+             SELECT p.name FROM products p
+               JOIN product_group_maintainers pgm ON pgm.product_id = p.id
+               JOIN user_group_members gm ON gm.group_id = pgm.group_id
+              WHERE gm.user_id = $2
+             ORDER BY name",
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT p.name FROM product_group_maintainers pgm \
+             JOIN products p ON p.id = pgm.product_id \
+             WHERE pgm.group_id = ANY($1) ORDER BY p.name",
+        )
+        .bind(group_ids)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;

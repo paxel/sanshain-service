@@ -131,6 +131,12 @@ pub struct MockRepo {
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
     pub webhook_deliveries: Mutex<Vec<WebhookDelivery>>,
+    /// In-memory Products (#76) with their members.
+    pub products: Mutex<Vec<Product>>,
+    /// `(product id, user id)` Product Maintainer grants.
+    pub product_user_maintainers: Mutex<Vec<(i64, i64)>>,
+    /// `(product id, group id)` Product Maintainer grants.
+    pub product_group_maintainers: Mutex<Vec<(i64, i64)>>,
 }
 
 /// One outbox row (#47): the event and its stored `data`.
@@ -228,6 +234,9 @@ impl MockRepo {
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
             webhook_deliveries: Mutex::new(Vec::new()),
+            products: Mutex::new(Vec::new()),
+            product_user_maintainers: Mutex::new(Vec::new()),
+            product_group_maintainers: Mutex::new(Vec::new()),
         }
     }
 
@@ -2792,6 +2801,280 @@ impl SpecRepository for MockRepo {
     }
 
     // --- Service Tags ---
+
+    // --- Products (#76) ---
+
+    async fn create_product(&self, name: &str, now_iso: &str) -> Result<Product, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        if products.iter().any(|p| p.name == name) {
+            return Err(RepositoryError::Conflict);
+        }
+        let product = Product {
+            id: self.next_id(),
+            name: name.to_string(),
+            created_at: now_iso.to_string(),
+            members: Vec::new(),
+        };
+        products.push(product.clone());
+        Ok(product)
+    }
+
+    async fn delete_product(&self, product_id: i64) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = products.len();
+        products.retain(|p| p.id != product_id);
+        self.product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(pid, _)| *pid != product_id);
+        self.product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(pid, _)| *pid != product_id);
+        Ok(products.len() != before)
+    }
+
+    async fn list_products(&self) -> Result<Vec<Product>, RepositoryError> {
+        let mut products = self
+            .products
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        products.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(products)
+    }
+
+    async fn find_product(&self, name: &str) -> Result<Option<Product>, RepositoryError> {
+        Ok(self
+            .products
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|p| p.name == name)
+            .cloned())
+    }
+
+    async fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(false);
+        };
+        if product.members.iter().any(|m| m.system == system) {
+            return Ok(false);
+        }
+        product.members.push(ProductMember {
+            system: system.to_string(),
+            origin,
+        });
+        product.members.sort_by(|a, b| a.system.cmp(&b.system));
+        Ok(true)
+    }
+
+    async fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(false);
+        };
+        let before = product.members.len();
+        product.members.retain(|m| m.system != system);
+        Ok(product.members.len() != before)
+    }
+
+    async fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> Result<ProductImportChanges, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(ProductImportChanges::default());
+        };
+        let mut listed: Vec<&String> = systems.iter().collect();
+        listed.sort();
+        listed.dedup();
+        let mut changes = ProductImportChanges::default();
+        product.members.retain(|m| {
+            let keep = m.origin == ProductMemberOrigin::Manual || listed.contains(&&m.system);
+            if !keep {
+                changes.removed.push(m.system.clone());
+            }
+            keep
+        });
+        for system in listed {
+            match product.members.iter_mut().find(|m| &m.system == system) {
+                Some(member) => member.origin = ProductMemberOrigin::Helm,
+                None => {
+                    changes.added.push(system.clone());
+                    product.members.push(ProductMember {
+                        system: system.clone(),
+                        origin: ProductMemberOrigin::Helm,
+                    });
+                }
+            }
+        }
+        product.members.sort_by(|a, b| a.system.cmp(&b.system));
+        changes.removed.sort();
+        Ok(changes)
+    }
+
+    async fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(product_id, user_id)) {
+            m.push((product_id, user_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (product_id, user_id));
+        Ok(m.len() != before)
+    }
+
+    async fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(product_id, group_id)) {
+            m.push((product_id, group_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (product_id, group_id));
+        Ok(m.len() != before)
+    }
+
+    async fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let mut ids: Vec<i64> = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(pid, _)| *pid == product_id)
+            .map(|(_, uid)| *uid)
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
+    async fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let mut ids: Vec<i64> = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(pid, _)| *pid == product_id)
+            .map(|(_, gid)| *gid)
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
+    async fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        if self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&(product_id, user_id))
+        {
+            return Ok(true);
+        }
+        let members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|(pid, gid)| *pid == product_id && members.contains(&(*gid, user_id))))
+    }
+
+    async fn list_maintained_products(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let products = self.list_products().await?;
+        let mut out = Vec::new();
+        for product in products {
+            if self.maintains_product(user_id, product.id).await? {
+                out.push(product.name);
+            }
+        }
+        Ok(out)
+    }
+
+    async fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let grants = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let mut out: Vec<String> = self
+            .list_products()
+            .await?
+            .into_iter()
+            .filter(|p| {
+                grants
+                    .iter()
+                    .any(|(pid, gid)| *pid == p.id && group_ids.contains(gid))
+            })
+            .map(|p| p.name)
+            .collect();
+        out.sort();
+        Ok(out)
+    }
 
     async fn add_service_tags(
         &self,

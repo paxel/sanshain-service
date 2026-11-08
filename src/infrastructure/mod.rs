@@ -6,6 +6,7 @@ pub mod net_diag;
 pub mod oidc_provider;
 pub(crate) mod pin_rows;
 pub mod postgres_repository;
+pub(crate) mod product_rows;
 pub mod sqlite_repository;
 pub mod sqlite_snapshot;
 pub mod telemetry;
