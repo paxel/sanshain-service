@@ -161,6 +161,9 @@ pub fn create_app(state: AppState) -> Router {
         // #48: the Producer's context from its catalog-info, for its page.
         .route("/admin/producers/{name}", get(admin::admin_get_producer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}", delete(admin::admin_delete_producer).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
+        // #92: a maintainer may clear their own system; for a name that is only
+        // a Consumer there is no maintainer, so it takes the global permission.
+        .route("/admin/systems/{name}/information", delete(admin::admin_clear_system_information).layer(require(state.clone(), RouteGuard::Producer(Permission::ManageProducers))))
         .route("/admin/producers/metadata", post(admin::admin_update_producer_metadata).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
         .route("/admin/producers/{name}/versions", get(admin::admin_list_producer_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         // Delete-version is the sole escape hatch from GA immutability

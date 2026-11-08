@@ -187,6 +187,28 @@ async fn participant_context(
     })
 }
 
+/// Clear a system's information (#92): its catalog context and its system
+/// annotations go, its current periphery and missing-component edges close
+/// (dev and trunk; the timeline keeps them, sanshain-branch copies stay
+/// untouched). The next build's push sets everything again. `NotFound` for
+/// a name that is neither a Producer nor a Consumer.
+#[instrument(skip_all, fields(system = %name))]
+pub async fn clear_system_information(
+    repo: &impl SpecRepository,
+    name: &str,
+) -> Result<(), AppError> {
+    if !participants(repo).await?.iter().any(|p| p == name) {
+        return Err(AppError::NotFound(format!(
+            "no system '{name}': it is neither a Producer nor a Consumer"
+        )));
+    }
+    repo.reconcile_periphery(name, true, &[], &now_iso(), Vec::new())
+        .await?;
+    repo.delete_system_context(name).await?;
+    repo.delete_system_annotations(name).await?;
+    Ok(())
+}
+
 /// Every Producer and Consumer name — who counts as a participant.
 #[instrument(skip_all)]
 pub(crate) async fn participants(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {
@@ -507,6 +529,40 @@ mod tests {
                 annotations: Vec::new(),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn clearing_a_system_drops_its_information_and_refuses_unknown_names() {
+        let repo = MockRepo::new();
+        repo.ensure_service("orders").await.unwrap();
+        push_catalog(&repo, "orders", &catalog("orders", &["orders-db"]), true)
+            .await
+            .unwrap();
+        repo.upsert_system_annotations(
+            "orders",
+            &[Annotation {
+                name: "ci".to_string(),
+                value: "x".to_string(),
+            }],
+            "2026-11-08T00:00:00Z",
+        )
+        .await
+        .unwrap();
+        clear_system_information(&repo, "orders").await.unwrap();
+        assert!(
+            repo.get_system_annotations("orders")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(repo.get_system_context("orders").await.unwrap(), None);
+        for track in [PeripheryTrack::Dev, PeripheryTrack::Trunk] {
+            assert!(repo.list_periphery(track, None).await.unwrap().is_empty());
+        }
+        assert!(matches!(
+            clear_system_information(&repo, "ghost").await,
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[tokio::test]

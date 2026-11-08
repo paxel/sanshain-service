@@ -472,6 +472,33 @@ pub async fn admin_delete_version(
     ))
 }
 
+/// `DELETE /admin/systems/{name}/information` (#92): forget what the
+/// system's builds said about it — catalog context, system annotations and
+/// the current periphery. Audited; the next push sets it again.
+pub async fn admin_clear_system_information(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    services::clear_system_information(&state.repo, &name).await?;
+    let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "CLEAR_SYSTEM_INFORMATION",
+            details: &format!(
+                "Cleared the catalog information, system annotations and current periphery of '{name}'"
+            ),
+            service: Some(&name),
+            action_type: Some("WRITE"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "cleared": name })))
+}
+
 pub async fn admin_delete_consumer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,

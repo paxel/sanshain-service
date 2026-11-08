@@ -2594,4 +2594,25 @@ test.describe("Annotations", () => {
     });
     await expect(system).toHaveAttribute("href", "https://jenkins.acme.corp/job/notes");
   });
+
+  // #92: the card's button clears the system information after a confirm.
+  test("clearing the system information removes the card", async ({ page }) => {
+    page.on("dialog", async (d) => await d.accept());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const button = page.locator("[data-clear-system-info]");
+    await expect(button).toBeVisible({ timeout: 10000 });
+    await button.click();
+    await expect(button).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator(".endpoint-card", { hasText: "1.0.0" })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator("[data-clear-system-info]")).toHaveCount(0);
+  });
 });

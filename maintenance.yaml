@@ -1368,6 +1368,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/systems/{name}/information:
+    delete:
+      summary: "Delete: systems/name/information"
+      x-permission: manage_producers
+      x-scope: producer
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Clear system information (#92): removes the system's catalog
+        context (owner, description, source location, links, tags) and its
+        system annotations, and closes its current periphery and missing-
+        component edges in the dev and main graphs. The timeline keeps the
+        closed edges; sanshain-branch copies stay untouched. Audited. The next
+        build's catalog push and calls set everything again. Answers
+        `{"cleared": name}`; `404` for a name that is neither a Producer nor a
+        Consumer. A name that is only a Consumer has no maintainer, so only the
+        global permission clears it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cleared.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Neither a Producer nor a Consumer of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}:
     get:
       summary: "Read: producers/name"

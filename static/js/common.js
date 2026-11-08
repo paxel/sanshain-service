@@ -1009,6 +1009,34 @@ function annotationsHtml(annotations, dark) {
   return `<div class="flex flex-wrap items-center gap-1.5 mt-1.5" data-annotations>${chips.join("")}</div>`;
 }
 
+// "Clear system information" (#92) under a system's context card: removes
+// the catalog context, the system annotations and the current periphery; the
+// next build's push sets them again. The server decides who may (admins, and
+// maintainers of the Producer of that name); a refusal is said out loud.
+function appendClearSystemInfo(card, name, onCleared) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.clearSystemInfo = "";
+  button.className =
+    "mt-2 px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-rose-600";
+  button.textContent = "Clear system information";
+  button.addEventListener("click", async () => {
+    const sure = confirm(
+      `Clear what the builds of '${name}' said about it — owner, description, links, tags, annotations and its current periphery? The next build sets them again.`,
+    );
+    if (!sure) return;
+    const res = await apiCall(`/admin/systems/${encodeURIComponent(name)}/information`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      alert("Could not clear the system information: " + (await errorMessage(res)));
+      return;
+    }
+    onCleared();
+  });
+  card.appendChild(button);
+}
+
 function linkChip(url, label, kind, chipClass) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-context-link="${kind}" class="px-2 py-0.5 rounded-full text-[11px] ${chipClass}">${escapeHtml(label)}</a>`;
 }

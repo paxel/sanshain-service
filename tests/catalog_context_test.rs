@@ -550,3 +550,127 @@ async fn deleting_the_last_role_of_a_system_removes_its_context() {
         .unwrap();
     assert_eq!(rows.0, 1);
 }
+
+/// A session for a signed-in user who maintains `maintains` (if any).
+#[cfg(test)]
+async fn session_of(ctx: &TestContext, username: &str, maintains: Option<&str>) -> String {
+    let repo = SqliteSpecRepository::new(ctx.pool.clone());
+    let hash = services::hash_password("pw").unwrap();
+    let user = repo.create_user(username, &hash, true).await.unwrap();
+    if let Some(producer) = maintains {
+        let id = repo.find_service(producer).await.unwrap().unwrap();
+        repo.add_user_maintainer(id, user.id).await.unwrap();
+    }
+    repo.create_session(user.id, "2099-12-31T23:59:59")
+        .await
+        .unwrap()
+        .token
+}
+
+#[cfg(test)]
+async fn clear_as(ctx: &TestContext, token: &str, system: &str) -> StatusCode {
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/admin/systems/{system}/information"))
+        .header("Authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    ctx.app.clone().oneshot(request).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn clearing_a_systems_information_removes_context_annotations_and_periphery() {
+    let ctx = setup().await;
+    seed_roles(&ctx).await;
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/catalog/orders",
+        Some(json!({
+            "catalog_info_yaml": catalog_with("orders", FULL_METADATA, "  owner: team-orders\n  dependsOn:\n    - resource:orders-db\n    - component:billing\n"),
+            "trunk": true,
+            "annotations": [{"scope": "system", "name": "jenkins", "value": "https://jenkins/orders"}],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    // A release cut keeps its copy of the periphery whatever happens later.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/branches",
+        Some(json!({"name": "rel-1"})),
+    )
+    .await;
+    assert!(status.is_success(), "got: {status} {body}");
+
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/systems/orders/information", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    assert_eq!(as_json(&body), json!({"cleared": "orders"}));
+
+    assert_eq!(
+        get_json(&ctx, "/admin/producers/orders").await,
+        json!({"name": "orders", "context": null, "annotations": []})
+    );
+    let report = get_json(&ctx, "/report").await;
+    assert_eq!(report["peripheral_dependencies"], json!([]));
+    assert_eq!(report["system_annotations"], json!({}));
+    // Closed, not deleted: the timeline keeps the dev and trunk rows.
+    let closed: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM peripheral_dependencies WHERE system_name = 'orders' AND track IN ('dev', 'trunk') AND valid_to IS NOT NULL",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(closed.0, 4);
+    let branch: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM peripheral_dependencies WHERE system_name = 'orders' AND track = 'branch' AND valid_to IS NULL",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(branch.0, 2);
+    let cleared: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM audit_logs WHERE action = 'CLEAR_SYSTEM_INFORMATION' AND service = 'orders'",
+    )
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(cleared.0, 1);
+
+    // The next push sets it again.
+    push(
+        &ctx,
+        "orders",
+        &catalog_with("orders", FULL_METADATA, "  owner: team-orders\n"),
+        false,
+    )
+    .await;
+    assert_eq!(
+        get_json(&ctx, "/admin/producers/orders").await["context"],
+        expected_full_context()
+    );
+}
+
+#[tokio::test]
+async fn a_maintainer_clears_their_own_system_and_nobody_elses() {
+    let ctx = setup().await;
+    seed_roles(&ctx).await;
+    let maintainer = session_of(&ctx, "orders-maintainer", Some("orders")).await;
+    let outsider = session_of(&ctx, "outsider", None).await;
+    assert_eq!(
+        clear_as(&ctx, &outsider, "orders").await,
+        StatusCode::FORBIDDEN
+    );
+    // `webapp` is only a Consumer: no maintainer can hold it.
+    assert_eq!(
+        clear_as(&ctx, &maintainer, "webapp").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(clear_as(&ctx, &maintainer, "orders").await, StatusCode::OK);
+    // The admin may clear a Consumer; an unknown name is a 404.
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/systems/webapp/information", None).await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let (status, _, _) = send(&ctx, "DELETE", "/admin/systems/ghost/information", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

@@ -40,6 +40,7 @@ export default [
         loadTicketUrlTemplate: "readonly",
         originHtml: "readonly",
         annotationsHtml: "readonly",
+        appendClearSystemInfo: "readonly",
         ticketUrl: "readonly",
         gateAllows: "readonly",
         setGateUser: "readonly",
