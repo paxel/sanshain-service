@@ -654,8 +654,9 @@ mvn verify                      # runs the goals bound to initialize</code></pre
       <td><code>Refused (403): &lt;body&gt; — publishing a GA version requires the 'releaser' role.
         Grant it to the user or token this build authenticates as (administrators and root always
         hold it), or publish as a snapshot by leaving sanshain.ga / SANSHAIN_GA unset and autoGa off
-        (or setting SANSHAIN_GA=false).</code> This text is used for every <code>403</code> on
-        provide.</td>
+        (or setting SANSHAIN_GA=false).</code> when the service refused for want of the releaser
+        role; any other <code>403</code>, such as a read-only token's (which needs scope
+        <code>full</code>), is <code>Refused (403): &lt;body&gt;</code> alone.</td>
     </tr>
     <tr>
       <td>Provide <code>422</code></td>
@@ -665,7 +666,8 @@ mvn verify                      # runs the goals bound to initialize</code></pre
     <tr>
       <td>Retire <code>403</code> or <code>404</code></td>
       <td><code>Refused (403): &lt;body&gt; — retiring an API family requires the 'releaser' role or
-        a maintainer grant on this Producer. …</code>;
+        a maintainer grant on this Producer. …</code> when the service names the releaser role, else
+        <code>Refused (403): &lt;body&gt;</code>;
         <code>Unknown Producer (404): &lt;body&gt; — nothing was ever provided under this name, so
         there is no family to retire.</code></td>
     </tr>
