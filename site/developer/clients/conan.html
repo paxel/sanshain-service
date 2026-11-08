@@ -329,7 +329,7 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
       <td><code>openapi</code></td>
       <td>1.0.0</td>
       <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
-        means proto).</td>
+        means proto). Any other value is a configuration error.</td>
     </tr>
     <tr>
       <td>—</td>
@@ -812,11 +812,11 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
       <td><code>Error: Config file not found: sanshain.yaml</code>, exit 1.</td>
     </tr>
     <tr>
-      <td>Unknown <code>apiType</code> in <code>provides</code></td>
+      <td>Unknown <code>apiType</code> in <code>provides</code> or <code>requires</code></td>
       <td>
         <code>Error: provides[0]: unsupported apiType '&lt;type&gt;' — use openapi, asyncapi or proto
         (grpc means proto)</code> (a single <code>provide</code> entry's starts
-        <code>provide: </code>). Exit 1, before any request, also with best effort. The helper
+        <code>provide: </code>, a require's <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request, also with best effort. The helper
         raises it when it is built.
       </td>
     </tr>
