@@ -46,7 +46,7 @@ use domain::models::LogEntry;
 use domain::permissions::Permission;
 use infrastructure::cached_repository::CachedSpecRepository;
 
-pub use presentation::handlers::{admin, api, auth, pages, roles, webhooks};
+pub use presentation::handlers::{admin, api, auth, pages, products, roles, webhooks};
 pub use presentation::middleware::{
     LogCaptureLayer, RouteGuard, api_auth, api_auth_write, authenticated_auth, require,
     require_with_api_tokens, validate_csrf,
@@ -158,6 +158,19 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/maintainers/users/{user_id}", delete(roles::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers/{name}/maintainers/groups/{group_id}", delete(roles::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/users/{id}/maintains", get(roles::list_maintained_producers).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        // #76 Products (ADR-0011): read by anyone signed in; created and
+        // deleted with the global permission; membership also by the
+        // Product's own Product Maintainers; maintainers assigned via roles.
+        .route("/admin/products", get(products::list_products).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products", post(products::create_product).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        .route("/admin/products/{name}", get(products::get_product).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}", delete(products::delete_product).layer(require(state.clone(), RouteGuard::Global(Permission::ManageProducers))))
+        .route("/admin/products/{name}/members", post(products::add_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        .route("/admin/products/{name}/members/{system}", delete(products::remove_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        .route("/admin/products/{name}/chart", post(products::import_chart).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        .route("/admin/products/{name}/maintainers", post(products::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        .route("/admin/products/{name}/maintainers/users/{user_id}", delete(products::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
+        .route("/admin/products/{name}/maintainers/groups/{group_id}", delete(products::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/producers", get(admin::admin_list_producers).layer(require(state.clone(), RouteGuard::Authenticated)))
         // #48: the Producer's context from its catalog-info, for its page.
         .route("/admin/producers/{name}", get(admin::admin_get_producer).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -661,6 +674,7 @@ mod tests {
                     "Global" | "Authenticated" => "global",
                     "Producer" if path.starts_with("/admin/consumers/") => "consumer",
                     "Producer" => "producer",
+                    "Product" => "product",
                     other => other,
                 };
                 // The promote route is guarded `Authenticated`; the handler

@@ -2358,6 +2358,404 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/products:
+    get:
+      summary: "Read: products"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Every Product (#76, ADR-0011), sorted by name:
+        `{"products": [{"name", "created_at", "member_count"}]}`.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: products"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        Creates an empty Product. Body `{"name": "<name>"}`: trimmed, 1-100
+        characters, no `/`, `,` or control characters. Names are unique among
+        Products only; a Product may share its name with a system. Audited
+        (`CREATE_PRODUCT`). Answers `201 {"name", "created_at"}`.
+      responses:
+        "201":
+          description: Created.
+        "400":
+          description: The name is empty, too long or contains a forbidden character.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: A Product of that name exists already.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}:
+    get:
+      summary: "Read: products/name"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        One Product: `name`, `created_at`, `members` (each `system`, `origin`
+        `helm` or `manual`, and the roles its system has now: `producer`,
+        `consumer`; neither means "not in Sanshain") and `maintainers`
+        (`users` with `id`, `username`, `display_name`; `groups` with `id`,
+        `name`, `source`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Delete: products/name"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        Deletes the Product with its member list and Product Maintainer
+        grants. The member systems stay untouched. Audited (`DELETE_PRODUCT`).
+        Answers `{"deleted": name}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/members:
+    post:
+      summary: "Create or run: products/name/members"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Adds a system by hand (origin `manual`). Body `{"system": "<name>"}`:
+        the name of a Producer or a Consumer. A system that is a member already
+        keeps its origin and answers `200 {"added": false}`; a new member answers
+        `201 {"system", "added": true}` and is audited (`ADD_PRODUCT_MEMBER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Already a member; nothing changed.
+        "201":
+          description: Added.
+        "400":
+          description: The system is neither a Producer nor a Consumer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/members/{system}:
+    delete:
+      summary: "Delete: products/name/members/system"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Removes a member, whatever its origin. A `helm` member comes back with
+        the next import of a chart that lists it. Audited
+        (`REMOVE_PRODUCT_MEMBER`). Answers `{"removed": system}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: system
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the system is no member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/chart:
+    post:
+      summary: "Create or run: products/name/chart"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Imports a Helm umbrella `Chart.yaml`, applied directly. Body
+        `{"chart_yaml": "<file text>"}`. Each dependency's `alias`, else its
+        `name`, is a system name. Names that match no Producer and no Consumer
+        are skipped; every other one becomes a `helm` member (a `manual` member
+        it lists becomes `helm`); `helm` members the chart no longer lists are
+        removed; `manual` members stay. Answers
+        `{"added": [...], "removed": [...], "skipped": [...]}`, each sorted; a
+        `manual` member switched to `helm` is in neither list. Audited
+        (`IMPORT_PRODUCT_CHART`, with the three lists). Invalid YAML, a missing
+        or empty `dependencies` list, or a dependency with neither name nor
+        alias is `400` and changes nothing.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Imported; the body reports what changed.
+        "400":
+          description: The chart does not parse, lists no dependencies, or has an unnamed dependency. Nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers:
+    post:
+      summary: "Create or run: products/name/maintainers"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Assigns a Product Maintainer. Body: exactly one of `{"user_id": n}` or
+        `{"group_id": n}` (a native or a directory group). Reassigning is a
+        no-op. Audited (`ASSIGN_PRODUCT_MAINTAINER`). Answers `201`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Assigned.
+        "400":
+          description: Neither or both of user_id and group_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product, user or group of that id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers/groups/{group_id}:
+    delete:
+      summary: "Delete: products/name/maintainers/groups/group_id"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Takes a group's Product maintainership away. Audited
+        (`UNASSIGN_PRODUCT_MAINTAINER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unassigned.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the group does not maintain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers/users/{user_id}:
+    delete:
+      summary: "Delete: products/name/maintainers/users/user_id"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Takes a user's Product maintainership away. Audited
+        (`UNASSIGN_PRODUCT_MAINTAINER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unassigned.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the user does not maintain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/roles:
     get:
       summary: "Read: roles"

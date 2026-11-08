@@ -1,4 +1,4 @@
-<!-- page: title="Roles and permissions" track="operator" order=4 summary="The ten permissions and the five roles that bundle them, how routes are guarded, the admin-guarded roles, maintainers as a scope over Producers, groups mirrored from the directory, and what token scopes mean to an operator." -->
+<!-- page: title="Roles and permissions" track="operator" order=4 summary="The ten permissions and the five roles that bundle them, how routes are guarded, the admin-guarded roles, maintainers as a scope over Producers, Product Maintainers over a Product's member list, groups mirrored from the directory, and what token scopes mean to an operator." -->
 <p class="lede">
   Authorisation is expressed in <a href="../start/glossary.html#permission">permissions</a>, the
   unit every check tests. <a href="../start/glossary.html#role">Roles</a> are fixed bundles of
@@ -178,6 +178,11 @@
     <strong>A Producer-scoped permission</strong>: the caller holds it globally, or maintains the
     Producer named in the path.
   </li>
+  <li>
+    <strong>A Product-scoped permission</strong>: the caller holds it globally, or is a
+    <a href="../start/glossary.html#product-maintainer">Product Maintainer</a> of the Product named
+    in the path. Only a Product's membership routes carry it.
+  </li>
 </ul>
 <p>
   Admin routes take a session token only. An API token answers <code>401</code>, a
@@ -259,6 +264,64 @@
     </tr>
   </tbody>
 </table>
+
+<h2>Product Maintainers</h2>
+<p>
+  A <a href="../start/glossary.html#product">Product</a> is an envelope of systems (ADR-0011). Its
+  Product Maintainers keep its member list: they add a known system by hand, remove a member, and
+  import the Product's Helm umbrella <code>Chart.yaml</code>, on that Product only. Being one gives
+  no power over the member systems, and none over other Products; creating and deleting Products
+  needs <code>manage_producers</code>, assigning Product Maintainers needs
+  <code>manage_roles</code>. A user or a group (native or directory) can be assigned, on the
+  Product's page. The Producer maintainers above and the global <code>releaser</code> role stay as
+  they are.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Guard</th>
+      <th>Effect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /admin/products</code>, <code>GET /admin/products/{name}</code></td>
+      <td>any signed-in caller</td>
+      <td>The Products; one Product's members, their roles and origin, and its maintainers.</td>
+    </tr>
+    <tr>
+      <td><code>POST /admin/products</code>, <code>DELETE /admin/products/{name}</code></td>
+      <td><code>manage_producers</code></td>
+      <td>Create a Product (<code>{"name": "shop"}</code>); delete one, its systems untouched.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>POST /admin/products/{name}/members</code>, <code>DELETE …/members/{system}</code>,
+        <code>POST …/chart</code>
+      </td>
+      <td><code>manage_producers</code>, Product-scoped</td>
+      <td>
+        Add a known system (<code>{"system": "orders"}</code>), remove a member, import a chart
+        (<code>{"chart_yaml": "…"}</code>).
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>POST /admin/products/{name}/maintainers</code>,
+        <code>DELETE …/maintainers/users/{user_id}</code>, <code>…/groups/{group_id}</code>
+      </td>
+      <td><code>manage_roles</code></td>
+      <td>Assign (<code>{"user_id": 3}</code> or <code>{"group_id": 1}</code>) and unassign.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Audited: <code>CREATE_PRODUCT</code>, <code>DELETE_PRODUCT</code>,
+  <code>ADD_PRODUCT_MEMBER</code>, <code>REMOVE_PRODUCT_MEMBER</code>,
+  <code>IMPORT_PRODUCT_CHART</code> (with what it added, removed and skipped),
+  <code>ASSIGN_PRODUCT_MAINTAINER</code>, <code>UNASSIGN_PRODUCT_MAINTAINER</code>.
+</p>
 
 <h2>Groups</h2>
 <p>A group is a set of users that roles attach to. Groups carry a source:</p>

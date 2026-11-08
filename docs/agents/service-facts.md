@@ -185,11 +185,22 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Code: `src/backstage.rs`, `src/application/catalog_service.rs`.
 - Sources: `docs/adr/0007-periphery-from-backstage-catalog-info.md`, `docs/adr/0010-backstage-context-beyond-the-periphery.md`, `site/developer/sanshain-yaml.html`.
 
-## Products — decided, not implemented
+## Products (#76, ADR-0011)
 
-- ADR-0011 (`docs/adr/0011-products-are-envelopes-not-tenants.md`) accepted; issue #76 open; no code, no routes, no `product:` focus yet. Envelope of
-  systems by name (manual or Helm umbrella `Chart.yaml`), grants nothing; Product Maintainer edits
-  membership only; UI only, routes would go to `maintenance.yaml`.
+- Envelope of systems by name, defined from outside; one system in many Products; grants nothing
+  over members. Names unique among Products only (may equal a system's), no `/`, `,`, ≤100 chars.
+- Members: one origin each, `manual` (known Producer/Consumer only) or `helm` (pasted umbrella
+  `Chart.yaml`: `alias` else `name`, exact match, unknown names skipped and reported). Import
+  applies directly in one transaction: listed → `helm` (claims `manual`), unlisted `helm` removed,
+  `manual` kept; bad YAML / no dependencies = 400, nothing changed. No FK: a member whose system
+  lost every role shows "not in Sanshain" and is live again when the name returns.
+- Routes in `maintenance.yaml` under `/admin/products*`: reads any signed-in; create/delete
+  global `manage_producers`; members/chart `RouteGuard::Product(ManageProducers)` (global or
+  Product Maintainer); maintainers `manage_roles` (user or group, directory groups by DN live).
+  `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Not in `api.yaml`,
+  reports or release cuts. Nuke database removes Products.
+- Code: `src/application/product_service.rs`, `src/helm.rs`, `src/application/authz.rs`,
+  `src/presentation/handlers/products.rs`. Source: `site/operator/roles.html`.
 
 ## Authentication and permissions
 
@@ -210,7 +221,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   `SANSHAIN_DIRECTORY_GROUP_TTL_SECS`). OIDC grants only via `admin_group`.
 - LDAP settings: a changed form must carry the bind password again for Test Connection and save;
   only an unchanged form uses the stored one.
-- Every `/admin/*` route declares a `RouteGuard` (test in `src/lib.rs`).
+- Every `/admin/*` route declares a `RouteGuard` (Authenticated, Global, Producer, Product; test
+  in `src/lib.rs`).
 - Code: `src/domain/permissions.rs`, `src/application/authz.rs`, `auth_service.rs`,
   `sign_in_service.rs`, `src/presentation/middleware.rs`.
 - Sources: `site/operator/authentication.html`, `site/operator/roles.html` (its token section

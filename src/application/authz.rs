@@ -636,6 +636,15 @@ pub async fn maintained_products_for_actor(
     Ok(products)
 }
 
+/// The Products a user maintains by stored grants, for a caller without a
+/// resolved Actor.
+pub async fn maintained_products(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_maintained_products(user_id).await?)
+}
+
 async fn require_producer(repo: &impl SpecRepository, producer: &str) -> Result<i64, AppError> {
     repo.find_service(producer)
         .await?
@@ -1674,6 +1683,10 @@ mod tests {
             maintained_products_for_actor(&repo, &actor)
                 .await
                 .expect("list"),
+            ["shop"]
+        );
+        assert_eq!(
+            maintained_products(&repo, alva.id).await.expect("list"),
             ["shop"]
         );
         assert!(

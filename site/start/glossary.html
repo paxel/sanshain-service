@@ -70,6 +70,20 @@
     one of their versions, retire a family, manage the Producer's webhooks.
   </dd>
 
+  <dt id="product">Product</dt>
+  <dd>
+    A named envelope of systems that together make up something a company ships, what a Helm
+    umbrella chart deploys for example. Defined from outside: a system never knows which Products it
+    is in, and one system may be in many. A Product collects its members and passes no power over
+    them.
+  </dd>
+
+  <dt id="product-maintainer">Product Maintainer</dt>
+  <dd>
+    An actor responsible for one Product's member list, adding and removing its systems, and nothing
+    else. Holds no power over the member systems; that stays with their own maintainers.
+  </dd>
+
   <dt id="root">Root</dt>
   <dd>
     An account whose authority comes from configuration rather than from stored grants, so it cannot

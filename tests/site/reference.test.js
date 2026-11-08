@@ -50,13 +50,13 @@ function routerGuards() {
     const m = /^\s*\.route\("(\/admin\/[^"]+)",(.*)$/.exec(line);
     if (!m) continue;
     const g =
-      /RouteGuard::(Authenticated|Global\(Permission::(\w+)\)|Producer\(Permission::(\w+)\))/.exec(
+      /RouteGuard::(Authenticated|Global\(Permission::(\w+)\)|(Producer|Product)\(Permission::(\w+)\))/.exec(
         m[2],
       );
     assert.ok(g, `guard on ${m[1]}`);
     const guard = {
-      permission: g[2] || g[3] ? snake(g[2] || g[3]) : "any signed-in caller",
-      scoped: Boolean(g[3]),
+      permission: g[2] || g[4] ? snake(g[2] || g[4]) : "any signed-in caller",
+      scoped: g[3] || null,
       apiTokens: m[2].includes("require_with_api_tokens"),
     };
     for (const v of m[2].matchAll(/\b(get|post|put|patch|delete)\(/g)) {
@@ -585,6 +585,10 @@ test("authentication, permission and scope are read from the contract fields", (
     permission: "not stated",
     scope: "not stated",
   });
+  assert.deepEqual(permissionOf({ "x-permission": "manage_producers", "x-scope": "product" }), {
+    permission: "manage_producers",
+    scope: "per Product: also its Product Maintainers",
+  });
   assert.throws(
     () => permissionOf({ "x-permission": "x", "x-scope": "galaxy" }),
     /unknown x-scope "galaxy"/,
@@ -646,11 +650,14 @@ test("every /admin operation shows the permission and scope its router guard enf
     assert.ok(guard, `${key} is routed`);
     const expected = exceptions[key] || {
       permission: guard.permission,
-      scope: guard.scoped
-        ? block.path.startsWith("/admin/consumers/")
-          ? "per Consumer: also maintainers of the Producer of the same name"
-          : "per Producer: also its maintainers"
-        : "global",
+      scope:
+        guard.scoped === "Product"
+          ? "per Product: also its Product Maintainers"
+          : guard.scoped
+            ? block.path.startsWith("/admin/consumers/")
+              ? "per Consumer: also maintainers of the Producer of the same name"
+              : "per Producer: also its maintainers"
+            : "global",
     };
     assert.equal(block.permission, expected.permission, `permission of ${key}`);
     assert.equal(block.scope, expected.scope, `scope of ${key}`);

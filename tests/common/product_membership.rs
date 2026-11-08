@@ -152,4 +152,8 @@ pub async fn product_membership_round_trips(repo: &impl SpecRepository) {
             .unwrap()
             .is_empty()
     );
+
+    // A factory reset takes the remaining Product along.
+    repo.nuke_database(None).await.unwrap();
+    assert!(repo.list_products().await.unwrap().is_empty());
 }
