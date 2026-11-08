@@ -161,6 +161,7 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   3.x `send`/`receive`. Stored id: 2.x channel key, 3.x channel address.
 - GA `publish` messages register message contracts per (channel, message name; else title):
   first publisher owns; others must match semantically (`409 message_contract_conflict`).
+  Both read a message through local `$ref`s (also in `oneOf`); an external `$ref` stays unnamed.
 - `subscribe`/`receive` are harvested on every provide as version-less consumer edges
   (`harvested_subscriptions`), inheriting the provide's trunk flag, not on tag provides;
   unfulfilled ones point at a dashed `<channel> ?` node. Drift blocks at GA (409), advisory on

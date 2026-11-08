@@ -548,8 +548,6 @@ pub struct UnnamedMessage {
     pub channel: String,
     /// `PUB` or `SUB`, as the endpoint is stored.
     pub operation: &'static str,
-    /// The message is a `$ref`, which is not followed for its name.
-    pub reference: bool,
 }
 
 /// Every message of a document that [`extract_pub_messages`] and
@@ -565,7 +563,6 @@ pub fn unnamed_messages(yaml_str: &str) -> Result<Vec<UnnamedMessage>, String> {
                 out.push(UnnamedMessage {
                     channel: channel.to_string(),
                     operation,
-                    reference: message.get("$ref").is_some(),
                 });
             }
         });
@@ -597,14 +594,31 @@ fn visit_messages_v2(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &
         let Some(message) = operation.get("message") else {
             continue;
         };
+        let message = follow_local_ref(root, message);
         let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_array) {
             Some(one_of) => one_of.iter().collect(),
             None => vec![message],
         };
         for variant in variants {
-            visit(channel, variant, op_deprecated);
+            visit(channel, follow_local_ref(root, variant), op_deprecated);
         }
     }
+}
+
+/// The node a local `$ref` (`#/…`) chain ends at; the node itself when it is
+/// no reference, or when the chain leaves the document, dangles or cycles.
+fn follow_local_ref<'a>(root: &'a Value, node: &'a Value) -> &'a Value {
+    let mut current = node;
+    for _ in 0..32 {
+        let Some(reference) = ref_of(current) else {
+            return current;
+        };
+        match resolve_json_pointer(root, reference) {
+            Some(target) => current = target,
+            None => return node,
+        }
+    }
+    node
 }
 
 fn visit_messages_v3(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &Value, bool)) {
@@ -641,7 +655,7 @@ fn visit_messages_v3(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &
                     continue;
                 };
                 if let Some(node) = resolve_json_pointer(root, ref_str) {
-                    visit(channel_address, node, op_deprecated);
+                    visit(channel_address, follow_local_ref(root, node), op_deprecated);
                 }
             }
         } else if let Some(msgs) = channel_node
@@ -649,7 +663,7 @@ fn visit_messages_v3(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &
             .and_then(Value::as_object)
         {
             for (_k, node) in msgs {
-                visit(channel_address, node, op_deprecated);
+                visit(channel_address, follow_local_ref(root, node), op_deprecated);
             }
         }
     }
@@ -1476,6 +1490,108 @@ operations:
     }
 
     #[test]
+    fn extract_messages_v2_follow_local_message_refs_also_inside_one_of() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        $ref: '#/components/messages/OrderPlaced'
+  events:
+    publish:
+      message:
+        oneOf:
+          - $ref: '#/components/messages/Created'
+          - $ref: 'external.yaml#/components/messages/Remote'
+          - $ref: '#/components/messages/Missing'
+    subscribe:
+      message:
+        $ref: '#/components/messages/Both'
+components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      payload: { type: object, properties: { id: { type: string } } }
+    Created:
+      $ref: '#/components/messages/CreatedV1'
+    CreatedV1:
+      title: Created
+      deprecated: true
+      payload: { type: object }
+    Both:
+      oneOf:
+        - $ref: '#/components/messages/Shipped'
+    Shipped:
+      name: Shipped
+      payload: { type: string }
+"#;
+        let pubs: Vec<(String, String, bool)> = extract_pub_messages(yaml)
+            .unwrap()
+            .into_iter()
+            .map(|m| (m.channel, m.message_name, m.deprecated))
+            .collect();
+        assert_eq!(
+            pubs,
+            [
+                ("orders".to_string(), "OrderPlaced".to_string(), false),
+                ("events".to_string(), "Created".to_string(), true),
+            ],
+            "external and dangling refs stay unresolved and unnamed"
+        );
+        let placed = extract_pub_messages(yaml).unwrap();
+        assert_eq!(
+            placed[0].payload_yaml,
+            "type: object\nproperties:\n  id:\n    type: string\n"
+        );
+        let subs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].channel, "events");
+        assert_eq!(subs[0].message_name, "Shipped");
+        assert_eq!(subs[0].payload_yaml, "type: string\n");
+    }
+
+    #[test]
+    fn extract_messages_v3_follow_channel_message_refs() {
+        let yaml = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  placed:
+    address: orders.placed
+    messages:
+      placed: { $ref: '#/components/messages/OrderPlaced' }
+  shipped:
+    address: orders.shipped
+    messages:
+      shipped: { $ref: '#/components/messages/OrderShipped' }
+operations:
+  send:
+    action: send
+    channel: { $ref: '#/channels/placed' }
+  receive:
+    action: receive
+    channel: { $ref: '#/channels/shipped' }
+    messages:
+      - $ref: '#/channels/shipped/messages/shipped'
+components:
+  messages:
+    OrderPlaced: { name: OrderPlaced, payload: { type: object } }
+    OrderShipped: { name: OrderShipped, payload: { type: object } }
+"#;
+        let pubs = extract_pub_messages(yaml).unwrap();
+        assert_eq!(pubs.len(), 1);
+        assert_eq!(pubs[0].channel, "orders.placed");
+        assert_eq!(pubs[0].message_name, "OrderPlaced");
+        let subs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].channel, "orders.shipped");
+        assert_eq!(subs[0].message_name, "OrderShipped");
+        assert!(unnamed_messages(yaml).unwrap().is_empty());
+    }
+
+    #[test]
     fn extract_pub_messages_skips_unnamed() {
         let yaml = r#"
 asyncapi: 2.6.0
@@ -2074,21 +2190,20 @@ mod review_finding_tests {
 
     #[test]
     fn unnamed_messages_are_the_ones_the_contracts_skip() {
-        let v2 = "asyncapi: 2.6.0\ninfo: { title: t, version: 1.0.0 }\nchannels:\n  orders:\n    publish:\n      message:\n        oneOf:\n          - name: OrderPlaced\n            payload: { type: object }\n          - payload: { type: string }\n    subscribe:\n      message:\n        $ref: '#/components/messages/Ack'\n  audit:\n    publish:\n      message:\n        title: Audit entry\n        payload: { type: object }\ncomponents:\n  messages:\n    Ack: { name: Ack, payload: { type: object } }\n";
+        let v2 = "asyncapi: 2.6.0\ninfo: { title: t, version: 1.0.0 }\nchannels:\n  orders:\n    publish:\n      message:\n        oneOf:\n          - name: OrderPlaced\n            payload: { type: object }\n          - payload: { type: string }\n    subscribe:\n      message:\n        oneOf:\n          - $ref: '#/components/messages/Ack'\n          - $ref: 'other.yaml#/components/messages/Nack'\n  audit:\n    publish:\n      message:\n        title: Audit entry\n        payload: { type: object }\ncomponents:\n  messages:\n    Ack: { name: Ack, payload: { type: object } }\n";
         assert_eq!(
             unnamed_messages(v2).unwrap(),
             vec![
                 UnnamedMessage {
                     channel: "orders".to_string(),
                     operation: "PUB",
-                    reference: false
                 },
                 UnnamedMessage {
                     channel: "orders".to_string(),
                     operation: "SUB",
-                    reference: true
                 },
-            ]
+            ],
+            "the referenced Ack is named; only the external $ref stays unresolved"
         );
         let named: Vec<String> = extract_pub_messages(v2)
             .unwrap()
@@ -2103,7 +2218,6 @@ mod review_finding_tests {
             vec![UnnamedMessage {
                 channel: "orders.placed".to_string(),
                 operation: "PUB",
-                reference: false
             }],
             "a 3.x message key is not its name"
         );

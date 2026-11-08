@@ -181,15 +181,10 @@ fn document_findings(api_type: ApiType, content: &str) -> Vec<Finding> {
             } else {
                 "no subscription is harvested for it"
             };
-            let reference = if m.reference {
-                " (a $ref message is not followed for its name)"
-            } else {
-                ""
-            };
             out.push(at_endpoint(
                 finding(
                     "unnamed_message",
-                    format!("a message has neither name nor title{reference}: {why}"),
+                    format!("a message has neither name nor title: {why}"),
                 ),
                 m.operation,
                 &m.channel,
@@ -544,6 +539,19 @@ mod tests {
         assert!(review.version_rules.is_none());
         assert_eq!(codes(&review), [("missing_version_marker", None, None)]);
         assert_eq!(repo.find_service("orders").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_referenced_named_message_is_no_unnamed_message_finding() {
+        let repo = MockRepo::new();
+        let doc = "asyncapi: 2.6.0\ninfo: { title: orders, version: 1.0.0 }\nchannels:\n  orders.placed:\n    publish:\n      summary: An order was placed\n      message:\n        $ref: '#/components/messages/OrderPlaced'\ncomponents:\n  messages:\n    OrderPlaced: { name: OrderPlaced, payload: { type: object } }\n";
+        let review = review_spec(&repo, request(ApiType::AsyncApi, doc, Stability::Snapshot))
+            .await
+            .unwrap();
+        assert_eq!(
+            codes(&review),
+            Vec::<(&str, Option<&str>, Option<&str>)>::new()
+        );
     }
 
     #[tokio::test]
