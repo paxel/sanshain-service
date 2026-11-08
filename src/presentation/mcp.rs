@@ -283,8 +283,9 @@ Start with list_services to learn the names, then describe_service for one servi
 locate an operation by path or name, get_spec for the stored specification text, get_graph for who \
 depends on whom, and diff_versions / blame for how a specification changed. Scopes: `dev` (default) is \
 everything ever provided or required, `main` is what trunk builds currently pin, a sanshain-branch name \
-is a release cut. To connect a system to Sanshain, draft_sanshain_yaml writes its sanshain.yaml from the \
-names and pins you looked up; it changes nothing. Answers are compact JSON; a large answer is replaced by a \
+is a release cut. To connect a system to Sanshain, setup_guide answers the client, commands, token and \
+variables for its build tool and CI, and draft_sanshain_yaml writes its sanshain.yaml from the names and \
+pins you looked up; neither changes anything. Answers are compact JSON; a large answer is replaced by a \
 summary with a hint on how to narrow it.";
 
 /// The MCP server behind `/mcp`. One instance serves one request; the caller

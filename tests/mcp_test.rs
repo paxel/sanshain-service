@@ -450,6 +450,7 @@ async fn tools_list_names_the_tools_with_schemas() {
             "diff_versions",
             "blame",
             "endpoint_structure",
+            "setup_guide",
             "draft_sanshain_yaml"
         ]
     );
@@ -1197,4 +1198,90 @@ async fn the_configured_public_base_url_is_not_derived() {
         draft["instance"],
         json!({ "url": "https://sanshain.corp", "derived": false })
     );
+}
+
+#[tokio::test]
+async fn setup_guide_answers_the_client_token_and_ci_facts() {
+    let seed = seed().await;
+    let guide = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[("x-forwarded-proto", "https")],
+        "setup_guide",
+        json!({ "role": "both", "build_tool": "maven", "ci": "gitlab_ci" }),
+    )
+    .await;
+    assert_eq!(
+        guide["instance"],
+        json!({ "url": "https://sanshain.example", "derived": true })
+    );
+    assert_eq!(guide["client"]["name"], "sanshain-maven-plugin");
+    assert_eq!(guide["client"]["version"], "2.5.0");
+    assert_eq!(guide["client"]["integration"]["file"], "pom.xml");
+    assert_eq!(guide["token"]["scope"], "full");
+    assert_eq!(guide["token"]["not_the_mcp_token"], true);
+    assert_eq!(
+        guide["token"]["mint_at"],
+        "https://sanshain.example/account.html"
+    );
+    assert!(
+        guide["token"]["local_file"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("<sanshainUrl>https://sanshain.example</sanshainUrl>")
+    );
+    assert_eq!(guide["ci_setup"]["origin_from"][0], "CI_JOB_URL");
+    assert_eq!(guide["ci_setup"]["snippet"], Value::Null);
+    let purposes: Vec<&str> = guide["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["purpose"].as_str().unwrap())
+        .collect();
+    assert_eq!(purposes[..2], ["require", "provide"]);
+    let yaml = guide["sanshain_yaml"].as_str().unwrap();
+    assert!(
+        yaml.contains("outputDirectory: target/generated-sources/sanshain/other-service"),
+        "{yaml}"
+    );
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "setup_guide",
+        json!({ "role": "producer", "build_tool": "gradle" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("invalid parameters for setup_guide"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn setup_guide_over_budget_answers_the_commands_and_a_hint() {
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 2_000,
+        ..Default::default()
+    })
+    .await;
+    let guide = call_json(
+        &seed.app,
+        &seed.full,
+        "setup_guide",
+        json!({ "role": "both", "build_tool": "npm", "ci": "github_actions" }),
+    )
+    .await;
+    assert!(
+        guide["hint"]
+            .as_str()
+            .unwrap()
+            .contains("draft_sanshain_yaml"),
+        "{guide}"
+    );
+    assert_eq!(
+        guide["client"]["install"],
+        "npm install --save-dev sanshain"
+    );
+    assert_eq!(guide["sanshain_yaml"], Value::Null);
 }

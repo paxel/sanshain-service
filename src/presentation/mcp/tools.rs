@@ -158,6 +158,49 @@ pub struct EndpointStructureParams {
     pub with_examples: Option<bool>,
 }
 
+/// Which side of the catalog a system takes.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolSetupRole {
+    Producer,
+    Consumer,
+    Both,
+}
+
+/// The build tool, one per official client.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolBuildTool {
+    Maven,
+    Cargo,
+    Go,
+    Npm,
+    Conan,
+}
+
+/// The CI the pipelines run on.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCiSystem {
+    GithubActions,
+    GitlabCi,
+    Jenkins,
+    Other,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetupGuideParams {
+    /// `producer` (provides its specs), `consumer` (requires endpoints of
+    /// others) or `both`, which most systems are.
+    pub role: ToolSetupRole,
+    /// `maven`, `cargo`, `go`, `npm` or `conan`.
+    pub build_tool: ToolBuildTool,
+    /// The CI of the pipelines: `github_actions`, `gitlab_ci`, `jenkins`
+    /// or `other`; omitted for a local setup only.
+    pub ci: Option<ToolCiSystem>,
+}
+
 /// Where an annotation is stored, as `sanshain.yaml` spells it.
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -341,6 +384,21 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              body for writing a curl. `version` defaults to the latest. A tree too large to answer \
              comes back two levels deep with a hint.",
         )?,
+        tool::<SetupGuideParams>(
+            "setup_guide",
+            "How to connect a system to Sanshain with its build tool, as structured facts: the \
+             official client (name, version, repository, install line, the build-file snippet such \
+             as the Maven `<plugin>`), the command lines per purpose (require, provide as snapshot, \
+             on trunk, on a sanshain-branch tag, as GA, dry run, catalog, annotation placeholders) \
+             and when to run each, the build's token (a separate `full` token minted on the account \
+             page, never this MCP token; locally in `~/.m2/settings.xml` for Maven or \
+             `SANSHAIN_TOKEN` else; in CI a service account's token as a secret), the environment \
+             variables, with `ci` the secret and variable names, the runner variables the origin is \
+             read from and for GitHub Actions the steps, and a `sanshain.yaml` skeleton with the \
+             placeholder values to replace. The instance address is `derived` when it was taken \
+             from this request rather than configured. Changes nothing; write the files yourself, \
+             then use `draft_sanshain_yaml` for the real file.",
+        )?,
         tool::<DraftSanshainYamlParams>(
             "draft_sanshain_yaml",
             "Writes a `sanshain.yaml` from what you name: the system (`service_name`), the spec files \
@@ -433,6 +491,7 @@ pub async fn dispatch(
         "diff_versions" => diff_versions(state, params(tool, arguments)?).await,
         "blame" => blame(state, params(tool, arguments)?).await,
         "endpoint_structure" => endpoint_structure(state, params(tool, arguments)?).await,
+        "setup_guide" => setup_guide(instance, params(tool, arguments)?),
         "draft_sanshain_yaml" => draft_sanshain_yaml(instance, params(tool, arguments)?),
         _ => Err(ToolError(format!(
             "unknown tool '{tool}' — tools/list names the available ones"
@@ -703,6 +762,41 @@ fn build_environment(instance: Option<&InstanceUrl>) -> Value {
     ])
 }
 
+fn setup_guide(
+    instance: Option<&InstanceUrl>,
+    p: SetupGuideParams,
+) -> Result<ToolOutput, ToolError> {
+    let role = match p.role {
+        ToolSetupRole::Producer => setup_service::SetupRole::Producer,
+        ToolSetupRole::Consumer => setup_service::SetupRole::Consumer,
+        ToolSetupRole::Both => setup_service::SetupRole::Both,
+    };
+    let build_tool = match p.build_tool {
+        ToolBuildTool::Maven => setup_service::BuildTool::Maven,
+        ToolBuildTool::Cargo => setup_service::BuildTool::Cargo,
+        ToolBuildTool::Go => setup_service::BuildTool::Go,
+        ToolBuildTool::Npm => setup_service::BuildTool::Npm,
+        ToolBuildTool::Conan => setup_service::BuildTool::Conan,
+    };
+    let ci = p.ci.map(|ci| match ci {
+        ToolCiSystem::GithubActions => setup_service::CiSystem::GithubActions,
+        ToolCiSystem::GitlabCi => setup_service::CiSystem::GitlabCi,
+        ToolCiSystem::Jenkins => setup_service::CiSystem::Jenkins,
+        ToolCiSystem::Other => setup_service::CiSystem::Other,
+    });
+    let guide = setup_service::setup_guide(role, build_tool, ci, instance)?;
+    let over_budget = json!({
+        "instance": guide.instance, "role": guide.role, "build_tool": guide.build_tool,
+        "client": { "name": guide.client.name, "install": guide.client.install },
+        "commands": guide.commands,
+        "hint": "the guide is too large to answer whole: ask again without ci, and use draft_sanshain_yaml for the file",
+    });
+    Ok(ToolOutput {
+        body: to_value(&guide)?,
+        over_budget,
+    })
+}
+
 fn draft_sanshain_yaml(
     instance: Option<&InstanceUrl>,
     p: DraftSanshainYamlParams,
@@ -836,6 +930,7 @@ mod tests {
                 "diff_versions",
                 "blame",
                 "endpoint_structure",
+                "setup_guide",
                 "draft_sanshain_yaml"
             ]
         );
@@ -857,7 +952,11 @@ mod tests {
                 Some(true)
             );
         }
-        let draft = &tools[8];
+        let draft = &tools[9];
+        assert_eq!(
+            tools[8].input_schema["required"],
+            json!(["role", "build_tool"])
+        );
         assert_eq!(
             draft.input_schema["properties"]["requires"]["items"]["properties"]["endpoints"]["items"]
                 ["additionalProperties"],

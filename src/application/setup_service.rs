@@ -402,6 +402,461 @@ pub fn client(build_tool: BuildTool) -> &'static ClientFacts {
     }
 }
 
+/// Which side of the catalog the system takes: most systems are both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SetupRole {
+    Producer,
+    Consumer,
+    Both,
+}
+
+impl SetupRole {
+    fn provides(self) -> bool {
+        matches!(self, SetupRole::Producer | SetupRole::Both)
+    }
+    fn requires(self) -> bool {
+        matches!(self, SetupRole::Consumer | SetupRole::Both)
+    }
+}
+
+/// The CI the system's pipelines run on. The first three fill a provide's
+/// origin from their own variables; every other CI does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CiSystem {
+    GithubActions,
+    GitlabCi,
+    Jenkins,
+    Other,
+}
+
+/// A file the assistant writes or merges, with what to do with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FileSnippet {
+    pub file: &'static str,
+    pub action: &'static str,
+    pub content: String,
+}
+
+/// One command line and when a build runs it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CommandLine {
+    pub purpose: &'static str,
+    pub run: String,
+    pub when: &'static str,
+}
+
+/// A service version a feature of the client needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct MinService {
+    pub feature: &'static str,
+    pub version: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ClientGuide {
+    pub name: &'static str,
+    pub repository: &'static str,
+    pub version: &'static str,
+    pub install: &'static str,
+    /// The build file the client is wired into, when it has one.
+    pub integration: Option<FileSnippet>,
+    pub service: &'static str,
+    pub min_service: [MinService; 3],
+}
+
+/// Where the build's token comes from. Never the MCP token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TokenGuide {
+    pub scope: &'static str,
+    pub mint_at: String,
+    pub minted_by: &'static str,
+    pub not_the_mcp_token: bool,
+    /// On a developer's machine: a file for Maven, the environment else.
+    pub local_env: Option<&'static str>,
+    pub local_file: Option<FileSnippet>,
+    pub ci_env: &'static str,
+    pub ci_owner: &'static str,
+    /// The role the token's user needs to provide GA (also with `autoGa`).
+    pub ga_role: Option<&'static str>,
+}
+
+/// One environment variable a build sets.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Variable {
+    pub name: &'static str,
+    pub value: Option<String>,
+    pub when: &'static str,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CiGuide {
+    pub token_secret: &'static str,
+    pub url_variable: &'static str,
+    /// The runner variables the clients read the origin from; empty when
+    /// the build sets `SANSHAIN_BUILD_URL` and `SANSHAIN_CHANGE_URL` itself.
+    pub origin_from: &'static [&'static str],
+    pub snippet: Option<String>,
+}
+
+/// Everything an assistant needs to connect one system: install, commands,
+/// variables, the token and its place, the address and a starting file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SetupGuide {
+    pub role: SetupRole,
+    pub build_tool: BuildTool,
+    pub ci: Option<CiSystem>,
+    pub instance: Option<InstanceUrl>,
+    pub client: ClientGuide,
+    pub commands: Vec<CommandLine>,
+    pub token: TokenGuide,
+    pub variables: Vec<Variable>,
+    pub ci_setup: Option<CiGuide>,
+    pub sanshain_yaml: String,
+    /// The placeholder values in `sanshain_yaml` to replace.
+    pub replace_in_yaml: Vec<String>,
+    pub next_tools: [&'static str; 4],
+    pub docs: [&'static str; 3],
+}
+
+const MIN_SERVICE: [MinService; 3] = [
+    MinService {
+        feature: "catalog",
+        version: "2.4.0",
+    },
+    MinService {
+        feature: "origin",
+        version: "2.9.0",
+    },
+    MinService {
+        feature: "annotations",
+        version: "2.13.0",
+    },
+];
+
+const DOCS: [&str; 3] = [
+    "https://paxel.github.io/sanshain-service/developer/clients.html",
+    "https://paxel.github.io/sanshain-service/developer/sanshain-yaml.html",
+    "https://paxel.github.io/sanshain-service/developer/ci-integration.html",
+];
+
+/// Where the build tool's projects keep their spec by convention.
+fn spec_file(build_tool: BuildTool) -> &'static str {
+    match build_tool {
+        BuildTool::Maven => "src/main/resources/openapi.yaml",
+        _ => "openapi.yaml",
+    }
+}
+
+fn maven_plugin(facts: &ClientFacts, role: SetupRole) -> String {
+    let mut goals = String::new();
+    if role.provides() {
+        goals.push_str("        <goal>provide</goal>\n");
+    }
+    if role.requires() {
+        goals.push_str("        <goal>require</goal>\n");
+    }
+    format!(
+        "<plugin>\n  <groupId>io.github.paxel.sanshain</groupId>\n  \
+         <artifactId>sanshain-maven-plugin</artifactId>\n  <version>{}</version>\n  \
+         <executions>\n    <execution>\n      <phase>initialize</phase>\n      <goals>\n\
+         {goals}      </goals>\n    </execution>\n  </executions>\n</plugin>\n",
+        facts.version
+    )
+}
+
+fn integration(facts: &ClientFacts, role: SetupRole) -> Option<FileSnippet> {
+    match facts.build_tool {
+        BuildTool::Maven => Some(FileSnippet {
+            file: "pom.xml",
+            action: "add to <build><plugins>",
+            content: maven_plugin(facts, role),
+        }),
+        BuildTool::Npm if role.requires() => Some(FileSnippet {
+            file: "package.json",
+            action: "merge into scripts",
+            content: "\"scripts\": { \"prebuild\": \"sanshain require\" }\n".to_string(),
+        }),
+        BuildTool::Conan if role.requires() => Some(FileSnippet {
+            file: "conanfile.py",
+            action: "call in generate(); runs during conan install",
+            content: "from conan import ConanFile\nfrom sanshainconan import Sanshain\n\n\
+                      class MyProject(ConanFile):\n    def generate(self):\n        \
+                      Sanshain(self).require()\n"
+                .to_string(),
+        }),
+        _ => None,
+    }
+}
+
+fn maven_settings(url: &str) -> FileSnippet {
+    FileSnippet {
+        file: "~/.m2/settings.xml",
+        action: "add the <server> to <servers>; the password is the token",
+        content: format!(
+            "<settings>\n  <servers>\n    <server>\n      <id>sanshain</id>\n      \
+             <username>ignored</username>\n      <password>san_…</password>\n      \
+             <configuration>\n        <sanshainUrl>{url}</sanshainUrl>\n      \
+             </configuration>\n    </server>\n  </servers>\n</settings>\n"
+        ),
+    }
+}
+
+fn commands(facts: &ClientFacts, role: SetupRole) -> Vec<CommandLine> {
+    let line = |purpose, run: &str, when| CommandLine {
+        purpose,
+        run: run.to_string(),
+        when,
+    };
+    let mut out = Vec::new();
+    if role.requires() {
+        out.push(line(
+            "require",
+            facts.require,
+            "every build, before code generation",
+        ));
+    }
+    if role.provides() {
+        out.push(line("provide", facts.provide, "any build: a snapshot"));
+        out.push(line(
+            "provide_trunk",
+            facts.provide_trunk,
+            "default-branch CI: a snapshot, GA with autoGa",
+        ));
+        out.push(line(
+            "provide_tag",
+            facts.provide_tag,
+            "release or hotfix pipeline of sanshain-branch R1: a snapshot, GA with autoGa",
+        ));
+        out.push(line(
+            "provide_ga",
+            facts.provide_ga,
+            "release pipelines without autoGa; the token's user needs releaser",
+        ));
+        if let Some(dry_run) = facts.dry_run {
+            out.push(line("provide_dry_run", dry_run, "pull requests"));
+        }
+    }
+    out.push(line(
+        "catalog",
+        facts.catalog,
+        "with catalogInfo in sanshain.yaml, as its own CI step",
+    ));
+    out.push(CommandLine {
+        purpose: "fill_placeholder",
+        run: format!("{} or SANSHAIN_SET_NAME=value", facts.set_placeholder),
+        when: "annotations with {{NAME}} placeholders",
+    });
+    out
+}
+
+fn variables(role: SetupRole, ci: Option<CiSystem>, url: Option<&str>) -> Vec<Variable> {
+    let var = |name, value: Option<&str>, when| Variable {
+        name,
+        value: value.map(str::to_string),
+        when,
+    };
+    let mut out = vec![
+        var("SANSHAIN_URL", url, "every build"),
+        var("SANSHAIN_TOKEN", Some("san_…"), "every build; a secret"),
+    ];
+    let Some(ci) = ci else {
+        return out;
+    };
+    out.push(var(
+        "SANSHAIN_TRUNK",
+        Some("true"),
+        "default-branch pipeline only",
+    ));
+    out.push(var(
+        "SANSHAIN_TAG",
+        Some("<sanshain-branch>"),
+        "release and hotfix pipelines only",
+    ));
+    if role.provides() {
+        out.push(var(
+            "SANSHAIN_GA",
+            Some("true"),
+            "release pipelines only, unless autoGa; false keeps a build a snapshot",
+        ));
+        if ci == CiSystem::Other {
+            out.push(var(
+                "SANSHAIN_BUILD_URL",
+                None,
+                "this CI's URL of the build",
+            ));
+            out.push(var(
+                "SANSHAIN_CHANGE_URL",
+                None,
+                "this CI's URL of the pull or merge request",
+            ));
+        }
+    }
+    out
+}
+
+/// The GitHub Actions steps the docs show: the JavaScript client's Action,
+/// or a run step with the switches in the environment.
+fn github_steps(facts: &ClientFacts, role: SetupRole) -> String {
+    const ON_MAIN: &str = "${{ github.ref == 'refs/heads/main' }}";
+    const ENV: &str = "    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
+                       SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n";
+    let mut steps = String::new();
+    let mut step = |command: &str, run: &str, ga: bool| {
+        let ga_line = |indent: &str, key: &str| {
+            if ga {
+                format!("{indent}{key}: {ON_MAIN}\n")
+            } else {
+                String::new()
+            }
+        };
+        if facts.build_tool == BuildTool::Npm {
+            steps.push_str(&format!(
+                "- uses: paxel/sanshain-js@main\n  with:\n    command: {command}\n{}    \
+                 trunk: {ON_MAIN}\n  env:\n{ENV}",
+                ga_line("    ", "ga")
+            ));
+        } else {
+            steps.push_str(&format!(
+                "- run: {run}\n  env:\n{ENV}    SANSHAIN_TRUNK: {ON_MAIN}\n{}",
+                ga_line("    ", "SANSHAIN_GA")
+            ));
+        }
+    };
+    if role.requires() {
+        step("require", facts.require, false);
+    }
+    if role.provides() {
+        step("provide", facts.provide, true);
+    }
+    steps
+}
+
+fn ci_guide(facts: &ClientFacts, role: SetupRole, ci: CiSystem) -> CiGuide {
+    match ci {
+        CiSystem::GithubActions => CiGuide {
+            token_secret: "secrets.SANSHAIN_TOKEN",
+            url_variable: "vars.SANSHAIN_URL",
+            origin_from: &[
+                "GITHUB_SERVER_URL",
+                "GITHUB_REPOSITORY",
+                "GITHUB_RUN_ID",
+                "GITHUB_REF",
+            ],
+            snippet: Some(github_steps(facts, role)),
+        },
+        CiSystem::GitlabCi => CiGuide {
+            token_secret: "masked CI/CD variable SANSHAIN_TOKEN",
+            url_variable: "CI/CD variable SANSHAIN_URL",
+            origin_from: &[
+                "CI_JOB_URL",
+                "CI_MERGE_REQUEST_PROJECT_URL",
+                "CI_MERGE_REQUEST_IID",
+            ],
+            snippet: None,
+        },
+        CiSystem::Jenkins => CiGuide {
+            token_secret: "secret-text credential bound as SANSHAIN_TOKEN",
+            url_variable: "environment variable SANSHAIN_URL",
+            origin_from: &["BUILD_URL", "CHANGE_URL"],
+            snippet: None,
+        },
+        CiSystem::Other => CiGuide {
+            token_secret: "the CI's secret store, exposed as SANSHAIN_TOKEN",
+            url_variable: "environment variable SANSHAIN_URL",
+            origin_from: &[],
+            snippet: None,
+        },
+    }
+}
+
+/// A `sanshain.yaml` to start from, with placeholder names to replace.
+fn skeleton(facts: &ClientFacts, role: SetupRole) -> Result<(String, Vec<String>), AppError> {
+    let mut request = DraftRequest {
+        service_name: "my-service".to_string(),
+        ..Default::default()
+    };
+    let mut replace = vec!["my-service".to_string()];
+    if role.provides() {
+        let file = spec_file(facts.build_tool);
+        request.provides.push(DraftProvide {
+            file: file.to_string(),
+            api_type: None,
+            retired: false,
+        });
+        replace.push(file.to_string());
+    }
+    if role.requires() {
+        request.requires.push(DraftRequire {
+            service_name: "other-service".to_string(),
+            version: "1.0.0".to_string(),
+            output_directory: format!("{}/other-service", facts.output_root),
+            endpoints: vec![DraftEndpoint {
+                method: "GET".to_string(),
+                path: "/replace/me".to_string(),
+            }],
+            api_type: None,
+            format_openapi: false,
+        });
+        replace.extend(["other-service", "1.0.0", "/replace/me"].map(str::to_string));
+    }
+    Ok((draft_sanshain_yaml(&request)?, replace))
+}
+
+/// The setup facts for one system: its role, build tool and, when the
+/// pipeline is meant too, its CI. `instance` is the address every URL in
+/// the answer is built on; unknown, the URLs stay relative.
+pub fn setup_guide(
+    role: SetupRole,
+    build_tool: BuildTool,
+    ci: Option<CiSystem>,
+    instance: Option<&InstanceUrl>,
+) -> Result<SetupGuide, AppError> {
+    let facts = client(build_tool);
+    let url = instance.map(|i| i.url.as_str());
+    let (sanshain_yaml, replace_in_yaml) = skeleton(facts, role)?;
+    let maven = build_tool == BuildTool::Maven;
+    Ok(SetupGuide {
+        role,
+        build_tool,
+        ci,
+        instance: instance.cloned(),
+        client: ClientGuide {
+            name: facts.name,
+            repository: facts.repository,
+            version: facts.version,
+            install: facts.install,
+            integration: integration(facts, role),
+            service: "2.x",
+            min_service: MIN_SERVICE,
+        },
+        commands: commands(facts, role),
+        token: TokenGuide {
+            scope: "full",
+            mint_at: format!("{}/account.html", url.unwrap_or_default()),
+            minted_by: "the user, for their own builds: API Tokens, read-only unticked",
+            not_the_mcp_token: true,
+            local_env: (!maven).then_some("SANSHAIN_TOKEN"),
+            local_file: maven.then(|| maven_settings(url.unwrap_or("<instance url>"))),
+            ci_env: "SANSHAIN_TOKEN",
+            ci_owner: "a service account; a user manager issues its token (For on /account.html)",
+            ga_role: role.provides().then_some("releaser"),
+        },
+        variables: variables(role, ci, url),
+        ci_setup: ci.map(|ci| ci_guide(facts, role, ci)),
+        sanshain_yaml,
+        replace_in_yaml,
+        next_tools: [
+            "list_services",
+            "describe_service",
+            "find_endpoint",
+            "draft_sanshain_yaml",
+        ],
+        docs: DOCS,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -707,6 +1162,232 @@ mod tests {
                 ..Default::default()
             }),
             "a provide's file must not be empty"
+        );
+    }
+
+    fn corp() -> InstanceUrl {
+        InstanceUrl {
+            url: "https://sanshain.corp".to_string(),
+            derived: false,
+        }
+    }
+
+    fn purposes(guide: &SetupGuide) -> Vec<&str> {
+        guide.commands.iter().map(|c| c.purpose).collect()
+    }
+
+    fn names(guide: &SetupGuide) -> Vec<&str> {
+        guide.variables.iter().map(|v| v.name).collect()
+    }
+
+    #[test]
+    fn a_maven_producer_on_github_gets_the_plugin_the_settings_and_a_ga_step() {
+        let guide = setup_guide(
+            SetupRole::Producer,
+            BuildTool::Maven,
+            Some(CiSystem::GithubActions),
+            Some(&corp()),
+        )
+        .unwrap();
+        let pom = guide.client.integration.as_ref().unwrap();
+        assert_eq!(pom.file, "pom.xml");
+        assert!(
+            pom.content.contains("<version>2.5.0</version>"),
+            "{}",
+            pom.content
+        );
+        assert!(pom.content.contains("<goal>provide</goal>"));
+        assert!(!pom.content.contains("<goal>require</goal>"));
+        let settings = guide.token.local_file.as_ref().unwrap();
+        assert_eq!(settings.file, "~/.m2/settings.xml");
+        assert!(
+            settings
+                .content
+                .contains("<sanshainUrl>https://sanshain.corp</sanshainUrl>")
+        );
+        assert_eq!(guide.token.local_env, None);
+        assert_eq!(guide.token.mint_at, "https://sanshain.corp/account.html");
+        assert_eq!(guide.token.scope, "full");
+        assert_eq!(guide.token.ga_role, Some("releaser"));
+        assert_eq!(
+            purposes(&guide),
+            [
+                "provide",
+                "provide_trunk",
+                "provide_tag",
+                "provide_ga",
+                "provide_dry_run",
+                "catalog",
+                "fill_placeholder"
+            ]
+        );
+        assert_eq!(
+            guide.commands[4].run,
+            "mvn sanshain:provide -Dsanshain.dry.run=true"
+        );
+        assert_eq!(
+            guide.commands[6].run,
+            "-DNAME=value or SANSHAIN_SET_NAME=value"
+        );
+        assert_eq!(
+            names(&guide),
+            [
+                "SANSHAIN_URL",
+                "SANSHAIN_TOKEN",
+                "SANSHAIN_TRUNK",
+                "SANSHAIN_TAG",
+                "SANSHAIN_GA"
+            ]
+        );
+        assert_eq!(
+            guide.variables[0].value.as_deref(),
+            Some("https://sanshain.corp")
+        );
+        let ci = guide.ci_setup.as_ref().unwrap();
+        assert_eq!(ci.token_secret, "secrets.SANSHAIN_TOKEN");
+        assert_eq!(
+            ci.snippet.as_deref(),
+            Some(
+                "- run: mvn sanshain:provide\n  env:\n    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
+                 SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n    \
+                 SANSHAIN_TRUNK: ${{ github.ref == 'refs/heads/main' }}\n    \
+                 SANSHAIN_GA: ${{ github.ref == 'refs/heads/main' }}\n"
+            )
+        );
+        let yaml: crate::yaml::Value = crate::yaml::from_str(&guide.sanshain_yaml).unwrap();
+        assert_eq!(
+            yaml,
+            serde_json::json!({
+                "serviceName": "my-service",
+                "provides": [{ "file": "src/main/resources/openapi.yaml" }]
+            })
+        );
+        assert_eq!(
+            guide.replace_in_yaml,
+            ["my-service", "src/main/resources/openapi.yaml"]
+        );
+    }
+
+    #[test]
+    fn an_npm_consumer_on_github_gets_the_action_and_the_prebuild_script() {
+        let guide = setup_guide(
+            SetupRole::Consumer,
+            BuildTool::Npm,
+            Some(CiSystem::GithubActions),
+            Some(&corp()),
+        )
+        .unwrap();
+        assert_eq!(purposes(&guide), ["require", "catalog", "fill_placeholder"]);
+        assert_eq!(guide.commands[0].run, "npx sanshain require");
+        let scripts = guide.client.integration.as_ref().unwrap();
+        assert_eq!(scripts.file, "package.json");
+        assert!(
+            scripts
+                .content
+                .contains("\"prebuild\": \"sanshain require\"")
+        );
+        assert_eq!(guide.token.ga_role, None);
+        assert_eq!(guide.token.local_env, Some("SANSHAIN_TOKEN"));
+        assert_eq!(guide.token.local_file, None);
+        assert!(!names(&guide).contains(&"SANSHAIN_GA"));
+        assert_eq!(
+            guide.ci_setup.and_then(|c| c.snippet).as_deref(),
+            Some(
+                "- uses: paxel/sanshain-js@main\n  with:\n    command: require\n    \
+                 trunk: ${{ github.ref == 'refs/heads/main' }}\n  env:\n    \
+                 SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}\n    \
+                 SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}\n"
+            )
+        );
+        let yaml: crate::yaml::Value = crate::yaml::from_str(&guide.sanshain_yaml).unwrap();
+        assert_eq!(
+            yaml["requires"][0]["outputDirectory"],
+            "generated/other-service"
+        );
+        assert_eq!(yaml["requires"][0]["version"], "1.0.0");
+        assert_eq!(yaml.get("provides"), None);
+    }
+
+    #[test]
+    fn a_local_setup_without_ci_names_only_the_address_and_the_token() {
+        let guide = setup_guide(SetupRole::Both, BuildTool::Cargo, None, Some(&corp())).unwrap();
+        assert_eq!(names(&guide), ["SANSHAIN_URL", "SANSHAIN_TOKEN"]);
+        assert_eq!(guide.ci_setup, None);
+        assert_eq!(guide.client.integration, None);
+        assert_eq!(guide.client.install, "cargo install cargo-sanshain");
+        assert!(
+            !purposes(&guide).contains(&"provide_dry_run"),
+            "cargo sends none"
+        );
+        assert_eq!(purposes(&guide)[..2], ["require", "provide"]);
+        assert_eq!(
+            guide.replace_in_yaml,
+            [
+                "my-service",
+                "openapi.yaml",
+                "other-service",
+                "1.0.0",
+                "/replace/me"
+            ]
+        );
+    }
+
+    #[test]
+    fn another_ci_sets_the_origin_urls_itself() {
+        let guide = setup_guide(
+            SetupRole::Producer,
+            BuildTool::Go,
+            Some(CiSystem::Other),
+            None,
+        )
+        .unwrap();
+        let set = names(&guide);
+        assert!(set.contains(&"SANSHAIN_BUILD_URL") && set.contains(&"SANSHAIN_CHANGE_URL"));
+        let ci = guide.ci_setup.as_ref().unwrap();
+        assert!(ci.origin_from.is_empty());
+        assert_eq!(ci.snippet, None);
+        assert_eq!(guide.commands[1].run, "sanshain-go --trunk provide");
+        let jenkins = setup_guide(
+            SetupRole::Producer,
+            BuildTool::Conan,
+            Some(CiSystem::Jenkins),
+            None,
+        )
+        .unwrap();
+        assert!(!names(&jenkins).contains(&"SANSHAIN_BUILD_URL"));
+        assert_eq!(
+            jenkins.ci_setup.map(|c| c.origin_from),
+            Some(&["BUILD_URL", "CHANGE_URL"][..])
+        );
+    }
+
+    #[test]
+    fn an_unknown_address_leaves_the_urls_relative() {
+        let guide = setup_guide(SetupRole::Both, BuildTool::Maven, None, None).unwrap();
+        assert_eq!(guide.instance, None);
+        assert_eq!(guide.token.mint_at, "/account.html");
+        assert_eq!(guide.variables[0].value, None);
+        assert!(
+            guide
+                .token
+                .local_file
+                .unwrap()
+                .content
+                .contains("<sanshainUrl><instance url></sanshainUrl>")
+        );
+        let pom = guide.client.integration.unwrap().content;
+        assert!(
+            pom.contains("<goal>provide</goal>\n        <goal>require</goal>"),
+            "{pom}"
+        );
+        let conan = setup_guide(SetupRole::Consumer, BuildTool::Conan, None, None).unwrap();
+        assert!(
+            conan
+                .client
+                .integration
+                .unwrap()
+                .content
+                .contains("        Sanshain(self).require()\n")
         );
     }
 }

@@ -20,7 +20,7 @@
     <strong>Tools</strong>: <code>list_services</code>, <code>describe_service</code>,
     <code>find_endpoint</code>, <code>get_spec</code>, <code>get_graph</code>,
     <code>diff_versions</code>, <code>blame</code>, <code>endpoint_structure</code>; for setting a
-    system up <code>draft_sanshain_yaml</code>.
+    system up <code>setup_guide</code> and <code>draft_sanshain_yaml</code>.
   </li>
   <li>
     <strong>Limits</strong>: 60 tool calls per minute per token, 64 KiB per answer; larger answers
@@ -259,9 +259,11 @@
 
 <h3>Setting a system up</h3>
 <p>
-  An assistant connecting a system to Sanshain looks up the Producers and pins with the tools above,
-  then asks <code>draft_sanshain_yaml</code> for the file and writes it itself. No tool changes
-  anything: minting the build's token and the first provide stay the user's steps.
+  An assistant connecting a system to Sanshain asks <code>setup_guide</code> how, looks up the
+  Producers and pins with the tools above, then asks <code>draft_sanshain_yaml</code> for the file
+  and writes the files itself (<code>sanshain.yaml</code>, the build file,
+  <code>~/.m2/settings.xml</code>). No tool changes anything: minting the build's token and the
+  first provide stay the user's steps.
 </p>
 <table>
   <thead>
@@ -272,6 +274,24 @@
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><code>setup_guide</code></td>
+      <td><code>role</code>, <code>build_tool</code>, <code>ci?</code></td>
+      <td>
+        Structured facts for one system: the <a href="clients.html">client</a> (name, version,
+        repository, install line, the build-file snippet such as the Maven
+        <code>&lt;plugin&gt;</code>, the service versions its features need), the command lines per
+        purpose and when to run each, the build's token (<code>full</code>, where to mint it, where
+        it goes locally and in CI, the releaser role for GA), the environment variables, with
+        <code>ci</code> the secret and variable names, the runner variables the origin is read from
+        and for GitHub Actions the steps, and a <code>sanshain.yaml</code> skeleton with the
+        placeholder values to replace. <code>role</code> is <code>producer</code>,
+        <code>consumer</code> or <code>both</code>; <code>build_tool</code> <code>maven</code>,
+        <code>cargo</code>, <code>go</code>, <code>npm</code> or <code>conan</code>; <code>ci</code>
+        <code>github_actions</code>, <code>gitlab_ci</code>, <code>jenkins</code> or
+        <code>other</code>.
+      </td>
+    </tr>
     <tr>
       <td><code>draft_sanshain_yaml</code></td>
       <td>
@@ -333,6 +353,10 @@
   <li>
     <code>list_services</code>, <code>describe_service</code> and <code>find_endpoint</code> answer
     counts and a hint;
+  </li>
+  <li>
+    <code>setup_guide</code> answers the client's name and install line and the commands, with a
+    hint;
   </li>
   <li>
     <code>draft_sanshain_yaml</code> answers the file's size and entry counts with a hint to draft
