@@ -632,18 +632,16 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <code>strict: Sanshain did not record &lt;path&gt;</code>.
   </li>
 </ul>
-<p>Best effort turns these failures into warnings, and the command exits 0:</p>
+<p>
+  Best effort turns failed calls (a refusal, a server error, a network error) and a missing spec or
+  <code>catalogInfo</code> file into warnings, and the command exits 0:
+</p>
 <ul>
   <li>
-    An unreadable <code>sanshain.yaml</code>, including a refused 1.x field. The client prints
-    <code>Warning loading config: &lt;error&gt;</code> and goes on without the file. It then has no
-    <code>serviceName</code>, so the command skips.
-  </li>
-  <li>
-    On <code>provide</code>, a missing spec file (<code>File not found: &lt;path&gt;</code>) or a
-    <code>409</code> skips that entry, and the client goes on with the next. Any other failure ends
-    the command with <code>Error: &lt;error&gt;</code> and <code>Continuing (best effort)</code>, and
-    the remaining entries are not provided.
+    On <code>provide</code>, a missing spec file (<code>File not found: &lt;path&gt;</code>), a
+    <code>409</code> or any other failed call skips that entry, and the client goes on with the
+    next. A failed call prints <code>Error: &lt;error&gt;</code> and
+    <code>Continuing (best effort)</code>.
   </li>
   <li>
     On <code>require</code>, a failed entry prints
@@ -655,6 +653,11 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <code>Continuing (best effort)</code>.
   </li>
 </ul>
+<p>
+  Best effort never softens a configuration error: an unreadable or invalid
+  <code>sanshain.yaml</code>, a refused 1.x field and an unsupported provide <code>apiType</code>
+  included, fails with <code>Error: &lt;error&gt;</code> and exit 1 before any request.
+</p>
 
 <h2 id="failure-modes">Failure modes</h2>
 <p>
@@ -785,8 +788,8 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
       <td>1.x field (<code>branch</code>, <code>timeout</code>, <code>baseVersion</code>, <code>releaseBranches</code>)</td>
       <td>
         Refused with its hint, for example <code>requires[0] (user-service): 'timeout' is no longer
-        supported — Sanshain 2.0 resolves immediately (no long-polling); remove it</code>. Exits 1
-        (best effort: see above).
+        supported — Sanshain 2.0 resolves immediately (no long-polling); remove it</code>. Exits 1,
+        also with best effort.
       </td>
     </tr>
     <tr>
@@ -806,7 +809,12 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     </tr>
     <tr>
       <td>Unknown <code>apiType</code> in <code>provides</code></td>
-      <td><code>Error: Unknown apiType: &lt;type&gt;</code>, exit 1.</td>
+      <td>
+        <code>Error: provides[0]: unsupported apiType '&lt;type&gt;' — use openapi, asyncapi or proto
+        (grpc means proto)</code> (a single <code>provide</code> entry's starts
+        <code>provide: </code>). Exit 1, before any request, also with best effort. The helper
+        raises it when it is built.
+      </td>
     </tr>
   </tbody>
 </table>
@@ -848,7 +856,9 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <strong><code>provide()</code></strong> provides and retires like the command and logs
     <code>Sanshain: Successfully provided spec(s)</code>, without the per-file summary. A missing
     spec file raises unless <code>bestEffort</code> is set. A failed call (a <code>409</code>
-    included) always raises. Providing is a publish step, so run it from the CLI in CI after the
+    included) logs <code>Sanshain: &lt;error&gt;</code> and raises; with
+    <code>bestEffort: true</code> it warns <code>Sanshain: &lt;error&gt;</code> and
+    <code>Sanshain: Continuing (best effort)</code> and goes on with the next entry. Providing is a publish step, so run it from the CLI in CI after the
     tests (<code>sanshain-conan provide</code>), not in a recipe method.
   </li>
   <li>
