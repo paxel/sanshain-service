@@ -200,7 +200,7 @@ npx sanshain catalog --trunk</code></pre>
       <td>—</td>
       <td>off</td>
       <td>0.1.0</td>
-      <td>Send <code>dry_run</code>: the service checks everything and stores nothing.</td>
+      <td>Send <code>dry_run</code>: the service checks everything and stores nothing, and a require writes no file.</td>
     </tr>
     <tr>
       <td><code>--best-effort</code></td>
@@ -560,7 +560,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     run.
   </li>
   <li>
-    A <code>require --dry-run</code> still writes the downloaded file; it only stores no ETag.
+    A <code>require --dry-run</code> writes nothing: no output directory, no file and no ETag. It
+    prints <code>Dry run - &lt;file&gt; not written to &lt;outputDirectory&gt;</code>.
   </li>
   <li>
     A corrupt state file is replaced silently. A <code>provides</code> section written by clients
