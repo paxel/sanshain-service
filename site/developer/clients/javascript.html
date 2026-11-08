@@ -306,6 +306,8 @@ npx sanshain catalog --trunk</code></pre>
       <td>
         One required Producer at an exact pin. The version is written as
         <code>MAJOR[.MINOR[.PATCH]]</code>, optionally with a leading <code>v</code>; anything else
+        fails before any request. <code>apiType</code> is <code>openapi</code>,
+        <code>asyncapi</code> or <code>proto</code> (<code>grpc</code> means proto); any other value
         fails before any request.
       </td>
     </tr>
@@ -759,6 +761,14 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
         <code>Configuration file not found: &lt;path&gt;</code>, <code>Missing required field:
         sanshainUrl</code>, or an error naming the entry (e.g. <code>requires[0] (auth-service):
         missing 'version' — …</code>). Exit 1, before any request, also with best effort.
+      </td>
+    </tr>
+    <tr>
+      <td>Unsupported <code>apiType</code> on a require</td>
+      <td>
+        <code>requires[0] (&lt;producer&gt;): unsupported apiType '&lt;value&gt;' — use openapi,
+        asyncapi or proto (grpc means proto)</code>. Exit 1, before any request, also with best
+        effort.
       </td>
     </tr>
     <tr>
