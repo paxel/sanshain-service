@@ -115,8 +115,11 @@ async function showClientDependencies(clientName) {
     // Owner, description, repository and links from the Consumer's
     // catalog-info (#48), under the title. Optional: the page reads without it.
     try {
-      const { context } = await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}`);
-      const block = systemContextHtml(context, false);
+      const { context, annotations } = await fetchJSON(
+        `/admin/consumers/${encodeURIComponent(clientName)}`,
+      );
+      // The system annotations (#91) its builds sent ride the same card.
+      const block = systemContextHtml(context, false) + annotationsHtml(annotations, false);
       if (block) {
         const card = document.createElement("div");
         card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";

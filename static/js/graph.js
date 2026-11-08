@@ -3044,7 +3044,9 @@ function renderCustomGraph(report, svgElement, direction) {
     // Owner, description and link chips from the system's catalog-info
     // (#48), below the version lines; rides the scope payload.
     const systems = (window.graphScopeData && window.graphScopeData.systems) || {};
-    const contextBlock = systemContextHtml(systems[name], true);
+    const annotations = (window.graphScopeData && window.graphScopeData.system_annotations) || {};
+    const contextBlock =
+      systemContextHtml(systems[name], true) + annotationsHtml(annotations[name], true);
     const contextLines = contextBlock ? `<div class="mt-2">${contextBlock}</div>` : "";
 
     // The graph draws Producers and Consumers as the same kind of node, but the

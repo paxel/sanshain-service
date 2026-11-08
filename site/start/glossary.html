@@ -411,6 +411,15 @@
     one. References, never content: the ticket itself stays in the tracker.
   </dd>
 
+  <dt id="annotation">Annotation</dt>
+  <dd>
+    A named entry the project declares in <code>sanshain.yaml</code> and the build fills in, such as
+    a link to the requirements page or the CI job. <code>scope: version</code> stays with the
+    provided version; <code>scope: system</code> is kept once per system, the latest call winning
+    per name. Shown as a link when the value is an http(s) URL. See
+    <a href="../developer/sanshain-yaml.html#annotations">Annotations</a>.
+  </dd>
+
   <dt id="catalog-context">Catalog context</dt>
   <dd>
     What the catalog push records besides the periphery: the system's owner, description, source

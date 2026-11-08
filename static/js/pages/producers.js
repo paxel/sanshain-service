@@ -189,8 +189,11 @@ async function showProducerVersions(serviceName) {
   // Owner, description, repository and links from the Producer's
   // catalog-info (#48), under the title. Optional: the page reads without it.
   try {
-    const { context } = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}`);
-    const block = systemContextHtml(context, false);
+    const { context, annotations } = await fetchJSON(
+      `/admin/producers/${encodeURIComponent(serviceName)}`,
+    );
+    // The system annotations (#91) its builds sent ride the same card.
+    const block = systemContextHtml(context, false) + annotationsHtml(annotations, false);
     if (block) {
       const card = document.createElement("div");
       card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
@@ -361,6 +364,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
                             &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
                         </p>
                         ${originHtml(v.origin, ticketTemplate, false)}
+                        ${annotationsHtml(v.annotations, false)}
                     </div>
                 </div>
                 <div class="flex items-center gap-2">

@@ -989,6 +989,26 @@ function originHtml(origin, template, dark) {
   return rows.length ? `<div class="space-y-1 mt-1.5" data-origin>${rows.join("")}</div>` : "";
 }
 
+// Annotations (#91): project-declared entries the builds filled in. A value
+// starting with http:// or https:// is a link chip labelled by the name;
+// anything else is a text chip "name: value". Both are caller-supplied and
+// escaped. Empty string when there are none.
+function annotationsHtml(annotations, dark) {
+  if (!annotations || annotations.length === 0) return "";
+  const chip = dark
+    ? "bg-slate-800 text-slate-200 border border-slate-500 hover:bg-slate-700"
+    : "bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-200";
+  const plain = dark
+    ? "bg-slate-800 text-slate-300 border border-slate-600"
+    : "bg-slate-50 text-slate-600 border border-slate-200";
+  const chips = annotations.map((a) =>
+    /^https?:\/\//.test(a.value)
+      ? linkChip(a.value, a.name, "annotation", chip)
+      : `<span data-annotation="${escapeHtml(a.name)}" class="px-2 py-0.5 rounded-full text-[11px] ${plain}"><span class="opacity-70">${escapeHtml(a.name)}:</span> ${escapeHtml(a.value)}</span>`,
+  );
+  return `<div class="flex flex-wrap items-center gap-1.5 mt-1.5" data-annotations>${chips.join("")}</div>`;
+}
+
 function linkChip(url, label, kind, chipClass) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-context-link="${kind}" class="px-2 py-0.5 rounded-full text-[11px] ${chipClass}">${escapeHtml(label)}</a>`;
 }

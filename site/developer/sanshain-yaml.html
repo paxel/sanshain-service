@@ -127,6 +127,15 @@ requires:
       <td>Path to the Backstage <code>catalog-info.yaml</code> the build pushes.</td>
     </tr>
     <tr>
+      <td><code>annotations</code></td>
+      <td>no</td>
+      <td>—</td>
+      <td>
+        Named entries whose values the build fills in, shown with the version or the system; see
+        <a href="#annotations">Annotations</a>.
+      </td>
+    </tr>
+    <tr>
       <td><code>strict</code></td>
       <td>no</td>
       <td><code>false</code></td>
@@ -148,6 +157,58 @@ requires:
   The file carries no secrets. The token comes from <code>SANSHAIN_TOKEN</code> or the build tool's
   credential store, and is sent as <code>Authorization: Bearer san_…</code>.
 </p>
+
+<h2 id="annotations">Annotations</h2>
+<p>
+  <a href="../start/glossary.html#annotation">Annotations</a> are entries the project declares and
+  the build fills in: a link to the requirements of this release, the job that builds the system.
+  Sanshain shows them; it never invents or interprets them.
+</p>
+<pre><code>annotations:
+  - scope: version
+    name: requirements
+    value: "http://solar.system/id-{{AREA}}/requirements/{{ID}}"
+  - scope: system
+    name: jenkins
+    value: "https://jenkins.corp/job/payments"</code></pre>
+<ul>
+  <li>
+    <strong>Placeholders</strong> <code>{{NAME}}</code> take their value from the build: Maven
+    <code>-DNAME=value</code>, the CLIs <code>--set NAME=value</code>, every client
+    <code>SANSHAIN_SET_NAME=value</code> as the fallback; the flag wins. An entry with a placeholder
+    nobody filled is left out with a warning (strict mode fails).
+  </li>
+  <li>
+    <strong><code>scope: version</code></strong> entries travel on every provide and stay with that
+    version. A provide that stores new bytes replaces the names it sends and keeps the others; a
+    re-provide of identical bytes only fills names the version does not carry yet. Deleting the
+    version deletes them.
+  </li>
+  <li>
+    <strong><code>scope: system</code></strong> entries travel on every call naming the system
+    (provide, require, bundle, catalog push) and are stored once per system, the latest call winning
+    per name. They go when the system loses its last role.
+  </li>
+  <li>
+    At most 20 per scope and call; a name is at most 40 letters, digits, <code>-</code> and
+    <code>_</code>; a value at most 2048 characters and not blank. Anything beyond is a
+    <code>400</code> naming the entry, and nothing of the call is stored. A dry run, a refused or a
+    failed call store nothing.
+  </li>
+  <li>
+    A value starting with <code>http://</code> or <code>https://</code> is shown as a link labelled
+    by the name, anything else as text: on the version row (version scope), on the graph's node
+    panel and the Producer and Consumer pages (system scope). MCP
+    <code>describe_service</code> answers both; <code>version.published</code> carries the version
+    annotations the provide sent.
+  </li>
+  <li>
+    On the wire the entries are the body field <code>annotations</code> of provide, bundle and
+    catalog push, and the query parameter <code>annotations</code> (the same JSON array) of
+    <code>GET /require</code>. A service before 2.13.0 refuses the body field with <code>422</code>;
+    the clients then send the call again without it and warn.
+  </li>
+</ul>
 
 <h2>How stability is decided</h2>
 <p>

@@ -2530,3 +2530,68 @@ test.describe("Observability log lines", () => {
     expect(copied).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z? +[A-Z]+ +sanshain_service/);
   });
 });
+
+// Annotations (#91): the version row shows the version's entries and the
+// Producer's card its system entries; an http(s) value is a link chip
+// labelled by the name, anything else a text chip.
+test.describe("Annotations", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SERVICE = "annotations-fixture";
+  const SPEC = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Annotations Fixture",
+    "  version: 1.0.0",
+    "paths:",
+    "  /notes:",
+    "    get:",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const res = await request.post("/provide", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        producername: SERVICE,
+        stability: "snapshot",
+        openapi_yaml: SPEC,
+        annotations: [
+          { scope: "version", name: "requirements", value: "https://req.acme.corp/AN-1" },
+          { scope: "version", name: "area", value: "billing" },
+          { scope: "system", name: "jenkins", value: "https://jenkins.acme.corp/job/notes" },
+        ],
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  test("the version row and the Producer card show the annotations", async ({ page }) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const row = page.locator(".endpoint-card", { hasText: "1.0.0" });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    const link = row.locator('[data-annotations] [data-context-link="annotation"]');
+    await expect(link).toHaveText("requirements");
+    await expect(link).toHaveAttribute("href", "https://req.acme.corp/AN-1");
+    await expect(row.locator('[data-annotation="area"]')).toHaveText("area: billing");
+    const system = page.locator('[data-annotations] [data-context-link="annotation"]', {
+      hasText: "jenkins",
+    });
+    await expect(system).toHaveAttribute("href", "https://jenkins.acme.corp/job/notes");
+  });
+});

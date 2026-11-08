@@ -39,6 +39,7 @@ export default [
         systemContextHtml: "readonly",
         loadTicketUrlTemplate: "readonly",
         originHtml: "readonly",
+        annotationsHtml: "readonly",
         ticketUrl: "readonly",
         gateAllows: "readonly",
         setGateUser: "readonly",
