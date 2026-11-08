@@ -544,11 +544,14 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     directory, not to <code>sanshain.yaml</code>. The key is
     <code>&lt;producer&gt;|&lt;version&gt;|&lt;METHOD&gt;|&lt;path&gt;</code> for a single endpoint
     and <code>&lt;producer&gt;|&lt;version&gt;|bundle</code> for a bundle, followed by
-    <code>|openapi</code> when <code>format</code> is set. Each entry holds <code>etag</code> and
-    <code>last_fetched</code>.
+    <code>|openapi</code> when <code>format</code> is set and by
+    <code>|out=&lt;outputDirectory&gt;</code> (as written in <code>sanshain.yaml</code>, with forward
+    slashes), so the same endpoint required into two directories is fetched for each. Each entry
+    holds <code>etag</code> and <code>last_fetched</code>.
   </li>
   <li>
-    The stored ETag goes out as <code>If-None-Match</code>. On <code>304</code> the client prints
+    The stored ETag goes out as <code>If-None-Match</code>, but only while the output file is
+    there: a missing file is fetched again with a <code>200</code>. On <code>304</code> the client prints
     <code>&lt;producer&gt; spec unchanged (304), skipping code generation.</code> and leaves the
     file as it is. The ETag is written after a <code>200</code> that carried one, except on a dry
     run.
@@ -557,10 +560,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     A <code>require --dry-run</code> still writes the downloaded file; it only stores no ETag.
   </li>
   <li>
-    If the output files are gone but the state file is still there (for example a cached
-    <code>node_modules</code> with a clean checkout), delete <code>state.json</code>: otherwise a
-    <code>304</code> leaves nothing on disk. A corrupt state file is replaced silently. A
-    <code>provides</code> section written by clients before 2.4.0 is kept and ignored.
+    A corrupt state file is replaced silently. A <code>provides</code> section written by clients
+    before 2.4.0 is kept and ignored.
   </li>
 </ul>
 
