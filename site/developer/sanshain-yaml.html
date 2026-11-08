@@ -214,8 +214,9 @@ requires:
   <li>
     On the wire the entries are the body field <code>annotations</code> of provide, bundle and
     catalog push, and the query parameter <code>annotations</code> (the same JSON array) of
-    <code>GET /require</code>. A service before 2.13.0 refuses the body field with <code>422</code>;
-    the clients then send the call again without it and warn.
+    <code>GET /require</code>. A service before 2.13.0 refuses the body field with <code>422</code>
+    and the query parameter with <code>400</code>; the clients then send the call again without it
+    and warn.
   </li>
 </ul>
 
