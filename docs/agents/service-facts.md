@@ -128,6 +128,9 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   `SANSHAIN_BEST_EFFORT`, `SANSHAIN_SET_<NAME>` (annotation placeholders), the origin variables.
   Strict mode fails on any `Sanshain-Warning`.
 - Commands: provide, require, catalog. Dry run only Maven (`-Dsanshain.dry.run`) and JS CLI.
+- The service keeps each client's name, repo, version, install line and commands as data in
+  `src/application/setup_service.rs` (`CLIENTS`); `tests/site_clients_table_test.rs` holds it
+  equal to the table in `site/developer/clients.html`. A client release updates both.
 - Clients speak service 2.x (sanshain-rs is versioned on its own, 4.x); origin needs service
   ≥2.9.0, catalog push ≥2.4.0, annotations ≥2.13.0 (older: retried without, with a warning).
 - Sources: `site/developer/clients.html`, `site/developer/sanshain-yaml.html`.
