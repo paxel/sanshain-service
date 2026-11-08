@@ -641,7 +641,26 @@ function setActionArgs(el, type, values) {
 }
 
 // --- Confirm modal ---
+// Markup for the confirm modal, built only through the safeHtml tag below.
+class SafeHtml {
+  constructor(html) {
+    this.html = html;
+  }
+}
+
+// A tagged template for a confirm message with markup (bold names, line
+// breaks): every interpolated value is escaped unless it is itself safeHtml,
+// so a Producer, user or branch name can never inject HTML.
+function safeHtml(strings, ...values) {
+  let html = strings[0];
+  values.forEach((value, i) => {
+    html += (value instanceof SafeHtml ? value.html : escapeHtml(value)) + strings[i + 1];
+  });
+  return new SafeHtml(html);
+}
+
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
+// `message` is plain text, or markup built with safeHtml.
 function confirmAction(message, onConfirm, title = "Confirm Action", buttonText = "Confirm") {
   const modal = document.getElementById("confirm-modal");
   if (!modal) return;
@@ -655,7 +674,12 @@ function confirmAction(message, onConfirm, title = "Confirm Action", buttonText 
       onConfirm();
     };
   }
-  document.getElementById("confirm-message").innerHTML = message;
+  const messageEl = document.getElementById("confirm-message");
+  if (message instanceof SafeHtml) {
+    messageEl.innerHTML = message.html;
+  } else {
+    messageEl.textContent = message;
+  }
   modal.classList.remove("hidden");
 }
 // Alias used by admin page
@@ -672,7 +696,7 @@ function closeConfirmModal() {
 // page's own refresh hook.
 function promoteVersion(serviceName, apiType, version, onSuccess) {
   confirmAction(
-    `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
+    safeHtml`Release ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
     async () => {
       try {
         const res = await apiCall(

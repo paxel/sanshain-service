@@ -38,7 +38,7 @@ function webhookStamp(iso) {
 // Confirm through the page's modal when it has one, else the browser's.
 function webhookConfirm(message, onConfirm) {
   if (document.getElementById("confirm-modal") && typeof confirmAction === "function") {
-    confirmAction(escapeHtml(message), onConfirm);
+    confirmAction(message, onConfirm);
   } else if (window.confirm(message)) {
     onConfirm();
   }

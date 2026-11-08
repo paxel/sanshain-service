@@ -640,6 +640,34 @@ test.describe("Escaping", () => {
     expect(handlers.attrs).toEqual(["title"]);
     expect(handlers.title).toBe('x" onmouseover="steal()');
   });
+
+  // The confirm modal shows a plain message as text and takes markup only
+  // through safeHtml, whose interpolated names are escaped.
+  test("the confirm modal never renders a name as markup", async ({ page }) => {
+    await page.goto("/producers.html");
+    await page.waitForFunction(() => typeof window.confirmAction === "function");
+    const name = '<img src="x" onerror="window.__xss = 1">';
+
+    const plain = await page.evaluate((value) => {
+      window.confirmAction(`Delete ${value}?`, () => {});
+      const el = document.getElementById("confirm-message");
+      return { images: el.querySelectorAll("img").length, text: el.textContent };
+    }, name);
+    expect(plain).toEqual({ images: 0, text: `Delete ${name}?` });
+
+    const marked = await page.evaluate((value) => {
+      window.confirmAction(window.safeHtml`Delete <strong>${value}</strong>?`, () => {});
+      const el = document.getElementById("confirm-message");
+      const strong = el.querySelectorAll("strong");
+      return {
+        images: el.querySelectorAll("img").length,
+        strong: strong.length,
+        name: strong[0] ? strong[0].textContent : null,
+      };
+    }, name);
+    expect(marked).toEqual({ images: 0, strong: 1, name });
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+  });
 });
 
 test.describe("Release-graph regressions", () => {

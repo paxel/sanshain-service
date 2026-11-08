@@ -30,6 +30,7 @@ export default [
         setActionArgs: "readonly",
         confirmDelete: "readonly",
         confirmAction: "readonly",
+        safeHtml: "readonly",
         togglePasswordVisibility: "readonly",
         onSessionExpired: "readonly",
         showLoader: "readonly",

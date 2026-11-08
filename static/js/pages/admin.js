@@ -394,7 +394,7 @@ async function loadBranches() {
         .querySelector("[data-delete]")
         .addEventListener("click", () =>
           confirmDelete(
-            `Delete sanshain-branch <strong>${escapeHtml(b.name)}</strong>? Its graph and timeline are removed and the name is freed.`,
+            safeHtml`Delete sanshain-branch <strong>${b.name}</strong>? Its graph and timeline are removed and the name is freed.`,
             () => deleteBranch(b.name),
           ),
         );
@@ -1578,10 +1578,10 @@ async function deleteVersion(service, apiType, version) {
   } catch (_) {}
   const warning =
     dependents.length > 0
-      ? `<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.map((d) => escapeHtml(d)).join(", ")}`
-      : "<br><br>No Consumers are pinned to this version.";
+      ? safeHtml`<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.join(", ")}`
+      : safeHtml`<br><br>No Consumers are pinned to this version.`;
   confirmDelete(
-    `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(service)}</strong>?${warning}`,
+    safeHtml`Delete ${apiType} version <strong>${version}</strong> of <strong>${service}</strong>?${warning}`,
     async () => {
       const res = await apiCall(
         `/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`,
@@ -1928,20 +1928,19 @@ function confirmNukeDatabase() {
 // of these (with the entity name/id in data-click-args) instead of building a
 // confirmDelete() call with a delete-callback closure inline.
 function confirmDeleteUser(username, id) {
-  confirmDelete(`Delete user <strong>${escapeHtml(username)}</strong>?`, () => deleteUser(id));
+  confirmDelete(safeHtml`Delete user <strong>${username}</strong>?`, () => deleteUser(id));
 }
 function confirmDeleteGroup(name, id) {
-  confirmDelete(`Delete group <strong>${escapeHtml(name)}</strong>?`, () => deleteGroup(id));
+  confirmDelete(safeHtml`Delete group <strong>${name}</strong>?`, () => deleteGroup(id));
 }
 function confirmDeleteService(svc) {
-  confirmDelete(`Delete service <strong>${escapeHtml(svc)}</strong> and all its data?`, () =>
+  confirmDelete(safeHtml`Delete service <strong>${svc}</strong> and all its data?`, () =>
     deleteService(svc),
   );
 }
 function confirmDeleteClient(client) {
-  confirmDelete(
-    `Delete client <strong>${escapeHtml(client)}</strong> and all its dependencies?`,
-    () => deleteClient(client),
+  confirmDelete(safeHtml`Delete client <strong>${client}</strong> and all its dependencies?`, () =>
+    deleteClient(client),
   );
 }
 

@@ -441,12 +441,12 @@ async function deleteVersion(serviceName, apiType, version) {
     alert("Could not check dependents: " + e.message);
     return;
   }
-  const base = `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong>?`;
+  const base = safeHtml`Delete ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong>?`;
   const warning =
     dependents.length > 0
-      ? `<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.map((d) => escapeHtml(d)).join(", ")}`
-      : "<br><br>No Consumers are pinned to this version.";
-  confirmDelete(base + warning, async () => {
+      ? safeHtml`<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.join(", ")}`
+      : safeHtml`<br><br>No Consumers are pinned to this version.`;
+  confirmDelete(safeHtml`${base}${warning}`, async () => {
     try {
       const res = await apiCall(
         `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`,
