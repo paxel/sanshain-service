@@ -210,6 +210,8 @@ pub struct DescribedVersion {
     pub superseded: bool,
     /// What the build behind it said about why (empty when nothing).
     pub origin: VersionOrigin,
+    /// The version's annotations (#91).
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,6 +275,8 @@ pub struct ServiceDescription {
     /// Owner, description, source location and links from the service's
     /// catalog-info (#48); `None` when no push described it.
     pub context: Option<SystemContext>,
+    /// The system annotations (#91) its builds sent.
+    pub annotations: Vec<Annotation>,
 }
 
 /// Tool `describe_service`: everything about one Producer or Consumer.
@@ -322,6 +326,7 @@ pub async fn describe_service(
                 endpoint_count: v.endpoint_count,
                 superseded: latest.get(&v.api_type).is_some_and(|l| *l > v.version),
                 origin: v.origin.clone(),
+                annotations: v.annotations.clone(),
             });
         }
         for (api_type, version) in latest {
@@ -421,6 +426,7 @@ pub async fn describe_service(
         requires,
         periphery,
         context: repo.get_system_context(name).await?,
+        annotations: repo.get_system_annotations(name).await?,
     })
 }
 

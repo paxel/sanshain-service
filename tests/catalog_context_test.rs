@@ -246,7 +246,7 @@ async fn a_push_makes_the_context_visible_on_every_endpoint() {
     let producer = get_json(&ctx, "/admin/producers/orders").await;
     assert_eq!(
         producer,
-        json!({"name": "orders", "context": expected_full_context()})
+        json!({"name": "orders", "context": expected_full_context(), "annotations": []})
     );
     let consumer = get_json(&ctx, "/admin/consumers/webapp").await;
     assert_eq!(consumer["name"], "webapp");
@@ -346,11 +346,11 @@ async fn a_system_without_a_push_has_no_context_and_an_unknown_one_is_404() {
     seed_roles(&ctx).await;
     assert_eq!(
         get_json(&ctx, "/admin/producers/orders").await,
-        json!({"name": "orders", "context": null})
+        json!({"name": "orders", "context": null, "annotations": []})
     );
     assert_eq!(
         get_json(&ctx, "/admin/consumers/webapp").await,
-        json!({"name": "webapp", "context": null})
+        json!({"name": "webapp", "context": null, "annotations": []})
     );
     assert_eq!(get_json(&ctx, "/report").await["systems"], json!({}));
     // webapp only consumes; orders only produces.

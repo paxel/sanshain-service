@@ -183,6 +183,7 @@ async fn participant_context(
     Ok(ParticipantContext {
         name: name.to_string(),
         context: repo.get_system_context(name).await?,
+        annotations: repo.get_system_annotations(name).await?,
     })
 }
 
@@ -214,6 +215,7 @@ pub(crate) async fn close_catalog_of_departed(
             repo.reconcile_periphery(system, true, &[], &now, Vec::new())
                 .await?;
             repo.delete_system_context(system).await?;
+            repo.delete_system_annotations(system).await?;
         }
     }
     Ok(())
@@ -502,6 +504,7 @@ mod tests {
             ParticipantContext {
                 name: "orders".to_string(),
                 context: None,
+                annotations: Vec::new(),
             }
         );
     }

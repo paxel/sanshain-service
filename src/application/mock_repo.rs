@@ -1543,6 +1543,7 @@ impl SpecRepository for MockRepo {
             harvested_subscriptions: Vec::new(),
             peripheral_dependencies: Vec::new(),
             systems: BTreeMap::new(),
+            system_annotations: BTreeMap::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,

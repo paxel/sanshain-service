@@ -709,6 +709,7 @@ async fn provide_spec_inner(
             content,
             endpoints: &endpoint_records,
             origin,
+            annotations: version_annotations,
         },
     )
     .await?;
@@ -897,6 +898,8 @@ struct ProvideFacts<'a> {
     content: &'a str,
     endpoints: &'a [EndpointRecord],
     origin: &'a VersionOrigin,
+    /// The version annotations (#91) this Provide sent.
+    annotations: &'a [Annotation],
 }
 
 /// The outbox rows a Provide writes with its version-line entry (#47):
@@ -946,6 +949,7 @@ async fn plan_provide_events(
         actor: facts.username,
         compatibility,
         origin: facts.origin,
+        annotations: facts.annotations,
     });
     events.extend(webhooks::event_for(
         WebhookEventType::VersionPublished,

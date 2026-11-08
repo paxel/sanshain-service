@@ -476,6 +476,7 @@ paths:
         The Consumer's context (#48): what its Backstage `catalog-info.yaml`
         says about it — owner, description, source location and links.
         `context` is `null` until a catalog push described the system.
+        `annotations` are the system annotations (#91) its builds sent.
       parameters:
         - name: name
           in: path
@@ -1204,6 +1205,8 @@ paths:
           name — owner, description, source location and links from its
           Backstage `catalog-info.yaml` — so the node panel needs no extra
           request. A present-day fact, the same in every scope.
+        - `system_annotations`: the system annotations (#91) of every system
+          that sent some, by name; present-day like `systems`.
       parameters:
         - name: scope
           in: query
@@ -1265,6 +1268,12 @@ paths:
                     type: object
                     additionalProperties:
                       $ref: "#/components/schemas/SystemContext"
+                  system_annotations:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Annotation"
         "400":
           description: A selector instant that is not RFC 3339, or `dev@…`.
           content:
@@ -1370,6 +1379,7 @@ paths:
         The Producer's context (#48): what its Backstage `catalog-info.yaml`
         says about it — owner, description, source location and links.
         `context` is `null` until a catalog push described the system.
+        `annotations` are the system annotations (#91) its builds sent.
       parameters:
         - name: name
           in: path
@@ -4112,9 +4122,16 @@ components:
               icon:
                 type: string
                 nullable: true
+    Annotation:
+      type: object
+      required: [name, value]
+      description: A project-declared annotation (#91) the build filled in; see `api.yaml`.
+      properties:
+        name: { type: string }
+        value: { type: string }
     ParticipantContext:
       type: object
-      required: [name, context]
+      required: [name, context, annotations]
       properties:
         name:
           type: string
@@ -4122,6 +4139,11 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/SystemContext"
+        annotations:
+          type: array
+          description: The system annotations (#91) its builds sent, sorted by name.
+          items:
+            $ref: "#/components/schemas/Annotation"
     WebhookScope:
       type: object
       description: Who a hook belongs to (#47).

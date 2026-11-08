@@ -587,6 +587,53 @@ async fn describe_service_carries_the_context_of_the_catalog_info() {
 }
 
 #[tokio::test]
+async fn describe_service_carries_the_annotations_of_system_and_version() {
+    let seed = seed().await;
+    // The build of `orders` sends a system annotation with its catalog push.
+    let catalog = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\nspec:\n  type: service\n";
+    let res = seed
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/catalog/orders")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", seed.session),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "catalog_info_yaml": catalog,
+                        "annotations": [{"scope": "system", "name": "jenkins", "value": "https://jenkins.corp/job/orders"}],
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let d = call_json(
+        &seed.app,
+        &seed.read_only,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(
+        d["annotations"],
+        json!([{"name": "jenkins", "value": "https://jenkins.corp/job/orders"}])
+    );
+    // No version of the seed carries any.
+    for version in d["versions"].as_array().unwrap() {
+        assert_eq!(version["annotations"], json!([]), "{version}");
+    }
+}
+
+#[tokio::test]
 async fn find_endpoint_searches_latest_versions_by_default() {
     let seed = seed().await;
     let found = call_json(

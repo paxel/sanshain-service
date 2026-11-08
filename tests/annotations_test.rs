@@ -477,3 +477,85 @@ async fn deleting_a_version_deletes_its_annotations() {
         .unwrap();
     assert_eq!(rows.0, 0);
 }
+
+#[cfg(test)]
+async fn get_ok(ctx: &TestContext, uri: &str) -> Value {
+    let (status, _, body) = send(ctx, "GET", uri, None).await;
+    assert_eq!(status, StatusCode::OK, "{uri} got: {body}");
+    serde_json::from_str(&body).unwrap()
+}
+
+#[tokio::test]
+async fn the_annotations_show_on_versions_participants_and_the_report() {
+    let ctx = setup().await;
+    provide(
+        &ctx,
+        &spec("1.0.0", "users"),
+        json!([
+            ann("version", "requirements", "https://req/42"),
+            ann("system", "jenkins", "https://jenkins.corp/job/orders"),
+        ]),
+    )
+    .await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/require-bundle",
+        Some(json!({
+            "consumername": "webapp",
+            "producername": "orders",
+            "version": "1.0.0",
+            "endpoints": [{"path": "/users", "method": "GET"}],
+            "annotations": [ann("system", "team", "web")],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+
+    let versions = get_ok(&ctx, "/producers/orders/versions").await;
+    assert_eq!(
+        versions[0]["annotations"],
+        json!([{"name": "requirements", "value": "https://req/42"}])
+    );
+    let producer = get_ok(&ctx, "/admin/producers/orders").await;
+    assert_eq!(
+        producer["annotations"],
+        json!([{"name": "jenkins", "value": "https://jenkins.corp/job/orders"}])
+    );
+    let consumer = get_ok(&ctx, "/admin/consumers/webapp").await;
+    assert_eq!(
+        consumer["annotations"],
+        json!([{"name": "team", "value": "web"}])
+    );
+    let report = get_ok(&ctx, "/report").await;
+    assert_eq!(
+        report["system_annotations"],
+        json!({
+            "orders": [{"name": "jenkins", "value": "https://jenkins.corp/job/orders"}],
+            "webapp": [{"name": "team", "value": "web"}],
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_system_losing_its_last_role_loses_its_annotations() {
+    let ctx = setup().await;
+    provide(&ctx, &spec("1.0.0", "users"), json!([])).await;
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/require-bundle",
+        Some(json!({
+            "consumername": "webapp",
+            "producername": "orders",
+            "version": "1.0.0",
+            "endpoints": [{"path": "/users", "method": "GET"}],
+            "annotations": [ann("system", "team", "web")],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "got: {body}");
+    let (status, _, body) = send(&ctx, "DELETE", "/admin/consumers/webapp", None).await;
+    assert!(status.is_success(), "got: {status} {body}");
+    assert!(system_annotations(&ctx, "webapp").await.is_empty());
+}

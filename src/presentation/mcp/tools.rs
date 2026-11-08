@@ -180,7 +180,10 @@ pub fn catalog() -> Result<Vec<Tool>, String> {
              periphery — the Backstage resources (databases, queues, buckets) it depends on and which \
              other systems share each — and its `context` from its Backstage catalog-info: owner \
              (kind and name), description, source location (the repository) and links (wiki, \
-             dashboards, ticket board); `null` when the service pushed no catalog-info. Use it after \
+             dashboards, ticket board); `null` when the service pushed no catalog-info. Its \
+             `annotations` and each version's `annotations` are named entries the builds declared \
+             in sanshain.yaml (a requirements page, the CI job); values starting with http(s) are \
+             links. Use it after \
              `list_services`, before `get_spec` or `find_endpoint`. Unknown names are refused with a \
              message. `scope` as in `list_services`.",
         )?,

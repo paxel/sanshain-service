@@ -328,6 +328,8 @@ pub struct VersionPublished<'a> {
     pub compatibility: Option<(SemVer, Impact)>,
     /// What the build said about why: build URL, change URL, tickets, note.
     pub origin: &'a VersionOrigin,
+    /// The version annotations (#91) the Provide sent.
+    pub annotations: &'a [Annotation],
 }
 
 pub fn version_published_data(event: &VersionPublished<'_>) -> serde_json::Value {
@@ -344,6 +346,7 @@ pub fn version_published_data(event: &VersionPublished<'_>) -> serde_json::Value
             "impact": impact_label(impact),
         })),
         "origin": event.origin,
+        "annotations": event.annotations,
     })
 }
 
@@ -1325,6 +1328,10 @@ mod tests {
                 note: Some("Ship v2".to_string()),
                 trunk_build: false,
             },
+            annotations: &[Annotation {
+                name: "requirements".to_string(),
+                value: "https://req/ORD-7".to_string(),
+            }],
         });
         assert_eq!(
             data,
@@ -1336,6 +1343,7 @@ mod tests {
                     "build_url": "https://ci.acme.corp/job/orders/42", "change_url": null,
                     "tickets": ["ORD-7"], "note": "Ship v2", "trunk_build": false,
                 },
+                "annotations": [{"name": "requirements", "value": "https://req/ORD-7"}],
             })
         );
         let data = dependency_recorded_data(&DependencyRecorded {

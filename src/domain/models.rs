@@ -1302,6 +1302,8 @@ pub struct SystemContext {
 pub struct ParticipantContext {
     pub name: String,
     pub context: Option<SystemContext>,
+    /// The system annotations (#91) its builds sent.
+    pub annotations: Vec<Annotation>,
 }
 
 /// Which periphery set a read or a write addresses (#46). A trunk push
@@ -1378,6 +1380,9 @@ pub struct GraphScopeData {
     /// The context (#48) of every system that pushed one, by name, so the
     /// node panel needs no extra request. Not scoped: a present-day fact.
     pub systems: BTreeMap<String, SystemContext>,
+    /// The system annotations (#91) of every system that sent some, by name;
+    /// present-day like the context.
+    pub system_annotations: BTreeMap<String, Vec<Annotation>>,
 }
 
 /// The answer to a catalog push (#46): the periphery now recorded for the
@@ -1446,6 +1451,10 @@ pub struct DependencyReport {
     /// carries the same map. Application-populated.
     #[serde(default)]
     pub systems: BTreeMap<String, SystemContext>,
+    /// The system annotations (#91) of every system that sent some, by name.
+    /// Present-day like the context. Application-populated.
+    #[serde(default)]
+    pub system_annotations: BTreeMap<String, Vec<Annotation>>,
     /// Trunk entries not refreshed since this instant are stale (half the
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1600,6 +1609,9 @@ pub struct ProducerVersionInfo {
     /// What the build that provided it said about why (empty when nothing).
     #[serde(default)]
     pub origin: VersionOrigin,
+    /// The version's annotations (#91), sorted by name.
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
     /// Use-based expiry for snapshots when cleanup is enabled; `None` for GA
     /// (never age-culled) or when cleanup is off. Populated by the application
     /// layer; `None` in raw repository results.

@@ -1995,6 +1995,11 @@ components:
           description: |
             Use-based expiry for snapshots when cleanup is enabled; absent for
             GA (never age-culled) or when cleanup is off.
+        annotations:
+          type: array
+          description: The version's annotations (2.13.0), sorted by name.
+          items:
+            $ref: "#/components/schemas/Annotation"
 
     WebhookEnvelope:
       type: object
@@ -2088,6 +2093,11 @@ components:
               enum: [none, patch, minor, major]
         origin:
           $ref: "#/components/schemas/VersionOrigin"
+        annotations:
+          type: array
+          description: The version annotations (2.13.0) this provide sent.
+          items:
+            $ref: "#/components/schemas/Annotation"
     WebhookProvideRejectedData:
       type: object
       description: A Provide was refused by a version rule. Dry-runs emit nothing.
@@ -2467,6 +2477,13 @@ components:
           description: Catalog context per system name.
           additionalProperties:
             $ref: "#/components/schemas/SystemContext"
+        system_annotations:
+          type: object
+          description: System annotations (2.13.0) per system name, sorted by name.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Annotation"
         trunk_stale_before:
           type: string
           description: Only in the dev scope; trunk pins last required before this instant are stale.

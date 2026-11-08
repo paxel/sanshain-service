@@ -323,6 +323,7 @@ async fn a_provide_emits_version_published_and_a_dry_run_or_no_op_does_not() {
                 "build_url": null, "change_url": "https://github.com/acme/orders/pull/7",
                 "tickets": ["ORD-7"], "note": "Ship the orders API", "trunk_build": false,
             },
+            "annotations": [],
         })
     );
 
