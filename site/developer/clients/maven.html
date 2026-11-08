@@ -552,12 +552,14 @@ mvn verify                      # runs the goals bound to initialize</code></pre
   <code>target/.sanshain-cache.json</code> under the project directory (not relative to
   <code>sanshain.yaml</code>). The key is
   <code>&lt;producer&gt;|&lt;version&gt;|&lt;METHOD&gt;|&lt;path&gt;</code> for a single require and
-  <code>&lt;producer&gt;|&lt;version&gt;|bundle</code> for a bundle, with
-  <code>|format=openapi</code> appended when the entry sets <code>format</code>:
+  <code>&lt;producer&gt;|&lt;version&gt;|bundle</code> for a bundle, then
+  <code>|format=openapi</code> when the entry sets <code>format</code>, then
+  <code>|out=&lt;outputDirectory&gt;</code>, the output directory relative to the project
+  directory, so the same endpoint required into two directories is written to both:
 </p>
 <pre><code>{
   "requires": {
-    "user-service|2.3.0|GET|/api/v1/users": {
+    "user-service|2.3.0|GET|/api/v1/users|out=target/generated-sources/sanshain": {
       "etag": "\"sha256:def456...\"",
       "last_fetched": "2026-04-25T12:00:00Z"
     }
@@ -568,9 +570,8 @@ mvn verify                      # runs the goals bound to initialize</code></pre
   left as it is and the goal logs
   <code>⏭ user-service spec unchanged (304), skipping code generation.</code> The entry is written
   after a <code>200</code> that carries an ETag, never on a dry run. <code>mvn clean</code> removes
-  the file; so does deleting it. An unreadable file is replaced. Since a <code>304</code> writes
-  nothing, an output directory outside <code>target/</code> whose file was deleted needs the cache
-  file deleted too.
+  the file; so does deleting it. An unreadable file is replaced. When the output file is missing,
+  the require is sent without <code>If-None-Match</code> and the answer is written again.
 </p>
 <p>
   Provides are not cached: every provide uploads, and the service treats byte-identical content as
