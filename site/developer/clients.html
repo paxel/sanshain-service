@@ -277,7 +277,10 @@ class MyProject(ConanFile):
   <code>--tag</code>, <code>--best-effort</code> and the origin flags <code>--build-url</code>,
   <code>--change-url</code>, <code>--tickets</code> and <code>--note</code>. The
   <code>conanfile.py</code> integration reads the <code>SANSHAIN_*</code> variables only.
-  <code>strict: true</code> in <code>sanshain.yaml</code> turns on strict mode.
+  <code>strict: true</code> in <code>sanshain.yaml</code> turns on strict mode. The CLI's flags go
+  before the command. Every flag and variable, the precedence, what the
+  <code>conanfile.py</code> helper reads, the failure modes and CI recipes are on the
+  <a href="clients/conan.html">Conan client</a> page.
 </p>
 
 <h2>No client for your language?</h2>
