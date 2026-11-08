@@ -1829,7 +1829,7 @@ let nukeCallback = null;
 let nukeExpectedText = "";
 
 function nukeConfirm(message, expectedText, callback) {
-  document.getElementById("nuke-message").innerHTML = message;
+  document.getElementById("nuke-message").textContent = message;
   document.getElementById("nuke-expected-text").textContent = expectedText;
   document.getElementById("nuke-input").value = "";
   document.getElementById("nuke-error").classList.add("hidden");
