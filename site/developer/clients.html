@@ -168,9 +168,10 @@ mvn sanshain:catalog</code></pre>
   document before upload (<code>combine</code>, on by default), and picks
   <code>/require-bundle</code> automatically when an entry has two or more endpoints.
   <code>configFile</code> points it at another <code>sanshain.yaml</code>. Require ETags are kept in
-  <code>target/.sanshain-cache.json</code>, removed by <code>mvn clean</code>. Its README documents
-  the full precedence chain, strict and best-effort modes, and the
-  <code>openapi-generator</code> wiring.
+  <code>target/.sanshain-cache.json</code>, removed by <code>mvn clean</code>. Every
+  property, the precedence chain, strict and best-effort modes, the failure modes, the
+  <code>openapi-generator</code> wiring and CI recipes are on the
+  <a href="clients/maven.html">Maven client</a> page.
 </p>
 
 <h2>Rust (cargo)</h2>
