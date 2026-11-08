@@ -1,4 +1,4 @@
-//! The MCP endpoint over JSON-RPC against the router (docs/mcp.md): the
+//! The MCP endpoint over JSON-RPC against the router (site/developer/mcp.html): the
 //! bearer-token guard, the stateless handshake, the tool catalog, every tool's
 //! happy and error path, the rate limit, the size budget and the metrics.
 
