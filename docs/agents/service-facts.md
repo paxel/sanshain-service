@@ -302,10 +302,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   re-exported by `services.rs`; `mock_repo.rs` is the test repository) → `src/infrastructure/`
   (sqlite/postgres repositories, parallel on purpose; `cached_repository.rs`; LDAP/OIDC; TLS;
   migrations per dialect, never edited once applied) → `src/presentation/` (thin Axum handlers
-  `handlers/{api,admin,auth,roles,webhooks,pages}.rs`, `middleware.rs`, MCP). Router in
+  `handlers/{api,admin,auth,roles,products,webhooks,pages}.rs`, `middleware.rs`, MCP). Router in
   `src/lib.rs`, startup in `src/main.rs`.
 - Spec handling: `src/openapi.rs`, `src/asyncapi.rs`, `src/proto.rs`, `src/structure.rs`
-  (structure view), `src/backstage.rs`.
+  (structure view), `src/backstage.rs`, `src/helm.rs` (Product `Chart.yaml`).
 - Frontend: static pages `static/*.html` + `static/js/` (vanilla, classic scripts, CSP: no inline
   JS); header/nav/footer from `static/js/site-chrome.js`; Tailwind built to `static/css/app.css`
   (committed). Askama templates `templates/` (landing, dashboard).

@@ -196,7 +196,7 @@ function memberRoleChips(member) {
   const chips = [];
   if (member.producer) {
     chips.push(
-      `<a href="/producers.html?name=${encodeURIComponent(member.system)}" data-role="producer" class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold uppercase hover:bg-indigo-200">Producer</a>`,
+      `<a href="/producers.html?service=${encodeURIComponent(member.system)}" data-role="producer" class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold uppercase hover:bg-indigo-200">Producer</a>`,
     );
   }
   if (member.consumer) {
@@ -303,21 +303,19 @@ async function setProductMaintainer(subject, assign) {
   await reloadProduct();
 }
 
-function deleteProduct() {
+// A plain confirm, as for clearing system information: this page has no
+// confirm modal, and the name is caller-chosen text.
+async function deleteProduct() {
   const name = productDetail.name;
-  confirmDelete(
-    `Delete the Product '${name}'? Its member systems stay exactly as they are.`,
-    async () => {
-      const res = await apiCall(`/admin/products/${encodeURIComponent(name)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        alert("Could not delete the Product: " + (await errorMessage(res)));
-        return;
-      }
-      await showProductList();
-    },
-  );
+  if (!confirm(`Delete the Product '${name}'? Its member systems stay exactly as they are.`)) {
+    return;
+  }
+  const res = await apiCall(`/admin/products/${encodeURIComponent(name)}`, { method: "DELETE" });
+  if (!res.ok) {
+    alert("Could not delete the Product: " + (await errorMessage(res)));
+    return;
+  }
+  await showProductList();
 }
 
 async function handleProductLink() {
