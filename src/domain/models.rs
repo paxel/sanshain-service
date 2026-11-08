@@ -1159,6 +1159,103 @@ impl VersionOrigin {
     }
 }
 
+/// Where an annotation (#91) is stored: with the provided version, or once
+/// per system.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationScope {
+    Version,
+    System,
+}
+
+/// One annotation as the build sends it: a project-declared name from
+/// `sanshain.yaml` with the value the build filled in.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AnnotationEntry {
+    pub scope: AnnotationScope,
+    pub name: String,
+    pub value: String,
+}
+
+/// A stored annotation (#91): a name and its value. A value starting with
+/// `http://` or `https://` is shown as a link labelled by the name.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Annotation {
+    pub name: String,
+    pub value: String,
+}
+
+/// The annotations of one call, split by scope and validated.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Annotations {
+    pub version: Vec<Annotation>,
+    pub system: Vec<Annotation>,
+}
+
+impl Annotations {
+    /// At most this many per scope and call.
+    pub const MAX_PER_SCOPE: usize = 20;
+    /// A name is at most this long, of letters, digits, `-` and `_`.
+    pub const MAX_NAME_CHARS: usize = 40;
+    /// A value is at most this long.
+    pub const MAX_VALUE_CHARS: usize = 2048;
+
+    pub fn is_empty(&self) -> bool {
+        self.version.is_empty() && self.system.is_empty()
+    }
+
+    /// Split the entries by scope, refusing by name what is out of bounds:
+    /// a malformed or repeated name, a blank or too long value, more than
+    /// [`Self::MAX_PER_SCOPE`] in one scope. The value is kept as sent,
+    /// trimmed of surrounding whitespace.
+    pub fn from_entries(entries: &[AnnotationEntry]) -> Result<Annotations, String> {
+        let mut out = Annotations::default();
+        for entry in entries {
+            let name = entry.name.trim();
+            let valid_name = !name.is_empty()
+                && name.chars().count() <= Self::MAX_NAME_CHARS
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+            if !valid_name {
+                return Err(format!(
+                    "name '{name}' is not of letters, digits, '-' and '_' (at most {} characters)",
+                    Self::MAX_NAME_CHARS
+                ));
+            }
+            let value = entry.value.trim();
+            if value.is_empty() {
+                return Err(format!("'{name}' has an empty value"));
+            }
+            if value.chars().count() > Self::MAX_VALUE_CHARS {
+                return Err(format!(
+                    "the value of '{name}' is longer than {} characters",
+                    Self::MAX_VALUE_CHARS
+                ));
+            }
+            let (list, scope) = match entry.scope {
+                AnnotationScope::Version => (&mut out.version, "version"),
+                AnnotationScope::System => (&mut out.system, "system"),
+            };
+            if list.iter().any(|a| a.name == name) {
+                return Err(format!("'{name}' appears twice in scope {scope}"));
+            }
+            if list.len() == Self::MAX_PER_SCOPE {
+                return Err(format!(
+                    "at most {} annotations of scope {scope}; '{name}' is one more",
+                    Self::MAX_PER_SCOPE
+                ));
+            }
+            list.push(Annotation {
+                name: name.to_string(),
+                value: value.to_string(),
+            });
+        }
+        Ok(out)
+    }
+}
+
 /// Who owns a system per its Backstage `spec.owner` (#48): the ref's kind
 /// (`group` unless the ref says otherwise, Backstage's default for owners)
 /// and name, both lower-cased like every other ref. The namespace is not

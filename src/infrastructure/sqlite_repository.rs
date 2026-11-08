@@ -491,6 +491,11 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_version_annotation WHERE spec_version_id = ?")
+            .bind(spec_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // A deleted version is no longer what trunk carries; its closed member
         // record stays as history.
         sqlx::query(
@@ -603,6 +608,151 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         rows.into_iter().map(version_origin_from_row).collect()
+    }
+
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        if annotations.is_empty() {
+            return Ok(());
+        }
+        // A no-op re-provide only fills names not set yet; a real write
+        // replaces the names it sends.
+        let sql = if only_missing {
+            "INSERT INTO spec_version_annotation (spec_version_id, name, value, updated_at) \
+             VALUES (?, ?, ?, ?) ON CONFLICT (spec_version_id, name) DO NOTHING"
+        } else {
+            "INSERT INTO spec_version_annotation (spec_version_id, name, value, updated_at) \
+             VALUES (?, ?, ?, ?) ON CONFLICT (spec_version_id, name) \
+             DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+        };
+        let mut tx = self.write_tx().await?;
+        for a in annotations {
+            sqlx::query(sql)
+                .bind(spec_version_id)
+                .bind(&a.name)
+                .bind(&a.value)
+                .bind(now_iso)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, value FROM spec_version_annotation WHERE spec_version_id = ? ORDER BY name",
+        )
+        .bind(spec_version_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, value)| Annotation { name, value })
+            .collect())
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        let rows: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT spec_version_id, name, value FROM spec_version_annotation \
+             ORDER BY spec_version_id, name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut out: BTreeMap<i64, Vec<Annotation>> = BTreeMap::new();
+        for (id, name, value) in rows {
+            out.entry(id).or_default().push(Annotation { name, value });
+        }
+        Ok(out)
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        if annotations.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.write_tx().await?;
+        for a in annotations {
+            sqlx::query(
+                "INSERT INTO system_annotation (system_name, name, value, updated_at) \
+                 VALUES (?, ?, ?, ?) ON CONFLICT (system_name, name) \
+                 DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            )
+            .bind(system)
+            .bind(&a.name)
+            .bind(&a.value)
+            .bind(now_iso)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, value FROM system_annotation WHERE system_name = ? ORDER BY name",
+        )
+        .bind(system)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, value)| Annotation { name, value })
+            .collect())
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT system_name, name, value FROM system_annotation ORDER BY system_name, name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut out: BTreeMap<String, Vec<Annotation>> = BTreeMap::new();
+        for (system, name, value) in rows {
+            out.entry(system)
+                .or_default()
+                .push(Annotation { name, value });
+        }
+        Ok(out)
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        sqlx::query("DELETE FROM system_annotation WHERE system_name = ?")
+            .bind(system)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn touch_spec_version_trunk(
@@ -1309,6 +1459,12 @@ impl SpecRepository for SqliteSpecRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM spec_version_annotation WHERE spec_version_id NOT IN (SELECT id FROM spec_versions)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(result.rows_affected())
     }
 
@@ -1708,6 +1864,10 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_version_annotation")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM spec_versions")
             .execute(&self.pool)
             .await
@@ -1799,6 +1959,10 @@ impl SpecRepository for SqliteSpecRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM spec_version_annotation")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM spec_versions")
             .execute(&mut *tx)
             .await
@@ -1815,6 +1979,10 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM system_context")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM system_annotation")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -1921,6 +2089,13 @@ impl SpecRepository for SqliteSpecRepository {
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query(
             "DELETE FROM spec_version_origin WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = ?)",
+        )
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "DELETE FROM spec_version_annotation WHERE spec_version_id IN (SELECT id FROM spec_versions WHERE service_id = ?)",
         )
         .bind(service_id)
         .execute(&mut *tx)

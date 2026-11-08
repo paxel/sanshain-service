@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Single-key shortcuts on the graph page for its switches, the legend, fitting the view and stepping the timeline; `?` lists them.
 - A fullscreen graph (`f`) for small monitors and screen sharing: the graph fills the window or the screen, with its controls in an icon column, the timeline as a bar and the legend as a panel.
 - Experimental: `z` on the graph page collapses the graph onto its domains, with pin counts and warning colours between them; the focus field takes `domain:<name>`.
+- Annotations: a build can send project-declared entries from `sanshain.yaml` (`annotations` on provide, require, require-bundle and catalog push), stored with the provided version (`scope: version`) or once per system (`scope: system`).
 
 ### Changed
 - Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.

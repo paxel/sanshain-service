@@ -123,6 +123,10 @@ pub struct MockRepo {
     pub system_contexts: Mutex<BTreeMap<String, SystemContext>>,
     /// In-memory `spec_version_origin` rows, by version-line entry id.
     pub version_origins: Mutex<BTreeMap<i64, VersionOrigin>>,
+    /// In-memory `spec_version_annotation` rows (#91): id, then name to value.
+    pub version_annotations: Mutex<BTreeMap<i64, BTreeMap<String, String>>>,
+    /// In-memory `system_annotation` rows (#91): system, then name to value.
+    pub system_annotations: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
@@ -164,6 +168,16 @@ pub struct MockHarvestedSub {
     pub trunk: bool,
     pub valid_from: String,
     pub valid_to: Option<String>,
+}
+
+/// A stored name-to-value map as the sorted annotation list the port answers.
+fn annotation_list(map: &BTreeMap<String, String>) -> Vec<Annotation> {
+    map.iter()
+        .map(|(name, value)| Annotation {
+            name: name.clone(),
+            value: value.clone(),
+        })
+        .collect()
 }
 
 impl Default for MockRepo {
@@ -208,6 +222,8 @@ impl MockRepo {
             periphery: Mutex::new(Vec::new()),
             system_contexts: Mutex::new(BTreeMap::new()),
             version_origins: Mutex::new(BTreeMap::new()),
+            version_annotations: Mutex::new(BTreeMap::new()),
+            system_annotations: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
@@ -507,6 +523,10 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&spec_version_id);
+        self.version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&spec_version_id);
         let existed = versions.len() != before;
         if existed {
             // Endpoints live inside the entry; dependencies cascade explicitly.
@@ -584,6 +604,106 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone())
+    }
+
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        _now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut all = self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let stored = all.entry(spec_version_id).or_default();
+        for a in annotations {
+            if only_missing && stored.contains_key(&a.name) {
+                continue;
+            }
+            stored.insert(a.name.clone(), a.value.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        Ok(self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&spec_version_id)
+            .map(annotation_list)
+            .unwrap_or_default())
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        Ok(self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, m)| !m.is_empty())
+            .map(|(id, m)| (*id, annotation_list(m)))
+            .collect())
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        _now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        if annotations.is_empty() {
+            return Ok(());
+        }
+        let mut all = self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let stored = all.entry(system.to_string()).or_default();
+        for a in annotations {
+            stored.insert(a.name.clone(), a.value.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        Ok(self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(system)
+            .map(annotation_list)
+            .unwrap_or_default())
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        Ok(self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(system, m)| (system.clone(), annotation_list(m)))
+            .collect())
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        self.system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(system);
+        Ok(())
     }
 
     async fn touch_spec_version_trunk(
@@ -1506,6 +1626,10 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         self.system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.system_annotations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();

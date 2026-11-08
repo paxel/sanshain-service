@@ -62,11 +62,12 @@ pub async fn provide_spec_with_origin(
     repo: &impl SpecRepository,
     params: ProvideSpecParams<'_>,
     origin: &VersionOrigin,
+    version_annotations: &[Annotation],
 ) -> Result<ProvideResponse, AppError> {
     let origin = origin
         .normalized()
         .map_err(|reason| AppError::BadRequest(format!("origin: {reason}")))?;
-    provide_spec_inner(repo, params, &origin).await
+    provide_spec_inner(repo, params, &origin, version_annotations).await
 }
 
 /// Promote a stored snapshot to GA without re-uploading (#28).
@@ -265,13 +266,14 @@ pub async fn provide_spec(
     repo: &impl SpecRepository,
     params: ProvideSpecParams<'_>,
 ) -> Result<ProvideResponse, AppError> {
-    provide_spec_inner(repo, params, &VersionOrigin::default()).await
+    provide_spec_inner(repo, params, &VersionOrigin::default(), &[]).await
 }
 
 async fn provide_spec_inner(
     repo: &impl SpecRepository,
     params: ProvideSpecParams<'_>,
     origin: &VersionOrigin,
+    version_annotations: &[Annotation],
 ) -> Result<ProvideResponse, AppError> {
     let ProvideSpecParams {
         producername,
@@ -458,6 +460,12 @@ async fn provide_spec_inner(
                 repo.set_version_origin(entry.id, &merged, &now_iso())
                     .await?;
             }
+        }
+        // Annotations (#91) behave like the origin: the bytes are known, so
+        // the build may only fill in names the version does not carry yet.
+        if !dry_run {
+            repo.upsert_version_annotations(entry.id, version_annotations, true, &now_iso())
+                .await?;
         }
         return Ok(ProvideResponse {
             version,
@@ -765,6 +773,10 @@ async fn provide_spec_inner(
         repo.set_version_origin(entry_id, &origin, &now_iso())
             .await?;
     }
+    // Annotations (#91): each name sent replaces its value; names not sent
+    // stay. A promotion that sends none keeps what the snapshot carried.
+    repo.upsert_version_annotations(entry_id, version_annotations, false, &now_iso())
+        .await?;
 
     // The write landed; stamp the trunk marker on the (possibly fresh) entry.
     if trunk {

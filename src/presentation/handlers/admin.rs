@@ -1304,6 +1304,7 @@ pub async fn admin_provide(
             tag: None,
             retired: false,
             origin: crate::domain::models::VersionOrigin::default(),
+            annotations: &[],
         },
     )
     .await?;

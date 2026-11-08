@@ -370,6 +370,55 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<BTreeMap<i64, VersionOrigin>, RepositoryError>> + Send;
 
+    // --- Annotations (#91): project-declared entries the build fills in ---
+
+    /// Store a version's annotations per name: each name sent replaces its
+    /// value, names not sent stay. With `only_missing`, a name already set
+    /// keeps its value (the no-op re-provide only fills in).
+    fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// One version's annotations, sorted by name.
+    fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<Vec<Annotation>, RepositoryError>> + Send;
+
+    /// Every version's annotations, by version-line entry id.
+    fn list_version_annotations(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError>> + Send;
+
+    /// Store a system's annotations per name, the latest call winning.
+    fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// One system's annotations, sorted by name.
+    fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> impl Future<Output = Result<Vec<Annotation>, RepositoryError>> + Send;
+
+    /// Every system's annotations, by system name.
+    fn list_system_annotations(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<String, Vec<Annotation>>, RepositoryError>> + Send;
+
+    /// Remove a system's annotations.
+    fn delete_system_annotations(
+        &self,
+        system: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Record trunk pins, append-only (ADR-0004/0005): per pin key, a
     /// different version closes the open record and inserts a new one; the
     /// same version only refreshes the open record's `last_required_at`.

@@ -1,4 +1,5 @@
 pub mod admin_service;
+pub mod annotation_service;
 pub mod auth_service;
 pub mod authz;
 pub mod background;

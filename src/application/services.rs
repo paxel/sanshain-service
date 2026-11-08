@@ -1,4 +1,5 @@
 pub use super::admin_service::*;
+pub use super::annotation_service::*;
 pub use super::auth_service::*;
 pub use super::branch_service::*;
 pub use super::catalog_service::*;

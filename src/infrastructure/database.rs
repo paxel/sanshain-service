@@ -126,6 +126,61 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_version_origins())
     }
 
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            upsert_version_annotations(spec_version_id, annotations, only_missing, now_iso)
+        )
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        delegate!(self, get_version_annotations(spec_version_id))
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        delegate!(self, list_version_annotations())
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            upsert_system_annotations(system, annotations, now_iso)
+        )
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        delegate!(self, get_system_annotations(system))
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        delegate!(self, list_system_annotations())
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        delegate!(self, delete_system_annotations(system))
+    }
+
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         delegate!(self, list_trunk_pins_at(at))
     }

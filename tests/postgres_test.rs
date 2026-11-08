@@ -1122,3 +1122,64 @@ async fn test_postgres_refuses_and_cleans_expired_credentials() {
     repo.run_migrations().await.unwrap();
     credential_expiry::expired_credentials_are_refused_and_cleaned(&repo).await;
 }
+
+#[tokio::test]
+async fn test_postgres_annotations_per_name_fill_only_and_system_scope() {
+    use sanshain_service::domain::models::Annotation;
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let a = |name: &str, value: &str| Annotation {
+        name: name.to_string(),
+        value: value.to_string(),
+    };
+    let now = "2026-11-08T00:00:00Z";
+    repo.upsert_version_annotations(7, &[a("req", "one"), a("doc", "d")], false, now)
+        .await
+        .unwrap();
+    // Fill only: an existing name keeps its value, a new one is added.
+    repo.upsert_version_annotations(7, &[a("req", "two"), a("x", "y")], true, now)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.get_version_annotations(7).await.unwrap(),
+        vec![a("doc", "d"), a("req", "one"), a("x", "y")]
+    );
+    // A real write replaces the names it sends.
+    repo.upsert_version_annotations(7, &[a("req", "three")], false, now)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.list_version_annotations().await.unwrap().get(&7),
+        Some(&vec![a("doc", "d"), a("req", "three"), a("x", "y")])
+    );
+
+    repo.upsert_system_annotations("orders", &[a("ci", "old")], now)
+        .await
+        .unwrap();
+    repo.upsert_system_annotations("orders", &[a("ci", "new")], now)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.list_system_annotations().await.unwrap().get("orders"),
+        Some(&vec![a("ci", "new")])
+    );
+    repo.delete_system_annotations("orders").await.unwrap();
+    assert!(
+        repo.get_system_annotations("orders")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

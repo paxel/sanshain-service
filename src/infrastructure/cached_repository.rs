@@ -565,6 +565,68 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_version_origins().await
     }
 
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .upsert_version_annotations(spec_version_id, annotations, only_missing, now_iso)
+            .await
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        self.inner.get_version_annotations(spec_version_id).await
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        self.inner.list_version_annotations().await
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        self.inner
+            .upsert_system_annotations(system, annotations, now_iso)
+            .await?;
+        // System annotations ride the report payload with the context.
+        if !annotations.is_empty() && !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        self.inner.get_system_annotations(system).await
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        self.inner.list_system_annotations().await
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        self.inner.delete_system_annotations(system).await?;
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(())
+    }
+
     async fn touch_spec_version_trunk(
         &self,
         spec_version_id: i64,

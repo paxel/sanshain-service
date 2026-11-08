@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
-use crate::domain::models::{ApiType, SemVer, Stability, VersionOrigin};
+use crate::domain::models::{AnnotationEntry, ApiType, SemVer, Stability, VersionOrigin};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
     Json,
@@ -66,6 +66,10 @@ pub struct ProvideRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// Annotations (#91): `scope: version` entries are stored with this
+    /// version, `scope: system` entries with the Producer.
+    #[serde(default)]
+    pub annotations: Vec<AnnotationEntry>,
 }
 
 pub(crate) struct ProvideCommon<'a> {
@@ -82,6 +86,8 @@ pub(crate) struct ProvideCommon<'a> {
     pub(crate) retired: bool,
     /// What the build says about why: build URL, change URL, tickets, note.
     pub(crate) origin: VersionOrigin,
+    /// Annotations (#91) as sent, validated in [`provide_common`].
+    pub(crate) annotations: &'a [AnnotationEntry],
 }
 
 /// The rejection a missing field produced when the deserializer still required
@@ -148,9 +154,17 @@ pub(crate) async fn provide_common(
         tag,
         retired,
         origin,
+        annotations,
     } = params;
 
     if retired {
+        // "retired: true and nothing else": a retire publishes no version and
+        // names no build state worth keeping.
+        if !annotations.is_empty() {
+            return Err(AppError::BadRequest(
+                "annotations: a retire publishes nothing and carries no annotations".to_string(),
+            ));
+        }
         return retire_common(
             state,
             user,
@@ -179,6 +193,7 @@ pub(crate) async fn provide_common(
         (_, None) => return Ok(missing_field("stability")),
     };
 
+    let annotations = services::accept_annotations(annotations, services::AnnotatedCall::Provide)?;
     let res = services::provide_spec_with_origin(
         &state.repo,
         services::ProvideSpecParams {
@@ -193,10 +208,12 @@ pub(crate) async fn provide_common(
             require_prior_content_match: false,
         },
         &origin,
+        &annotations.version,
     )
     .await?;
 
     if !dry_run {
+        services::record_system_annotations(&state.repo, producername, &annotations.system).await?;
         // Skip both the broadcast and the audit entry for a no-op re-upload (no
         // endpoint changes): nothing changed, so there is nothing for a listener
         // to refetch and nothing worth recording. A same-content promotion is
@@ -378,6 +395,7 @@ pub async fn provide(
                 note: payload.note.clone(),
                 trunk_build: false,
             },
+            annotations: &payload.annotations,
         },
     )
     .await
@@ -412,6 +430,10 @@ pub struct ProvideAsyncApiRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// Annotations (#91): `scope: version` entries are stored with this
+    /// version, `scope: system` entries with the Producer.
+    #[serde(default)]
+    pub annotations: Vec<AnnotationEntry>,
 }
 
 pub async fn provide_asyncapi(
@@ -441,6 +463,7 @@ pub async fn provide_asyncapi(
                 note: payload.note.clone(),
                 trunk_build: false,
             },
+            annotations: &payload.annotations,
         },
     )
     .await
@@ -475,6 +498,10 @@ pub struct ProvideProtoRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// Annotations (#91): `scope: version` entries are stored with this
+    /// version, `scope: system` entries with the Producer.
+    #[serde(default)]
+    pub annotations: Vec<AnnotationEntry>,
 }
 
 pub async fn provide_proto(
@@ -504,6 +531,7 @@ pub async fn provide_proto(
                 note: payload.note.clone(),
                 trunk_build: false,
             },
+            annotations: &payload.annotations,
         },
     )
     .await
@@ -532,6 +560,23 @@ pub struct RequireQuery {
     /// `openapi` answers an AsyncAPI require as OpenAPI payload schemas.
     #[serde(default)]
     pub format: Option<String>,
+    /// Annotations (#91) of the requiring Consumer: a JSON array of
+    /// `{scope: "system", name, value}`, the body field's shape in a query.
+    #[serde(default)]
+    pub annotations: Option<String>,
+}
+
+/// The `annotations` query parameter of a GET require: the JSON array the
+/// body field of the other calls carries.
+fn query_annotations(raw: Option<&str>) -> Result<Vec<AnnotationEntry>, AppError> {
+    match raw.map(str::trim).filter(|r| !r.is_empty()) {
+        None => Ok(Vec::new()),
+        Some(raw) => serde_json::from_str(raw).map_err(|e| {
+            AppError::BadRequest(format!(
+                "annotations: not a JSON array of {{scope, name, value}}: {e}"
+            ))
+        }),
+    }
 }
 
 /// Name how a require was answered: the resolution state, the version (always
@@ -595,6 +640,10 @@ async fn require_common(
     request_headers: HeaderMap,
 ) -> Result<axum::response::Response, AppError> {
     let format = services::RequireFormat::parse(api_type, query.format.as_deref())?;
+    let annotations = services::accept_annotations(
+        &query_annotations(query.annotations.as_deref())?,
+        services::AnnotatedCall::SystemOnly,
+    )?;
     let params = services::RequireEndpointParams {
         consumername: &query.consumername,
         producername: &query.producername,
@@ -610,6 +659,8 @@ async fn require_common(
         services::require_endpoint_dry_run(&state.repo, params).await?
     } else {
         let res = services::require_endpoint(&state.repo, params).await?;
+        services::record_system_annotations(&state.repo, &query.consumername, &annotations.system)
+            .await?;
         let version_str = query.version.to_string();
         let stream = res.stream.label();
         let branch_id = res.stream.branch.as_ref().map(|b| b.id);
@@ -693,6 +744,9 @@ pub struct RequireBundleRequest {
     /// See `RequireQuery::tag`.
     #[serde(default)]
     pub tag: Option<String>,
+    /// Annotations (#91) of the requiring Consumer, `scope: system` only.
+    #[serde(default)]
+    pub annotations: Vec<AnnotationEntry>,
 }
 
 /// Query parameters of `POST /require-bundle`. Not `deny_unknown_fields`:
@@ -713,6 +767,8 @@ pub async fn require_bundle(
 ) -> Result<impl IntoResponse, AppError> {
     let api_type = payload.api_type.unwrap_or(ApiType::OpenApi);
     let format = services::RequireFormat::parse(api_type, query.format.as_deref())?;
+    let annotations =
+        services::accept_annotations(&payload.annotations, services::AnnotatedCall::SystemOnly)?;
     let endpoints: Vec<(String, String)> = payload
         .endpoints
         .into_iter()
@@ -733,6 +789,12 @@ pub async fn require_bundle(
         services::require_bundle_dry_run(&state.repo, params).await?
     } else {
         let res = services::require_bundle(&state.repo, params).await?;
+        services::record_system_annotations(
+            &state.repo,
+            &payload.consumername,
+            &annotations.system,
+        )
+        .await?;
         let version_str = payload.version.to_string();
         let stream = res.stream.label();
         let branch_id = res.stream.branch.as_ref().map(|b| b.id);
@@ -857,6 +919,9 @@ pub struct CatalogPushRequest {
     pub catalog_info_yaml: String,
     #[serde(default)]
     pub trunk: bool,
+    /// Annotations (#91) of the system, `scope: system` only.
+    #[serde(default)]
+    pub annotations: Vec<AnnotationEntry>,
 }
 
 /// `PUT /catalog/{systemname}` — record the system's periphery (#46) and
@@ -868,6 +933,8 @@ pub async fn push_catalog(
     Path(systemname): Path<String>,
     Json(payload): Json<CatalogPushRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    let annotations =
+        services::accept_annotations(&payload.annotations, services::AnnotatedCall::SystemOnly)?;
     let result = services::push_catalog(
         &state.repo,
         &systemname,
@@ -875,6 +942,8 @@ pub async fn push_catalog(
         payload.trunk,
     )
     .await?;
+    // The call names the system whether or not its file was readable.
+    services::record_system_annotations(&state.repo, &result.system, &annotations.system).await?;
     let mut headers = HeaderMap::new();
     append_warnings(&mut headers, &result.warnings);
     // Nothing recorded, nothing to audit — the warning goes to the build.
