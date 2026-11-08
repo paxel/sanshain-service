@@ -11,6 +11,7 @@ pub mod mcp_service;
 pub mod provide_service;
 pub mod report_service;
 pub mod require_service;
+pub mod review_service;
 pub mod service_account_service;
 pub mod setup_service;
 pub mod sign_in_service;
