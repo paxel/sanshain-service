@@ -469,9 +469,8 @@ mvn verify                      # runs the goals bound to initialize</code></pre
   </li>
 </ul>
 <p>
-  When <code>sanshain.yaml</code> cannot be read or is invalid, its own <code>strict</code> and
-  <code>bestEffort</code> do not apply: only the property or <code>SANSHAIN_BEST_EFFORT</code> turns
-  that failure into a warning.
+  When <code>sanshain.yaml</code> cannot be read or is invalid, the goal fails before any call;
+  best effort does not soften it.
 </p>
 
 <h2 id="stability-and-streams">Stability and streams</h2>
@@ -615,14 +614,14 @@ mvn verify                      # runs the goals bound to initialize</code></pre
 <p>
   <strong>Best effort</strong> is on with <code>-Dsanshain.bestEffort=true</code>,
   <code>&lt;bestEffort&gt;true&lt;/bestEffort&gt;</code>, <code>SANSHAIN_BEST_EFFORT=true</code> or
-  <code>bestEffort: true</code>. A failed call, a network error, an unreadable or missing spec file,
-  a combining error and (from the property or the variable) an invalid
-  <code>sanshain.yaml</code> become a warning,
-  <code>Sanshain goal failed (best effort): &lt;message&gt;</code>, and the build goes on. Missing
-  configuration warns <code>Sanshain goal skipped (best effort): &lt;message&gt;</code>, also under
-  strict. Best effort never softens the strict failures on unknown fields, warnings, trunk and tag,
-  and annotations. Require applies it per entry, so the next entry still runs; provide stops at the
-  first failed provide.
+  <code>bestEffort: true</code>. A failed call (a refusal, a server error, a network error), an
+  unreadable or missing spec file and a combining error become a warning,
+  <code>Sanshain goal failed (best effort): &lt;message&gt;</code>, and the goal goes on with the
+  next entry: provide and require apply it per entry. Missing configuration warns
+  <code>Sanshain goal skipped (best effort): &lt;message&gt;</code>; under strict it fails. Best
+  effort never softens configuration errors: an unreadable or invalid <code>sanshain.yaml</code>
+  (1.x fields included), an unsupported <code>apiType</code>, and the strict failures on missing
+  configuration, unknown fields, warnings, trunk and tag, and annotations.
 </p>
 
 <h2 id="failure-modes">Failure modes</h2>
@@ -734,8 +733,9 @@ mvn verify                      # runs the goals bound to initialize</code></pre
     </tr>
     <tr>
       <td>Unsupported <code>apiType</code> on a provide</td>
-      <td><code>Unsupported apiType: &lt;value&gt;</code> (with combining on:
-        <code>Unsupported apiType for combining: &lt;value&gt;</code>)</td>
+      <td>An <code>Invalid sanshain.yaml for Sanshain 2.0:</code> line
+        <code>provides[0]: Unsupported apiType: &lt;value&gt; — use openapi, asyncapi or proto (grpc
+        means proto)</code>, before any call.</td>
     </tr>
   </tbody>
 </table>
