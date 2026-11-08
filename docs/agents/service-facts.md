@@ -12,13 +12,15 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   single endpoints at an exact Pin. Roles, not entities: one system is usually both and is listed
   in each role. Tables say `services` (Producer) and `clients` (Consumer); only the repository
   layer uses those words. Wire names `producername`/`consumername` only (1.x aliases refused).
-- Tooling = software calling Sanshain for a system (the clients below, curl). Never "client" in
+- Tooling = software calling Sanshain for a system (our five clients below, curl). Never "client" in
   domain text, never a domain entity. Sanshain never sees git; clients never read git.
 - Version: strict `MAJOR.MINOR.PATCH` from the spec (`info.version`; proto: mandatory
   `// sanshain-version:` comment, 400 when missing or conflicting). Never assigned by Sanshain.
   Version line = one Producer × one API type.
 - No branches since 2.0 (ADR-0003). Stability is declared per provide: `snapshot` (default) or
-  `ga` (the client's ga switch, set by CI on release pipelines only).
+  `ga` (the client's ga switch, set by CI on release pipelines only). Clients: ga flag >
+  `SANSHAIN_GA` (explicit false counts) > `autoGa: true` in `sanshain.yaml` with a declared stream
+  (trunk or tag) > snapshot; the service never sees `autoGa`.
 - Sources: `CONTEXT.md`, `docs/adr/0003-versions-replace-branches.md`, `site/start/concepts.html`.
 
 ## Version rules (provide)
@@ -79,19 +81,55 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Sources: `site/developer/ci-integration.html` ("Why: the origin of a build"),
   `site/developer/api-lifecycle.html`, `CONTEXT.md` (Origin).
 
+## Annotations (2.13.0)
+
+- Project-declared `{scope, name, value}` entries from `sanshain.yaml`, filled by the build
+  (placeholders `{{NAME}}`: Maven `-DNAME`, CLIs `--set NAME=value`, else `SANSHAIN_SET_NAME`;
+  unfilled entry left out with a warning). Sanshain shows them, never interprets them.
+- `scope: version` only on a provide (else 400), stored per version: a real write replaces the
+  names sent, a no-op re-provide fills missing names only. `scope: system` on provide, require
+  (query parameter `annotations`, JSON array), bundle, catalog push; stored per system, latest
+  wins per name. Retire with annotations: 400. Dry run and failed calls store nothing.
+- Limits: 20 per scope per call, name ≤40 `[A-Za-z0-9_-]`, value ≤2048, not blank, no duplicate
+  name; errors 400 prefixed `annotations: `. Pre-2.13 services: body field 422, query 400; the
+  clients retry without and warn.
+- Deleted with the version (every origin-deletion path) or the system's last role; Clear system
+  information deletes system ones. Shown as link chips (http(s)) or text on version row, node
+  panel, Producer/Consumer pages; MCP `describe_service`; `version.published` carries the sent
+  version annotations.
+- Code: `src/application/annotation_service.rs`, `Annotations::from_entries` in
+  `src/domain/models.rs`. Source: `site/developer/sanshain-yaml.html` ("Annotations").
+
 ## Clients (tooling)
 
-- Separate repos, none in this one: `paxel/sanshain-maven-plugin`, `paxel/sanshain-rs`
-  (cargo-sanshain), `paxel/sanshain-go`, `paxel/sanshain-js` (CLI + GitHub Action),
-  `paxel/sanshain-conan`. Changing client behaviour is work in those repos.
+- Ours: the same team builds the service and the five clients, from this Claude setup. Checked
+  out next to each other under `/all_dev` (the host's development folder, mounted in the
+  sandbox); `/all_dev/Sanshain` is a stale old monorepo copy, not used. Each is its own GitHub repo
+  `paxel/<name>` with its own issues, CHANGELOG/OLDER_CHANGES and releases.
+
+  | Repo (`/all_dev/…`)     | Version | Language, layout                                      | Checks                                  |
+  |-------------------------|---------|-------------------------------------------------------|-----------------------------------------|
+  | `sanshain-maven-plugin` | 2.5.0   | Java 11, `/all_dev/sanshain-maven-plugin/src/main/java/com/sanshain/maven/` (Mojos, `SanshainMojoDelegate` = precedence, `SanshainConfig` = yaml, `SanshainOrigin`, `SanshainHttpClient`, `SpecCombiner`); own `CLAUDE.md` | `mvn verify -B` (JUnit 5, WireMock)     |
+  | `sanshain-rs`           | 4.0.0   | Rust workspace: `sanshain/src/lib.rs` (library), `cargo-sanshain/src/main.rs` (CLI) | `cargo test`, clippy                    |
+  | `sanshain-go`           | 2.5.0   | Go: `cmd/sanshain-go/main.go`, `internal/{api,config,cache}` (`api/origin.go`); `ai/rules.md` | `go test ./...`, golangci-lint, gosec   |
+  | `sanshain-js`           | 2.6.0   | TypeScript: `/all_dev/sanshain-js/src/{api,cli,config,cache}.ts`, `bin/`, `action.yml` (GitHub Action) | `npm run build`, `npm test` (jest)      |
+  | `sanshain-conan`        | 2.5.0   | Python: `sanshainconan/{client,cli,config,integration,catalog,cache}.py`; `ai/rules.md` | `uv run python -m unittest discover tests`, flake8, black, bandit, mypy |
+
+- Every client does the same steps: load `sanshain.yaml`, resolve settings by precedence (flag >
+  env > file > default), resolve the Origin (flag > `SANSHAIN_*` > runner variables, e.g.
+  `sanshain-go/internal/api/origin.go`), call provide/require/catalog, keep require ETags in a state
+  file. A client change usually lands in all five with the same rule text.
 - All read `sanshain.yaml`: `serviceName`, `sanshainUrl`, `compression`, `bestEffort`,
-  `catalogInfo`, `strict`, `provides[file, apiType, retired]`,
+  `catalogInfo`, `strict`, `autoGa`, `annotations[scope, name, value]`,
+  `provides[file, apiType, retired]`,
   `requires[serviceName, version, outputDirectory, endpoints[method,path], apiType, format]`.
   No secrets; no version, no stability in the file.
 - Env: `SANSHAIN_URL`, `SANSHAIN_TOKEN`, `SANSHAIN_GA`, `SANSHAIN_TRUNK`, `SANSHAIN_TAG`,
-  `SANSHAIN_BEST_EFFORT`, the origin variables. Strict mode fails on any `Sanshain-Warning`.
+  `SANSHAIN_BEST_EFFORT`, `SANSHAIN_SET_<NAME>` (annotation placeholders), the origin variables.
+  Strict mode fails on any `Sanshain-Warning`.
 - Commands: provide, require, catalog. Dry run only Maven (`-Dsanshain.dry.run`) and JS CLI.
-- Client 2.x ↔ service 2.x; origin needs service ≥2.9.0, catalog push ≥2.4.0.
+- Clients speak service 2.x (sanshain-rs is versioned on its own, 4.x); origin needs service
+  ≥2.9.0, catalog push ≥2.4.0, annotations ≥2.13.0 (older: retried without, with a warning).
 - Sources: `site/developer/clients.html`, `site/developer/sanshain-yaml.html`.
 
 ## Streams and graphs
@@ -137,6 +175,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   systems are never read from Backstage.
 - Trunk push replaces trunk and dev sets; plain push only dev. No TTL. Unreadable file: `200`,
   `recorded: false`, `Sanshain-Warning`, previous state kept.
+- Clear system information: `DELETE /admin/systems/{name}/information` (`manage_producers`,
+  Producer-scoped; a Consumer-only name needs an admin): closes current dev and trunk periphery,
+  deletes the context and the system annotations, audited `CLEAR_SYSTEM_INFORMATION`; timeline and
+  sanshain-branch copies keep theirs. Button on the Producer and Consumer pages.
 - Code: `src/backstage.rs`, `src/application/catalog_service.rs`.
 - Sources: `docs/adr/0007-periphery-from-backstage-catalog-info.md`, `docs/adr/0010-backstage-context-beyond-the-periphery.md`, `site/developer/sanshain-yaml.html`.
 
