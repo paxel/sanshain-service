@@ -74,7 +74,14 @@ curl -s -X POST $SANSHAIN/auth/tokens \
   pipeline is the place to decide it. Release-branch builds provide <code>ga</code>; everything else
   provides <code>snapshot</code>. With a client that is the ga switch
   (<code>SANSHAIN_GA=true</code>, <code>--ga</code>, <code>-Dsanshain.ga=true</code>) set on the
-  protected-branch pipeline only; a raw <code>curl</code> pipeline sets the field itself. The
+  protected-branch pipeline only; a raw <code>curl</code> pipeline sets the field itself. A project
+  whose trunk and tag builds are exactly its releases can set <code>autoGa: true</code> in
+  <code>sanshain.yaml</code> instead: every build that declares a stream (<code>SANSHAIN_TRUNK</code>
+  or <code>SANSHAIN_TAG</code>) then provides GA, every other build a snapshot, and
+  <code>SANSHAIN_GA=false</code> still keeps a single build a snapshot. Its token needs the releaser
+  role, and a trunk build that changes the spec without a version bump fails with
+  <code>409 immutable_ga</code> until the version in the spec file is bumped
+  (<a href="sanshain-yaml.html#how-stability-is-decided">details</a>). The
   <a href="../start/glossary.html#version">version</a> is never a pipeline concern: it is read from
   the spec file.
 </p>

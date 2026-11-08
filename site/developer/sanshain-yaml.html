@@ -127,6 +127,15 @@ requires:
       <td>Path to the Backstage <code>catalog-info.yaml</code> the build pushes.</td>
     </tr>
     <tr>
+      <td><code>autoGa</code></td>
+      <td>no</td>
+      <td><code>false</code></td>
+      <td>
+        Provide GA whenever the build declares a stream (trunk or tag); see
+        <a href="#how-stability-is-decided">How stability is decided</a>.
+      </td>
+    </tr>
+    <tr>
       <td><code>annotations</code></td>
       <td>no</td>
       <td>—</td>
@@ -210,7 +219,7 @@ requires:
   </li>
 </ul>
 
-<h2>How stability is decided</h2>
+<h2 id="how-stability-is-decided">How stability is decided</h2>
 <p>
   Sanshain never sees your git repository and the clients do no git detection. The rule is binary:
 </p>
@@ -224,6 +233,26 @@ requires:
     <code>SANSHAIN_GA=true</code> in every client, <code>-Dsanshain.ga=true</code> in Maven,
     <code>--ga</code> on a CLI. CI sets it on its protected-branch pipelines and nobody else touches
     it. Publishing GA needs the <a href="../start/glossary.html#releaser">releaser</a> role.
+  </li>
+  <li>
+    <code>autoGa: true</code> makes a provide GA whenever the build declares a
+    <a href="../start/glossary.html#stream">stream</a>:
+    <code>trunk</code> (<code>SANSHAIN_TRUNK</code>, <code>--trunk</code>,
+    <code>-Dsanshain.trunk</code>) or <code>tag</code> (<code>SANSHAIN_TAG</code>,
+    <code>--tag</code>, <code>-Dsanshain.tag</code>). Without a stream the provide stays a snapshot.
+    CI declares trunk and tag on the protected pipelines only, which is what makes them GA; there is
+    still no branch detection.
+  </li>
+  <li>
+    An explicit ga switch still decides when it is set: <code>SANSHAIN_GA=false</code> (or the
+    client's flag set to false) keeps that build a snapshot despite <code>autoGa</code>. The order
+    is: the ga flag, then <code>SANSHAIN_GA</code>, then <code>autoGa</code> with a stream, then
+    snapshot.
+  </li>
+  <li>
+    With <code>autoGa</code>, the CI token's user needs the releaser role, and a trunk build that
+    changes the spec without a version bump fails with <code>409 immutable_ga</code> and the
+    proposed version: bump the version in the spec file and build again.
   </li>
 </ul>
 

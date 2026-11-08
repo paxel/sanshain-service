@@ -28,7 +28,9 @@
   <li>
     <strong>The ga switch</strong>: every provide is a
     <a href="../start/glossary.html#snapshot">snapshot</a> unless <code>SANSHAIN_GA=true</code> (or
-    the client's flag) is set. No git detection anywhere.
+    the client's flag) is set, or <code>autoGa: true</code> in <code>sanshain.yaml</code> and the
+    build declares a stream (trunk or tag); an explicit <code>SANSHAIN_GA=false</code> still keeps it
+    a snapshot. No git detection anywhere.
   </li>
   <li>
     <strong>Streams</strong>: <code>SANSHAIN_TRUNK=true</code> marks a
