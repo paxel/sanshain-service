@@ -360,9 +360,9 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
     <tr>
       <td>Server URL</td>
       <td>
-        <code>SANSHAIN_URL</code>, then <code>sanshainUrl</code>; neither is an error. A
-        <code>SANSHAIN_URL</code> that is set but empty still counts as set and hides
-        <code>sanshainUrl</code>, so leave the variable unset instead.
+        <code>SANSHAIN_URL</code> unless it is empty, then <code>sanshainUrl</code>; neither is an
+        error. Before 4.0.0 an empty <code>SANSHAIN_URL</code> still counted as set and hid
+        <code>sanshainUrl</code>.
       </td>
     </tr>
     <tr>
