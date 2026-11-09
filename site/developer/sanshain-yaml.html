@@ -119,7 +119,12 @@ requires:
       <td>
         Turn failed calls into warnings. Read by every client; <code>SANSHAIN_BEST_EFFORT</code>
         and the clients' own switches turn it on too (each
-        <a href="clients.html">client's page</a> has its precedence).
+        <a href="clients.html">client's page</a> has its precedence). A missing or broken
+        <code>sanshain.yaml</code> fails the command (Maven: a missing file only when the POM
+        does not configure the goal either); the client's switch or
+        <code>SANSHAIN_BEST_EFFORT</code> (never the broken file's own <code>bestEffort</code>)
+        turns that into a warning and a clean exit without any call, unless strict mode is on
+        outside the file.
       </td>
     </tr>
     <tr>
