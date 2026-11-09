@@ -118,7 +118,7 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td>— (required)</td>
       <td>2.2.0 (environment)</td>
       <td>Base URL of the instance. Without either the client stops with
-        <code>missing required field: sanshainUrl</code>.</td>
+        <code>missing required field: sanshainUrl</code> (with best effort a warning, exit 0).</td>
     </tr>
     <tr>
       <td>—</td>
@@ -234,7 +234,8 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td><code>bestEffort</code></td>
       <td>off</td>
       <td>2.0.0 (file: 1.0.0)</td>
-      <td>Turn failed calls and an unloadable configuration into warnings, exit 0.</td>
+      <td>Turn failed calls, and a missing or broken <code>sanshain.yaml</code>, into warnings,
+        exit 0.</td>
     </tr>
     <tr>
       <td>—</td>
@@ -418,11 +419,13 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td>Best effort</td>
       <td><code>--best-effort</code> (it can only switch on); then <code>SANSHAIN_BEST_EFFORT</code>
         when not empty, which overrides the file both ways (<code>yes</code> counts as off); then
-        <code>bestEffort</code>.</td>
+        <code>bestEffort</code>. For a missing or broken <code>sanshain.yaml</code> only the flag
+        and the variable count.</td>
     </tr>
     <tr>
       <td>Strict</td>
-      <td><code>strict: true</code> in the file only.</td>
+      <td><code>strict: true</code> in the file only, so a missing or broken
+        <code>sanshain.yaml</code> is never strict.</td>
     </tr>
     <tr>
       <td>Origin</td>
@@ -579,7 +582,9 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
 </p>
 <ul>
   <li>Unknown fields: the notice ends in <code>rejected (strict)</code> and the command fails with
-    <code>Error: strict: sanshain.yaml has unknown fields</code>.</li>
+    <code>Error: strict: sanshain.yaml has unknown fields</code>. Under best effort only when the
+    file otherwise loads; a file that does not is broken (see below), and the notice ends in
+    <code>ignored</code>.</li>
   <li>Trunk and tag together:
     <code>Error: strict: trunk and tag are mutually exclusive - this build is recorded in neither</code>,
     before any request.</li>
@@ -598,10 +603,19 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
   <code>provides</code> or <code>requires</code> entry and exits 0.
 </p>
 <p>
-  Best effort never softens a configuration error: a <code>sanshain.yaml</code> that cannot be
-  loaded, the 1.x fields, invalid entries and an unsupported <code>apiType</code> included, fails with <code>Error loading config: &lt;error&gt;</code>. Nor does it soften any
-  strict failure above: missing configuration in every command, unknown fields, trunk and tag
-  together, unfilled placeholders and Sanshain warnings.
+  A <code>sanshain.yaml</code> that is missing, cannot be read or does not load (invalid YAML,
+  1.x fields, invalid entries, an unsupported <code>apiType</code>) fails the command with
+  <code>Error loading config: &lt;error&gt;</code> without best effort; a missing file is named,
+  as in <code>failed to read config file: open sanshain.yaml: no such file or directory</code>.
+  With <code>--best-effort</code> or <code>SANSHAIN_BEST_EFFORT=true</code> it prints
+  <code>Warning: &lt;error&gt;</code>, calls nothing and exits 0 (since 2.5.0; before, it printed
+  <code>Warning loading config: &lt;error&gt;</code> and a skip notice). Such a file's own
+  <code>bestEffort</code> and <code>strict</code> do not count.
+</p>
+<p>
+  Best effort never softens any strict failure above: missing configuration in every command,
+  unknown fields in a file that otherwise loads, trunk and tag together, unfilled placeholders
+  and Sanshain warnings.
 </p>
 
 <h2 id="failure-modes">Failure modes</h2>
@@ -722,20 +736,23 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
   ( O_o )   sanshain.yaml: unknown field 'catalogInf' - ignored
  ---U-U---</code></pre>
         Nested keys are named by path, such as <code>provides[1].verison</code>. The run continues;
-        under strict mode it fails (see above).
+        under strict mode it fails (see above), also under best effort when the file otherwise
+        loads.
       </td>
     </tr>
     <tr>
       <td>1.x field</td>
       <td><code>Error loading config: '&lt;field&gt;' is no longer supported — &lt;hint&gt;</code>
-        (prefixed with the entry, such as <code>requires[0]: </code>). Exit 1.</td>
+        (prefixed with the entry, such as <code>requires[0]: </code>). Exit 1, or a warning under
+        best effort (see <a href="#strict-and-best-effort">Strict mode and best effort</a>).</td>
     </tr>
     <tr>
       <td>Unsupported <code>apiType</code> on a provide or a require</td>
       <td>
         <code>Error loading config: provide[0]: unsupported apiType: &lt;value&gt; — use openapi,
         asyncapi or proto (grpc means proto)</code> (a require's starts
-        <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request.
+        <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request, or a warning
+        under best effort.
       </td>
     </tr>
     <tr>
@@ -743,7 +760,14 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
       <td>
         <code>Error loading config: …</code> naming the entry, e.g.
         <code>requires[0] (auth-service): missing 'version' — …</code> or the format combination.
-        Exit 1, before any request.
+        Exit 1, before any request, or a warning under best effort.
+      </td>
+    </tr>
+    <tr>
+      <td>Missing or unreadable <code>sanshain.yaml</code></td>
+      <td>
+        <code>Error loading config: failed to read config file: open &lt;path&gt;: …</code>. Exit 1,
+        or a warning under best effort.
       </td>
     </tr>
     <tr>
