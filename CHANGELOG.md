@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 - Updated `rmcp` to 3.9.0 (RUSTSEC-2026-0462, unbounded response bodies in its Streamable HTTP clients; Sanshain builds only the MCP server, so the affected client transports were never compiled in).
+- `cargo audit` ignores RUSTSEC-2026-0459 (CVE-2026-119375 in the SQLite that `libsqlite3-sys` 0.37 bundles: uninitialized memory returned when a database is opened together with a crafted `-wal` file): the fix needs `libsqlite3-sys` 0.39, which no released `sqlx` accepts yet, and the attack needs Sanshain to open database files someone else wrote, while it opens only its own; the ignore goes with the first `sqlx` release that takes the fix.
 
 ---
 
