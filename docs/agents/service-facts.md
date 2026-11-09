@@ -318,6 +318,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Tests: Rust in `tests/*.rs` (Postgres via testcontainers), UI Playwright in `tests/ui/` (import
   `test` from `tests/ui/fixtures.js`; CI runs the files listed in `.github/workflows/quality.yml`),
   site in `tests/site/`. `scripts/itest.sh` against a running service.
-- CI: `ci.yml`, `quality.yml` (fmt, clippy, tests, tarpaulin floor, UI), `security.yml`,
+- CI: `ci.yml` (build, tests, cargo audit, npm audit), `quality.yml` (fmt, clippy, tests,
+  tarpaulin floor, UI), `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
+  (weekly: the two audits, grype on the released image; ignores in `.cargo/audit.toml`),
   `pages.yml` (site), `release.yml`, `sonar.yml` (SonarQube Cloud on `summer`).
 - Branches: `summer` is main; release branches `release/X.Y`.
