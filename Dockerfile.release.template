@@ -7,7 +7,8 @@ ARG TARGETARCH
 # through EXTRA_CA_CERTS_DIR.
 # Upgrade the base packages first: Alpine ships OpenSSL and zlib fixes between its
 # point releases, and the weekly grype scan fails on a released image that misses one.
-RUN apk upgrade --no-cache && apk add --no-cache sqlite-libs tini ca-certificates
+# SQLite is compiled into the static binary (sqlx sqlite-bundled), so no sqlite package.
+RUN apk upgrade --no-cache && apk add --no-cache tini ca-certificates
 
 # Binary is placed as sanshain-${TARGETARCH} in the build context
 # (mapped from x86_64/aarch64 naming to Docker's amd64/arm64 convention)

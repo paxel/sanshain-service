@@ -26,9 +26,10 @@
 <h2>The image</h2>
 <p>
   <code>ghcr.io/paxel/sanshain-service:&lt;tag&gt;</code>, built by the release workflow from the
-  repository's <code>Dockerfile</code>. Release tags carry a <code>v</code> (<code>v2.6.0</code>);
-  <code>latest</code> follows the newest release. The image is Alpine with <code>sqlite-libs</code>,
-  <code>tini</code> as PID 1 and <code>ca-certificates</code>; the binary is
+  repository's <code>Dockerfile.release.template</code> around the static musl binaries of the
+  release. Release tags carry a <code>v</code> (<code>v2.6.0</code>);
+  <code>latest</code> follows the newest release. The image is Alpine with <code>tini</code> as
+  PID 1 and <code>ca-certificates</code>; SQLite is compiled into the binary. The binary is
   <code>/usr/local/bin/sanshain</code>, the working directory <code>/app</code>, the static files
   <code>/app/static</code>. It sets one variable:
   <code>DATABASE_URL=sqlite:/data/sanshain.db?mode=rwc</code>, so the database lives under
