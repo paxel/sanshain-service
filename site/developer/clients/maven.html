@@ -34,8 +34,9 @@
 <p>
   The goal prefix is <code>sanshain</code>. All three goals default to the <code>initialize</code>
   phase, so required snippets are on disk before <code>generate-sources</code>. Keep only the goals
-  the project needs; a goal without its part of the configuration warns and skips (see
-  <a href="#strict-and-best-effort">Strict mode and best effort</a>).
+  the project needs; a goal without its part of the configuration in <code>sanshain.yaml</code>
+  warns and skips, and without <code>sanshain.yaml</code> it fails unless the POM gives it
+  everything it needs (see <a href="#strict-and-best-effort">Strict mode and best effort</a>).
 </p>
 
 <h2 id="commands">Commands</h2>
@@ -470,7 +471,9 @@ mvn verify                      # runs the goals bound to initialize</code></pre
 </ul>
 <p>
   When <code>sanshain.yaml</code> cannot be read or is invalid, the goal fails before any call;
-  best effort does not soften it.
+  best effort from the property or <code>SANSHAIN_BEST_EFFORT</code> skips it instead, the broken
+  file's own <code>bestEffort</code> does not count (see
+  <a href="#strict-and-best-effort">Strict mode and best effort</a>).
 </p>
 
 <h2 id="stability-and-streams">Stability and streams</h2>
@@ -586,7 +589,8 @@ mvn verify                      # runs the goals bound to initialize</code></pre
 </p>
 <ul>
   <li>
-    Missing configuration fails instead of warning. Without strict the goal warns
+    Missing configuration in an existing <code>sanshain.yaml</code> fails instead of warning.
+    Without strict the goal warns
     <code>&lt;message&gt; Skipping. Set sanshain.strict=true to fail in this case.</code> and
     succeeds. The messages are
     <code>serviceName is required (either in pom.xml or sanshain.yaml)</code>,
@@ -619,9 +623,28 @@ mvn verify                      # runs the goals bound to initialize</code></pre
   unreadable or missing spec file and a combining error become a warning,
   <code>Sanshain goal failed (best effort): &lt;message&gt;</code>, and the goal goes on with the
   next entry: provide and require apply it per entry. Missing configuration warns
-  <code>Sanshain goal skipped (best effort): &lt;message&gt;</code>; under strict it fails. Best
-  effort never softens configuration errors: an unreadable or invalid <code>sanshain.yaml</code>
-  (1.x fields included), an unsupported <code>apiType</code>, and the strict failures on missing
+  <code>Sanshain goal skipped (best effort): &lt;message&gt;</code>; under strict it fails.
+</p>
+<p>
+  A broken <code>sanshain.yaml</code> (unreadable, invalid YAML, 1.x fields, an unsupported
+  <code>apiType</code> or any other error the file is refused for) fails the goal before any call.
+  Best effort skips the goal instead, with
+  <code>Sanshain goal skipped (best effort): &lt;message&gt;</code>, but only when the property,
+  <code>&lt;bestEffort&gt;</code> or <code>SANSHAIN_BEST_EFFORT</code> switches it on:
+  <code>bestEffort: true</code> in the broken file does not count.
+</p>
+<p>
+  Without <code>sanshain.yaml</code> the POM alone may configure a goal:
+  <code>sanshain.service.name</code>, <code>sanshain.url</code> and the default
+  <code>target/openapi.yaml</code> are a complete provide. A goal that then lacks something it needs
+  (a service name, a spec file to provide, <code>requires</code>, <code>catalogInfo</code>) fails
+  with <code>Configuration file &lt;path&gt; not found: &lt;message&gt;</code>; best effort skips
+  it with <code>Sanshain goal skipped (best effort): Configuration file &lt;path&gt; not found:
+  &lt;message&gt;</code>.
+</p>
+<p>
+  Strict wins over best effort: with <code>-Dsanshain.strict=true</code> a broken file and a missing
+  one a goal needs fail also with best effort, and so do the strict failures on missing
   configuration, unknown fields, warnings, trunk and tag, and annotations.
 </p>
 
@@ -723,6 +746,13 @@ mvn verify                      # runs the goals bound to initialize</code></pre
       <td>1.x field, missing <code>version</code>, bad <code>format</code> or annotation entry</td>
       <td><code>Invalid sanshain.yaml for Sanshain 2.0:</code> followed by one line per problem,
         before any call.</td>
+    </tr>
+    <tr>
+      <td>No <code>sanshain.yaml</code> and the goal lacks what it needs</td>
+      <td><code>Configuration file &lt;path&gt; not found: &lt;message&gt;</code>, for example
+        <code>No specification file to provide: &lt;path&gt; does not exist.</code>,
+        <code>No requires configured in sanshain.yaml.</code> or
+        <code>No catalogInfo configured.</code></td>
     </tr>
     <tr>
       <td>Trunk and tag both set</td>
@@ -832,8 +862,10 @@ mvn verify                      # runs the goals bound to initialize</code></pre
 &lt;/build&gt;</code></pre>
 <ul>
   <li>
-    A module without <code>sanshain.yaml</code> and without a service name warns and skips, with or
-    without best effort; strict mode would fail it.
+    A module without <code>sanshain.yaml</code> whose goal lacks what it needs fails without best
+    effort; with it the goal warns
+    <code>Sanshain goal skipped (best effort): Configuration file &lt;path&gt; not found: …</code>
+    and the build goes on. Strict mode fails it also with best effort.
   </li>
   <li>
     <code>&lt;bestEffort&gt;</code> in the configuration is the property, so it beats
