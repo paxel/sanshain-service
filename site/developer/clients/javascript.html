@@ -833,6 +833,16 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     <code>(dev)</code>) with one resource per line. A file Sanshain could not read records nothing:
     it is a warning and exit 0, or a failure under strict mode.
   </li>
+  <li>
+    <strong>What it prints</strong>: the Sanshain URL in <code>Providing …</code>,
+    <code>Requiring …</code>, <code>Pushing catalog …</code> and the hint for a pre-2.0 server
+    appears without a user and password it carries (<code>https://ci:secret@sanshain.example</code>
+    is printed as <code>https://sanshain.example/</code>). The token is never printed. Text the
+    service sends (error messages, <code>Sanshain-Warning</code> values, the provide, retire and
+    catalog answers, its version) is printed with every control character but the tab replaced
+    by <code>?</code>, so it cannot start a log line of its own or send terminal escape sequences.
+    Both since 2.6.0.
+  </li>
 </ul>
 
 <h2 id="library">The library</h2>
