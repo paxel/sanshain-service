@@ -208,7 +208,8 @@ npx sanshain catalog --trunk</code></pre>
       <td><code>bestEffort</code></td>
       <td>off</td>
       <td>2.3.0 (variable and field 1.0.0)</td>
-      <td>Report failures and exit 0.</td>
+      <td>Turn failed calls, and a missing or broken <code>sanshain.yaml</code>, into warnings,
+        exit 0.</td>
     </tr>
     <tr>
       <td>—</td>
@@ -416,7 +417,8 @@ npx sanshain catalog --trunk</code></pre>
         <code>--best-effort</code> or a true <code>SANSHAIN_BEST_EFFORT</code> switches it on. Else
         a set <code>SANSHAIN_BEST_EFFORT</code> replaces <code>bestEffort</code> in either
         direction (<code>SANSHAIN_BEST_EFFORT=false</code> switches off a <code>true</code> in the
-        file). Else <code>bestEffort</code> decides.
+        file). Else <code>bestEffort</code> decides. For a missing or broken
+        <code>sanshain.yaml</code> only the flag and the variable count.
       </td>
     </tr>
     <tr>
@@ -424,7 +426,8 @@ npx sanshain catalog --trunk</code></pre>
       <td>
         A set <code>SANSHAIN_STRICT</code> or <code>SANSHAIN_COMPRESSION</code> replaces
         <code>strict</code> or <code>compression</code> in either direction. Else the file decides.
-        There is no flag for either.
+        There is no flag for either. A missing or broken <code>sanshain.yaml</code> is strict only
+        through <code>SANSHAIN_STRICT=true</code>.
       </td>
     </tr>
     <tr>
@@ -602,12 +605,18 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     <code>strict: trunk and tag are mutually exclusive - this build is recorded in neither</code>.
   </li>
   <li>An annotation with an unfilled placeholder, before any request: <code>strict: annotation '…' left out: …</code>.</li>
-  <li>Unknown fields in <code>sanshain.yaml</code>: the report ends in <code>rejected (strict)</code>.</li>
+  <li>
+    Unknown fields in <code>sanshain.yaml</code>: the report ends in <code>rejected (strict)</code>.
+    Under best effort only when the file otherwise loads or <code>SANSHAIN_STRICT=true</code> is
+    set; a file that does not load is broken (see below), and the report ends in
+    <code>ignored</code>.
+  </li>
 </ul>
 <p>
   Best effort is on with <code>--best-effort</code>, <code>SANSHAIN_BEST_EFFORT=true</code> or
-  <code>bestEffort: true</code>. It softens failed calls only: a refusal, a server error, a network
-  error, and a missing spec file or <code>catalogInfo</code> file. A failure is printed as
+  <code>bestEffort: true</code>. It softens failed calls: a refusal, a server error, a network
+  error, and a missing spec file or <code>catalogInfo</code> file; with the flag or the variable
+  also a missing or broken <code>sanshain.yaml</code> (below). A failure is printed as
   <code>Error providing spec: …</code>,
   <code>Error during require: …</code>, <code>Error requiring &lt;producer&gt; &lt;version&gt;: …</code>
   or <code>Error pushing catalog: …</code>, followed by <code>Continuing (best effort)</code>, and
@@ -615,7 +624,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
 </p>
 <ul>
   <li>
-    The strict failures above are never softened, and neither are unknown fields under strict.
+    The strict failures above are never softened, and neither are unknown fields under strict in
+    a file that otherwise loads.
   </li>
   <li>
     <code>provide</code> and <code>require</code> apply it per entry: a failed entry is skipped and
@@ -623,8 +633,15 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
     spec(s).</code> is not printed.
   </li>
   <li>
-    A <code>sanshain.yaml</code> that cannot be loaded (missing, unparsable, invalid or with 1.x
-    fields) is a configuration error: the command exits 1 before any request, also with best effort.
+    A <code>sanshain.yaml</code> that is missing, cannot be read or does not load (invalid YAML,
+    1.x fields, invalid entries, an unsupported <code>apiType</code>) fails the command before any
+    request without best effort; a missing file is named, as in
+    <code>Error providing spec: Configuration file not found: &lt;path&gt;</code>. With
+    <code>--best-effort</code> or <code>SANSHAIN_BEST_EFFORT=true</code> it prints the same line,
+    then <code>Continuing (best effort)</code>, calls nothing and exits 0 (since 2.6.0; before, it
+    printed <code>Warning loading config: &lt;error&gt;</code> and a skip notice). Such a file's
+    own <code>bestEffort</code> and <code>strict</code> do not count; <code>SANSHAIN_STRICT=true</code>
+    makes it fail also with best effort.
   </li>
 </ul>
 <p>
@@ -740,7 +757,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
       <td>
         It prints once on stderr <code>sanshain.yaml: unknown field 'catalogInf' - ignored</code>,
         inside a small ASCII cat, and carries on. Under strict the line ends in
-        <code>rejected (strict)</code> and the command exits 1, also with best effort.
+        <code>rejected (strict)</code> and the command exits 1, also with best effort when the file
+        otherwise loads.
       </td>
     </tr>
     <tr>
@@ -748,7 +766,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
       <td>
         An error naming the field and its replacement, e.g. <code>'timeout' is no longer supported
         — Sanshain 2.0 resolves immediately (no long-polling); remove it</code>. Exit 1, before any
-        request, also with best effort.
+        request, or a warning under best effort (see
+        <a href="#strict-and-best-effort">Strict mode and best effort</a>).
       </td>
     </tr>
     <tr>
@@ -762,7 +781,7 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
       <td>
         <code>Configuration file not found: &lt;path&gt;</code>, <code>Missing required field:
         sanshainUrl</code>, or an error naming the entry (e.g. <code>requires[0] (auth-service):
-        missing 'version' — …</code>). Exit 1, before any request, also with best effort.
+        missing 'version' — …</code>). Exit 1, before any request, or a warning under best effort.
       </td>
     </tr>
     <tr>
@@ -770,8 +789,8 @@ SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 npx sanshain provide</code></pre>
       <td>
         <code>provides[0]: unsupported apiType '&lt;value&gt;' — use openapi, asyncapi or proto
         (grpc means proto)</code> (a require's starts <code>requires[0] (&lt;producer&gt;): </code>,
-        a single <code>provide</code> entry's <code>provide: </code>). Exit 1, before any request,
-        also with best effort.
+        a single <code>provide</code> entry's <code>provide: </code>). Exit 1, before any request, or
+        a warning under best effort.
       </td>
     </tr>
     <tr>
