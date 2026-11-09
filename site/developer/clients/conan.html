@@ -200,7 +200,7 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
       <td><code>bestEffort</code></td>
       <td><code>false</code></td>
       <td>2.0.0 (flag, variable); 1.0.0 (field)</td>
-      <td>Failed calls become warnings (see <a href="#strict-and-best-effort">Strict mode and best effort</a>). The <code>conanfile.py</code> helper reads only the field.</td>
+      <td>Failed calls, and on the command line a missing or broken <code>sanshain.yaml</code>, become warnings (see <a href="#strict-and-best-effort">Strict mode and best effort</a>). The <code>conanfile.py</code> helper reads only the field.</td>
     </tr>
     <tr>
       <td>—</td>
@@ -382,7 +382,7 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
   <tbody>
     <tr>
       <td>URL</td>
-      <td><code>SANSHAIN_URL</code> if it is not blank, else <code>sanshainUrl</code>. If neither is set: <code>Missing required field: sanshainUrl</code>.</td>
+      <td><code>SANSHAIN_URL</code> if it is not blank, else <code>sanshainUrl</code>. If neither is set: <code>Missing required field: sanshainUrl</code> (with best effort a warning, exit 0).</td>
     </tr>
     <tr>
       <td>Token</td>
@@ -413,11 +413,11 @@ python3 -m sanshainconan.cli --config build/sanshain.yaml provide</code></pre>
     </tr>
     <tr>
       <td>Best effort</td>
-      <td>On the command line, any one of these switches it on: <code>--best-effort</code>, <code>SANSHAIN_BEST_EFFORT</code> on, <code>bestEffort: true</code>. Nothing switches the field off, so <code>SANSHAIN_BEST_EFFORT=false</code> leaves <code>bestEffort: true</code> in force. The helper reads only <code>bestEffort</code>.</td>
+      <td>On the command line, any one of these switches it on: <code>--best-effort</code>, <code>SANSHAIN_BEST_EFFORT</code> on, <code>bestEffort: true</code>. Nothing switches the field off, so <code>SANSHAIN_BEST_EFFORT=false</code> leaves <code>bestEffort: true</code> in force. For a missing or broken <code>sanshain.yaml</code> only the flag and the variable count. The helper reads only <code>bestEffort</code>.</td>
     </tr>
     <tr>
       <td>Strict</td>
-      <td><code>strict: true</code> only. There is no flag and no variable.</td>
+      <td><code>strict: true</code> only. There is no flag and no variable, so a missing or broken <code>sanshain.yaml</code> is never strict.</td>
     </tr>
     <tr>
       <td>Origin</td>
@@ -620,7 +620,9 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
     <code>strict: sanshain.yaml has no catalogInfo</code>. The <code>catalog</code> command checks
     only <code>serviceName</code> and <code>catalogInfo</code>.
   </li>
-  <li>An unknown field. The report ends in <code>rejected (strict)</code>.</li>
+  <li>An unknown field. The report ends in <code>rejected (strict)</code>. Under best effort only
+    when the file otherwise loads; a file that does not is broken (see below), and the report ends
+    in <code>ignored</code>.</li>
   <li>Both trunk and tag declared, before any request.</li>
   <li>An annotation left out, before any request: <code>✗ strict: annotation '…' left out: …</code>.</li>
   <li>
@@ -656,9 +658,20 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
   </li>
 </ul>
 <p>
-  Best effort never softens a configuration error: an unreadable or invalid
-  <code>sanshain.yaml</code>, a refused 1.x field and an unsupported provide <code>apiType</code>
-  included, fails with <code>Error: &lt;error&gt;</code> and exit 1 before any request.
+  A <code>sanshain.yaml</code> that is missing, cannot be read or does not load (invalid YAML, no
+  mapping of settings, a refused 1.x field, an invalid entry, an unsupported <code>apiType</code>)
+  fails the command with <code>Error: &lt;error&gt;</code> and exit 1 before any request without
+  best effort; a missing file is named, as in <code>Error: Config file not found: sanshain.yaml</code>.
+  With <code>--best-effort</code> or <code>SANSHAIN_BEST_EFFORT</code> on it prints
+  <code>Error: &lt;error&gt;</code> and <code>Continuing (best effort)</code>, calls nothing and
+  exits 0 (since 2.5.0; before, it printed <code>Warning loading config: &lt;error&gt;</code> and
+  a skip notice). Such a file's own <code>bestEffort</code> and <code>strict</code> do not count.
+  The <code>conanfile.py</code> helper reads neither switch, so for it a missing or broken file
+  always fails (see <a href="#conanfile">The conanfile.py helper</a>).
+</p>
+<p>
+  Best effort never softens any strict failure above: missing configuration, unknown fields in a
+  file that otherwise loads, both streams declared, an annotation left out and Sanshain warnings.
 </p>
 
 <h2 id="failure-modes">Failure modes</h2>
@@ -785,7 +798,7 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
   ( O_o )   sanshain.yaml: unknown field 'catalogInf' - ignored
  ---U-U---</code></pre>
         Under strict the line ends in <code>rejected (strict)</code> and the command exits 1, also
-        with best effort.
+        with best effort when the file otherwise loads.
       </td>
     </tr>
     <tr>
@@ -793,14 +806,16 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
       <td>
         Refused with its hint, for example <code>requires[0] (user-service): 'timeout' is no longer
         supported — Sanshain 2.0 resolves immediately (no long-polling); remove it</code>. Exits 1,
-        also with best effort.
+        or a warning under best effort (see <a href="#strict-and-best-effort">Strict mode and best
+        effort</a>).
       </td>
     </tr>
     <tr>
       <td><code>requires</code> entry without <code>version</code></td>
       <td>
         <code>requires[0] (user-service): missing 'version' — Sanshain 2.0 pins exact versions; add
-        version: MAJOR.MINOR.PATCH (list available: GET /producers/user-service/versions)</code>
+        version: MAJOR.MINOR.PATCH (list available: GET /producers/user-service/versions)</code>.
+        Exit 1, before any request, or a warning under best effort.
       </td>
     </tr>
     <tr>
@@ -808,16 +823,18 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
       <td>Warns and sends neither. Under strict, exits 1 before any request.</td>
     </tr>
     <tr>
-      <td>Missing config file</td>
-      <td><code>Error: Config file not found: sanshain.yaml</code>, exit 1.</td>
+      <td>Missing or unreadable config file</td>
+      <td><code>Error: Config file not found: sanshain.yaml</code> (unreadable:
+        <code>Error: Cannot read config file &lt;path&gt;: &lt;reason&gt;</code>), exit 1, or a
+        warning under best effort.</td>
     </tr>
     <tr>
       <td>Unknown <code>apiType</code> in <code>provides</code> or <code>requires</code></td>
       <td>
         <code>Error: provides[0]: unsupported apiType '&lt;type&gt;' — use openapi, asyncapi or proto
         (grpc means proto)</code> (a single <code>provide</code> entry's starts
-        <code>provide: </code>, a require's <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request, also with best effort. The helper
-        raises it when it is built.
+        <code>provide: </code>, a require's <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request, or a warning under best effort. The
+        helper raises it when it is built, also with <code>bestEffort: true</code>.
       </td>
     </tr>
   </tbody>
@@ -844,8 +861,9 @@ SANSHAIN_SET_AREA=payments SANSHAIN_SET_ID=REQ-42 sanshain-conan provide</code><
 <ul>
   <li>
     <strong>Construction</strong> reads the file and decides the stream, stability, origin and
-    annotations once. A configuration error raises, after the unknown-field report as Conan
-    warnings. Under strict, both streams declared or an annotation left out raises
+    annotations once. A missing or broken file raises <code>ConfigError</code> (a missing one
+    as <code>Config file not found: &lt;path&gt;</code>), after the unknown-field report as Conan
+    warnings, also with <code>bestEffort: true</code>. Under strict, both streams declared or an annotation left out raises
     <code>StrictError</code> here, before any request.
   </li>
   <li>
