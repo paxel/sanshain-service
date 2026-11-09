@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The GitHub Actions examples of the site name the JavaScript client's Action as `paxel/sanshain-js@summer`; the `@main` they named does not exist, so the step failed to resolve.
 - The Developer track's start page counts its nine chapters; it said seven.
 
+### Security
+- Updated `rmcp` to 3.9.0 (RUSTSEC-2026-0462, unbounded response bodies in its Streamable HTTP clients; Sanshain builds only the MCP server, so the affected client transports were never compiled in).
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).
