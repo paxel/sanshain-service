@@ -13,6 +13,9 @@ on:
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
+# The token only reads the code: no job writes to the repository.
+permissions:
+  contents: read
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
