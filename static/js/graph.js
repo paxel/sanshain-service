@@ -1395,7 +1395,11 @@ async function selectBranchView(name) {
   // address named might be applied.
   window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
   if (!name) {
-    setStreamView("dev");
+    try {
+      await setStreamView("dev");
+    } catch (e) {
+      console.error("Could not switch the graph to the dev view:", e);
+    }
     return;
   }
   try {
@@ -1406,7 +1410,7 @@ async function selectBranchView(name) {
     }
     window.graphBranchPins = await res.json();
     window.graphBranchName = name;
-    setStreamView("branch");
+    await setStreamView("branch");
   } catch (e) {
     failBranchSelection(name, e.message || String(e));
   }
