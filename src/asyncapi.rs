@@ -56,6 +56,35 @@ pub fn channel_summary(snippet: &str) -> Option<String> {
         .or_else(|| text(&message, "description"))
 }
 
+/// The `servers` of a document that name a host, as `(location, address)`:
+/// the splitter copies them into every channel's snippet, so each Consumer is
+/// pointed at this one broker. 2.x reads `url`, 3.x `host`; an address with
+/// `{variables}`, or a 2.x `url` starting with `/` or `.`, is portable and
+/// not answered. An unreadable document answers none.
+pub fn absolute_server_urls(yaml_str: &str) -> Vec<(String, String)> {
+    let Ok(root) = crate::yaml::from_str::<Value>(yaml_str) else {
+        return Vec::new();
+    };
+    let v3 = root
+        .get("asyncapi")
+        .and_then(Value::as_str)
+        .is_some_and(|v| v.starts_with("3."));
+    let field = if v3 { "host" } else { "url" };
+    let Some(servers) = root.get("servers").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .filter_map(|(name, server)| {
+            let address = server.get(field)?.as_str()?;
+            let relative = address.is_empty()
+                || address.contains('{')
+                || (!v3 && (address.starts_with('/') || address.starts_with('.')));
+            (!relative).then(|| (format!("servers.{name}.{field}"), address.to_string()))
+        })
+        .collect()
+}
+
 pub fn split_asyncapi(yaml_str: &str) -> Result<Vec<AsyncApiSpec>, String> {
     let root: Value = crate::yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
@@ -502,18 +531,59 @@ impl Direction {
 fn extract_messages(yaml_str: &str, dir: Direction) -> Result<Vec<PubMessage>, String> {
     let root: Value = crate::yaml::from_str(yaml_str)
         .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
+    let mut out = Vec::new();
+    visit_messages(&root, dir, &mut |channel, message, op_deprecated| {
+        if let Some(pm) = pub_message_from_node(channel, message, op_deprecated) {
+            out.push(pm);
+        }
+    });
+    Ok(out)
+}
+
+/// A message the contracts and the subscription harvest skip because it has
+/// no identity: neither `name` nor `title` where the operation names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnnamedMessage {
+    /// The channel `address` (3.x) or the channel key (2.x).
+    pub channel: String,
+    /// `PUB` or `SUB`, as the endpoint is stored.
+    pub operation: &'static str,
+}
+
+/// Every message of a document that [`extract_pub_messages`] and
+/// [`extract_sub_messages`] skip for want of a name: no message contract is
+/// shared for it and no subscription harvested.
+pub fn unnamed_messages(yaml_str: &str) -> Result<Vec<UnnamedMessage>, String> {
+    let root: Value = crate::yaml::from_str(yaml_str)
+        .map_err(|e| format!("Failed to parse AsyncAPI YAML: {}", e))?;
+    let mut out = Vec::new();
+    for (dir, operation) in [(Direction::Pub, "PUB"), (Direction::Sub, "SUB")] {
+        visit_messages(&root, dir, &mut |channel, message, _| {
+            if message_name(message).is_none() {
+                out.push(UnnamedMessage {
+                    channel: channel.to_string(),
+                    operation,
+                });
+            }
+        });
+    }
+    Ok(out)
+}
+
+/// Call `visit` with every message node of one direction: its channel, the
+/// node, and whether its operation is marked deprecated.
+fn visit_messages(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &Value, bool)) {
     let version = root.get("asyncapi").and_then(Value::as_str).unwrap_or("");
     if version.starts_with("3.") {
-        Ok(extract_messages_v3(&root, dir))
+        visit_messages_v3(root, dir, visit);
     } else {
-        Ok(extract_messages_v2(&root, dir))
+        visit_messages_v2(root, dir, visit);
     }
 }
 
-fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
-    let mut out = Vec::new();
+fn visit_messages_v2(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &Value, bool)) {
     let Some(channels) = root.get("channels").and_then(Value::as_object) else {
-        return out;
+        return;
     };
     for (channel_name, channel_value) in channels {
         let channel = channel_name.as_str();
@@ -524,23 +594,36 @@ fn extract_messages_v2(root: &Value, dir: Direction) -> Vec<PubMessage> {
         let Some(message) = operation.get("message") else {
             continue;
         };
+        let message = follow_local_ref(root, message);
         let variants: Vec<&Value> = match message.get("oneOf").and_then(Value::as_array) {
             Some(one_of) => one_of.iter().collect(),
             None => vec![message],
         };
         for variant in variants {
-            if let Some(pm) = pub_message_from_node(channel, variant, op_deprecated) {
-                out.push(pm);
-            }
+            visit(channel, follow_local_ref(root, variant), op_deprecated);
         }
     }
-    out
 }
 
-fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
-    let mut out = Vec::new();
+/// The node a local `$ref` (`#/…`) chain ends at; the node itself when it is
+/// no reference, or when the chain leaves the document, dangles or cycles.
+fn follow_local_ref<'a>(root: &'a Value, node: &'a Value) -> &'a Value {
+    let mut current = node;
+    for _ in 0..32 {
+        let Some(reference) = ref_of(current) else {
+            return current;
+        };
+        match resolve_json_pointer(root, reference) {
+            Some(target) => current = target,
+            None => return node,
+        }
+    }
+    node
+}
+
+fn visit_messages_v3(root: &Value, dir: Direction, visit: &mut dyn FnMut(&str, &Value, bool)) {
     let Some(operations) = root.get("operations").and_then(Value::as_object) else {
-        return out;
+        return;
     };
     let channels = root.get("channels");
     for (_op_name, op) in operations {
@@ -571,10 +654,8 @@ fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
                 let Some(ref_str) = m_ref.get("$ref").and_then(Value::as_str) else {
                     continue;
                 };
-                if let Some(node) = resolve_json_pointer(root, ref_str)
-                    && let Some(pm) = pub_message_from_node(channel_address, node, op_deprecated)
-                {
-                    out.push(pm);
+                if let Some(node) = resolve_json_pointer(root, ref_str) {
+                    visit(channel_address, follow_local_ref(root, node), op_deprecated);
                 }
             }
         } else if let Some(msgs) = channel_node
@@ -582,13 +663,18 @@ fn extract_messages_v3(root: &Value, dir: Direction) -> Vec<PubMessage> {
             .and_then(Value::as_object)
         {
             for (_k, node) in msgs {
-                if let Some(pm) = pub_message_from_node(channel_address, node, op_deprecated) {
-                    out.push(pm);
-                }
+                visit(channel_address, follow_local_ref(root, node), op_deprecated);
             }
         }
     }
-    out
+}
+
+/// A message's identity: its `name`, falling back to its `title`.
+fn message_name(message: &Value) -> Option<&str> {
+    message
+        .get("name")
+        .or_else(|| message.get("title"))
+        .and_then(Value::as_str)
 }
 
 fn pub_message_from_node(
@@ -596,10 +682,7 @@ fn pub_message_from_node(
     message: &Value,
     op_deprecated: bool,
 ) -> Option<PubMessage> {
-    let name = message
-        .get("name")
-        .or_else(|| message.get("title"))
-        .and_then(Value::as_str)?;
+    let name = message_name(message)?;
     let payload = message.get("payload").cloned().unwrap_or(Value::Null);
     let payload_yaml = crate::yaml::to_string(&payload).ok()?;
     Some(PubMessage {
@@ -1407,6 +1490,108 @@ operations:
     }
 
     #[test]
+    fn extract_messages_v2_follow_local_message_refs_also_inside_one_of() {
+        let yaml = r#"
+asyncapi: 2.6.0
+info: { title: T, version: 1.0.0 }
+channels:
+  orders:
+    publish:
+      message:
+        $ref: '#/components/messages/OrderPlaced'
+  events:
+    publish:
+      message:
+        oneOf:
+          - $ref: '#/components/messages/Created'
+          - $ref: 'external.yaml#/components/messages/Remote'
+          - $ref: '#/components/messages/Missing'
+    subscribe:
+      message:
+        $ref: '#/components/messages/Both'
+components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      payload: { type: object, properties: { id: { type: string } } }
+    Created:
+      $ref: '#/components/messages/CreatedV1'
+    CreatedV1:
+      title: Created
+      deprecated: true
+      payload: { type: object }
+    Both:
+      oneOf:
+        - $ref: '#/components/messages/Shipped'
+    Shipped:
+      name: Shipped
+      payload: { type: string }
+"#;
+        let pubs: Vec<(String, String, bool)> = extract_pub_messages(yaml)
+            .unwrap()
+            .into_iter()
+            .map(|m| (m.channel, m.message_name, m.deprecated))
+            .collect();
+        assert_eq!(
+            pubs,
+            [
+                ("orders".to_string(), "OrderPlaced".to_string(), false),
+                ("events".to_string(), "Created".to_string(), true),
+            ],
+            "external and dangling refs stay unresolved and unnamed"
+        );
+        let placed = extract_pub_messages(yaml).unwrap();
+        assert_eq!(
+            placed[0].payload_yaml,
+            "type: object\nproperties:\n  id:\n    type: string\n"
+        );
+        let subs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].channel, "events");
+        assert_eq!(subs[0].message_name, "Shipped");
+        assert_eq!(subs[0].payload_yaml, "type: string\n");
+    }
+
+    #[test]
+    fn extract_messages_v3_follow_channel_message_refs() {
+        let yaml = r#"
+asyncapi: 3.0.0
+info: { title: T, version: 1.0.0 }
+channels:
+  placed:
+    address: orders.placed
+    messages:
+      placed: { $ref: '#/components/messages/OrderPlaced' }
+  shipped:
+    address: orders.shipped
+    messages:
+      shipped: { $ref: '#/components/messages/OrderShipped' }
+operations:
+  send:
+    action: send
+    channel: { $ref: '#/channels/placed' }
+  receive:
+    action: receive
+    channel: { $ref: '#/channels/shipped' }
+    messages:
+      - $ref: '#/channels/shipped/messages/shipped'
+components:
+  messages:
+    OrderPlaced: { name: OrderPlaced, payload: { type: object } }
+    OrderShipped: { name: OrderShipped, payload: { type: object } }
+"#;
+        let pubs = extract_pub_messages(yaml).unwrap();
+        assert_eq!(pubs.len(), 1);
+        assert_eq!(pubs[0].channel, "orders.placed");
+        assert_eq!(pubs[0].message_name, "OrderPlaced");
+        let subs = extract_sub_messages(yaml).unwrap();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].channel, "orders.shipped");
+        assert_eq!(subs[0].message_name, "OrderShipped");
+        assert!(unnamed_messages(yaml).unwrap().is_empty());
+    }
+
+    #[test]
     fn extract_pub_messages_skips_unnamed() {
         let yaml = r#"
 asyncapi: 2.6.0
@@ -1975,5 +2160,67 @@ x-shared:
     fn openapi_format_component_names_are_sanitized() {
         assert_eq!(component_name("user/signed up"), "user_signed_up");
         assert_eq!(component_name("Order.v1-x_y"), "Order.v1-x_y");
+    }
+}
+
+#[cfg(test)]
+mod review_finding_tests {
+    use super::*;
+
+    #[test]
+    fn absolute_server_urls_reads_url_in_2x_and_host_in_3x() {
+        let v2 = "asyncapi: 2.6.0\ninfo: { title: t, version: 1.0.0 }\nservers:\n  prod: { url: 'kafka.corp.example:9092', protocol: kafka }\n  local: { url: '/broker', protocol: ws }\n  env: { url: '{host}:9092', protocol: kafka }\nchannels: {}\n";
+        assert_eq!(
+            absolute_server_urls(v2),
+            vec![(
+                "servers.prod.url".to_string(),
+                "kafka.corp.example:9092".to_string()
+            )]
+        );
+        let v3 = "asyncapi: 3.0.0\ninfo: { title: t, version: 1.0.0 }\nservers:\n  prod: { host: 'broker.corp.example', protocol: amqp }\n  env: { host: '{host}', protocol: amqp }\nchannels: {}\noperations: {}\n";
+        assert_eq!(
+            absolute_server_urls(v3),
+            vec![(
+                "servers.prod.host".to_string(),
+                "broker.corp.example".to_string()
+            )]
+        );
+        assert!(absolute_server_urls("asyncapi: 2.6.0\nchannels: {}\n").is_empty());
+    }
+
+    #[test]
+    fn unnamed_messages_are_the_ones_the_contracts_skip() {
+        let v2 = "asyncapi: 2.6.0\ninfo: { title: t, version: 1.0.0 }\nchannels:\n  orders:\n    publish:\n      message:\n        oneOf:\n          - name: OrderPlaced\n            payload: { type: object }\n          - payload: { type: string }\n    subscribe:\n      message:\n        oneOf:\n          - $ref: '#/components/messages/Ack'\n          - $ref: 'other.yaml#/components/messages/Nack'\n  audit:\n    publish:\n      message:\n        title: Audit entry\n        payload: { type: object }\ncomponents:\n  messages:\n    Ack: { name: Ack, payload: { type: object } }\n";
+        assert_eq!(
+            unnamed_messages(v2).unwrap(),
+            vec![
+                UnnamedMessage {
+                    channel: "orders".to_string(),
+                    operation: "PUB",
+                },
+                UnnamedMessage {
+                    channel: "orders".to_string(),
+                    operation: "SUB",
+                },
+            ],
+            "the referenced Ack is named; only the external $ref stays unresolved"
+        );
+        let named: Vec<String> = extract_pub_messages(v2)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.message_name)
+            .collect();
+        assert_eq!(named, ["OrderPlaced", "Audit entry"]);
+
+        let v3 = "asyncapi: 3.0.0\ninfo: { title: t, version: 1.0.0 }\nchannels:\n  placed:\n    address: orders.placed\n    messages:\n      placed: { payload: { type: object } }\noperations:\n  send:\n    action: send\n    channel: { $ref: '#/channels/placed' }\n";
+        assert_eq!(
+            unnamed_messages(v3).unwrap(),
+            vec![UnnamedMessage {
+                channel: "orders.placed".to_string(),
+                operation: "PUB",
+            }],
+            "a 3.x message key is not its name"
+        );
+        assert!(unnamed_messages("not: [valid").is_err());
     }
 }

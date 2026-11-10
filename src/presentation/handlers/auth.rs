@@ -135,6 +135,14 @@ pub async fn auth_me(
         }
         None => crate::application::authz::maintained_producers(&state.repo, user.id).await?,
     };
+    // The Products whose membership this caller may edit as a Product
+    // Maintainer (#76), resolved the same way.
+    let maintains_products = match &actor {
+        Some(axum::Extension(actor)) => {
+            crate::application::authz::maintained_products_for_actor(&state.repo, actor).await?
+        }
+        None => crate::application::authz::maintained_products(&state.repo, user.id).await?,
+    };
     let account =
         services::account_view(&state.repo, user.id, super::bearer_token(&headers)).await?;
 
@@ -146,6 +154,7 @@ pub async fn auth_me(
         "permissions": permissions,
         "is_root": is_root,
         "maintains": maintains,
+        "maintains_products": maintains_products,
         "sign_in": account.sign_in,
         "display_name_editable": account.display_name_editable,
         "gravatar_hash": account.gravatar_hash,

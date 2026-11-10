@@ -568,6 +568,83 @@ pub async fn maintained_producers(
     Ok(repo.list_maintained_producers(user_id).await?)
 }
 
+// --- Product Maintainer scope (#76, ADR-0011) ---
+
+/// Whether an Actor maintains a Product: directly, through a stored group, or
+/// through a directory group they are currently in. Root maintains every
+/// Product, by the same short-circuit as [`maintains_producer`].
+pub async fn maintains_product(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+    product: &str,
+) -> Result<bool, AppError> {
+    if actor.is_root {
+        return Ok(true);
+    }
+    let Some(found) = repo.find_product(product).await? else {
+        return Ok(false);
+    };
+    if repo.maintains_product(actor.user_id, found.id).await? {
+        return Ok(true);
+    }
+    let directory_group_ids = directory_maintainer_group_ids(repo, actor).await?;
+    if directory_group_ids.is_empty() {
+        return Ok(false);
+    }
+    let maintainer_groups = repo.list_product_group_maintainer_ids(found.id).await?;
+    Ok(maintainer_groups
+        .iter()
+        .any(|id| directory_group_ids.contains(id)))
+}
+
+/// Authorise a Product-scoped action: the Actor holds `permission`
+/// instance-wide, **or** is a Product Maintainer of this Product. Only the
+/// membership routes are Product-scoped, so maintaining a Product confers
+/// nothing beyond its member list — and nothing over the members themselves.
+pub async fn require_product_permission(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+    permission: Permission,
+    product: &str,
+) -> Result<(), AppError> {
+    if actor.has_permission(permission) || maintains_product(repo, actor, product).await? {
+        return Ok(());
+    }
+    Err(AppError::Forbidden)
+}
+
+/// The Products the caller maintains — stored grants plus grants made to the
+/// directory groups they are currently in, sorted. Root is not expanded, as
+/// in [`maintained_producers_for_actor`].
+pub async fn maintained_products_for_actor(
+    repo: &impl SpecRepository,
+    actor: &Actor,
+) -> Result<Vec<String>, AppError> {
+    let mut products = repo.list_maintained_products(actor.user_id).await?;
+    let directory_group_ids = directory_maintainer_group_ids(repo, actor).await?;
+    if !directory_group_ids.is_empty() {
+        for product in repo
+            .list_group_maintained_products(&directory_group_ids)
+            .await?
+        {
+            if !products.contains(&product) {
+                products.push(product);
+            }
+        }
+        products.sort();
+    }
+    Ok(products)
+}
+
+/// The Products a user maintains by stored grants, for a caller without a
+/// resolved Actor.
+pub async fn maintained_products(
+    repo: &impl SpecRepository,
+    user_id: i64,
+) -> Result<Vec<String>, AppError> {
+    Ok(repo.list_maintained_products(user_id).await?)
+}
+
 async fn require_producer(repo: &impl SpecRepository, producer: &str) -> Result<i64, AppError> {
     repo.find_service(producer)
         .await?
@@ -721,6 +798,16 @@ mod tests {
             username: "acting-admin".into(),
             is_root: false,
             roles: vec![Role::Admin],
+            directory_groups: vec![],
+        }
+    }
+
+    fn root_actor() -> Actor {
+        Actor {
+            user_id: 1000,
+            username: "root".into(),
+            is_root: true,
+            roles: vec![],
             directory_groups: vec![],
         }
     }
@@ -1550,5 +1637,109 @@ mod tests {
             .find(|m| m.producer == "empty")
             .expect("producers with no maintainers are included");
         assert!(empty.user_ids.is_empty() && empty.group_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_product_maintainer_passes_only_for_their_product_and_never_for_its_members() {
+        let repo = MockRepo::new();
+        repo.ensure_service("orders").await.expect("producer");
+        let shop = repo
+            .create_product("shop", "2026-11-08T00:00:00Z")
+            .await
+            .expect("product");
+        repo.create_product("other", "2026-11-08T00:00:00Z")
+            .await
+            .expect("product");
+        repo.add_product_member(
+            shop.id,
+            "orders",
+            crate::domain::models::ProductMemberOrigin::Manual,
+        )
+        .await
+        .expect("member");
+        let alva = user(&repo, "alva", false).await;
+        repo.add_product_user_maintainer(shop.id, alva.id)
+            .await
+            .expect("grant");
+        let actor = Actor {
+            user_id: alva.id,
+            username: "alva".into(),
+            is_root: false,
+            roles: vec![],
+            directory_groups: vec![],
+        };
+        require_product_permission(&repo, &actor, Permission::ManageProducers, "shop")
+            .await
+            .expect("maintains shop");
+        assert!(matches!(
+            require_product_permission(&repo, &actor, Permission::ManageProducers, "other").await,
+            Err(AppError::Forbidden)
+        ));
+        assert!(matches!(
+            require_producer_permission(&repo, &actor, Permission::ManageProducers, "orders").await,
+            Err(AppError::Forbidden)
+        ));
+        assert_eq!(
+            maintained_products_for_actor(&repo, &actor)
+                .await
+                .expect("list"),
+            ["shop"]
+        );
+        assert_eq!(
+            maintained_products(&repo, alva.id).await.expect("list"),
+            ["shop"]
+        );
+        assert!(
+            maintains_product(&repo, &root_actor(), "other")
+                .await
+                .expect("root")
+        );
+        require_product_permission(&repo, &admin_actor(), Permission::ManageProducers, "other")
+            .await
+            .expect("the global permission passes");
+    }
+
+    #[tokio::test]
+    async fn a_directory_group_product_grant_applies_to_its_current_members() {
+        let repo = MockRepo::new();
+        let shop = repo
+            .create_product("shop", "2026-11-08T00:00:00Z")
+            .await
+            .expect("product");
+        let team = add_directory_group(&repo, "cn=shop,ou=teams,dc=corp,dc=com")
+            .await
+            .expect("group");
+        repo.add_product_group_maintainer(shop.id, team.id)
+            .await
+            .expect("grant");
+        let mut actor = Actor {
+            user_id: 77,
+            username: "berta".into(),
+            is_root: false,
+            roles: vec![],
+            directory_groups: vec!["cn=shop,ou=teams,dc=corp,dc=com".into()],
+        };
+        assert!(
+            maintains_product(&repo, &actor, "shop")
+                .await
+                .expect("check")
+        );
+        assert_eq!(
+            maintained_products_for_actor(&repo, &actor)
+                .await
+                .expect("list"),
+            ["shop"]
+        );
+        actor.directory_groups.clear();
+        assert!(
+            !maintains_product(&repo, &actor, "shop")
+                .await
+                .expect("check")
+        );
+        assert!(
+            !maintains_product(&repo, &actor, "ghost")
+                .await
+                .expect("check")
+        );
     }
 }

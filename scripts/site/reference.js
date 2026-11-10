@@ -378,12 +378,13 @@ const X_SCOPE = {
   global: "global",
   producer: "per Producer: also its maintainers",
   consumer: "per Consumer: also maintainers of the Producer of the same name",
+  product: "per Product: also its Product Maintainers",
 };
 
 /**
  * The permission an administrative operation needs and its scope, from the
  * contract's `x-permission` (a permission's wire name, or `any-signed-in`)
- * and `x-scope` (global, producer, consumer). An operation without the
+ * and `x-scope` (global, producer, consumer, product). An operation without the
  * fields is shown as a gap.
  */
 export function permissionOf(op) {

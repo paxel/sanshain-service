@@ -30,7 +30,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.12.0"
+  version: "2.13.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -309,6 +309,18 @@ paths:
         (`ga` or `snapshot` — what actually answered), plus an `ETag`;
         `If-None-Match` yields `304 Not Modified` when unchanged.
       parameters:
+        - name: annotations
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            Annotations of the requiring Consumer: a JSON array of
+            `AnnotationEntry` with `scope: system` (a `scope: version` entry is
+            a `400`; versions are annotated on a provide). Stored with the
+            Consumer on a successful require, the latest call winning per name.
+            Mind proxy URL limits with many long values; `/require-bundle`
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
@@ -414,6 +426,18 @@ paths:
         messages (see the `format` parameter). Its ETag never matches the
         AsyncAPI answer's.
       parameters:
+        - name: annotations
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            Annotations of the requiring Consumer: a JSON array of
+            `AnnotationEntry` with `scope: system` (a `scope: version` entry is
+            a `400`; versions are annotated on a provide). Stored with the
+            Consumer on a successful require, the latest call winning per name.
+            Mind proxy URL limits with many long values; `/require-bundle`
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
@@ -519,6 +543,18 @@ paths:
         Same resolution rules as `/require`. `path` is the fully qualified
         service name; `method` is the exact (case-sensitive) RPC name.
       parameters:
+        - name: annotations
+          in: query
+          required: false
+          schema: { type: string }
+          description: |
+            Annotations of the requiring Consumer: a JSON array of
+            `AnnotationEntry` with `scope: system` (a `scope: version` entry is
+            a `400`; versions are annotated on a provide). Stored with the
+            Consumer on a successful require, the latest call winning per name.
+            Mind proxy URL limits with many long values; `/require-bundle`
+            takes the same entries in its body. Services before 2.13.0 refuse
+            the unknown parameter with `400`.
         - name: consumername
           in: query
           required: true
@@ -1166,7 +1202,7 @@ paths:
           content:
             application/json:
               example:
-                "version": "2.12.0"
+                "version": "2.13.0"
               schema:
                 type: object
                 properties:
@@ -1478,6 +1514,17 @@ components:
           type: string
           nullable: true
           description: One line of intent, at most 200 characters.
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationEntry"
+          description: |
+            Annotations (2.13.0): `scope: version` entries are stored with the
+            provided version, `scope: system` entries with the Producer. A
+            real write replaces the names it sends and keeps the others; an
+            identical re-provide only fills names the version does not carry
+            yet. Not allowed with `retired`. Services before 2.13.0 answer
+            `422` naming the field.
         dry_run:
           type: boolean
           default: false
@@ -1539,6 +1586,17 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationEntry"
+          description: |
+            Annotations (2.13.0): `scope: version` entries are stored with the
+            provided version, `scope: system` entries with the Producer. A
+            real write replaces the names it sends and keeps the others; an
+            identical re-provide only fills names the version does not carry
+            yet. Not allowed with `retired`. Services before 2.13.0 answer
+            `422` naming the field.
         dry_run:
           type: boolean
           default: false
@@ -1588,6 +1646,17 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationEntry"
+          description: |
+            Annotations (2.13.0): `scope: version` entries are stored with the
+            provided version, `scope: system` entries with the Producer. A
+            real write replaces the names it sends and keeps the others; an
+            identical re-provide only fills names the version does not carry
+            yet. Not allowed with `retired`. Services before 2.13.0 answer
+            `422` naming the field.
         dry_run:
           type: boolean
           default: false
@@ -1746,6 +1815,15 @@ components:
         tag:
           type: string
           description: See `tag` on `/require`.
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationEntry"
+          description: |
+            Annotations (2.13.0) of the requiring Consumer, `scope: system` only (a
+            `scope: version` entry is a `400`). Stored once per system, the
+            latest call winning per name. Services before 2.13.0 answer `422`
+            naming the field.
 
     CatalogPushPayload:
       type: object
@@ -1761,6 +1839,15 @@ components:
           description: |
             A trunk build (ADR-0004): the periphery updates the main graph as
             well as the dev graph.
+        annotations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnnotationEntry"
+          description: |
+            Annotations (2.13.0) of the system, `scope: system` only (a
+            `scope: version` entry is a `400`). Stored once per system, the
+            latest call winning per name. Services before 2.13.0 answer `422`
+            naming the field.
 
     CatalogPushResponse:
       type: object
@@ -1809,6 +1896,34 @@ components:
         error:
           type: string
           description: Why the document is invalid; absent when valid.
+
+    AnnotationEntry:
+      type: object
+      required: [scope, name, value]
+      additionalProperties: false
+      description: |
+        One project-declared annotation from `sanshain.yaml`, its value filled
+        in by the build. At most 20 per scope and call; a refused entry is a
+        `400` naming it.
+      properties:
+        scope:
+          type: string
+          enum: [version, system]
+        name:
+          type: string
+          maxLength: 40
+          pattern: "^[A-Za-z0-9_-]+$"
+        value:
+          type: string
+          maxLength: 2048
+          description: Not blank. A value starting with `http://` or `https://` is shown as a link labelled by the name.
+
+    Annotation:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string }
+        value: { type: string }
 
     VersionOrigin:
       type: object
@@ -1880,6 +1995,11 @@ components:
           description: |
             Use-based expiry for snapshots when cleanup is enabled; absent for
             GA (never age-culled) or when cleanup is off.
+        annotations:
+          type: array
+          description: The version's annotations (2.13.0), sorted by name.
+          items:
+            $ref: "#/components/schemas/Annotation"
 
     WebhookEnvelope:
       type: object
@@ -1973,6 +2093,11 @@ components:
               enum: [none, patch, minor, major]
         origin:
           $ref: "#/components/schemas/VersionOrigin"
+        annotations:
+          type: array
+          description: The version annotations (2.13.0) this provide sent.
+          items:
+            $ref: "#/components/schemas/Annotation"
     WebhookProvideRejectedData:
       type: object
       description: A Provide was refused by a version rule. Dry-runs emit nothing.
@@ -2352,6 +2477,13 @@ components:
           description: Catalog context per system name.
           additionalProperties:
             $ref: "#/components/schemas/SystemContext"
+        system_annotations:
+          type: object
+          description: System annotations (2.13.0) per system name, sorted by name.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Annotation"
         trunk_stale_before:
           type: string
           description: Only in the dev scope; trunk pins last required before this instant are stale.

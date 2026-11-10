@@ -472,6 +472,33 @@ pub async fn admin_delete_version(
     ))
 }
 
+/// `DELETE /admin/systems/{name}/information` (#92): forget what the
+/// system's builds said about it — catalog context, system annotations and
+/// the current periphery. Audited; the next push sets it again.
+pub async fn admin_clear_system_information(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    services::clear_system_information(&state.repo, &name).await?;
+    let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "CLEAR_SYSTEM_INFORMATION",
+            details: &format!(
+                "Cleared the catalog information, system annotations and current periphery of '{name}'"
+            ),
+            service: Some(&name),
+            action_type: Some("WRITE"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "cleared": name })))
+}
+
 pub async fn admin_delete_consumer(
     State(state): State<AppState>,
     user: Option<axum::Extension<crate::domain::models::User>>,
@@ -1304,6 +1331,7 @@ pub async fn admin_provide(
             tag: None,
             retired: false,
             origin: crate::domain::models::VersionOrigin::default(),
+            annotations: &[],
         },
     )
     .await?;
@@ -1861,25 +1889,43 @@ pub async fn admin_graph_scope(
     Ok(Json(services::get_graph_scope(&state.repo, &scope).await?))
 }
 
-/// The instants the main graph changed — the timeline slider's markers.
-pub async fn admin_trunk_timeline(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    Ok(Json(state.repo.list_graph_change_dates(None).await?))
+#[derive(Deserialize)]
+pub struct TimelineQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
-/// The instants a branch's graph changed.
+/// The instants the main graph changed — the timeline slider's ticks —
+/// optionally between `from` and `to`.
+pub async fn admin_trunk_timeline(
+    State(state): State<AppState>,
+    Query(query): Query<TimelineQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::get_graph_change_dates(
+            &state.repo,
+            None,
+            query.from.as_deref(),
+            query.to.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+/// The instants a branch's graph changed, optionally between `from` and `to`.
 pub async fn admin_branch_timeline(
     State(state): State<AppState>,
     Path(name): Path<String>,
+    Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let branch = state
-        .repo
-        .find_branch(&name)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?;
     Ok(Json(
-        state.repo.list_graph_change_dates(Some(branch.id)).await?,
+        services::get_graph_change_dates(
+            &state.repo,
+            Some(&name),
+            query.from.as_deref(),
+            query.to.as_deref(),
+        )
+        .await?,
     ))
 }
 

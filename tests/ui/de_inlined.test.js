@@ -53,6 +53,7 @@ const AUTHED_PAGES = [
   "/admin.html",
   "/producers.html",
   "/consumers.html",
+  "/products.html",
   "/graph.html",
   "/reports.html",
   "/audit.html",

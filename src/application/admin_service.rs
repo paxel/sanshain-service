@@ -326,6 +326,7 @@ async fn producer_versions_map(
     let mut versions_by_service: std::collections::HashMap<String, Vec<ProducerVersionInfo>> =
         std::collections::HashMap::new();
     let origins = repo.list_version_origins().await?;
+    let annotations = repo.list_version_annotations().await?;
     for (service_name, meta, endpoint_count) in repo.list_all_spec_versions().await? {
         // Use-based expiry: a snapshot dies only when neither provided nor
         // required for the window, so the surfaced TTL counts from whichever
@@ -359,6 +360,7 @@ async fn producer_versions_map(
                 expires_at,
                 trunk_provided_at: meta.trunk_provided_at,
                 origin: origins.get(&meta.id).cloned().unwrap_or_default(),
+                annotations: annotations.get(&meta.id).cloned().unwrap_or_default(),
             });
     }
 

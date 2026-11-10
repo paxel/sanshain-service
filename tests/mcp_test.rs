@@ -1,4 +1,4 @@
-//! The MCP endpoint over JSON-RPC against the router (docs/mcp.md): the
+//! The MCP endpoint over JSON-RPC against the router (site/developer/mcp.html): the
 //! bearer-token guard, the stateless handshake, the tool catalog, every tool's
 //! happy and error path, the rate limit, the size budget and the metrics.
 
@@ -112,6 +112,8 @@ struct Seed {
     session: String,
     full: String,
     read_only: String,
+    /// A read-only token of a user without any role.
+    plain: String,
 }
 
 // `cfg(test)` is always true in this crate; the attribute marks the helpers as
@@ -135,6 +137,10 @@ async fn seed_with(mcp: McpConfig) -> Seed {
         services::create_api_token(&repo, user.id, "ai", 30, ApiTokenScope::ReadOnly)
             .await
             .unwrap();
+    let dev = repo.create_user("dev", &hash, true).await.unwrap();
+    let (_, plain) = services::create_api_token(&repo, dev.id, "ai", 30, ApiTokenScope::ReadOnly)
+        .await
+        .unwrap();
 
     for (content, trunk) in [(ORDERS_1_0_0, true), (ORDERS_1_1_0, false)] {
         services::provide_spec(
@@ -176,6 +182,7 @@ async fn seed_with(mcp: McpConfig) -> Seed {
         session: session.token,
         full,
         read_only,
+        plain,
     }
 }
 
@@ -188,6 +195,17 @@ async fn seed() -> Seed {
 /// body (`Null` when it is not JSON).
 #[cfg(test)]
 async fn rpc(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+    rpc_with_headers(app, token, &[], body).await
+}
+
+/// [`rpc`] with extra request headers, e.g. what a proxy adds.
+#[cfg(test)]
+async fn rpc_with_headers(
+    app: &axum::Router,
+    token: Option<&str>,
+    headers: &[(&str, &str)],
+    body: Value,
+) -> (StatusCode, Value) {
     let mut builder = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -199,6 +217,9 @@ async fn rpc(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCod
         .header(axum::http::header::CONTENT_TYPE, "application/json");
     if let Some(token) = token {
         builder = builder.header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
     }
     let res = app
         .clone()
@@ -419,7 +440,7 @@ async fn call_json(app: &axum::Router, token: &str, tool: &str, arguments: Value
 }
 
 #[tokio::test]
-async fn tools_list_names_the_seven_tools_with_schemas() {
+async fn tools_list_names_the_tools_with_schemas() {
     let seed = seed().await;
     let (status, body) = rpc(&seed.app, Some(&seed.full), tools_list_request()).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -435,7 +456,10 @@ async fn tools_list_names_the_seven_tools_with_schemas() {
             "get_graph",
             "diff_versions",
             "blame",
-            "endpoint_structure"
+            "endpoint_structure",
+            "setup_guide",
+            "draft_sanshain_yaml",
+            "review_spec"
         ]
     );
     for tool in tools {
@@ -584,6 +608,53 @@ async fn describe_service_carries_the_context_of_the_catalog_info() {
             "tags": ["java"]
         })
     );
+}
+
+#[tokio::test]
+async fn describe_service_carries_the_annotations_of_system_and_version() {
+    let seed = seed().await;
+    // The build of `orders` sends a system annotation with its catalog push.
+    let catalog = "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: orders\nspec:\n  type: service\n";
+    let res = seed
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/catalog/orders")
+                .header(
+                    axum::http::header::AUTHORIZATION,
+                    format!("Bearer {}", seed.session),
+                )
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "catalog_info_yaml": catalog,
+                        "annotations": [{"scope": "system", "name": "jenkins", "value": "https://jenkins.corp/job/orders"}],
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let d = call_json(
+        &seed.app,
+        &seed.read_only,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(
+        d["annotations"],
+        json!([{"name": "jenkins", "value": "https://jenkins.corp/job/orders"}])
+    );
+    // No version of the seed carries any.
+    for version in d["versions"].as_array().unwrap() {
+        assert_eq!(version["annotations"], json!([]), "{version}");
+    }
 }
 
 #[tokio::test]
@@ -1005,4 +1076,425 @@ async fn endpoint_structure_answers_the_tree_with_last_changed_versions() {
         cut["hint"].as_str().unwrap().contains("two levels"),
         "{cut}"
     );
+}
+
+/// A tool's JSON answer to a request carrying `headers`.
+#[cfg(test)]
+async fn call_json_with_headers(
+    app: &axum::Router,
+    token: &str,
+    headers: &[(&str, &str)],
+    tool: &str,
+    arguments: Value,
+) -> Value {
+    let (status, body) =
+        rpc_with_headers(app, Some(token), headers, call_request(tool, arguments)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result = &body["result"];
+    assert_eq!(result["isError"], false, "{tool} refused: {body}");
+    let text = result["content"][0]["text"].as_str().unwrap_or_default();
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("{tool} answered non-JSON ({e}): {text}"))
+}
+
+#[tokio::test]
+async fn draft_sanshain_yaml_answers_the_file_and_the_instance_address() {
+    let seed = seed().await;
+    let draft = call_json(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({
+            "service_name": "web",
+            "auto_ga": true,
+            "provides": [{ "file": "openapi.yaml" }],
+            "requires": [{
+                "service_name": "orders", "version": "1.0.0",
+                "output_directory": "generated/orders",
+                "endpoints": [{ "method": "GET", "path": "/orders/{id}" }]
+            }],
+            "annotations": [{ "scope": "system", "name": "jenkins", "value": "https://ci.corp/{{JOB}}" }]
+        }),
+    )
+    .await;
+    assert_eq!(draft["file"], "sanshain.yaml");
+    let content = draft["content"].as_str().unwrap();
+    assert!(
+        content.starts_with("serviceName: web\nautoGa: true\n"),
+        "{content}"
+    );
+    assert!(content.contains("path: /orders/{id}"), "{content}");
+    assert!(
+        !content.contains("sanshainUrl"),
+        "the address stays in the environment"
+    );
+    assert_eq!(
+        draft["instance"],
+        json!({ "url": "http://sanshain.example", "derived": true }),
+        "derived from the Host the request reached"
+    );
+    assert_eq!(draft["environment"][0]["name"], "SANSHAIN_URL");
+    assert_eq!(draft["environment"][0]["value"], "http://sanshain.example");
+    assert_eq!(
+        draft["environment"][1]["mint_at"],
+        "http://sanshain.example/account.html"
+    );
+    assert_eq!(draft["auto_ga"]["token_role"], "releaser");
+    assert_eq!(draft["annotations"]["min_service_version"], "2.13.0");
+
+    let behind_proxy = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-host", "sanshain.corp"),
+        ],
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web" }),
+    )
+    .await;
+    assert_eq!(
+        behind_proxy["instance"],
+        json!({ "url": "https://sanshain.corp", "derived": true })
+    );
+    assert_eq!(behind_proxy["auto_ga"], Value::Null);
+    assert_eq!(behind_proxy["content"], "serviceName: web\n");
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({
+            "service_name": "web",
+            "requires": [{
+                "service_name": "orders", "version": "1.x",
+                "output_directory": "generated/orders",
+                "endpoints": [{ "method": "GET", "path": "/orders" }]
+            }]
+        }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("exact MAJOR.MINOR.PATCH"),
+        "{text}"
+    );
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web", "provides": [{ "file": "a.yaml", "stability": "ga" }] }),
+    )
+    .await;
+    assert!(is_error && text.contains("unknown field"), "{text}");
+}
+
+#[tokio::test]
+async fn the_configured_public_base_url_is_not_derived() {
+    let seed = seed_with(McpConfig {
+        public_base_url: Some("https://sanshain.corp".to_string()),
+        ..Default::default()
+    })
+    .await;
+    let draft = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[("x-forwarded-host", "elsewhere.corp")],
+        "draft_sanshain_yaml",
+        json!({ "service_name": "web" }),
+    )
+    .await;
+    assert_eq!(
+        draft["instance"],
+        json!({ "url": "https://sanshain.corp", "derived": false })
+    );
+}
+
+#[tokio::test]
+async fn setup_guide_answers_the_client_token_and_ci_facts() {
+    let seed = seed().await;
+    let guide = call_json_with_headers(
+        &seed.app,
+        &seed.read_only,
+        &[("x-forwarded-proto", "https")],
+        "setup_guide",
+        json!({ "role": "both", "build_tool": "maven", "ci": "gitlab_ci" }),
+    )
+    .await;
+    assert_eq!(
+        guide["instance"],
+        json!({ "url": "https://sanshain.example", "derived": true })
+    );
+    assert_eq!(guide["client"]["name"], "sanshain-maven-plugin");
+    assert_eq!(guide["client"]["version"], "2.5.0");
+    assert_eq!(guide["client"]["integration"]["file"], "pom.xml");
+    assert_eq!(guide["token"]["scope"], "full");
+    assert_eq!(guide["token"]["not_the_mcp_token"], true);
+    assert_eq!(
+        guide["token"]["mint_at"],
+        "https://sanshain.example/account.html"
+    );
+    assert!(
+        guide["token"]["local_file"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("<sanshainUrl>https://sanshain.example</sanshainUrl>")
+    );
+    assert_eq!(guide["ci_setup"]["origin_from"][0], "CI_JOB_URL");
+    assert_eq!(guide["ci_setup"]["snippet"], Value::Null);
+    let purposes: Vec<&str> = guide["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["purpose"].as_str().unwrap())
+        .collect();
+    assert_eq!(purposes[..2], ["require", "provide"]);
+    let yaml = guide["sanshain_yaml"].as_str().unwrap();
+    assert!(
+        yaml.contains("outputDirectory: target/generated-sources/sanshain/other-service"),
+        "{yaml}"
+    );
+
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.read_only,
+        "setup_guide",
+        json!({ "role": "producer", "build_tool": "gradle" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("invalid parameters for setup_guide"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn setup_guide_over_budget_answers_the_commands_and_a_hint() {
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 2_000,
+        ..Default::default()
+    })
+    .await;
+    let guide = call_json(
+        &seed.app,
+        &seed.full,
+        "setup_guide",
+        json!({ "role": "both", "build_tool": "npm", "ci": "github_actions" }),
+    )
+    .await;
+    assert!(
+        guide["hint"]
+            .as_str()
+            .unwrap()
+            .contains("draft_sanshain_yaml"),
+        "{guide}"
+    );
+    assert_eq!(
+        guide["client"]["install"],
+        "npm install --save-dev sanshain"
+    );
+    assert_eq!(guide["sanshain_yaml"], Value::Null);
+}
+
+/// `/orders` (GET and POST, neither deprecated) dropped from 1.1.0.
+const ORDERS_1_2_0: &str = r#"openapi: 3.0.0
+info:
+  title: orders
+  version: 1.2.0
+servers:
+  - url: https://orders.corp.example
+paths:
+  /orders/{id}:
+    get:
+      summary: Fetch one order
+      responses:
+        '200': { description: ok }
+"#;
+
+#[cfg(test)]
+fn finding_codes(review: &Value) -> Vec<(String, String, String)> {
+    review["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            let text = |key: &str| f[key].as_str().unwrap_or_default().to_string();
+            (text("code"), text("method"), text("path"))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn review_spec_checks_the_line_as_a_dry_run_without_the_releaser_role() {
+    let seed = seed().await;
+    let versions = |d: &Value| d["versions"].as_array().unwrap().len();
+    let before = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+
+    // A GA of a released number with other bytes, from a role-less read-only token.
+    let changed = ORDERS_1_1_0.replace("Fetch one order", "Fetch an order");
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": changed }),
+    )
+    .await;
+    assert_eq!(review["stability"], "ga", "ga is the default: {review}");
+    assert_eq!(review["validation"]["valid"], true);
+    assert_eq!(review["validation"]["version"], "1.1.0");
+    assert_eq!(review["version_rules"]["accepted"], false);
+    assert_eq!(review["version_rules"]["rule"], "immutable_ga");
+    assert_eq!(review["version_rules"]["proposed_version"], "1.1.1");
+    assert_eq!(review["version_rules"]["requires_role"], "releaser");
+    assert_eq!(
+        review["version_rules"]["line"]["existing"]["stability"],
+        "ga"
+    );
+
+    // Dropping /orders in a minor: the mislabel check and the findings.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0 }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["rule"], "breaking_without_major");
+    assert_eq!(review["version_rules"]["proposed_version"], "2.0.0");
+    assert_eq!(review["version_rules"]["line"]["previous_ga"], "1.1.0");
+    let expected = [
+        ("absolute_server_url", "", ""),
+        ("removed_without_deprecation", "GET", "/orders"),
+        ("removed_without_deprecation", "POST", "/orders"),
+    ]
+    .map(|(c, m, p)| (c.to_string(), m.to_string(), p.to_string()));
+    let mut codes = finding_codes(&review);
+    codes.sort();
+    assert_eq!(codes, expected, "{review}");
+
+    // As a snapshot the rules pass; the findings stay.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({
+            "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0,
+            "stability": "snapshot",
+        }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["accepted"], true, "{review}");
+    assert_eq!(review["version_rules"]["changes"]["inserts"], 1);
+    assert_eq!(review["version_rules"]["requires_role"], Value::Null);
+    assert_eq!(finding_codes(&review).len(), 3, "{review}");
+
+    // The released bytes again: a no-op, and the endpoints without a summary.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_1_0 }),
+    )
+    .await;
+    assert_eq!(review["version_rules"]["accepted"], true);
+    assert_eq!(review["version_rules"]["unchanged"], true);
+    let mut codes = finding_codes(&review);
+    codes.sort();
+    assert_eq!(
+        codes,
+        [
+            ("missing_summary", "GET", "/orders"),
+            ("missing_summary", "POST", "/orders")
+        ]
+        .map(|(c, m, p)| (c.to_string(), m.to_string(), p.to_string()))
+    );
+
+    // A proto without its marker: the 400 a provide answers, and the finding.
+    let review = call_json(
+        &seed.app,
+        &seed.plain,
+        "review_spec",
+        json!({
+            "service": "billing", "api_type": "proto",
+            "content": "syntax = \"proto3\";\nservice Billing {\n  // Charge a card.\n  rpc Charge (Req) returns (Res);\n}\n",
+        }),
+    )
+    .await;
+    assert_eq!(review["validation"]["valid"], false);
+    assert!(
+        review["validation"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("no version marker"),
+        "{review}"
+    );
+    assert_eq!(review["version_rules"], Value::Null);
+    assert_eq!(
+        finding_codes(&review),
+        [(
+            "missing_version_marker".to_string(),
+            String::new(),
+            String::new()
+        )]
+    );
+
+    // Nothing was stored: no version, no Producer.
+    let after = call_json(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "orders" }),
+    )
+    .await;
+    assert_eq!(versions(&after), versions(&before));
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "describe_service",
+        json!({ "name": "billing" }),
+    )
+    .await;
+    assert!(is_error, "a review never creates a Producer: {text}");
+}
+
+#[tokio::test]
+async fn review_spec_refuses_bad_parameters_and_over_budget_answers_counts() {
+    let seed = seed_with(McpConfig {
+        max_result_bytes: 700,
+        ..Default::default()
+    })
+    .await;
+    let (is_error, text) = call(
+        &seed.app,
+        &seed.full,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": "x", "stability": "beta" }),
+    )
+    .await;
+    assert!(
+        is_error && text.contains("invalid parameters for review_spec"),
+        "{text}"
+    );
+
+    let review = call_json(
+        &seed.app,
+        &seed.full,
+        "review_spec",
+        json!({ "service": "orders", "api_type": "openapi", "content": ORDERS_1_2_0 }),
+    )
+    .await;
+    assert!(
+        review["hint"].as_str().unwrap().contains("counts per code"),
+        "{review}"
+    );
+    assert_eq!(review["validation"]["endpoints"], 1);
+    assert_eq!(
+        review["findings"],
+        json!({ "absolute_server_url": 1, "removed_without_deprecation": 2 })
+    );
+    assert_eq!(review["version_rules"]["rule"], "breaking_without_major");
 }

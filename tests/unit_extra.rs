@@ -22,6 +22,7 @@ fn report_with(deps: Vec<DependencyInfo>) -> DependencyReport {
         harvested_subscriptions: Vec::new(),
         peripheral_dependencies: Vec::new(),
         systems: Default::default(),
+        system_annotations: Default::default(),
         trunk_stale_before: None,
         scope_label: None,
         dependency_graph: deps,

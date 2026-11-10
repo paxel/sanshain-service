@@ -5,39 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [2.12.0]
-
-### Breaking Changes
-- The Docker image runs as the user `sanshain` (UID and GID 1000, as on Kubernetes) instead of root. A `/data` volume created by an earlier release belongs to root and has to be handed over once: `docker run --rm -v sanshain-data:/data alpine:3.24 chown -R 1000:1000 /data`.
-- The OIDC login refuses a provider that serves its key set (`jwks_uri`) over plain http; serve it over https, with `EXTRA_CA_CERTS_DIR` for a private CA.
+## [2.13.0]
 
 ### Added
-- A refused sign-in is logged as a warning and recorded in the audit log as a rejection (`SIGN_IN_REFUSED`), with the typed name masked (`t***m@company.com`) and the reason: wrong password, not approved, administrators only, no directory entry found by the user filter, or the account status Active Directory reports (locked, disabled, password or account expired, outside the allowed hours).
-- The login page says when a directory account is locked or the directory is unavailable. **Detailed sign-in errors** on the Sign-in tab (`POST /admin/auth-config/detailed-errors`) make it name every reason for 15 minutes, then turn themselves off.
+- The graph's timeline shows the last 3 months by default; its start and end are UTC days you can change, and the slider spaces the changes by time.
+- Graph links carry the view, the sanshain-branch, the timeline range and instant, the display switches, the direction and the graph mode, so a link shows the same graph to whoever opens it.
+- `GET /admin/trunk/timeline` and `GET /admin/branches/{name}/timeline` accept optional `from` and `to`.
+- A Domains switch on the graph writes the domain onto each node instead of grouping the services in frames, so the layout can arrange them freely.
+- Dense, a third density step after Compact, packs the graph's nodes and domain frames tightly for small monitors.
+- Single-key shortcuts on the graph page for its switches, the legend, fitting the view and stepping the timeline; `?` lists them.
+- A fullscreen graph (`f`) for small monitors and screen sharing: the graph fills the window or the screen, with its controls in an icon column, the timeline as a bar and the legend as a panel.
+- Experimental: `z` on the graph page collapses the graph onto its domains, with pin counts and warning colours between them; the focus field takes `domain:<name>`.
+- Clear system information on a Producer's or Consumer's page (`DELETE /admin/systems/{name}/information`, an admin or the Producer's maintainer): removes the catalog context and the system annotations and closes the current periphery; the timeline and sanshain-branch copies keep theirs, and the next build sets everything again.
+- Annotations: a build can send project-declared entries from `sanshain.yaml` (`annotations` on provide, require, require-bundle and catalog push), stored with the provided version (`scope: version`) or once per system (`scope: system`), and answered with the version listings, the Producer and Consumer data, the graph report, MCP `describe_service` and the `version.published` webhook. The version row, the graph's node panel and the Producer and Consumer pages show them, a value starting with `http(s)://` as a link labelled by the name.
+- MCP `review_spec` checks a spec before it is provided: the provide's validation and version rules against the stored line as a dry run (GA by default, no releaser role needed, nothing stored), and the findings that matter in Sanshain: absolute server URLs, AsyncAPI messages without a name, endpoints removed without a deprecation in the previous GA, endpoints without a summary, a proto without its version marker.
+- MCP `setup_guide` answers, for a system's role, build tool and CI, the client with its install line and build-file snippet, the commands, the build's token and where it goes, the variables and a `sanshain.yaml` skeleton, as structured facts.
+- MCP `draft_sanshain_yaml` writes a system's `sanshain.yaml` (provides, requires, catalog info, `autoGa`, annotations) from the names and pins an assistant looked up, and answers the instance address and the environment the build needs; it changes nothing.
+- Products (ADR-0011): named envelopes of systems on a new Products page, kept by Product Maintainers (users or groups, also directory groups) who pick known systems or paste the Helm umbrella `Chart.yaml` (each dependency's `alias`, else `name`; unknown names skipped and reported, members added by hand kept), each member shown with its roles or as "not in Sanshain", and a `product:<name>` graph focus; a Product grants no power over its members (routes under `/admin/products`, all audited).
+- The site documents each of the five clients on a page of its own (Maven, Rust, Go, JavaScript with the GitHub Action, Conan): install, every option with the client version it arrived in, the precedence, caching, strict mode and best effort, the failure modes and CI recipes; the client READMEs now point there.
 
 ### Changed
-- The Helm chart requests 256Mi and limits the pod's local disk to 1Gi of ephemeral storage by default; an install without persistence keeps its database there and may need a higher `resources.limits.ephemeral-storage`.
-- Built with Rust 1.99.1 and the current major versions of its libraries: sqlx 0.9, reqwest 0.13, tower-http 0.7, argon2 0.6, askama 0.16, OpenTelemetry 0.33 with tracing-opentelemetry 0.34, rmcp 3.7, sysinfo 0.39 and base64 0.23, with SQLite 3.51 built in instead of 3.46. The OIDC login moved from `openidconnect` to `openid` 0.25 and YAML from `serde_yaml_ng` to `serde-saphyr` 2; every other dependency is on its newest compatible release. Only `testcontainers`, used by the tests alone, waits for an upstream release.
-- The Docker image is based on Alpine 3.24 instead of 3.21, which reaches its end of support in November 2026.
-- The SQLite backup CronJob downloads with curl 8.23.0 instead of 8.11.1.
-- The release image is signed with cosign 3 in the Sigstore bundle format; verify it with cosign 3, or with cosign 2.6 and `--new-bundle-format`.
-- The PostgreSQL backup CronJob runs `pg_dump` 18 instead of 17, so it also backs up a PostgreSQL 18 database; restore its dumps with `pg_restore` 18.
-- OpenTelemetry exports retry a failed send up to 3 times with backoff instead of dropping the batch at once.
-- Webhook deliveries and the OIDC login trust the platform's certificate authorities plus `EXTRA_CA_CERTS_DIR`, like LDAPS, instead of a root list built into the binary.
-- Endpoint snippets and required specs are written in a slightly different YAML style (double quotes, quoted version strings, long single-line texts folded with `>`); their content is unchanged. An unchanged re-provide stays a no-op, a GA re-provide is not refused, and the first re-provide of a snapshot that changes anything counts all its endpoints as updated once; a Consumer that commits a required spec sees a one-time text diff.
-- Spec documents nested deeper than 64 levels are refused; the limit was 128.
-- Static files carry an `ETag` and answer `If-None-Match` with `304 Not Modified`; a file path with a trailing slash returns `404 Not Found`.
+- Each domain frame in the graph has a color of its own, with a solid border and a larger, darker name.
+- The Admin link in the navigation shows only to those who may open the admin dashboard, on every page.
 
 ### Fixed
-- **Test Connection** with the saved bind password shown as `****` binds with the saved password instead of the literal `****`, as long as every other field is as saved; with any field changed it asks for the bind password again.
-- The Docker image's health check no longer reports the container unhealthy where `localhost` resolves to IPv6 first; it asks `127.0.0.1`, where the service listens.
+- Panning the graph no longer slows down the page after many redraws.
+- A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
+- An AsyncAPI message given as a local `$ref` (`#/components/messages/…`, also inside `oneOf`) now registers its message contract on a GA provide and is harvested as a subscription; before, only messages written inline counted.
+- The GitHub Actions examples of the site name the JavaScript client's Action as `paxel/sanshain-js@summer`; the `@main` they named does not exist, so the step failed to resolve.
+- The Developer track's start page counts its nine chapters; it said seven.
 
 ### Security
-- The Helm chart no longer mounts the service account's Kubernetes API token into the pod, which Sanshain never uses; `serviceAccount.automount: true` mounts it again.
-- Saving the LDAP settings with the bind password shown as `****` keeps the saved password only while every other field is as saved; with any field changed it asks for the bind password again, so the saved password can no longer be sent to another server.
-- YAML is read and written by `serde-saphyr`, which is pure Rust without `unsafe` code, instead of `serde_yaml_ng` on the unmaintained `unsafe-libyaml` (RUSTSEC-2024-0449).
-- `rsa` (RUSTSEC-2023-0071, Marvin attack) and `crypto-bigint` 0.5 (RUSTSEC-2026-0387) are no longer part of the build: the OIDC login verifies ID tokens with `openid` on `ring`, and `cargo audit` runs without exceptions.
-- The page templates no longer pull in `basic-toml`, which was unmaintained (RUSTSEC-2026-0374).
+- The image no longer installs Alpine's `sqlite-libs`: the binary carries its own SQLite, so the unused library only added scanner findings.
+- Updated `rmcp` to 3.9.0 (RUSTSEC-2026-0462, unbounded response bodies in its Streamable HTTP clients; Sanshain builds only the MCP server, so the affected client transports were never compiled in).
+- `cargo audit` ignores RUSTSEC-2026-0459 (CVE-2026-119375 in the SQLite that `libsqlite3-sys` 0.37 bundles: uninitialized memory returned when a database is opened together with a crafted `-wal` file): the fix needs `libsqlite3-sys` 0.39, which no released `sqlx` accepts yet, and the attack needs Sanshain to open database files someone else wrote, while it opens only its own; the ignore goes with the first `sqlx` release that takes the fix.
 
 ---
 

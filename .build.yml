@@ -1,6 +1,5 @@
 image: alpine/latest
 packages:
-  - sqlite-dev
   - rust
   - cargo
   - openssl-dev

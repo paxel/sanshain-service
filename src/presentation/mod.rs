@@ -57,7 +57,9 @@ impl IntoResponse for AppError {
             AppError::BreakingChange(msg) => (StatusCode::CONFLICT, ErrorBody::message(msg)),
             // 409 with the remedy machine-readable: the rejection is
             // self-service, so the body carries the next free version.
-            AppError::VersionConflict { message, proposed } => (
+            AppError::VersionConflict {
+                message, proposed, ..
+            } => (
                 StatusCode::CONFLICT,
                 ErrorBody {
                     error: message,

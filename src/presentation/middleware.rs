@@ -235,9 +235,14 @@ pub enum RouteGuard {
     /// The caller must hold this permission instance-wide, **or** maintain the
     /// Producer named by the route's `name` path parameter.
     Producer(crate::domain::permissions::Permission),
+    /// The caller must hold this permission instance-wide, **or** be a
+    /// Product Maintainer of the Product named by the route's `name` path
+    /// parameter (#76). Only a Product's membership routes carry it.
+    Product(crate::domain::permissions::Permission),
 }
 
-/// The Producer a Producer-scoped route is acting on.
+/// The Producer (or, for a Product-scoped route, the Product) a scoped
+/// route is acting on: its `name` path parameter.
 ///
 /// Read from the matched route's path parameters rather than parsed out of the
 /// URI, so percent-encoding and the exact route shape stay the router's problem.
@@ -399,6 +404,22 @@ async fn permission_auth_with(
                     &actor,
                     permission,
                     &producer,
+                )
+                .await
+                .map_err(IntoResponse::into_response)?;
+            }
+        }
+        RouteGuard::Product(permission) => {
+            if !actor.has_permission(permission) {
+                let (mut parts, body) = req.into_parts();
+                let product = producer_from_path(&mut parts).await;
+                req = Request::from_parts(parts, body);
+                let product = product.ok_or_else(|| AppError::Forbidden.into_response())?;
+                crate::application::authz::require_product_permission(
+                    &state.repo,
+                    &actor,
+                    permission,
+                    &product,
                 )
                 .await
                 .map_err(IntoResponse::into_response)?;

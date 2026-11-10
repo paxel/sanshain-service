@@ -268,7 +268,8 @@ pub async fn main() {
     }
 
     // Where the first-login message sends the operator (and, later, the base
-    // of webhook deep links): PUBLIC_BASE_URL when set, the bind address else.
+    // of webhook deep links and the address the MCP setup tools answer):
+    // PUBLIC_BASE_URL when set, the bind address else.
     let public_base_url = std::env::var("PUBLIC_BASE_URL")
         .ok()
         .map(|u| u.trim().trim_end_matches('/').to_string())
@@ -378,6 +379,7 @@ pub async fn main() {
             "MCP_MAX_RESULT_BYTES",
             sanshain_service::presentation::mcp::DEFAULT_MCP_MAX_RESULT_BYTES,
         ),
+        public_base_url: public_base_url.clone(),
     };
     if mcp.calls_per_minute == 0 {
         eprintln!("CONFIGURATION ERROR: MCP_CALLS_PER_MINUTE=0 would refuse every MCP call.");

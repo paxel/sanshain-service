@@ -380,6 +380,70 @@ channels: {}
 }
 
 #[tokio::test]
+async fn a_referenced_message_registers_its_contract_and_is_harvested() {
+    let repo = setup().await;
+    repo.ensure_service("orders").await.unwrap();
+    repo.ensure_service("shipping").await.unwrap();
+    let message = r#"components:
+  messages:
+    OrderPlaced:
+      name: OrderPlaced
+      payload:
+        type: object
+        properties:
+          id: { type: string }
+"#;
+    let publishes = format!(
+        "asyncapi: 2.6.0\ninfo:\n  title: orders\n  version: 1.0.0\nchannels:\n  orders.placed:\n    publish:\n      message:\n        $ref: '#/components/messages/OrderPlaced'\n{message}"
+    );
+    spec_service::provide_spec(
+        &repo,
+        params("orders", ApiType::AsyncApi, &publishes, Stability::Ga),
+    )
+    .await
+    .unwrap();
+    let contract = repo
+        .get_channel_message_contract("orders.placed", "OrderPlaced")
+        .await
+        .unwrap()
+        .expect("the referenced message registers a contract");
+    assert_eq!(
+        repo.get_service_name_by_id(contract.owner_service_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("orders")
+    );
+
+    let subscribes = format!(
+        "asyncapi: 2.6.0\ninfo:\n  title: shipping\n  version: 1.0.0\nchannels:\n  orders.placed:\n    subscribe:\n      message:\n        oneOf:\n          - $ref: '#/components/messages/OrderPlaced'\n{message}"
+    );
+    let res = spec_service::provide_spec(
+        &repo,
+        params(
+            "shipping",
+            ApiType::AsyncApi,
+            &subscribes,
+            Stability::Snapshot,
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(res.harvested_subscriptions.len(), 1);
+    let harvested = &res.harvested_subscriptions[0];
+    assert_eq!(harvested.channel, "orders.placed");
+    assert_eq!(harvested.message_name, "OrderPlaced");
+    assert_eq!(harvested.owner.as_deref(), Some("orders"));
+    assert_eq!(harvested.drift, None);
+    let edges = repo.list_current_harvested_subscriptions().await.unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(
+        (edges[0].client.as_str(), edges[0].owner.as_deref()),
+        ("shipping", Some("orders"))
+    );
+}
+
+#[tokio::test]
 async fn asyncapi_subscribe_drift_blocks_at_ga_and_is_advisory_on_snapshot() {
     let repo = setup().await;
     repo.ensure_service("orders").await.unwrap();

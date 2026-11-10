@@ -75,6 +75,14 @@ pub fn extract_sanshain_version(content: &str) -> Result<crate::domain::models::
     }
 }
 
+/// Whether the file carries a `// sanshain-version:` marker at all, valid or
+/// not: without one every provide of it is refused.
+pub fn has_version_marker(content: &str) -> bool {
+    RE_SANSHAIN_VERSION
+        .as_ref()
+        .is_ok_and(|re| re.is_match(content))
+}
+
 pub fn split_proto(content: &str) -> Result<Vec<ProtoSpec>, String> {
     let re_rpc = RE_RPC
         .as_ref()
@@ -800,5 +808,21 @@ message Outer {
     fn test_extract_sanshain_version_rejects_non_semver() {
         let err = extract_sanshain_version("// sanshain-version: one.two\n").unwrap_err();
         assert!(err.contains("MAJOR[.MINOR[.PATCH]]"), "got: {}", err);
+    }
+}
+
+#[cfg(test)]
+mod version_marker_tests {
+    use super::has_version_marker;
+
+    #[test]
+    fn has_version_marker_sees_any_marker_valid_or_not() {
+        assert!(has_version_marker(
+            "// sanshain-version: 1.2.0\nsyntax = \"proto3\";\n"
+        ));
+        assert!(has_version_marker("//sanshain-version: one\n"));
+        assert!(!has_version_marker(
+            "syntax = \"proto3\";\n// version 1.2.0\n"
+        ));
     }
 }

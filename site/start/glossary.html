@@ -70,6 +70,20 @@
     one of their versions, retire a family, manage the Producer's webhooks.
   </dd>
 
+  <dt id="product">Product</dt>
+  <dd>
+    A named envelope of systems that together make up something a company ships, what a Helm
+    umbrella chart deploys for example. Defined from outside: a system never knows which Products it
+    is in, and one system may be in many. A Product collects its members and passes no power over
+    them.
+  </dd>
+
+  <dt id="product-maintainer">Product Maintainer</dt>
+  <dd>
+    An actor responsible for one Product's member list, adding and removing its systems, and nothing
+    else. Holds no power over the member systems; that stays with their own maintainers.
+  </dd>
+
   <dt id="root">Root</dt>
   <dd>
     An account whose authority comes from configuration rather than from stored grants, so it cannot
@@ -377,7 +391,8 @@
   <dt id="timeline">Timeline</dt>
   <dd>
     Trunk and branch writes are append-only, so the main graph and every branch can be rendered as
-    they were at any past instant. The slider's markers are the instants the graph changed.
+    they were at any past instant. The slider's ticks are the instants the graph changed within the
+    chosen range of days.
   </dd>
 
   <dt id="peripheral-resource">Peripheral resource</dt>
@@ -408,6 +423,15 @@
     behind it (<code>change_url</code>), the ticket ids it closes and one line of intent. The latest
     provide that carries any of them wins; a no-op re-provide of identical bytes only fills an empty
     one. References, never content: the ticket itself stays in the tracker.
+  </dd>
+
+  <dt id="annotation">Annotation</dt>
+  <dd>
+    A named entry the project declares in <code>sanshain.yaml</code> and the build fills in, such as
+    a link to the requirements page or the CI job. <code>scope: version</code> stays with the
+    provided version; <code>scope: system</code> is kept once per system, the latest call winning
+    per name. Shown as a link when the value is an http(s) URL. See
+    <a href="../developer/sanshain-yaml.html#annotations">Annotations</a>.
   </dd>
 
   <dt id="catalog-context">Catalog context</dt>

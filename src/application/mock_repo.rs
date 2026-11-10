@@ -123,10 +123,20 @@ pub struct MockRepo {
     pub system_contexts: Mutex<BTreeMap<String, SystemContext>>,
     /// In-memory `spec_version_origin` rows, by version-line entry id.
     pub version_origins: Mutex<BTreeMap<i64, VersionOrigin>>,
+    /// In-memory `spec_version_annotation` rows (#91): id, then name to value.
+    pub version_annotations: Mutex<BTreeMap<i64, BTreeMap<String, String>>>,
+    /// In-memory `system_annotation` rows (#91): system, then name to value.
+    pub system_annotations: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
     pub webhook_deliveries: Mutex<Vec<WebhookDelivery>>,
+    /// In-memory Products (#76) with their members.
+    pub products: Mutex<Vec<Product>>,
+    /// `(product id, user id)` Product Maintainer grants.
+    pub product_user_maintainers: Mutex<Vec<(i64, i64)>>,
+    /// `(product id, group id)` Product Maintainer grants.
+    pub product_group_maintainers: Mutex<Vec<(i64, i64)>>,
 }
 
 /// One outbox row (#47): the event and its stored `data`.
@@ -164,6 +174,16 @@ pub struct MockHarvestedSub {
     pub trunk: bool,
     pub valid_from: String,
     pub valid_to: Option<String>,
+}
+
+/// A stored name-to-value map as the sorted annotation list the port answers.
+fn annotation_list(map: &BTreeMap<String, String>) -> Vec<Annotation> {
+    map.iter()
+        .map(|(name, value)| Annotation {
+            name: name.clone(),
+            value: value.clone(),
+        })
+        .collect()
 }
 
 impl Default for MockRepo {
@@ -208,10 +228,15 @@ impl MockRepo {
             periphery: Mutex::new(Vec::new()),
             system_contexts: Mutex::new(BTreeMap::new()),
             version_origins: Mutex::new(BTreeMap::new()),
+            version_annotations: Mutex::new(BTreeMap::new()),
+            system_annotations: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
             webhook_deliveries: Mutex::new(Vec::new()),
+            products: Mutex::new(Vec::new()),
+            product_user_maintainers: Mutex::new(Vec::new()),
+            product_group_maintainers: Mutex::new(Vec::new()),
         }
     }
 
@@ -292,6 +317,22 @@ impl MockRepo {
                     occurred_at: event.occurred_at,
                     data: event.data,
                 });
+        }
+    }
+
+    /// A stored pin as the repository answers it, participants by name.
+    fn pin_info(&self, r: &MockTrunkPin) -> TrunkPinInfo {
+        TrunkPinInfo {
+            client: self.client_name(r.client_id).unwrap_or_default(),
+            service: self.service_name(r.service_id).unwrap_or_default(),
+            api_type: r.api_type,
+            version: r.version,
+            path: r.path.clone(),
+            normalized_path: r.normalized_path.clone(),
+            method: r.method.clone(),
+            valid_from: r.valid_from.clone(),
+            last_required_at: r.last_required_at.clone(),
+            dangling: false,
         }
     }
 
@@ -491,6 +532,10 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&spec_version_id);
+        self.version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&spec_version_id);
         let existed = versions.len() != before;
         if existed {
             // Endpoints live inside the entry; dependencies cascade explicitly.
@@ -568,6 +613,106 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone())
+    }
+
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        _now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        let mut all = self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let stored = all.entry(spec_version_id).or_default();
+        for a in annotations {
+            if only_missing && stored.contains_key(&a.name) {
+                continue;
+            }
+            stored.insert(a.name.clone(), a.value.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        Ok(self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&spec_version_id)
+            .map(annotation_list)
+            .unwrap_or_default())
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        Ok(self
+            .version_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, m)| !m.is_empty())
+            .map(|(id, m)| (*id, annotation_list(m)))
+            .collect())
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        _now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        if annotations.is_empty() {
+            return Ok(());
+        }
+        let mut all = self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let stored = all.entry(system.to_string()).or_default();
+        for a in annotations {
+            stored.insert(a.name.clone(), a.value.clone());
+        }
+        Ok(())
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        Ok(self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(system)
+            .map(annotation_list)
+            .unwrap_or_default())
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        Ok(self
+            .system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(system, m)| (system.clone(), annotation_list(m)))
+            .collect())
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        self.system_annotations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(system);
+        Ok(())
     }
 
     async fn touch_spec_version_trunk(
@@ -746,18 +891,7 @@ impl SpecRepository for MockRepo {
                         None => r.valid_to.is_none(),
                     }
             })
-            .map(|(_, r)| TrunkPinInfo {
-                client: self.client_name(r.client_id).unwrap_or_default(),
-                service: self.service_name(r.service_id).unwrap_or_default(),
-                api_type: r.api_type,
-                version: r.version,
-                path: r.path.clone(),
-                normalized_path: r.normalized_path.clone(),
-                method: r.method.clone(),
-                valid_from: r.valid_from.clone(),
-                last_required_at: r.last_required_at.clone(),
-                dangling: false,
-            })
+            .map(|(_, r)| self.pin_info(r))
             .collect())
     }
 
@@ -771,18 +905,7 @@ impl SpecRepository for MockRepo {
             .filter(|r| {
                 r.valid_from.as_str() <= at && r.valid_to.as_deref().is_none_or(|to| to > at)
             })
-            .map(|r| TrunkPinInfo {
-                client: self.client_name(r.client_id).unwrap_or_default(),
-                service: self.service_name(r.service_id).unwrap_or_default(),
-                api_type: r.api_type,
-                version: r.version,
-                path: r.path.clone(),
-                normalized_path: r.normalized_path.clone(),
-                method: r.method.clone(),
-                valid_from: r.valid_from.clone(),
-                last_required_at: r.last_required_at.clone(),
-                dangling: false,
-            })
+            .map(|r| self.pin_info(r))
             .collect())
     }
 
@@ -791,13 +914,25 @@ impl SpecRepository for MockRepo {
         branch_id: Option<i64>,
     ) -> Result<Vec<String>, RepositoryError> {
         let mut dates: Vec<String> = match branch_id {
-            None => self
-                .trunk_pins
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .iter()
-                .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
-                .collect(),
+            None => {
+                let mut dates: Vec<String> = self
+                    .trunk_pins
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .iter()
+                    .flat_map(|r| std::iter::once(r.valid_from.clone()).chain(r.valid_to.clone()))
+                    .collect();
+                dates.extend(
+                    self.trunk_members
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .iter()
+                        .flat_map(|m| {
+                            std::iter::once(m.valid_from.clone()).chain(m.valid_to.clone())
+                        }),
+                );
+                dates
+            }
             Some(bid) => self
                 .branch_pins
                 .lock()
@@ -1417,6 +1552,7 @@ impl SpecRepository for MockRepo {
             harvested_subscriptions: Vec::new(),
             peripheral_dependencies: Vec::new(),
             systems: BTreeMap::new(),
+            system_annotations: BTreeMap::new(),
             trunk_stale_before: None,
             scope_label: None,
             unused_endpoints,
@@ -1500,6 +1636,10 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
         self.system_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clear();
+        self.system_annotations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clear();
@@ -2661,6 +2801,280 @@ impl SpecRepository for MockRepo {
     }
 
     // --- Service Tags ---
+
+    // --- Products (#76) ---
+
+    async fn create_product(&self, name: &str, now_iso: &str) -> Result<Product, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        if products.iter().any(|p| p.name == name) {
+            return Err(RepositoryError::Conflict);
+        }
+        let product = Product {
+            id: self.next_id(),
+            name: name.to_string(),
+            created_at: now_iso.to_string(),
+            members: Vec::new(),
+        };
+        products.push(product.clone());
+        Ok(product)
+    }
+
+    async fn delete_product(&self, product_id: i64) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = products.len();
+        products.retain(|p| p.id != product_id);
+        self.product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(pid, _)| *pid != product_id);
+        self.product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(pid, _)| *pid != product_id);
+        Ok(products.len() != before)
+    }
+
+    async fn list_products(&self) -> Result<Vec<Product>, RepositoryError> {
+        let mut products = self
+            .products
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        products.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(products)
+    }
+
+    async fn find_product(&self, name: &str) -> Result<Option<Product>, RepositoryError> {
+        Ok(self
+            .products
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|p| p.name == name)
+            .cloned())
+    }
+
+    async fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(false);
+        };
+        if product.members.iter().any(|m| m.system == system) {
+            return Ok(false);
+        }
+        product.members.push(ProductMember {
+            system: system.to_string(),
+            origin,
+        });
+        product.members.sort_by(|a, b| a.system.cmp(&b.system));
+        Ok(true)
+    }
+
+    async fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(false);
+        };
+        let before = product.members.len();
+        product.members.retain(|m| m.system != system);
+        Ok(product.members.len() != before)
+    }
+
+    async fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> Result<ProductImportChanges, RepositoryError> {
+        let mut products = self.products.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(product) = products.iter_mut().find(|p| p.id == product_id) else {
+            return Ok(ProductImportChanges::default());
+        };
+        let mut listed: Vec<&String> = systems.iter().collect();
+        listed.sort();
+        listed.dedup();
+        let mut changes = ProductImportChanges::default();
+        product.members.retain(|m| {
+            let keep = m.origin == ProductMemberOrigin::Manual || listed.contains(&&m.system);
+            if !keep {
+                changes.removed.push(m.system.clone());
+            }
+            keep
+        });
+        for system in listed {
+            match product.members.iter_mut().find(|m| &m.system == system) {
+                Some(member) => member.origin = ProductMemberOrigin::Helm,
+                None => {
+                    changes.added.push(system.clone());
+                    product.members.push(ProductMember {
+                        system: system.clone(),
+                        origin: ProductMemberOrigin::Helm,
+                    });
+                }
+            }
+        }
+        product.members.sort_by(|a, b| a.system.cmp(&b.system));
+        changes.removed.sort();
+        Ok(changes)
+    }
+
+    async fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(product_id, user_id)) {
+            m.push((product_id, user_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (product_id, user_id));
+        Ok(m.len() != before)
+    }
+
+    async fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut m = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !m.contains(&(product_id, group_id)) {
+            m.push((product_id, group_id));
+        }
+        Ok(())
+    }
+
+    async fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        let mut m = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = m.len();
+        m.retain(|entry| *entry != (product_id, group_id));
+        Ok(m.len() != before)
+    }
+
+    async fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let mut ids: Vec<i64> = self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(pid, _)| *pid == product_id)
+            .map(|(_, uid)| *uid)
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
+    async fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        let mut ids: Vec<i64> = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(pid, _)| *pid == product_id)
+            .map(|(_, gid)| *gid)
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
+    async fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        if self
+            .product_user_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&(product_id, user_id))
+        {
+            return Ok(true);
+        }
+        let members = self
+            .group_members
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Ok(self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|(pid, gid)| *pid == product_id && members.contains(&(*gid, user_id))))
+    }
+
+    async fn list_maintained_products(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        let products = self.list_products().await?;
+        let mut out = Vec::new();
+        for product in products {
+            if self.maintains_product(user_id, product.id).await? {
+                out.push(product.name);
+            }
+        }
+        Ok(out)
+    }
+
+    async fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        let grants = self
+            .product_group_maintainers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let mut out: Vec<String> = self
+            .list_products()
+            .await?
+            .into_iter()
+            .filter(|p| {
+                grants
+                    .iter()
+                    .any(|(pid, gid)| *pid == p.id && group_ids.contains(gid))
+            })
+            .map(|p| p.name)
+            .collect();
+        out.sort();
+        Ok(out)
+    }
 
     async fn add_service_tags(
         &self,

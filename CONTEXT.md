@@ -153,6 +153,13 @@ behind it (change URL), the ticket ids it closes and one line of intent. Referen
 the latest Provide carrying any of it wins, a no-op re-provide only fills an empty one.
 _Avoid_: commit, changelog, reason (without qualifier)
 
+**Annotation**:
+A project-declared, named entry in `sanshain.yaml` whose value the build fills in — a link to a
+requirements page, the job that builds the system. `scope: version` travels on a Provide and stays
+with that Version; `scope: system` travels on every call naming the system and is kept once per
+system, the latest call winning per name. Declared by the project, never by Sanshain.
+_Avoid_: tag (a Backstage tag is something else), label, metadata (without qualifier)
+
 **Actor**:
 The authenticated caller behind a request. Always what the audit log records; never overridable.
 The Actor is also the attribution shown on a Version — the last provider — with one exception:

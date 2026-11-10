@@ -156,6 +156,38 @@ mod summary_tests {
     }
 }
 
+/// The top-level `servers` URLs of a document that name a host, as
+/// `(location, url)`: [`split_openapi`] copies them into every endpoint's
+/// snippet, so each Consumer is pointed at this one deployment. A relative
+/// URL, or one with `{variables}`, is portable and not answered. An
+/// unreadable document answers none.
+pub fn absolute_server_urls(yaml_str: &str) -> Vec<(String, String)> {
+    let Ok(root) = crate::yaml::from_str::<crate::yaml::Value>(yaml_str) else {
+        return Vec::new();
+    };
+    let Some(servers) = root.get("servers").and_then(|s| s.as_array()) else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, server)| {
+            let url = server.get("url")?.as_str()?;
+            let absolute = url.starts_with("//") || has_scheme(url);
+            (absolute && !url.contains('{')).then(|| (format!("servers[{i}].url"), url.to_string()))
+        })
+        .collect()
+}
+
+/// `scheme://…`: a scheme is a letter, then letters, digits, `+`, `-`, `.`.
+fn has_scheme(url: &str) -> bool {
+    url.split_once("://").is_some_and(|(scheme, _)| {
+        let mut chars = scheme.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    })
+}
+
 pub fn split_openapi(yaml_str: &str) -> Result<Vec<EndpointSpec>, String> {
     tracing::debug!("Splitting OpenAPI specification ({} bytes)", yaml_str.len());
     let openapi: OpenAPI = crate::yaml::from_str(yaml_str)
@@ -2685,5 +2717,30 @@ components:
             err,
             "Property 'address' in schema 'User' changed type from '#/components/schemas/Address' to '#/components/schemas/PostalAddress'"
         );
+    }
+}
+
+#[cfg(test)]
+mod server_url_tests {
+    use super::absolute_server_urls;
+
+    #[test]
+    fn absolute_server_urls_answers_hosts_but_not_relative_or_templated_urls() {
+        let doc = "openapi: 3.0.3\ninfo: { title: t, version: 1.0.0 }\nservers:\n  - url: https://api.corp.example/v1\n  - url: /v1\n  - url: 'https://{env}.corp.example'\n    variables: { env: { default: prod } }\n  - url: //cdn.corp.example\n  - url: v1/relative\npaths: {}\n";
+        assert_eq!(
+            absolute_server_urls(doc),
+            vec![
+                (
+                    "servers[0].url".to_string(),
+                    "https://api.corp.example/v1".to_string()
+                ),
+                (
+                    "servers[3].url".to_string(),
+                    "//cdn.corp.example".to_string()
+                ),
+            ]
+        );
+        assert!(absolute_server_urls("openapi: 3.0.3\npaths: {}\n").is_empty());
+        assert!(absolute_server_urls("not: [valid").is_empty());
     }
 }

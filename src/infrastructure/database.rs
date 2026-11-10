@@ -126,6 +126,61 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_version_origins())
     }
 
+    async fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            upsert_version_annotations(spec_version_id, annotations, only_missing, now_iso)
+        )
+    }
+
+    async fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        delegate!(self, get_version_annotations(spec_version_id))
+    }
+
+    async fn list_version_annotations(
+        &self,
+    ) -> Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError> {
+        delegate!(self, list_version_annotations())
+    }
+
+    async fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> Result<(), RepositoryError> {
+        delegate!(
+            self,
+            upsert_system_annotations(system, annotations, now_iso)
+        )
+    }
+
+    async fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> Result<Vec<Annotation>, RepositoryError> {
+        delegate!(self, get_system_annotations(system))
+    }
+
+    async fn list_system_annotations(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<Annotation>>, RepositoryError> {
+        delegate!(self, list_system_annotations())
+    }
+
+    async fn delete_system_annotations(&self, system: &str) -> Result<(), RepositoryError> {
+        delegate!(self, delete_system_annotations(system))
+    }
+
     async fn list_trunk_pins_at(&self, at: &str) -> Result<Vec<TrunkPinInfo>, RepositoryError> {
         delegate!(self, list_trunk_pins_at(at))
     }
@@ -720,6 +775,114 @@ impl SpecRepository for DatabaseRepo {
         user_id: i64,
     ) -> Result<Vec<String>, RepositoryError> {
         delegate!(self, list_maintained_producers(user_id))
+    }
+
+    // --- Products (#76) ---
+
+    async fn create_product(&self, name: &str, now_iso: &str) -> Result<Product, RepositoryError> {
+        delegate!(self, create_product(name, now_iso))
+    }
+
+    async fn delete_product(&self, product_id: i64) -> Result<bool, RepositoryError> {
+        delegate!(self, delete_product(product_id))
+    }
+
+    async fn list_products(&self) -> Result<Vec<Product>, RepositoryError> {
+        delegate!(self, list_products())
+    }
+
+    async fn find_product(&self, name: &str) -> Result<Option<Product>, RepositoryError> {
+        delegate!(self, find_product(name))
+    }
+
+    async fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, add_product_member(product_id, system, origin))
+    }
+
+    async fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_product_member(product_id, system))
+    }
+
+    async fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> Result<ProductImportChanges, RepositoryError> {
+        delegate!(self, apply_product_import(product_id, systems))
+    }
+
+    async fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, add_product_user_maintainer(product_id, user_id))
+    }
+
+    async fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_product_user_maintainer(product_id, user_id))
+    }
+
+    async fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, add_product_group_maintainer(product_id, group_id))
+    }
+
+    async fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, remove_product_group_maintainer(product_id, group_id))
+    }
+
+    async fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        delegate!(self, list_product_user_maintainer_ids(product_id))
+    }
+
+    async fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<i64>, RepositoryError> {
+        delegate!(self, list_product_group_maintainer_ids(product_id))
+    }
+
+    async fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> Result<bool, RepositoryError> {
+        delegate!(self, maintains_product(user_id, product_id))
+    }
+
+    async fn list_maintained_products(&self, user_id: i64) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_maintained_products(user_id))
+    }
+
+    async fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
+    ) -> Result<Vec<String>, RepositoryError> {
+        delegate!(self, list_group_maintained_products(group_ids))
     }
 
     async fn add_service_tags(

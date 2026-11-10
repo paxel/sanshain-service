@@ -11,6 +11,7 @@
     <script src="/vendor/dagre-1.1.4.min.js"></script>
     <script src="/js/picker.js"></script>
     <script src="/js/graph.js"></script>
+    <script src="/js/graph-domains.js"></script>
     <script src="/vendor/mermaid-11.16.1.min.js"></script>
     <style>
       .custom-scrollbar::-webkit-scrollbar {
@@ -31,102 +32,12 @@
     <script src="/js/pages/graph-0.js"></script>
   </head>
   <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
-    <div id="app-loader">
-      <div class="cat-container">
-        <svg class="cat-svg" viewBox="0 0 100 60">
-          <path d="M20,50 Q20,20 50,20 Q80,20 80,50 L20,50 Z" />
-          <path
-            d="M80,50 C95,50 95,30 85,30"
-            fill="none"
-            stroke="#94a3b8"
-            stroke-width="6"
-            stroke-linecap="round"
-          />
-          <path d="M25,25 L20,10 L35,22 Z" />
-          <path d="M45,22 L60,10 L55,25 Z" />
-          <path d="M28,35 L36,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-          <path d="M44,35 L52,35" stroke="#1e293b" stroke-width="1.5" stroke-linecap="round" />
-          <circle cx="40" cy="40" r="1.5" fill="#1e293b" />
-        </svg>
-        <div class="zzz-container">
-          <span class="zzz">z</span>
-          <span class="zzz">z</span>
-          <span class="zzz">z</span>
-        </div>
-      </div>
-      <div class="mt-4 text-slate-500 text-sm font-medium tracking-wide">Loading...</div>
-    </div>
-    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg">
-      <div
-        class="container mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-      >
-        <div class="flex items-center justify-between gap-4 md:justify-start">
-          <a href="/" class="flex items-center space-x-3">
-            <img
-              src="/images/sonne.png"
-              alt="Sanshain Logo"
-              width="66"
-              height="36"
-              class="h-9 w-auto rounded-md bg-white/10 p-0.5"
-            />
-            <div class="text-2xl font-bold tracking-tight">
-              Sanshain <span class="text-indigo-200">(サンシャイン)</span>
-            </div>
-          </a>
-          <span id="version-badge" class="text-indigo-200 text-sm md:hidden"></span>
-        </div>
-        <nav
-          class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-medium md:flex-1"
-        >
-          <a href="/producers.html" class="text-white hover:text-indigo-100 transition-colors"
-            >Producers</a
-          >
-          <a href="/consumers.html" class="text-white hover:text-indigo-100 transition-colors"
-            >Consumers</a
-          >
-          <a href="/graph.html" class="text-white hover:text-indigo-100 transition-colors">Graph</a>
-          <a href="/reports.html" class="text-white hover:text-indigo-100 transition-colors"
-            >Reports</a
-          >
-          <a
-            id="nav-audit-link"
-            href="/audit.html"
-            class="hidden text-white hover:text-indigo-100 transition-colors"
-            >Audit</a
-          >
-          <a href="/observability.html" class="text-white hover:text-indigo-100 transition-colors"
-            >Observability</a
-          >
-          <a href="/admin.html" class="text-white hover:text-indigo-100 transition-colors">Admin</a>
-        </nav>
-        <div class="flex items-center justify-end gap-4 text-sm">
-          <span id="version-badge-desktop" class="text-indigo-200 max-md:hidden"></span>
-          <a
-            id="banner-username"
-            href="/account.html"
-            class="hidden text-indigo-200 hover:text-white transition-colors cursor-pointer"
-          ></a>
-          <button
-            id="banner-logout"
-            type="button"
-            data-click="sanshainLogout"
-            class="hidden rounded-lg bg-indigo-600 px-3 py-1 font-medium transition-colors hover:bg-indigo-500"
-          >
-            Logout
-          </button>
-          <a
-            id="banner-signin"
-            href="/account.html"
-            class="hidden text-indigo-100 transition-colors hover:text-white"
-            >Sign In</a
-          >
-        </div>
-      </div>
-    </header>
+    <header id="site-banner" class="bg-indigo-700 text-white p-4 shadow-lg"></header>
+    <script src="/js/site-chrome.js"></script>
 
     <main class="container mx-auto flex-1 p-6">
       <div id="graph-section">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+        <div id="graph-title-row" class="flex flex-wrap justify-between items-center gap-3 mb-6">
           <h2 class="text-xl font-semibold flex items-center">
             <span class="bg-purple-100 text-purple-700 p-2 rounded-lg mr-3">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -140,7 +51,7 @@
             </span>
             Dependency Graph
           </h2>
-          <div class="flex items-center space-x-3">
+          <div data-fs-panel="mode" class="flex items-center space-x-3">
             <div
               class="inline-flex rounded-lg border border-slate-300 text-sm overflow-hidden bg-white"
             >
@@ -176,7 +87,7 @@
           id="graph-toolbar-row"
           class="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-100/50 rounded-xl border border-slate-200"
         >
-          <div class="flex items-center gap-2 grow">
+          <div data-fs-panel="focus" class="flex items-center gap-2 grow">
             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest"
               >Focus</span
             >
@@ -184,7 +95,8 @@
             <div id="graph-focus-picker" class="shrink-0 w-48"></div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2 ml-auto">
+          <div id="graph-toolbar-controls" class="flex flex-wrap items-center gap-2 ml-auto">
+            <div data-fs-panel="view" class="flex flex-wrap items-center gap-2">
             <!-- Stream view (ADR-0004): Dev = latest recorded activity;
                      Main = the trunk pin set, producers at trunk version. -->
             <div
@@ -239,7 +151,9 @@
                 Circular
               </button>
             </div>
+            </div>
             <div
+              data-fs-panel="filters"
               class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
@@ -289,6 +203,7 @@
                      line's latest GA) and Snapshot-pinned (Pin served from a
                      Snapshot). Display states, never resolution inputs. -->
             <div
+              data-fs-panel="highlights"
               class="inline-flex flex-wrap max-w-full rounded-lg border border-slate-300 text-xs overflow-hidden bg-white shadow-xs"
             >
               <button
@@ -319,6 +234,7 @@
                 Snapshot-pinned
               </button>
             </div>
+            <div data-fs-panel="switches" class="flex flex-wrap items-center gap-2">
             <button
               id="graph-direction-toggle"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
@@ -336,13 +252,12 @@
               <span id="graph-direction-label">Vertical</span>
             </button>
             <button
-              id="graph-compact-toggle"
+              id="graph-density-toggle"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
-              data-click="toggleGraphViewSwitch"
-              data-click-args='["compact"]'
-              title="Tighter gaps between nodes and ranks, for a graph that outgrows the screen (remembered in this browser)"
+              data-click="stepGraphDensity"
+              title="Normal, Compact or Dense: tighter gaps between nodes, ranks and domain frames, for a graph that outgrows the screen (remembered in this browser)"
             >
-              Compact
+              <span id="graph-density-label">Normal</span>
             </button>
             <button
               id="graph-rainbow-toggle"
@@ -363,6 +278,14 @@
               Topics
             </button>
             <button
+              id="graph-domains-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="toggleGraphDomains"
+              title="Group the services of a domain in one frame, or write the domain onto each node and let the layout arrange freely (remembered in this browser)"
+            >
+              Domain frames
+            </button>
+            <button
               id="graph-fit-view"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
               data-click="graphFitToView"
@@ -378,6 +301,24 @@
               </svg>
               Fit
             </button>
+            <button
+              id="graph-fullscreen-toggle"
+              class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
+              data-click="stepGraphFullscreen"
+              title="Fullscreen (f): the graph fills the window, a second f the screen; Esc goes back"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"
+                />
+              </svg>
+              Fullscreen
+            </button>
+            </div>
+            <div data-fs-panel="export" class="flex flex-wrap items-center gap-2">
             <button
               id="graph-copy"
               class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
@@ -419,9 +360,11 @@
               </svg>
               PNG
             </button>
+            </div>
           </div>
         </div>
 
+        <div data-fs-panel="compare" class="flex flex-col">
         <!-- Compare (ADR-0005): a structured diff between any two graph
              selections — release vs release, release vs main, any at a date. -->
         <div
@@ -470,9 +413,17 @@
           </button>
         </div>
         <div id="graph-diff-output" class="mb-4 empty:mb-0"></div>
+        </div>
+
+        <div
+          id="graph-url-notice"
+          role="status"
+          class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm"
+        ></div>
 
         <!-- Timeline (ADR-0005): reconstruct the main or a branch graph at any
-             past instant; markers are the change dates of the append-only store. -->
+             past instant. The slider spans the chosen range of UTC days evenly;
+             its ticks are the change dates of the append-only store. -->
         <div
           id="graph-timeline-row"
           class="hidden flex flex-wrap items-center gap-3 mb-4 p-3 bg-amber-50/50 rounded-xl border border-amber-200"
@@ -481,15 +432,33 @@
             >Timeline</span
           >
           <input
-            type="range"
-            id="graph-timeline-slider"
-            aria-label="Timeline position"
-            min="0"
-            max="0"
-            value="0"
-            step="1"
-            class="grow accent-amber-600"
+            type="date"
+            id="graph-timeline-from"
+            aria-label="Timeline start (UTC day)"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            data-change="setTimelineRangeFromFields"
           />
+          <div class="relative grow min-w-[12rem]">
+            <input
+              type="range"
+              id="graph-timeline-slider"
+              aria-label="Timeline position"
+              min="0"
+              max="0"
+              value="0"
+              step="1"
+              class="w-full accent-amber-600"
+            />
+            <div id="graph-timeline-ticks" class="relative h-2 mx-2" aria-hidden="true"></div>
+          </div>
+          <input
+            type="date"
+            id="graph-timeline-to"
+            aria-label="Timeline end (UTC day)"
+            class="text-xs border border-slate-300 rounded-lg px-2 py-1 bg-white"
+            data-change="setTimelineRangeFromFields"
+          />
+          <span class="text-[10px] font-bold text-slate-500">UTC</span>
           <span
             id="graph-timeline-label"
             class="text-xs font-mono text-slate-600 min-w-[10rem] text-right"
@@ -894,26 +863,168 @@
       </div>
     </main>
 
-    <script src="/js/pages/graph-1.js"></script>
-    <footer class="text-center text-sm text-slate-500 py-6 mt-auto">
-      <img
-        src="/images/sonne.png"
-        alt="Sanshain"
-        width="59"
-        height="32"
-        class="mx-auto mb-2 h-8 w-auto opacity-70"
-      />
-      <div>Sanshain (サンシャイン) &mdash; OpenAPI Distribution Service</div>
-      <div class="mt-2 flex items-center justify-center gap-4">
-        <a
-          href="https://github.com/paxel/sanshain-service"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-indigo-600 hover:text-indigo-800"
-          >GitHub</a
-        >
-        <a href="/LICENSE" class="text-indigo-600 hover:text-indigo-800">License</a>
+    <!-- Fullscreen (f): the icon column; each icon opens its panel of the
+         toolbar beside it (data-fs-panel). Hidden outside fullscreen. -->
+    <nav
+      id="graph-fs-rail"
+      aria-label="Graph controls"
+      class="hidden fixed left-0 top-0 bottom-0 z-40 w-11 flex-col items-center gap-1 py-2 bg-white border-r border-slate-200"
+    >
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["focus"]'
+        data-fs-icon="focus"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Focus: spotlight services"
+        aria-label="Focus: spotlight services"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["view"]'
+        data-fs-icon="view"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="View: dev, main or a branch"
+        aria-label="View: dev, main or a branch"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["filters"]'
+        data-fs-icon="filters"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Protocol filters"
+        aria-label="Protocol filters"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["highlights"]'
+        data-fs-icon="highlights"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Highlights"
+        aria-label="Highlights"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l2.5 6.5L21 10l-5 4.5L17.5 21 12 17.5 6.5 21 8 14.5 3 10l6.5-.5z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["switches"]'
+        data-fs-icon="switches"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Switches: direction, density, Rainbow, Topics, Domain frames"
+        aria-label="Switches: direction, density, Rainbow, Topics, Domain frames"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 4v16M12 4v16M18 4v16" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["mode"]'
+        data-fs-icon="mode"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Graph, Mermaid or Detailed"
+        aria-label="Graph, Mermaid or Detailed"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v14H4z" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["export"]'
+        data-fs-icon="export"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Copy and download"
+        aria-label="Copy and download"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphFsPanel"
+        data-click-args='["compare"]'
+        data-fs-icon="compare"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Compare two graphs"
+        aria-label="Compare two graphs"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12M8 7l4-4M8 7l4 4M16 17H4m12 0l-4-4m4 4l-4 4" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphLegend"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Legend shown or hidden (l)"
+        aria-label="Legend shown or hidden (l)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10" />
+        </svg>
+      </button>
+      <button
+        data-click="toggleGraphTimelineBar"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Timeline bar shown or hidden (b)"
+        aria-label="Timeline bar shown or hidden (b)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M7 8v8M17 8v8" />
+        </svg>
+      </button>
+      <button
+        data-click="stepGraphFullscreen"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Fill the screen (f)"
+        aria-label="Fill the screen (f)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />
+        </svg>
+      </button>
+      <button
+        data-click="exitGraphFullscreen"
+        class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+        title="Leave fullscreen (Esc)"
+        aria-label="Leave fullscreen (Esc)"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </nav>
+
+    <!-- The hotkeys (?): filled from GRAPH_HOTKEYS in graph-1.js. -->
+    <div
+      id="graph-keys-overlay"
+      role="dialog"
+      aria-label="Keyboard shortcuts"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
+      data-click="hideGraphKeys"
+    >
+      <div class="bg-white rounded-xl shadow-lg border border-slate-200 p-6 max-w-sm w-full mx-4">
+        <h2 class="text-sm font-bold text-slate-800 mb-3">Keyboard shortcuts</h2>
+        <dl id="graph-keys-list" class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm"></dl>
+        <p class="mt-4 text-xs text-slate-500">Esc or ? closes this.</p>
       </div>
-    </footer>
+    </div>
+
+    <script src="/js/pages/graph-1.js"></script>
+    <footer id="site-footer" class="text-center text-sm text-slate-500 py-6 mt-auto"></footer>
+    <script src="/js/site-chrome.js"></script>
   </body>
 </html>

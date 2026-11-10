@@ -9,12 +9,13 @@
 <h2>The admin page</h2>
 <p>
   <code>/admin.html</code> has three tabs. <strong>Sign-in</strong> holds the authentication mode,
-  the LDAP and OIDC forms, Detailed sign-in errors, Registration and Auto-acknowledge; <strong>Users</strong> holds the
-  users, groups and maintainers; <strong>General</strong> holds everything else. The open tab is in
-  the address (<code>/admin.html#users</code>), so it can be linked, and the browser opens the tab it
-  showed last. A tab whose permissions the caller lacks entirely is greyed out, and its tooltip names
-  them (<code>manage_auth_config</code> or <code>manage_settings</code> for Sign-in,
-  <code>manage_users</code> or <code>manage_roles</code> for Users).
+  the LDAP and OIDC forms, Detailed sign-in errors, Registration and Auto-acknowledge;
+  <strong>Users</strong> holds the users, groups and maintainers; <strong>General</strong> holds
+  everything else. The open tab is in the address (<code>/admin.html#users</code>), so it can be
+  linked, and the browser opens the tab it showed last. A tab whose permissions the caller lacks
+  entirely is greyed out, and its tooltip names them (<code>manage_auth_config</code> or
+  <code>manage_settings</code> for Sign-in, <code>manage_users</code> or
+  <code>manage_roles</code> for Users).
 </p>
 <p>
   <code>/admin.html</code> needs a signed-in session. A control the caller may not use is greyed
@@ -26,12 +27,13 @@
   allow-list, the database URL, users, groups and maintainers show "Visible to holders of the …
   permission" to whoever lacks it, and the page does not ask for them. Roles and permissions are
   described in <a href="roles.html">Roles and permissions</a>, and every route behind it is in the
-  generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. General,
-  top to bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data
-  TTL, Snapshot Cleanup, Ticket Links, Dependency Cleanup, Provide a Spec for a Producer, Producers,
-  Consumers, Danger Zone; Sign-in: Authentication; Users: Users, Groups, Maintainers. Administrative routes accept
-  session tokens only, so a script that administers logs in first (<code>POST /auth/login</code>);
-  the one exception is the backup download, which takes a <code>full</code> API token.
+  generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. General, top
+  to bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL,
+  Snapshot Cleanup, Ticket Links, Dependency Cleanup, Provide a Spec for a Producer, Producers,
+  Consumers, Danger Zone; Sign-in: Authentication; Users: Users, Groups, Maintainers. Administrative
+  routes accept session tokens only, so a script that administers logs in first (<code
+    >POST /auth/login</code
+  >); the one exception is the backup download, which takes a <code>full</code> API token.
 </p>
 <figure class="screenshot">
   <img
@@ -128,6 +130,17 @@
 <p>
   Trunk presence does not block a delete; trunk is the living stream and ages out on its own TTL. A
   confirmation dialog precedes every deletion in the UI.
+</p>
+<h3 id="clear-system-information">Clearing a system's information</h3>
+<p>
+  <strong>Clear system information</strong>, under the context card of a Producer's or Consumer's
+  page, forgets what the system's builds said about it: the
+  <a href="../start/glossary.html#catalog-context">catalog context</a> (owner, description, source
+  location, links, tags), its system <a href="../start/glossary.html#annotation">annotations</a>,
+  and its current periphery and missing components in the dev and main graphs. The timeline keeps
+  the closed edges and sanshain-branch copies stay untouched. Administrators may clear any system, a
+  maintainer the Producer they maintain (<code>DELETE /admin/systems/{name}/information</code>,
+  audited). The next build's catalog push and calls set everything again.
 </p>
 
 <h2>Consumers</h2>
@@ -292,15 +305,17 @@
   <li>
     <strong>Provide a Spec for a Producer</strong>: a provide from the browser, for a one-off upload
     by an administrator, with the same rules as the API. A Producer it creates is an outside API, so
-    it is marked <strong>external</strong> in the same request
-    (<code>POST /admin/producers/provide</code>, <code>manage_producers</code>).
+    it is marked <strong>external</strong> in the same request (<code
+      >POST /admin/producers/provide</code
+    >, <code>manage_producers</code>).
   </li>
   <li>
     <strong>External Producers</strong>: an API the company does not maintain. The graph draws it
-    with a light grey fill (the legend says <em>External Producer</em>), and the Producers list,
-    the admin list and the dashboard tag it <strong>external</strong>. The <strong>External</strong>
-    switch on each row of the admin list corrects it by hand
-    (<code>PUT /admin/producers/{name}/external</code>, <code>manage_producers</code>).
+    with a light grey fill (the legend says <em>External Producer</em>), and the Producers list, the
+    admin list and the dashboard tag it <strong>external</strong>. The
+    <strong>External</strong> switch on each row of the admin list corrects it by hand (<code
+      >PUT /admin/producers/{name}/external</code
+    >, <code>manage_producers</code>).
   </li>
 </ul>
 
@@ -331,8 +346,15 @@
         <code>PROVIDE_SPEC</code>, <code>VERSION_PROMOTED</code>, <code>VERSION_REJECTED</code>,
         <code>REQUIRE_SPEC</code>, <code>REPORT</code>, <code>CATALOG_PUSHED</code>,
         <code>RETIRE_PROTOCOL</code>, <code>DELETE_VERSION</code>, <code>DELETE_SERVICE</code>,
-        <code>DELETE_CLIENT</code>,
-        <code>UPDATE_SERVICE_METADATA</code>, <code>SET_PRODUCER_EXTERNAL</code>
+        <code>DELETE_CLIENT</code>, <code>UPDATE_SERVICE_METADATA</code>,
+        <code>SET_PRODUCER_EXTERNAL</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Products</td>
+      <td>
+        <code>CREATE_PRODUCT</code>, <code>DELETE_PRODUCT</code>, <code>ADD_PRODUCT_MEMBER</code>,
+        <code>REMOVE_PRODUCT_MEMBER</code>, <code>IMPORT_PRODUCT_CHART</code>
       </td>
     </tr>
     <tr>
@@ -351,9 +373,10 @@
         <code>UPDATE_GROUP</code>, <code>DELETE_GROUP</code>, <code>ADD_DIRECTORY_GROUP</code>,
         <code>ADD_GROUP_MEMBER</code>, <code>REMOVE_GROUP_MEMBER</code>,
         <code>ASSIGN_MAINTAINER</code>, <code>UNASSIGN_MAINTAINER</code>,
+        <code>ASSIGN_PRODUCT_MAINTAINER</code>, <code>UNASSIGN_PRODUCT_MAINTAINER</code>,
         <code>CREATE_SERVICE_ACCOUNT</code>, <code>SET_DISPLAY_NAME</code>, <code>MERGE_USER</code>,
-        <code>RENAME_USER</code>, <code>SIGN_IN_REFUSED</code> (type <code>REJECT</code>; the
-        typed name masked as the actor, the reason as the details)
+        <code>RENAME_USER</code>, <code>SIGN_IN_REFUSED</code> (type <code>REJECT</code>; the typed
+        name masked as the actor, the reason as the details)
       </td>
     </tr>
     <tr>
@@ -361,9 +384,9 @@
       <td>
         <code>UPDATE_SETTINGS</code>, <code>SETTINGS_CHANGED</code>, <code>SET_AUTO_APPROVE</code>,
         <code>SET_REGISTRATION</code>, <code>SET_GRAVATAR</code>,
-        <code>SET_DETAILED_SIGN_IN_ERRORS</code>,
-        <code>SET_SNAPSHOT_MAX_AGE</code>, <code>SET_WEBHOOK_ALLOWED_HOSTS</code>,
-        <code>CLEAR_CACHE</code>, <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code>,
+        <code>SET_DETAILED_SIGN_IN_ERRORS</code>, <code>SET_SNAPSHOT_MAX_AGE</code>,
+        <code>SET_WEBHOOK_ALLOWED_HOSTS</code>, <code>CLEAR_CACHE</code>,
+        <code>SNAPSHOT_CLEANUP</code>, <code>DEPENDENCY_CLEANUP</code>,
         <code>TRUNK_CLEANUP</code>
       </td>
     </tr>

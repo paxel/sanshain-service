@@ -42,7 +42,8 @@ function hasAnyPermission(user, permissions) {
 // --- Gated controls ---
 //
 // A control marked `data-needs="<permission>"` (and, for one Producer's
-// actions, `data-needs-producer="<name>"`) is greyed out and inert for a caller
+// actions, `data-needs-producer="<name>"`; for one Product's membership,
+// `data-needs-product="<name>"`) is greyed out and inert for a caller
 // who may not use it, with a title naming the permission — never hidden, so
 // the user learns the feature exists and whom to ask. A maintainer grant on
 // the named Producer counts like the global permission, as the server's
@@ -51,16 +52,20 @@ function hasAnyPermission(user, permissions) {
 let gateUser = null;
 let gateObserver = null;
 
-function gateAllows(user, permission, producer) {
+function gateAllows(user, permission, producer, product) {
   if (!user) return false;
   if (user.is_root || hasPermission(user, permission)) return true;
+  // A Product Maintainer (#76) may edit that Product's member list.
+  if (product) {
+    return Array.isArray(user.maintains_products) && user.maintains_products.includes(product);
+  }
   return Boolean(producer) && Array.isArray(user.maintains) && user.maintains.includes(producer);
 }
 
 function gateElement(el) {
   const permission = el.dataset.needs;
   if (!permission || !gateUser) return;
-  if (gateAllows(gateUser, permission, el.dataset.needsProducer)) {
+  if (gateAllows(gateUser, permission, el.dataset.needsProducer, el.dataset.needsProduct)) {
     if (el.hasAttribute("data-gated")) {
       el.removeAttribute("data-gated");
       el.removeAttribute("aria-disabled");
@@ -74,7 +79,12 @@ function gateElement(el) {
   el.setAttribute("data-gated", "");
   el.setAttribute("aria-disabled", "true");
   if ("disabled" in el) el.disabled = true;
-  el.title = `Needs the ${permission} permission${el.dataset.needsProducer ? " or a maintainer grant on " + el.dataset.needsProducer : ""} — ask an administrator`;
+  const scoped = el.dataset.needsProduct
+    ? " or being a Product Maintainer of " + el.dataset.needsProduct
+    : el.dataset.needsProducer
+      ? " or a maintainer grant on " + el.dataset.needsProducer
+      : "";
+  el.title = `Needs the ${permission} permission${scoped} — ask an administrator`;
 }
 
 function applyGates(root = document) {
@@ -631,7 +641,26 @@ function setActionArgs(el, type, values) {
 }
 
 // --- Confirm modal ---
+// Markup for the confirm modal, built only through the safeHtml tag below.
+class SafeHtml {
+  constructor(html) {
+    this.html = html;
+  }
+}
+
+// A tagged template for a confirm message with markup (bold names, line
+// breaks): every interpolated value is escaped unless it is itself safeHtml,
+// so a Producer, user or branch name can never inject HTML.
+function safeHtml(strings, ...values) {
+  let html = strings[0];
+  values.forEach((value, i) => {
+    html += (value instanceof SafeHtml ? value.html : escapeHtml(value)) + strings[i + 1];
+  });
+  return new SafeHtml(html);
+}
+
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
+// `message` is plain text, or markup built with safeHtml.
 function confirmAction(message, onConfirm, title = "Confirm Action", buttonText = "Confirm") {
   const modal = document.getElementById("confirm-modal");
   if (!modal) return;
@@ -645,7 +674,12 @@ function confirmAction(message, onConfirm, title = "Confirm Action", buttonText 
       onConfirm();
     };
   }
-  document.getElementById("confirm-message").innerHTML = message;
+  const messageEl = document.getElementById("confirm-message");
+  if (message instanceof SafeHtml) {
+    messageEl.innerHTML = message.html;
+  } else {
+    messageEl.textContent = message;
+  }
   modal.classList.remove("hidden");
 }
 // Alias used by admin page
@@ -662,7 +696,7 @@ function closeConfirmModal() {
 // page's own refresh hook.
 function promoteVersion(serviceName, apiType, version, onSuccess) {
   confirmAction(
-    `Release ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
+    safeHtml`Release ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
     async () => {
       try {
         const res = await apiCall(
@@ -987,6 +1021,54 @@ function originHtml(origin, template, dark) {
     );
   }
   return rows.length ? `<div class="space-y-1 mt-1.5" data-origin>${rows.join("")}</div>` : "";
+}
+
+// Annotations (#91): project-declared entries the builds filled in. A value
+// starting with http:// or https:// is a link chip labelled by the name;
+// anything else is a text chip "name: value". Both are caller-supplied and
+// escaped. Empty string when there are none.
+function annotationsHtml(annotations, dark) {
+  if (!annotations || annotations.length === 0) return "";
+  const chip = dark
+    ? "bg-slate-800 text-slate-200 border border-slate-500 hover:bg-slate-700"
+    : "bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-200";
+  const plain = dark
+    ? "bg-slate-800 text-slate-300 border border-slate-600"
+    : "bg-slate-50 text-slate-600 border border-slate-200";
+  const chips = annotations.map((a) =>
+    /^https?:\/\//.test(a.value)
+      ? linkChip(a.value, a.name, "annotation", chip)
+      : `<span data-annotation="${escapeHtml(a.name)}" class="px-2 py-0.5 rounded-full text-[11px] ${plain}"><span class="opacity-70">${escapeHtml(a.name)}:</span> ${escapeHtml(a.value)}</span>`,
+  );
+  return `<div class="flex flex-wrap items-center gap-1.5 mt-1.5" data-annotations>${chips.join("")}</div>`;
+}
+
+// "Clear system information" (#92) under a system's context card: removes
+// the catalog context, the system annotations and the current periphery; the
+// next build's push sets them again. The server decides who may (admins, and
+// maintainers of the Producer of that name); a refusal is said out loud.
+function appendClearSystemInfo(card, name, onCleared) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.clearSystemInfo = "";
+  button.className =
+    "mt-2 px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-rose-600";
+  button.textContent = "Clear system information";
+  button.addEventListener("click", async () => {
+    const sure = confirm(
+      `Clear what the builds of '${name}' said about it — owner, description, links, tags, annotations and its current periphery? The next build sets them again.`,
+    );
+    if (!sure) return;
+    const res = await apiCall(`/admin/systems/${encodeURIComponent(name)}/information`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      alert("Could not clear the system information: " + (await errorMessage(res)));
+      return;
+    }
+    onCleared();
+  });
+  card.appendChild(button);
 }
 
 function linkChip(url, label, kind, chipClass) {

@@ -370,6 +370,55 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<BTreeMap<i64, VersionOrigin>, RepositoryError>> + Send;
 
+    // --- Annotations (#91): project-declared entries the build fills in ---
+
+    /// Store a version's annotations per name: each name sent replaces its
+    /// value, names not sent stay. With `only_missing`, a name already set
+    /// keeps its value (the no-op re-provide only fills in).
+    fn upsert_version_annotations(
+        &self,
+        spec_version_id: i64,
+        annotations: &[Annotation],
+        only_missing: bool,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// One version's annotations, sorted by name.
+    fn get_version_annotations(
+        &self,
+        spec_version_id: i64,
+    ) -> impl Future<Output = Result<Vec<Annotation>, RepositoryError>> + Send;
+
+    /// Every version's annotations, by version-line entry id.
+    fn list_version_annotations(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError>> + Send;
+
+    /// Store a system's annotations per name, the latest call winning.
+    fn upsert_system_annotations(
+        &self,
+        system: &str,
+        annotations: &[Annotation],
+        now_iso: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// One system's annotations, sorted by name.
+    fn get_system_annotations(
+        &self,
+        system: &str,
+    ) -> impl Future<Output = Result<Vec<Annotation>, RepositoryError>> + Send;
+
+    /// Every system's annotations, by system name.
+    fn list_system_annotations(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<String, Vec<Annotation>>, RepositoryError>> + Send;
+
+    /// Remove a system's annotations.
+    fn delete_system_annotations(
+        &self,
+        system: &str,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Record trunk pins, append-only (ADR-0004/0005): per pin key, a
     /// different version closes the open record and inserts a new one; the
     /// same version only refreshes the open record's `last_required_at`.
@@ -1058,6 +1107,119 @@ pub trait SpecRepository: Send + Sync {
     fn list_maintained_producers(
         &self,
         user_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    // --- Products (#76, ADR-0011) ---
+
+    /// Create a Product with no members. `Conflict` when a Product of that
+    /// name exists; a system of that name is no conflict.
+    fn create_product(
+        &self,
+        name: &str,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<Product, RepositoryError>> + Send;
+
+    /// Delete a Product with its members and Product Maintainer grants. The
+    /// member systems are untouched. Returns whether it existed.
+    fn delete_product(
+        &self,
+        product_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Every Product with its members, sorted by name.
+    fn list_products(&self) -> impl Future<Output = Result<Vec<Product>, RepositoryError>> + Send;
+
+    /// One Product by name, with its members.
+    fn find_product(
+        &self,
+        name: &str,
+    ) -> impl Future<Output = Result<Option<Product>, RepositoryError>> + Send;
+
+    /// Add a member. A system that is a member already keeps its row and
+    /// origin. Returns whether a row was added.
+    fn add_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+        origin: ProductMemberOrigin,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Remove a member, whatever its origin. Returns whether it was one.
+    fn remove_product_member(
+        &self,
+        product_id: i64,
+        system: &str,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Apply a chart's system names as one unit: every listed system becomes
+    /// a `helm` member (inserted, or switched from `manual`), every `helm`
+    /// member not listed is removed, `manual` members not listed stay.
+    fn apply_product_import(
+        &self,
+        product_id: i64,
+        systems: &[String],
+    ) -> impl Future<Output = Result<ProductImportChanges, RepositoryError>> + Send;
+
+    /// Assign a user as Product Maintainer. Reassigning is a no-op.
+    fn add_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a user's Product maintainership. Returns whether they held it.
+    fn remove_product_user_maintainer(
+        &self,
+        product_id: i64,
+        user_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Assign a group as Product Maintainer. Reassigning is a no-op.
+    fn add_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Remove a group's Product maintainership. Returns whether it held it.
+    fn remove_product_group_maintainer(
+        &self,
+        product_id: i64,
+        group_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Users assigned directly as Product Maintainers, by id.
+    fn list_product_user_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Groups assigned as Product Maintainers, by id.
+    fn list_product_group_maintainer_ids(
+        &self,
+        product_id: i64,
+    ) -> impl Future<Output = Result<Vec<i64>, RepositoryError>> + Send;
+
+    /// Whether a user maintains a Product, directly or through a group whose
+    /// membership Sanshain stores. Directory groups are resolved above.
+    fn maintains_product(
+        &self,
+        user_id: i64,
+        product_id: i64,
+    ) -> impl Future<Output = Result<bool, RepositoryError>> + Send;
+
+    /// Names of the Products a user maintains, directly or through a stored
+    /// group membership, sorted.
+    fn list_maintained_products(
+        &self,
+        user_id: i64,
+    ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
+
+    /// Names of every Product any of `group_ids` maintains, sorted. Expands
+    /// a caller's directory groups.
+    fn list_group_maintained_products(
+        &self,
+        group_ids: &[i64],
     ) -> impl Future<Output = Result<Vec<String>, RepositoryError>> + Send;
 
     // --- Service Tags ---

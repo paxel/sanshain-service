@@ -26,6 +26,17 @@ async fn merges_everything_and_keeps_what_the_target_has(repo: &impl SpecReposit
         .create_group("team", GroupSource::Native)
         .await
         .unwrap();
+    let shop = repo
+        .create_product("shop", "2026-11-08T00:00:00Z")
+        .await
+        .unwrap();
+    let ledger = repo
+        .create_product("ledger", "2026-11-08T00:00:00Z")
+        .await
+        .unwrap();
+    repo.add_product_user_maintainer(shop.id, axel.id)
+        .await
+        .unwrap();
 
     // Both hold the same role, group and maintainership; only dup holds more.
     for user in [axel.id, dup.id] {
@@ -37,6 +48,13 @@ async fn merges_everything_and_keeps_what_the_target_has(repo: &impl SpecReposit
             .unwrap();
     }
     repo.grant_user_role(dup.id, "releaser").await.unwrap();
+    // Both maintain shop; only dup maintains ledger (#76).
+    repo.add_product_user_maintainer(shop.id, dup.id)
+        .await
+        .unwrap();
+    repo.add_product_user_maintainer(ledger.id, dup.id)
+        .await
+        .unwrap();
     repo.add_user_favorite(dup.id, "client", "billing")
         .await
         .unwrap();
@@ -68,6 +86,16 @@ async fn merges_everything_and_keeps_what_the_target_has(repo: &impl SpecReposit
     assert_eq!(
         repo.list_user_maintainer_ids(orders).await.unwrap(),
         vec![axel.id]
+    );
+    assert_eq!(
+        repo.list_product_user_maintainer_ids(shop.id)
+            .await
+            .unwrap(),
+        vec![axel.id]
+    );
+    assert_eq!(
+        repo.list_maintained_products(axel.id).await.unwrap(),
+        vec!["ledger".to_string(), "shop".to_string()]
     );
     assert_eq!(
         repo.get_user_favorites(axel.id, "service").await.unwrap(),

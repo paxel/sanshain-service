@@ -59,6 +59,7 @@ const SEEDS = [
   `/producers.html?service=${PRODUCER}&api_type=openapi&version=1.0.0`,
   "/consumers.html",
   `/consumers.html?name=${CONSUMER}`,
+  "/products.html",
   "/graph.html",
   "/reports.html",
   "/audit.html",

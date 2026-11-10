@@ -14,9 +14,10 @@ let lastMermaidCode = "";
 let currentGraphMode = "custom";
 
 let currentGraphDirection = readGraphViewPref("direction") === "LR" ? "LR" : "TB";
-window.graphViewSwitches.compact = readGraphViewPref("compact") === "1";
+window.graphDensity = graphRememberedDensity();
 window.graphViewSwitches.rainbow = readGraphViewPref("rainbow") === "1";
 window.graphViewSwitches.topics = readGraphViewPref("topics") === "1";
+window.graphDomainsMode = readGraphViewPref("domains") === "node" ? "node" : "group";
 
 const GRAPH_SWITCH_BASE =
   "inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors shadow-xs";
@@ -24,15 +25,71 @@ const GRAPH_SWITCH_ON = "bg-indigo-600 border-indigo-600 text-white";
 const GRAPH_SWITCH_OFF = "bg-white border-slate-300 text-slate-600 hover:bg-slate-50";
 
 // Reflect the remembered switches in the toolbar.
+// The remembered density; a browser that only remembers the former Compact
+// switch gets Compact.
+function graphRememberedDensity() {
+  const density = readGraphViewPref("density");
+  if (window.GRAPH_DENSITIES.includes(density)) return density;
+  return readGraphViewPref("compact") === "1" ? "compact" : "normal";
+}
+
+function stepGraphDensity() {
+  const all = window.GRAPH_DENSITIES;
+  window.graphDensity = all[(all.indexOf(window.graphDensity) + 1) % all.length];
+  writeGraphViewPref("density", window.graphDensity);
+  syncGraphViewButtons();
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") {
+    redrawGraph();
+  }
+}
+
 function syncGraphViewButtons() {
   const label = document.getElementById("graph-direction-label");
   if (label) label.textContent = currentGraphDirection === "TB" ? "Vertical" : "Horizontal";
-  for (const name of ["compact", "rainbow", "topics"]) {
+  const densityLabel = document.getElementById("graph-density-label");
+  if (densityLabel) {
+    densityLabel.textContent =
+      window.graphDensity.charAt(0).toUpperCase() + window.graphDensity.slice(1);
+  }
+  const pressed = {
+    density: window.graphDensity !== "normal",
+    rainbow: window.graphViewSwitches.rainbow,
+    topics: window.graphViewSwitches.topics,
+    domains: window.graphDomainsMode === "group",
+  };
+  for (const [name, on] of Object.entries(pressed)) {
     const btn = document.getElementById(`graph-${name}-toggle`);
     if (!btn) continue;
-    const on = window.graphViewSwitches[name];
     btn.className = `${GRAPH_SWITCH_BASE} ${on ? GRAPH_SWITCH_ON : GRAPH_SWITCH_OFF}`;
     btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+
+// z: the experimental domain view and back.
+function toggleGraphLevel() {
+  window.graphLevel = window.graphLevel === "domains" ? "services" : "domains";
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") redrawGraph();
+}
+
+// A click on a domain node: the full graph, focused on that domain.
+function openGraphDomain(domain) {
+  window.graphLevel = "services";
+  window.graphFocusTags = [`domain:${domain}`];
+  renderFocusTags();
+  updateGraphUrl(true);
+  redrawGraph();
+}
+window.openGraphDomain = openGraphDomain;
+
+function toggleGraphDomains() {
+  window.graphDomainsMode = window.graphDomainsMode === "group" ? "node" : "group";
+  writeGraphViewPref("domains", window.graphDomainsMode);
+  syncGraphViewButtons();
+  updateGraphUrl(false);
+  if (currentGraphMode === "custom") {
+    redrawGraph();
   }
 }
 
@@ -40,6 +97,7 @@ function toggleGraphDirection() {
   currentGraphDirection = currentGraphDirection === "TB" ? "LR" : "TB";
   writeGraphViewPref("direction", currentGraphDirection);
   syncGraphViewButtons();
+  updateGraphUrl(false);
   if (currentGraphMode === "custom") {
     redrawGraph();
   }
@@ -49,6 +107,7 @@ function toggleGraphViewSwitch(name) {
   window.graphViewSwitches[name] = !window.graphViewSwitches[name];
   writeGraphViewPref(name, window.graphViewSwitches[name] ? "1" : "0");
   syncGraphViewButtons();
+  updateGraphUrl(false);
   if (currentGraphMode === "custom") {
     redrawGraph();
   }
@@ -66,7 +125,7 @@ function switchGraphMode(mode) {
     }
   });
   const dirBtn = document.getElementById("graph-direction-toggle");
-  const compactBtn = document.getElementById("graph-compact-toggle");
+  const compactBtn = document.getElementById("graph-density-toggle");
   const rainbowBtn = document.getElementById("graph-rainbow-toggle");
   const topicsBtn = document.getElementById("graph-topics-toggle");
   const copyBtn = document.getElementById("graph-copy");
@@ -78,10 +137,13 @@ function switchGraphMode(mode) {
   if (compactBtn) compactBtn.classList.toggle("hidden", mode !== "custom");
   if (rainbowBtn) rainbowBtn.classList.toggle("hidden", mode !== "custom");
   if (topicsBtn) topicsBtn.classList.toggle("hidden", mode !== "custom");
+  const domainsBtn = document.getElementById("graph-domains-toggle");
+  if (domainsBtn) domainsBtn.classList.toggle("hidden", mode !== "custom");
   if (copyBtn) copyBtn.classList.remove("hidden");
   if (dlBtn) dlBtn.classList.remove("hidden");
   if (dlPngBtn) dlPngBtn.classList.remove("hidden");
   if (toolbarRow) toolbarRow.classList.remove("hidden");
+  updateGraphUrl(false);
 
   if (lastGraphReport) {
     const customSvg = document.getElementById("custom-graph");
@@ -98,10 +160,13 @@ function switchGraphMode(mode) {
   }
 }
 
+// Load the page's state from the address, draw, then open the view the
+// address names. Also what back and forward do.
 async function showGraph() {
   try {
-    restoreGraphFiltersFromUrl();
+    const pending = restoreGraphFiltersFromUrl();
     await loadGraph();
+    await applyGraphViewFromUrl(pending);
   } catch (err) {
     console.error("Failed to show graph:", err);
     hideLoader();
@@ -156,6 +221,7 @@ async function loadGraph() {
     // Branch selector (ADR-0005): every sanshain-branch is a view.
     try {
       const branches = await fetchJSON("/admin/branches");
+      window.graphBranchNames = branches.map((b) => b.name);
       const sel = document.getElementById("graph-branch-select");
       if (sel) {
         const current = sel.value;
@@ -229,42 +295,6 @@ async function loadGraph() {
   }
 }
 
-function detectCycles(adjMap) {
-  const WHITE = 0,
-    GRAY = 1,
-    BLACK = 2;
-  const color = {};
-  const parent = {};
-  const cycleEdges = new Set();
-
-  for (const node of adjMap.keys()) color[node] = WHITE;
-
-  function dfs(u) {
-    color[u] = GRAY;
-    for (const v of adjMap.get(u) || []) {
-      if (color[v] === undefined) color[v] = WHITE;
-      if (color[v] === GRAY) {
-        cycleEdges.add(`${u}-->${v}`);
-        let cur = u;
-        while (cur && cur !== v) {
-          const p = parent[cur];
-          if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
-          cur = p;
-        }
-      } else if (color[v] === WHITE) {
-        parent[v] = u;
-        dfs(v);
-      }
-    }
-    color[u] = BLACK;
-  }
-
-  for (const node of adjMap.keys()) {
-    if (color[node] === WHITE) dfs(node);
-  }
-  return cycleEdges;
-}
-
 function sanitizeId(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
@@ -295,7 +325,7 @@ async function renderGraph(report, detailed) {
       );
   });
 
-  const cycleEdges = detectCycles(adjMap);
+  const cycleEdges = graphDetectCycles(adjMap);
   const hasCycles = cycleEdges.size > 0;
 
   if (hasCycles) {
@@ -688,6 +718,27 @@ function updateGraphUrl(push = false) {
   if (hide_protocols) params.set("hide_protocols", hide_protocols);
   if (highlights.length) params.set("highlight", highlights.join(","));
 
+  // The view, its range and instant: what a shared link must reproduce.
+  const view = window.graphStreamView;
+  if (view !== "dev") params.set("view", view);
+  if (view === "branch" && window.graphBranchName) params.set("branch", window.graphBranchName);
+  if (window.graphTimelineRangeChosen) {
+    params.set("from", window.graphTimelineRange.from);
+    params.set("to", window.graphTimelineRange.to);
+  }
+  if (view !== "dev" && window.graphTimelineAt) params.set("at", window.graphTimelineAt);
+  // The display switches, always: the receiver's remembered ones must not
+  // change what the sender saw.
+  params.set("density", window.graphDensity);
+  for (const name of ["rainbow", "topics"]) {
+    params.set(name, window.graphViewSwitches[name] ? "1" : "0");
+  }
+  params.set("domains", window.graphDomainsMode);
+  if (window.graphLevel === "domains") params.set("level", "domains");
+  params.set("direction", currentGraphDirection);
+  params.set("mode", currentGraphMode);
+  if (window.graphRedrawMode === "circular") params.set("redraw", "circular");
+
   const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
   const state = {
     focus: window.graphFocusTags,
@@ -713,6 +764,7 @@ function restoreGraphFiltersFromUrl() {
     window.graphFocusTags = [];
   }
   renderFocusTags();
+  void window.graphLoadFocusProducts();
 
   const hide_protocols = params.get("hide_protocols");
   const hiddenSet = new Set(hide_protocols ? hide_protocols.split(",").filter(Boolean) : []);
@@ -747,12 +799,135 @@ function restoreGraphFiltersFromUrl() {
     snapshot: highlightSet.has("snapshot"),
   };
   updateHighlightButtons();
+
+  // A link that sets a display switch wins; a plain visit takes the
+  // browser's remembered one.
+  const density = params.get("density");
+  window.graphDensity = window.GRAPH_DENSITIES.includes(density)
+    ? density
+    : graphRememberedDensity();
+  for (const name of ["rainbow", "topics"]) {
+    const value = params.get(name);
+    window.graphViewSwitches[name] =
+      value === null ? readGraphViewPref(name) === "1" : value === "1";
+  }
+  window.graphLevel = params.get("level") === "domains" ? "domains" : "services";
+  const domains = params.get("domains");
+  window.graphDomainsMode =
+    domains === "group" || domains === "node"
+      ? domains
+      : readGraphViewPref("domains") === "node"
+        ? "node"
+        : "group";
+  const direction = params.get("direction");
+  currentGraphDirection =
+    direction === "LR" || direction === "TB"
+      ? direction
+      : readGraphViewPref("direction") === "LR"
+        ? "LR"
+        : "TB";
+  syncGraphViewButtons();
+
+  const pending = restoreGraphTimelineFromParams(params);
+  // Both write the address, so they come once all of its state is restored.
+  // The mode is not remembered per browser: custom unless the link names one.
+  const mode = params.get("mode");
+  switchGraphMode(["mermaid", "detailed"].includes(mode) ? mode : "custom");
+  setGraphRedrawMode(params.get("redraw") === "circular" ? "circular" : "all");
+  return pending;
+}
+
+// The range and the instant of the address, and the view it names. A range
+// that is no pair of days in order gives the default; an instant outside the
+// range widens it to the instant's day. Returns the view to open once the
+// graph is loaded (see applyGraphViewFromUrl).
+function restoreGraphTimelineFromParams(params) {
+  const fallback = graphDefaultTimelineRange();
+  const from = params.get("from");
+  const to = params.get("to");
+  const range = { from: from || fallback.from, to: to || fallback.to };
+  let chosen = from !== null || to !== null;
+  if (!graphIsTimelineDay(range.from) || !graphIsTimelineDay(range.to) || range.from > range.to) {
+    range.from = fallback.from;
+    range.to = fallback.to;
+    chosen = false;
+  }
+
+  let view = params.get("view");
+  const branch = params.get("branch");
+  if (view === "branch" && !branch) view = "main";
+  if (view !== "main" && view !== "branch") view = "dev";
+
+  const rawAt = params.get("at");
+  // Only an RFC 3339 instant, as the server takes it; Date.parse alone also
+  // reads forms like "June 1 2025".
+  const rfc3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+  const atMs = rawAt && rfc3339.test(rawAt) ? Date.parse(rawAt) : Number.NaN;
+  const at = view !== "dev" && !Number.isNaN(atMs) ? rawAt : null;
+  if (at) {
+    const day = graphUtcDay(new Date(atMs));
+    if (day < range.from) {
+      range.from = day;
+      chosen = true;
+    }
+    if (day > range.to) {
+      range.to = day;
+      chosen = true;
+    }
+  }
+  window.graphTimelineRange = range;
+  window.graphTimelineRangeChosen = chosen;
+  // Set before the graph loads, which reads them and writes them back into
+  // the address.
+  window.graphStreamView = view;
+  window.graphBranchName = view === "branch" ? branch : null;
+  window.graphTimelineAt = at;
+  return { view, branch, at, switches: window._graphUserViewSwitches || 0 };
+}
+
+function showGraphNotice(text) {
+  const notice = document.getElementById("graph-url-notice");
+  if (!notice) return;
+  notice.textContent = text || "";
+  notice.classList.toggle("hidden", !text);
+}
+
+// Open the view the address named, unless the user switched views while the
+// page loaded. A branch that no longer exists opens main with the same range
+// and instant, and says so.
+async function applyGraphViewFromUrl(pending) {
+  const userSwitched = () => (window._graphUserViewSwitches || 0) !== pending.switches;
+  if (userSwitched()) return;
+  showGraphNotice("");
+  let view = pending.view;
+  if (view === "branch") {
+    let pins = null;
+    if ((window.graphBranchNames || []).includes(pending.branch)) {
+      try {
+        const res = await apiCall(`/admin/branches/${encodeURIComponent(pending.branch)}/graph`);
+        if (res.ok) pins = await res.json();
+      } catch (e) {
+        console.warn(`Could not load branch '${pending.branch}':`, e);
+      }
+    }
+    if (userSwitched()) return;
+    if (pins === null) {
+      showGraphNotice(`There is no sanshain-branch '${pending.branch}': showing main instead.`);
+      view = "main";
+    } else {
+      window.graphBranchPins = pins;
+      window.graphBranchName = pending.branch;
+      const sel = document.getElementById("graph-branch-select");
+      if (sel) sel.value = pending.branch;
+    }
+  }
+  await setStreamView(view, pending.at, false);
+  updateGraphUrl(false);
 }
 
 // Handle back/forward navigation
-window.addEventListener("popstate", async () => {
-  restoreGraphFiltersFromUrl();
-  await loadGraph();
+window.addEventListener("popstate", () => {
+  void showGraph();
 });
 
 window.addEventListener("sanshain-update", async () => {
@@ -761,7 +936,8 @@ window.addEventListener("sanshain-update", async () => {
 });
 
 // The Focus picker: tick services to spotlight them, untick to let go. Text
-// that names no service (such as `tag:payments`) is taken with Enter.
+// that names no service (such as `tag:payments` or `product:shop`) is taken
+// with Enter.
 let graphFocusServices = [];
 function initGraphFocusPicker() {
   const root = document.getElementById("graph-focus-picker");
@@ -781,7 +957,222 @@ function initGraphFocusPicker() {
   });
 }
 
+// ── Fullscreen ───────────────────────────────────────────────────────
+// Level 1 fills the browser window with the graph, level 2 the screen (the
+// browser's own fullscreen). The look is CSS on body[data-graph-fs]; this
+// keeps the level, the open panel and the space the column, the legend and
+// the timeline bar take.
+let graphFsLevel = 0;
+
+function graphFsBody() {
+  return document.body;
+}
+
+// The free space for the graph, as the CSS variables the fullscreen rules use.
+function layoutGraphFullscreen() {
+  const body = graphFsBody();
+  const visible = (el) => !!el && el.offsetWidth > 0 && el.offsetHeight > 0;
+  const rail = document.getElementById("graph-fs-rail");
+  const legend = document.getElementById("graph-legend");
+  const timeline = document.getElementById("graph-timeline-row");
+  const left = graphFsLevel && visible(rail) ? rail.offsetWidth : 0;
+  const right = graphFsLevel && visible(legend) ? legend.offsetWidth : 0;
+  const bottom = graphFsLevel && visible(timeline) ? timeline.offsetHeight : 0;
+  const next = `${left}|${right}|${bottom}`;
+  if (body.dataset.fsLayout === next) return;
+  body.dataset.fsLayout = next;
+  body.style.setProperty("--fs-left", `${left}px`);
+  body.style.setProperty("--fs-right", `${right}px`);
+  body.style.setProperty("--fs-bottom", `${bottom}px`);
+  // The canvas takes its size from the space it is given.
+  if (currentGraphMode === "custom") redrawGraph();
+}
+
+function setGraphFsLevel(level) {
+  graphFsLevel = level;
+  const body = graphFsBody();
+  if (level) body.dataset.graphFs = String(level);
+  else {
+    delete body.dataset.graphFs;
+    closeGraphFsPanel();
+  }
+  const wantScreen = level === 2;
+  const inScreen = !!document.fullscreenElement;
+  if (wantScreen && !inScreen && document.documentElement.requestFullscreen) {
+    // Refused without a key press or click: stay in the window.
+    document.documentElement.requestFullscreen().catch(() => setGraphFsLevel(1));
+  } else if (!wantScreen && inScreen && document.exitFullscreen) {
+    void document.exitFullscreen().catch(() => {});
+  }
+  delete body.dataset.fsLayout;
+  layoutGraphFullscreen();
+}
+
+// f: window, then screen, then back to the page.
+function stepGraphFullscreen() {
+  setGraphFsLevel((graphFsLevel + 1) % 3);
+}
+
+function exitGraphFullscreen() {
+  setGraphFsLevel(0);
+}
+
+function closeGraphFsPanel() {
+  document.querySelectorAll("[data-fs-shown]").forEach((el) => delete el.dataset.fsShown);
+  document
+    .querySelectorAll("[data-fs-icon]")
+    .forEach((el) => el.classList.remove("bg-indigo-100", "text-indigo-700"));
+}
+
+function graphFsPanelOpen() {
+  return !!document.querySelector("[data-fs-shown]");
+}
+
+// One panel at a time; its icon again closes it.
+function toggleGraphFsPanel(name) {
+  const panel = document.querySelector(`[data-fs-panel="${name}"]`);
+  const wasOpen = !!panel && panel.dataset.fsShown !== undefined;
+  closeGraphFsPanel();
+  if (!panel || wasOpen) return;
+  panel.dataset.fsShown = "1";
+  const icon = document.querySelector(`[data-fs-icon="${name}"]`);
+  if (icon) icon.classList.add("bg-indigo-100", "text-indigo-700");
+}
+
+// c: the icon column (and its open panel) shown or hidden.
+function toggleGraphFsRail() {
+  const body = graphFsBody();
+  if (body.dataset.fsRailHidden !== undefined) delete body.dataset.fsRailHidden;
+  else body.dataset.fsRailHidden = "1";
+  layoutGraphFullscreen();
+}
+
+// b: the timeline bar shown or hidden, in and out of fullscreen.
+function toggleGraphTimelineBar() {
+  const body = graphFsBody();
+  if (body.dataset.graphTimelineHidden !== undefined) delete body.dataset.graphTimelineHidden;
+  else body.dataset.graphTimelineHidden = "1";
+  layoutGraphFullscreen();
+}
+
+// Esc: the key list, then an open panel, then one fullscreen level.
+function graphEscape() {
+  if (graphKeysOpen()) {
+    hideGraphKeys();
+    return true;
+  }
+  if (graphFsPanelOpen()) {
+    closeGraphFsPanel();
+    return true;
+  }
+  if (graphFsLevel) {
+    setGraphFsLevel(graphFsLevel - 1);
+    return true;
+  }
+  return false;
+}
+
+function initGraphFullscreen() {
+  // The browser leaves its fullscreen on its own Esc: back to the window.
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && graphFsLevel === 2) setGraphFsLevel(1);
+  });
+  window.addEventListener("resize", () => layoutGraphFullscreen());
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => layoutGraphFullscreen());
+    for (const id of ["graph-timeline-row", "graph-legend", "graph-fs-rail"]) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+  }
+  // A click into the graph closes the open panel.
+  const container = document.getElementById("graph-container");
+  if (container) container.addEventListener("mousedown", () => closeGraphFsPanel());
+}
+
+// ── Hotkeys ──────────────────────────────────────────────────────────
+// Single keys without Ctrl, Alt or Cmd, ignored while typing in a field. The
+// ? overlay lists this table, so it always shows what the keys do.
+const GRAPH_HOTKEYS = [
+  { key: "f", label: "Fullscreen: window, screen, back", run: () => stepGraphFullscreen() },
+  { key: "c", label: "Control column shown or hidden", run: () => toggleGraphFsRail() },
+  { key: "b", label: "Timeline bar shown or hidden", run: () => toggleGraphTimelineBar() },
+  { key: "z", label: "Domain view (experimental)", run: () => toggleGraphLevel() },
+  { key: "d", label: "Density: Normal, Compact, Dense", run: () => stepGraphDensity() },
+  { key: "g", label: "Domain frames on or off", run: () => toggleGraphDomains() },
+  { key: "r", label: "Rainbow", run: () => toggleGraphViewSwitch("rainbow") },
+  { key: "t", label: "Topics", run: () => toggleGraphViewSwitch("topics") },
+  { key: "v", label: "Vertical or horizontal", run: () => toggleGraphDirection() },
+  { key: "l", label: "Legend shown or hidden", run: () => toggleGraphLegend() },
+  { key: "[", label: "Previous change on the timeline", run: () => graphStepTimeline(-1) },
+  { key: "]", label: "Next change on the timeline", run: () => graphStepTimeline(1) },
+  { key: "0", label: "Fit to view", run: () => graphFitToView() },
+  { key: "?", label: "This list", run: () => toggleGraphKeys() },
+];
+
+function toggleGraphLegend() {
+  const legend = document.getElementById("graph-legend");
+  if (legend) legend.classList.toggle("hidden");
+  layoutGraphFullscreen();
+}
+
+function graphKeysOpen() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  return !!overlay && !overlay.classList.contains("hidden");
+}
+
+function toggleGraphKeys() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  const list = document.getElementById("graph-keys-list");
+  if (!overlay || !list) return;
+  if (!list.childElementCount) {
+    const esc = { key: "Esc", label: "Back: this list, a panel, a fullscreen level" };
+    for (const hotkey of [...GRAPH_HOTKEYS, esc]) {
+      const dt = document.createElement("dt");
+      const kbd = document.createElement("kbd");
+      kbd.className =
+        "inline-block min-w-[1.5rem] text-center px-1.5 py-0.5 rounded-sm border border-slate-300 bg-slate-50 font-mono text-xs text-slate-700";
+      kbd.textContent = hotkey.key;
+      dt.appendChild(kbd);
+      const dd = document.createElement("dd");
+      dd.className = "text-slate-600";
+      dd.textContent = hotkey.label;
+      list.append(dt, dd);
+    }
+  }
+  overlay.classList.toggle("hidden");
+}
+
+function hideGraphKeys() {
+  const overlay = document.getElementById("graph-keys-overlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+function graphTypingIn(target) {
+  if (!target || !target.tagName) return false;
+  return (
+    ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable === true
+  );
+}
+
+function onGraphHotkey(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  // Esc goes back even from inside a field of an open panel.
+  if (e.key === "Escape") {
+    if (graphEscape()) e.preventDefault();
+    return;
+  }
+  // The timeline slider has its own arrow keys; letters still work there.
+  if (graphTypingIn(e.target) && e.target.id !== "graph-timeline-slider") return;
+  const hotkey = GRAPH_HOTKEYS.find((h) => h.key === e.key);
+  if (!hotkey) return;
+  e.preventDefault();
+  hotkey.run();
+}
+
 function initGraph() {
+  document.addEventListener("keydown", onGraphHotkey);
+  initGraphFullscreen();
   initGraphFocusPicker();
   syncGraphViewButtons();
   void checkDiscoveryAuth(() => showGraph());

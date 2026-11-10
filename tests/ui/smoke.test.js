@@ -640,6 +640,34 @@ test.describe("Escaping", () => {
     expect(handlers.attrs).toEqual(["title"]);
     expect(handlers.title).toBe('x" onmouseover="steal()');
   });
+
+  // The confirm modal shows a plain message as text and takes markup only
+  // through safeHtml, whose interpolated names are escaped.
+  test("the confirm modal never renders a name as markup", async ({ page }) => {
+    await page.goto("/producers.html");
+    await page.waitForFunction(() => typeof window.confirmAction === "function");
+    const name = '<img src="x" onerror="window.__xss = 1">';
+
+    const plain = await page.evaluate((value) => {
+      window.confirmAction(`Delete ${value}?`, () => {});
+      const el = document.getElementById("confirm-message");
+      return { images: el.querySelectorAll("img").length, text: el.textContent };
+    }, name);
+    expect(plain).toEqual({ images: 0, text: `Delete ${name}?` });
+
+    const marked = await page.evaluate((value) => {
+      window.confirmAction(window.safeHtml`Delete <strong>${value}</strong>?`, () => {});
+      const el = document.getElementById("confirm-message");
+      const strong = el.querySelectorAll("strong");
+      return {
+        images: el.querySelectorAll("img").length,
+        strong: strong.length,
+        name: strong[0] ? strong[0].textContent : null,
+      };
+    }, name);
+    expect(marked).toEqual({ images: 0, strong: 1, name });
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+  });
 });
 
 test.describe("Release-graph regressions", () => {
@@ -699,7 +727,11 @@ test.describe("Release-graph regressions", () => {
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    // The main view is drawn once its scope is in; a test that breaks the
+    // session must not do so while that request is still in flight.
+    const scope = page.waitForResponse((r) => r.url().includes("/admin/graph/scope?scope=main"));
     await page.click("#stream-main");
+    await scope;
     await expect(page.locator("#custom-graph")).toContainText(PINNED, { timeout: 10000 });
   }
 
@@ -1428,6 +1460,7 @@ test.describe("Graph provides/requires badges", () => {
   const TRUNK = "s7-trunk-svc"; // trunk REST line, dev-only messaging line
   const TRUNK_CONSUMER = "s7-trunk-consumer";
   const SUB = "s7-subscriber"; // pins A's channel
+  const PRODUCT = "s7-product"; // a Product of GRPC (#76)
   const openapi = (title) =>
     [
       "openapi: 3.0.3",
@@ -1613,6 +1646,29 @@ test.describe("Graph provides/requires badges", () => {
       }),
       "catalog push",
     );
+    // A Product (#76) of the gRPC service, from a chart whose infrastructure
+    // subchart is skipped, plus a member that is no system.
+    const created = await request.post("/admin/products", {
+      headers,
+      data: { name: PRODUCT },
+    });
+    if (created.status() !== 409) await ok(created, "create Product");
+    await ok(
+      await request.post(`/admin/products/${PRODUCT}/chart`, {
+        headers,
+        data: {
+          chart_yaml: [
+            "apiVersion: v2",
+            `name: ${PRODUCT}`,
+            "dependencies:",
+            "  - name: greeter-chart",
+            `    alias: ${GRPC}`,
+            "  - name: redis",
+          ].join("\n"),
+        },
+      }),
+      "import the Product's Chart.yaml",
+    );
   });
 
   const openGraph = async (page) => {
@@ -1694,6 +1750,34 @@ test.describe("Graph provides/requires badges", () => {
     await page.goto("/graph.html?focus=tag:s7-tagged");
     await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
     await expect(node(page, GRPC)).toHaveCount(1);
+    await expect(node(page, ASYNC_B)).toHaveCount(0);
+    await expect(node(page, TRUNK)).toHaveCount(0);
+  });
+
+  test("a Product page lists its members and a product: focus narrows the graph", async ({
+    page,
+  }) => {
+    await openGraph(page);
+    await page.goto("/products.html");
+    const card = page.locator(`[data-product="${PRODUCT}"]`);
+    await expect(card).toContainText("1 member", { timeout: 10000 });
+    await card.click();
+    await expect(page.locator("#product-name")).toHaveText(PRODUCT);
+    const row = page.locator(`[data-member="${GRPC}"]`);
+    await expect(row.locator('[data-role="producer"]')).toHaveCount(1);
+    await expect(row.locator('[data-origin="helm"]')).toHaveCount(1);
+    // root may edit: the controls are live.
+    await expect(row.locator('[data-click="removeProductMember"]')).toBeEnabled();
+    await expect(page.locator("#product-chart-import")).toBeEnabled();
+    await expect(page.locator("#product-graph-link")).toHaveAttribute(
+      "href",
+      `/graph.html?focus=${encodeURIComponent(`product:${PRODUCT}`)}`,
+    );
+    // The focus keeps the member and its neighbours, like tag:.
+    await page.click("#product-graph-link");
+    await expect(node(page, GRPC)).toHaveCount(1, { timeout: 20000 });
+    await expect(node(page, ASYNC_A)).toHaveCount(1);
+    await expect(node(page, REST)).toHaveCount(0);
     await expect(node(page, ASYNC_B)).toHaveCount(0);
     await expect(node(page, TRUNK)).toHaveCount(0);
   });
@@ -2133,7 +2217,9 @@ test.describe("Graph (unrequired) box", () => {
     expect(lr.boxY).toBeGreaterThan(lr.maxBottom);
   });
 
-  test("Compact tightens the layout; it and the direction are remembered", async ({ page }) => {
+  test("Compact and Dense tighten the layout; density and direction are remembered", async ({
+    page,
+  }) => {
     await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const height = () =>
@@ -2146,25 +2232,37 @@ test.describe("Graph (unrequired) box", () => {
         return bottom - top;
       });
     const svg = page.locator("#custom-graph");
-    await expect(svg).toHaveAttribute("data-compact", "0");
+    const toggle = page.locator("#graph-density-toggle");
+    await expect(svg).toHaveAttribute("data-density", "normal");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
     const airy = await height();
-    await page.click("#graph-compact-toggle");
-    await expect(svg).toHaveAttribute("data-compact", "1");
-    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "compact");
+    await expect(page.locator("#graph-density-label")).toHaveText("Compact");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
     const compact = await height();
     expect(compact).toBeLessThan(airy * 0.6);
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "dense");
+    await expect(page.locator("#graph-density-label")).toHaveText("Dense");
+    const dense = await height();
+    expect(dense).toBeLessThan(compact * 0.8);
     await page.click("#graph-direction-toggle");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
-    // Both survive a reload; the URL carries neither.
-    expect(page.url()).not.toMatch(/compact|direction/);
+    // Both survive a reload. The URL carries them, so a shared link shows
+    // them; a plain link takes the remembered switches.
+    expect(new URL(page.url()).searchParams.get("density")).toBe("dense");
+    expect(new URL(page.url()).searchParams.get("direction")).toBe("LR");
     await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
-    await expect(svg).toHaveAttribute("data-compact", "1");
-    await expect(page.locator("#graph-compact-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(svg).toHaveAttribute("data-density", "dense");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
+    // A third step goes back to Normal.
+    await toggle.click();
+    await expect(svg).toHaveAttribute("data-density", "normal");
     // Not a custom-renderer control: hidden in the other modes.
     await page.click("#graph-mode-mermaid");
-    await expect(page.locator("#graph-compact-toggle")).toBeHidden();
+    await expect(toggle).toBeHidden();
     await expect(page.locator("#graph-direction-toggle")).toBeHidden();
   });
 
@@ -2510,5 +2608,91 @@ test.describe("Observability log lines", () => {
     // The copied text keeps the exact UTC instant and the module.
     const copied = await page.evaluate(() => getLogsAsText().split("\n")[0]);
     expect(copied).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*Z? +[A-Z]+ +sanshain_service/);
+  });
+});
+
+// Annotations (#91): the version row shows the version's entries and the
+// Producer's card its system entries; an http(s) value is a link chip
+// labelled by the name, anything else a text chip.
+test.describe("Annotations", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SERVICE = "annotations-fixture";
+  const SPEC = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Annotations Fixture",
+    "  version: 1.0.0",
+    "paths:",
+    "  /notes:",
+    "    get:",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "",
+  ].join("\n");
+
+  test.beforeAll(async ({ request }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    const res = await request.post("/provide", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        producername: SERVICE,
+        stability: "snapshot",
+        openapi_yaml: SPEC,
+        annotations: [
+          { scope: "version", name: "requirements", value: "https://req.acme.corp/AN-1" },
+          { scope: "version", name: "area", value: "billing" },
+          { scope: "system", name: "jenkins", value: "https://jenkins.acme.corp/job/notes" },
+        ],
+      },
+    });
+    expect(res.ok()).toBeTruthy();
+  });
+
+  test("the version row and the Producer card show the annotations", async ({ page }) => {
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const row = page.locator(".endpoint-card", { hasText: "1.0.0" });
+    await expect(row).toBeVisible({ timeout: 10000 });
+    const link = row.locator('[data-annotations] [data-context-link="annotation"]');
+    await expect(link).toHaveText("requirements");
+    await expect(link).toHaveAttribute("href", "https://req.acme.corp/AN-1");
+    await expect(row.locator('[data-annotation="area"]')).toHaveText("area: billing");
+    const system = page.locator('[data-annotations] [data-context-link="annotation"]', {
+      hasText: "jenkins",
+    });
+    await expect(system).toHaveAttribute("href", "https://jenkins.acme.corp/job/notes");
+  });
+
+  // #92: the card's button clears the system information after a confirm.
+  test("clearing the system information removes the card", async ({ page }) => {
+    page.on("dialog", async (d) => await d.accept());
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const button = page.locator("[data-clear-system-info]");
+    await expect(button).toBeVisible({ timeout: 10000 });
+    await button.click();
+    await expect(button).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator(".endpoint-card", { hasText: "1.0.0" })).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(page.locator("[data-clear-system-info]")).toHaveCount(0);
   });
 });

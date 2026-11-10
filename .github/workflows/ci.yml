@@ -43,3 +43,29 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+
+  # The same audits as the weekly Security workflow, with the same job names, so
+  # a pull request that brings in a vulnerable dependency is stopped before the
+  # merge. Ignores live in .cargo/audit.toml. The image scan stays weekly only:
+  # it scans the released image, which a pull request does not change.
+  cargo-audit:
+    name: Vulnerable crates (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
+  npm-audit:
+    name: Vulnerable npm packages (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: npm audit
+        run: npm audit

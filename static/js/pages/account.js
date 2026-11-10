@@ -427,7 +427,7 @@ async function revokeToken(id) {
 // Confirm-then-revoke wrapper: the token row's delete button declares
 // data-click to this instead of building a confirmAction() call inline.
 function confirmRevokeToken(name, id) {
-  confirmAction(`Revoke token <strong>${escapeHtml(name)}</strong>?`, () => revokeToken(id));
+  confirmAction(safeHtml`Revoke token <strong>${name}</strong>?`, () => revokeToken(id));
 }
 
 // --- Check session on load ---

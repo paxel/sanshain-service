@@ -326,6 +326,45 @@ pub async fn get_trunk_graph(
     Ok(pins)
 }
 
+/// The instants a graph changed — the main graph's (`branch` is `None`) or a
+/// sanshain-branch's — distinct and ascending: the timeline slider's ticks.
+/// `from` and `to` bound them inclusively; each is optional, and a start
+/// after the end is refused.
+#[instrument(skip_all)]
+pub async fn get_graph_change_dates(
+    repo: &impl SpecRepository,
+    branch: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<Vec<String>, AppError> {
+    // Normalized into the stored form, so the string comparison below is a
+    // comparison of instants.
+    let from = from.map(|f| normalize_instant("from", f)).transpose()?;
+    let to = to.map(|t| normalize_instant("to", t)).transpose()?;
+    if let (Some(from), Some(to)) = (&from, &to)
+        && from > to
+    {
+        return Err(AppError::BadRequest(format!(
+            "from ({from}) is after to ({to})"
+        )));
+    }
+    let branch_id = match branch {
+        Some(name) => Some(
+            repo.find_branch(name)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("no sanshain-branch '{name}'")))?
+                .id,
+        ),
+        None => None,
+    };
+    let mut dates = repo.list_graph_change_dates(branch_id).await?;
+    dates.retain(|d| {
+        from.as_deref().is_none_or(|f| d.as_str() >= f)
+            && to.as_deref().is_none_or(|t| d.as_str() <= t)
+    });
+    Ok(dates)
+}
+
 /// One side of a graph diff: `main[@instant]` or `<branch>[@instant]`
 /// (see [`split_selector`] for the grammar) — its pins and its periphery
 /// (#46) at the same instant.
@@ -493,6 +532,88 @@ pub async fn diff_graphs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn trunk_member(
+        from: &str,
+        to: Option<&str>,
+    ) -> crate::application::mock_repo::MockTrunkMember {
+        crate::application::mock_repo::MockTrunkMember {
+            service_id: 1,
+            service_name: "orders".to_string(),
+            api_type: ApiType::OpenApi,
+            version: "1.0.0".parse().unwrap(),
+            valid_from: from.to_string(),
+            last_provided_at: from.to_string(),
+            valid_to: to.map(str::to_string),
+        }
+    }
+
+    #[tokio::test]
+    async fn graph_change_dates_are_bounded_inclusively_by_from_and_to() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        repo.trunk_members.lock().unwrap().extend([
+            trunk_member("2026-01-01T00:00:00Z", Some("2026-02-01T00:00:00Z")),
+            trunk_member("2026-02-01T00:00:00Z", Some("2026-03-01T00:00:00Z")),
+            trunk_member("2026-03-01T00:00:00Z", None),
+        ]);
+        let all = get_graph_change_dates(&repo, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            all,
+            vec![
+                "2026-01-01T00:00:00Z",
+                "2026-02-01T00:00:00Z",
+                "2026-03-01T00:00:00Z"
+            ]
+        );
+        // Both bounds hit a change date exactly and keep it; an offset form is
+        // compared as the instant it names.
+        let ranged = get_graph_change_dates(
+            &repo,
+            None,
+            Some("2026-02-01T02:00:00+02:00"),
+            Some("2026-03-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ranged, vec!["2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"]);
+        let open_end = get_graph_change_dates(&repo, None, Some("2026-02-15T00:00:00Z"), None)
+            .await
+            .unwrap();
+        assert_eq!(open_end, vec!["2026-03-01T00:00:00Z"]);
+        let open_start = get_graph_change_dates(&repo, None, None, Some("2026-01-31T23:59:59Z"))
+            .await
+            .unwrap();
+        assert_eq!(open_start, vec!["2026-01-01T00:00:00Z"]);
+    }
+
+    #[tokio::test]
+    async fn graph_change_dates_refuse_a_start_after_the_end_and_bad_instants() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        match get_graph_change_dates(
+            &repo,
+            None,
+            Some("2026-03-01T00:00:00Z"),
+            Some("2026-02-01T00:00:00Z"),
+        )
+        .await
+        {
+            Err(AppError::BadRequest(msg)) => assert_eq!(
+                msg,
+                "from (2026-03-01T00:00:00Z) is after to (2026-02-01T00:00:00Z)"
+            ),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+        match get_graph_change_dates(&repo, None, Some("yesterday"), None).await {
+            Err(AppError::BadRequest(msg)) => assert!(msg.starts_with("from is not"), "{msg}"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+        match get_graph_change_dates(&repo, Some("nope"), None, None).await {
+            Err(AppError::NotFound(msg)) => assert_eq!(msg, "no sanshain-branch 'nope'"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
 
     #[test]
     fn split_selector_normalizes_instants_into_the_stored_form() {

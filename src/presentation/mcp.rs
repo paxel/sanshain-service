@@ -8,6 +8,7 @@
 
 use crate::AppState;
 use crate::application::services;
+use crate::application::setup_service::{self, InstanceUrl, RequestAddress};
 use crate::domain::models::{ApiTokenScope, AppError, AuthMode, User};
 use crate::presentation::middleware::Refusal;
 use axum::{
@@ -38,7 +39,7 @@ pub const DEFAULT_MCP_CALLS_PER_MINUTE: u32 = 60;
 pub const DEFAULT_MCP_MAX_RESULT_BYTES: usize = 65_536;
 
 /// How the MCP endpoint is configured (`MCP_ENABLED`, `MCP_CALLS_PER_MINUTE`,
-/// `MCP_MAX_RESULT_BYTES`).
+/// `MCP_MAX_RESULT_BYTES`, and `PUBLIC_BASE_URL` for the setup tools).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct McpConfig {
     /// When false the route is not mounted at all: `/mcp` is a 404.
@@ -47,6 +48,9 @@ pub struct McpConfig {
     pub calls_per_minute: u32,
     /// A tool answer above this many bytes is replaced by its tool's summary.
     pub max_result_bytes: usize,
+    /// `PUBLIC_BASE_URL`: the instance address the setup tools answer.
+    /// Unset, they derive it from the request and say so.
+    pub public_base_url: Option<String>,
 }
 
 impl Default for McpConfig {
@@ -55,6 +59,7 @@ impl Default for McpConfig {
             enabled: true,
             calls_per_minute: DEFAULT_MCP_CALLS_PER_MINUTE,
             max_result_bytes: DEFAULT_MCP_MAX_RESULT_BYTES,
+            public_base_url: None,
         }
     }
 }
@@ -278,7 +283,11 @@ Start with list_services to learn the names, then describe_service for one servi
 locate an operation by path or name, get_spec for the stored specification text, get_graph for who \
 depends on whom, and diff_versions / blame for how a specification changed. Scopes: `dev` (default) is \
 everything ever provided or required, `main` is what trunk builds currently pin, a sanshain-branch name \
-is a release cut. Answers are compact JSON; a large answer is replaced by a summary with a hint on how to narrow it.";
+is a release cut. To connect a system to Sanshain, setup_guide answers the client, commands, token and \
+variables for its build tool and CI, and draft_sanshain_yaml writes its sanshain.yaml from the names and \
+pins you looked up; neither changes anything. Before a spec is provided, review_spec checks it against \
+its Producer's version line as a dry run, with the findings that matter in Sanshain; it stores nothing. \
+Answers are compact JSON; a large answer is replaced by a summary with a hint on how to narrow it.";
 
 /// The MCP server behind `/mcp`. One instance serves one request; the caller
 /// is read from that request's extensions.
@@ -294,6 +303,28 @@ impl SanshainMcp {
             .extensions
             .get::<axum::http::request::Parts>()
             .and_then(|parts| parts.extensions.get::<McpCaller>().cloned())
+    }
+
+    /// The instance address the setup tools answer: `PUBLIC_BASE_URL`, else
+    /// the address this request reached.
+    fn instance(&self, context: &RequestContext<RoleServer>) -> Option<InstanceUrl> {
+        let headers = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .map(|parts| &parts.headers);
+        let header = |name: &str| {
+            headers
+                .and_then(|h| h.get(name))
+                .and_then(|v| v.to_str().ok())
+        };
+        setup_service::instance_url(
+            self.state.mcp.public_base_url.as_deref(),
+            &RequestAddress {
+                forwarded_proto: header("x-forwarded-proto"),
+                forwarded_host: header("x-forwarded-host"),
+                host: header("host"),
+            },
+        )
     }
 }
 
@@ -336,7 +367,8 @@ impl ServerHandler for SanshainMcp {
             .arguments
             .map(Value::Object)
             .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
-        match tools::dispatch(&self.state, &tool, arguments).await {
+        let instance = self.instance(&context);
+        match tools::dispatch(&self.state, &caller, instance.as_ref(), &tool, arguments).await {
             Ok(output) => Ok(frame(&tool, output, self.state.mcp.max_result_bytes).into()),
             Err(ToolError(message)) => {
                 record_call(&tool, "error", 0);
@@ -386,6 +418,7 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.calls_per_minute, 60);
         assert_eq!(config.max_result_bytes, 65_536);
+        assert_eq!(config.public_base_url, None);
     }
 
     #[test]

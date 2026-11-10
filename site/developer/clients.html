@@ -1,34 +1,108 @@
-<!-- page: title="Clients" track="developer" order=3 summary="The official clients, one per ecosystem: Maven, cargo, Go, JavaScript with its GitHub Action, Conan. Install, commands, the ga switch, streams and strict mode, with a link to each client's own documentation." -->
+<!-- page: title="Clients" track="developer" order=3 summary="The official clients, one per ecosystem: Maven, cargo, Go, JavaScript with its GitHub Action, Conan. Install, commands, the ga switch, streams and strict mode, with a link to each client's complete page." -->
 <p class="lede">
   Builds do not call <code>curl</code>. Each client reads
   <a href="sanshain-yaml.html"><code>sanshain.yaml</code></a>
   and speaks the same contract; what differs is how it is installed and invoked. This chapter gives
-  the shape of each one and links its own documentation, which stays the authority for flags and
-  edge cases.
+  the shape of each one; each client's own page has every option with the client version it arrived
+  in, the precedence, caching, strict mode and best effort, the failure modes and CI recipes:
+  <a href="clients/maven.html">Maven</a>, <a href="clients/rust.html">Rust</a>,
+  <a href="clients/go.html">Go</a>, <a href="clients/javascript.html">JavaScript</a>,
+  <a href="clients/conan.html">Conan</a>.
 </p>
 
 <div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
+  <p class="eyebrow">What changed in 2.13.0</p>
   <ul>
     <li>
-      No client needs an update for 2.12. A required spec written by 2.12 differs once in its YAML style, not in content; a build that commits it sees that diff once.
+      Each client has a complete page of its own on this site, which is now the authority for its
+      configuration and usage; the client READMEs keep the install, a minimal example and a link.
+    </li>
+    <li>
+      The client versions in the table bring <code>autoGa</code> and annotations; annotations need
+      Sanshain Service 2.13.0.
     </li>
   </ul>
 </div>
 
+<h2>The clients at a glance</h2>
+<table id="clients">
+  <thead>
+    <tr>
+      <th>Build tool</th>
+      <th>Client</th>
+      <th>Version</th>
+      <th>Install</th>
+      <th>Provide</th>
+      <th>Require</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>maven</code></td>
+      <td><a href="https://github.com/paxel/sanshain-maven-plugin">sanshain-maven-plugin</a></td>
+      <td><code>2.5.0</code></td>
+      <td>
+        <code>io.github.paxel.sanshain:sanshain-maven-plugin:2.5.0</code> in <code>pom.xml</code>
+      </td>
+      <td><code>mvn sanshain:provide</code></td>
+      <td><code>mvn sanshain:require</code></td>
+    </tr>
+    <tr>
+      <td><code>cargo</code></td>
+      <td><a href="https://github.com/paxel/sanshain-rs">cargo-sanshain</a></td>
+      <td><code>4.0.0</code></td>
+      <td><code>cargo install cargo-sanshain</code></td>
+      <td><code>cargo sanshain provide</code></td>
+      <td><code>cargo sanshain require</code></td>
+    </tr>
+    <tr>
+      <td><code>go</code></td>
+      <td><a href="https://github.com/paxel/sanshain-go">sanshain-go</a></td>
+      <td><code>2.5.0</code></td>
+      <td><code>go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest</code></td>
+      <td><code>sanshain-go provide</code></td>
+      <td><code>sanshain-go require</code></td>
+    </tr>
+    <tr>
+      <td><code>npm</code></td>
+      <td><a href="https://github.com/paxel/sanshain-js">sanshain</a></td>
+      <td><code>2.6.0</code></td>
+      <td><code>npm install --save-dev sanshain</code></td>
+      <td><code>npx sanshain provide</code></td>
+      <td><code>npx sanshain require</code></td>
+    </tr>
+    <tr>
+      <td><code>conan</code></td>
+      <td><a href="https://github.com/paxel/sanshain-conan">sanshain-conan</a></td>
+      <td><code>2.5.0</code></td>
+      <td><code>pip install sanshain-conan</code></td>
+      <td><code>sanshain-conan provide</code></td>
+      <td><code>sanshain-conan require</code></td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The build tool is the name the MCP tool
+  <a href="mcp.html#setting-a-system-up"><code>setup_guide</code></a> takes. Its answers come from
+  the same facts as this table, and a test keeps the two equal.
+</p>
+
 <h2>What every client has in common</h2>
 <ul>
   <li>
-    <strong>Compatibility</strong>: client 2.x speaks Sanshain Service 2.x. The catalog push and
-    <code>format: openapi</code> need Sanshain Service 2.4.0 or later, the origin of a provide 2.9.0
-    or later (an older service refuses it; the client warns and provides without it); everything
-    else works with any 2.x service.
+    <strong>Compatibility</strong>: every client speaks Sanshain Service 2.x (the Rust client is
+    versioned on its own and is at 4.x). The catalog push and <code>format: openapi</code> need
+    Sanshain Service 2.4.0 or later, the origin of a provide 2.9.0 or later, annotations 2.13.0 or
+    later (an older service refuses the origin or the annotations; the client warns and sends the
+    call again without them); everything else works with any 2.x service.
   </li>
   <li><strong>Three commands</strong>: provide, require, catalog, each a separate step.</li>
   <li>
     <strong>The ga switch</strong>: every provide is a
     <a href="../start/glossary.html#snapshot">snapshot</a> unless <code>SANSHAIN_GA=true</code> (or
-    the client's flag) is set. No git detection anywhere.
+    the client's flag) is set, or <code>autoGa: true</code> in <code>sanshain.yaml</code> and the
+    build declares a stream (trunk or tag); an explicit <code>SANSHAIN_GA=false</code> still keeps it
+    a snapshot. No git detection anywhere.
   </li>
   <li>
     <strong>Streams</strong>: <code>SANSHAIN_TRUNK=true</code> marks a
@@ -46,6 +120,13 @@
     <a href="ci-integration.html#why-the-origin-of-a-build">CI integration</a>.
   </li>
   <li>
+    <strong>Annotations</strong>: the <code>{{NAME}}</code> placeholders of the
+    <a href="sanshain-yaml.html#annotations">annotations</a> in <code>sanshain.yaml</code> are filled
+    by Maven's <code>-DNAME=value</code> or the CLIs' <code>--set NAME=value</code>, with
+    <code>SANSHAIN_SET_NAME</code> as the fallback in every client; an entry left unfilled is left
+    out with a warning.
+  </li>
+  <li>
     <strong>Dry runs</strong>: Maven (<code>-Dsanshain.dry.run=true</code>) and the JavaScript CLI
     (<code>--dry-run</code>) send <code>dry_run</code>; the Rust, Go and Conan clients and the
     GitHub Action do not.
@@ -53,7 +134,7 @@
   <li>
     <strong>Environment</strong>: <code>SANSHAIN_URL</code> overrides <code>sanshainUrl</code>,
     <code>SANSHAIN_TOKEN</code> is the bearer token, <code>SANSHAIN_BEST_EFFORT=true</code> turns
-    failed calls into warnings. Boolean switches are on for <code>true</code> or <code>1</code>.
+    failed calls, and a missing or broken <code>sanshain.yaml</code>, into warnings. Boolean switches are on for <code>true</code> or <code>1</code>.
   </li>
   <li>
     <strong>Warnings</strong>: a
@@ -64,9 +145,11 @@
   </li>
   <li>
     <strong>Caching</strong>: provides always upload (the server's
-    <a href="../start/glossary.html#idempotent-no-op">no-op</a> makes that free); requires keep the
+    <a href="../start/glossary.html#idempotent-no-op">no-op</a> makes that free). The Maven, Go,
+    JavaScript and Conan CLIs keep each require's
     <a href="../start/glossary.html#etag">ETag</a> in a state file and skip rewriting on
-    <code>304</code>.
+    <code>304</code>; the Rust client and the Conan <code>conanfile.py</code> helper keep none and
+    download every require in full.
   </li>
   <li>
     <strong>Rejections</strong>: a <code>409</code> is printed with its
@@ -103,9 +186,10 @@ mvn sanshain:catalog</code></pre>
   document before upload (<code>combine</code>, on by default), and picks
   <code>/require-bundle</code> automatically when an entry has two or more endpoints.
   <code>configFile</code> points it at another <code>sanshain.yaml</code>. Require ETags are kept in
-  <code>target/.sanshain-cache.json</code>, removed by <code>mvn clean</code>. Its README documents
-  the full precedence chain, strict and best-effort modes, and the
-  <code>openapi-generator</code> wiring.
+  <code>target/.sanshain-cache.json</code>, removed by <code>mvn clean</code>. Every
+  property, the precedence chain, strict and best-effort modes, the failure modes, the
+  <code>openapi-generator</code> wiring and CI recipes are on the
+  <a href="clients/maven.html">Maven client</a> page.
 </p>
 
 <h2>Rust (cargo)</h2>
@@ -121,8 +205,10 @@ cargo sanshain require        # download the pinned snippets
 cargo sanshain catalog        # push catalog-info.yaml
 cargo sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
 <p>
-  The subcommand README has the flags and CI recipes; the library README has the configuration
-  reference and the <code>Client</code> API for builds that embed the client.
+  The flags of each command, the configuration it reads, the failure modes, CI recipes and the
+  <code>Client</code> API for builds that embed the library are on the
+  <a href="clients/rust.html">Rust client</a> page. Unlike the other clients it keeps no ETag state
+  and downloads every require in full.
 </p>
 
 <h2>Go</h2>
@@ -141,8 +227,9 @@ sanshain-go catalog
 sanshain-go -tickets PAY-12 -note "card refunds" provide</code></pre>
 <p>
   <code>--config path/to/sanshain.yaml</code> points it at another file; <code>strict: true</code>
-  in the file turns on strict mode. The README covers the failure modes, the ETag state file and the
-  1.x migration.
+  in the file turns on strict mode. Every flag, the precedence, the ETag state file, the failure
+  modes, <code>go generate</code> wiring and CI recipes are on the
+  <a href="clients/go.html">Go client</a> page.
 </p>
 
 <h2>JavaScript and TypeScript, and the GitHub Action</h2>
@@ -172,14 +259,19 @@ npx sanshain provide --tickets PAY-12 --note "card refunds"</code></pre>
   <code>ga</code>, <code>trunk</code>, <code>tag</code>, <code>tickets</code>, <code>note</code> and
   <code>working-directory</code>; the build and pull-request URLs come from GitHub's own variables:
 </p>
-<pre><code>- uses: paxel/sanshain-js@main
+<pre><code>- uses: paxel/sanshain-js@summer
   with:
     command: provide
-    ga: ${{ github.ref == 'refs/heads/main' }}
+    ga: ${{ github.ref == 'refs/heads/main' && 'true' || '' }}
     trunk: ${{ github.ref == 'refs/heads/main' }}
   env:
     SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
     SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}</code></pre>
+<p>
+  Every flag and variable, the precedence, the ETag state file, the failure modes, the library
+  exports, the Action's inputs and CI recipes are on the
+  <a href="clients/javascript.html">JavaScript client</a> page.
+</p>
 
 <h2>Conan (C, C++)</h2>
 <p>
@@ -203,7 +295,10 @@ class MyProject(ConanFile):
   <code>--tag</code>, <code>--best-effort</code> and the origin flags <code>--build-url</code>,
   <code>--change-url</code>, <code>--tickets</code> and <code>--note</code>. The
   <code>conanfile.py</code> integration reads the <code>SANSHAIN_*</code> variables only.
-  <code>strict: true</code> in <code>sanshain.yaml</code> turns on strict mode.
+  <code>strict: true</code> in <code>sanshain.yaml</code> turns on strict mode. The CLI's flags go
+  before the command. Every flag and variable, the precedence, what the
+  <code>conanfile.py</code> helper reads, the failure modes and CI recipes are on the
+  <a href="clients/conan.html">Conan client</a> page.
 </p>
 
 <h2>No client for your language?</h2>

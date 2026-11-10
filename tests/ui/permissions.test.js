@@ -18,6 +18,7 @@ const PAGES = [
   `/producers.html?service=${PRODUCER}`,
   `/producers.html?service=${PRODUCER}&api_type=openapi&version=1.0.0`,
   "/consumers.html",
+  "/products.html",
   "/graph.html",
   "/reports.html",
   "/admin.html",

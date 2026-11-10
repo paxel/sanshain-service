@@ -1,4 +1,4 @@
-<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff, blame and the structure view, Consumers, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
+<!-- page: title="The web UI" track="developer" order=1 summary="What a developer uses in the browser: the validator, the account page, Producers and their versions, the spec viewer with diff, blame and the structure view, Consumers, Products, the dependency graph in its dev, main and branch views, timeline and compare, and the reports." -->
 <p class="lede">
   Everything a build records is browsable. This chapter walks the pages a developer opens: Producers
   and their <a href="../start/glossary.html#version-line">version lines</a>, the spec viewer,
@@ -231,6 +231,30 @@
   <figcaption>The Consumers page; a Consumer opens to its pins.</figcaption>
 </figure>
 
+<h2>Products</h2>
+<p>
+  <code>/products.html</code> lists every <a href="../start/glossary.html#product">Product</a>, an
+  envelope of the systems that make up something you ship, with its member count. A Product's page
+  shows each member with its roles (<strong>Producer</strong>, <strong>Consumer</strong>, or
+  <strong>not in Sanshain</strong> while no system of that name exists; it is live again when one
+  provides or requires) and its origin: <strong>Helm</strong> members come from the last pasted
+  umbrella <code>Chart.yaml</code> and leave when a chart no longer lists them,
+  <strong>manual</strong> ones were ticked by hand and stay. <strong>Show in graph</strong> opens
+  the graph focused on <code>product:&lt;name&gt;</code>.
+</p>
+<p>
+  Its <a href="../start/glossary.html#product-maintainer">Product Maintainers</a> and the admins
+  tick systems into the Product (every Producer and Consumer is offered), remove members, and
+  paste the chart: each dependency's <code>alias</code>, else its <code>name</code>, is matched to
+  a system name exactly. The import applies at once and reports what it added, removed and skipped;
+  a name that is no Producer and no Consumer, such as <code>redis</code>, is skipped, and a chart
+  that does not parse or lists no dependencies changes nothing. Admins create and delete Products
+  (deleting one leaves its systems as they are); whoever holds <code>manage_roles</code> ticks the
+  users and groups maintaining it (a directory group is first added on the admin page). Being a
+  Product Maintainer gives no power over the member systems. See
+  <a href="../operator/roles.html">Roles and permissions</a>.
+</p>
+
 <h2>The dependency graph</h2>
 <p>
   <code>/graph.html</code> renders the graph as an interactive SVG. The toolbar selects one of three
@@ -258,7 +282,8 @@
 <p>
   All views share the focus filter (type to find a service and tick it to spotlight its
   neighbourhood, untick to let go; or type <code>tag:&lt;name&gt;</code> and press Enter for every
-  system whose catalog carries the tag), the Circular
+  system whose catalog carries the tag, or <code>product:&lt;name&gt;</code> for the member systems
+  of a <a href="../start/glossary.html#product">Product</a>), the Circular
   layout, the protocol filters (OpenAPI, AsyncAPI, Proto), the <strong>Periphery</strong> switch for
   <a href="../start/glossary.html#peripheral-resource">peripheral resources</a> (remembered in the
   browser; a link that hides protocols still decides it), and the
@@ -267,10 +292,13 @@
   hovering the edge says <code>superseded by X ga</code>.
 </p>
 <p>
-  Three switches shape the drawing itself and are remembered in the browser rather than in the URL:
-  <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, and
-  <strong>Compact</strong> tightens the gaps between nodes and ranks for an install whose graph has
-  outgrown the screen, <strong>Rainbow</strong> gives every caller's plain arrows and catalog
+  These switches shape the drawing itself. Each is remembered in the browser and written into the
+  page's address, so a shared link shows the drawing its sender saw:
+  <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, the density button steps
+  through <strong>Normal</strong>, <strong>Compact</strong> (tighter gaps between nodes and ranks,
+  for an install whose graph has outgrown the screen) and <strong>Dense</strong> (nodes as they are,
+  with only room for the edges between them and little space in the domain frames, for a small
+  monitor), <strong>Rainbow</strong> gives every caller's plain arrows and catalog
   <code>dependsOn</code> lines a colour of its own, so a fan-out can be followed through the
   crossings: the callers in the graph, sorted by name, take colours as far apart as the hues the
   warnings leave free (circular, missing, outdated and stale edges keep their warning colours), and
@@ -280,9 +308,31 @@
   nobody publishes is a dashed topic, and the topic's panel lists its publishers and subscribers.
 </p>
 <p>
-  Producers that carry a domain sit in a frame per domain. Each domain's nodes are packed as a
-  block and the blocks stand side by side, so frames never overlap, however many domains a catalog
-  brings.
+  Producers that carry a domain sit in a frame per domain, drawn in a colour of the domain's own
+  that it keeps in every view. Each domain's nodes are packed as a block and the blocks stand side
+  by side, so frames never overlap, however many domains a catalog brings. Switching
+  <strong>Domain frames</strong> off writes the domain onto each node instead, as a coloured edge
+  and a line under the name, and lets the layout arrange the nodes freely.
+</p>
+<p>
+  The graph page has single-key shortcuts for the switches, the legend, fitting the view and stepping
+  the timeline from change to change (<kbd>[</kbd> and <kbd>]</kbd>); <kbd>?</kbd> lists them all.
+  They work whenever no input field has the focus.
+</p>
+<p>
+  <strong>Fullscreen</strong> (<kbd>f</kbd>) is for small monitors and screen sharing: the graph
+  fills the browser window, a second <kbd>f</kbd> the whole screen, and <kbd>Esc</kbd> steps back.
+  The page around the graph goes; the toolbar's groups (focus, view, filters, highlights, switches,
+  mode, export, compare) sit behind a column of icons on the left, the timeline is a thin bar at the
+  bottom and the legend a panel on the right. <kbd>c</kbd>, <kbd>b</kbd> and <kbd>l</kbd> hide the
+  column, the timeline bar and the legend to give their space to the graph.
+</p>
+<p>
+  Experimental: <kbd>z</kbd> collapses the graph onto its domains, an arc42 level-0 picture. Each
+  domain is one node in its colour and services without a domain stay nodes of their own. The pins
+  between two of them are one arrow per direction with their count, coloured by the strongest
+  warning among them; the pins inside a domain are counted on its node. Clicking a domain opens the
+  full graph focused on it (<code>domain:&lt;name&gt;</code> in the focus field).
 </p>
 <p>
   Badges on a node show its protocols in the current view: solid badges on the top edge for what it
@@ -344,8 +394,11 @@
 <h3>Branches, the timeline and compare</h3>
 <p>
   Pick a branch in the toolbar to render its graph. The main and branch views carry a timeline
-  slider whose markers are the instants the graph changed; drag it to see the graph as it was, and,
-  with the releaser role, <strong>Create branch here</strong> cuts a branch at that instant. The
+  slider over a range of UTC days, the last 3 months unless you pick another start and end. Its
+  ticks are the instants the graph changed, spaced by time; drag it, or step with the arrow keys, to
+  see the graph as it was, and, with the releaser role, <strong>Create branch here</strong> cuts a
+  branch at that instant. The page's address carries the view, the branch, the range, the instant
+  and the display switches, so a copied link opens the same graph. The
   <strong>Compare</strong> panel diffs any two selections, release against release or against main,
   either side optionally at a past instant, as services added or removed and pins added, removed or
   changed. Exports (SVG, PNG, mermaid) are stamped with view, branch and instant. The

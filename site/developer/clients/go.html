@@ -1,0 +1,910 @@
+<!-- page: title="Go client" track="developer" order=3.3 summary="The sanshain-go CLI: install, the provide, require and catalog commands, every flag, variable and sanshain.yaml field it reads with its precedence, stability and streams, origin, annotations, the ETag state file, strict mode and best effort, failure modes, go generate wiring and CI recipes." -->
+<p class="lede">
+  <code>sanshain-go</code> is the command-line client for Go projects: it reads
+  <a href="../sanshain-yaml.html"><code>sanshain.yaml</code></a> and calls provide, require and the
+  catalog push. This page documents version <code>2.5.0</code> from
+  <a href="https://github.com/paxel/sanshain-go">paxel/sanshain-go</a>. The Since column of the
+  options table names the client version an option arrived in.
+</p>
+
+<h2 id="install">Install</h2>
+<pre><code>go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest</code></pre>
+<ul>
+  <li>
+    The module path is <code>github.com/paxel/sanshain-go/v2</code>. <code>go install</code> needs Go
+    1.23.3 or later (the <code>go</code> directive of its <code>go.mod</code>).
+  </li>
+  <li>
+    Every <a href="https://github.com/paxel/sanshain-go/releases">GitHub release</a> also carries
+    prebuilt binaries built with the current Go: <code>sanshain-go-linux-amd64</code>,
+    <code>sanshain-go-linux-arm64</code>, <code>sanshain-go-darwin-amd64</code>,
+    <code>sanshain-go-darwin-arm64</code> and <code>sanshain-go-windows-amd64.exe</code>. The macOS
+    binaries need macOS 12 or later.
+  </li>
+  <li>The command is <code>sanshain-go</code>; <code>sanshain-go --version</code> prints
+    <code>sanshain-go 2.5.0</code>.</li>
+  <li>Client 2.x speaks Sanshain Service 2.x. The catalog push and <code>format: openapi</code> need
+    2.4.0 or later, the origin 2.9.0, annotations 2.13.0; against an older service the client
+    reacts as described under <a href="#failure-modes">Failure modes</a>.</li>
+</ul>
+
+<h2 id="commands">Commands</h2>
+<p>
+  The form is <code>sanshain-go [flags] &lt;command&gt;</code>. Flags go before the command: the
+  client stops reading flags at the command, and anything after it is ignored without an error, so
+  <code>sanshain-go provide --ga</code> publishes a snapshot. A boolean flag takes its value with
+  <code>=</code>: <code>--ga=false</code> works, <code>--ga false</code> makes <code>false</code> the
+  command. Both <code>-flag</code> and <code>--flag</code> are accepted.
+</p>
+<pre><code>export SANSHAIN_URL=https://sanshain.example.com
+export SANSHAIN_TOKEN=san_…
+
+sanshain-go provide                  # snapshot
+sanshain-go --ga provide             # immutable GA
+sanshain-go --trunk provide          # trunk build (or SANSHAIN_TRUNK=true)
+sanshain-go --tag R1 provide         # sanshain-branch build (or SANSHAIN_TAG=R1)
+sanshain-go --tickets PAY-12 --note "card refunds" provide
+sanshain-go --set ID=42 provide      # fills {{ID}} in the annotations
+sanshain-go require
+sanshain-go catalog
+sanshain-go --config deploy/sanshain.yaml require</code></pre>
+<ul>
+  <li>
+    <strong><code>provide</code></strong> uploads every file of every
+    <a href="../sanshain-yaml.html#provides"><code>provides</code></a> entry, one call per file:
+    <code>apiType</code> <code>openapi</code> (or none) to <code>POST /provide</code>,
+    <code>asyncapi</code> to <code>/provide/asyncapi</code>, <code>proto</code> or
+    <code>grpc</code> to <code>/provide/grpc</code>. CRLF line endings are sent as LF. Each answer is
+    printed as
+    <code>✓ Provided &lt;name&gt; v&lt;version&gt; (&lt;stability&gt;): N new, N updated, N deleted endpoints</code>,
+    followed by one line per
+    <a href="../../start/glossary.html#harvested-subscription">harvested subscription</a> (with
+    <code>⚠</code> when it has drift or no publisher yet; these never fail the build). An entry with
+    <code>retired: true</code> is a <a href="../../start/glossary.html#retire">retire</a> of its
+    family instead and prints
+    <code>✓ Retired…, closed N trunk pin(s), released N contract(s). History and existing pins are untouched.</code>
+  </li>
+  <li>
+    <strong><code>require</code></strong> downloads every
+    <a href="../sanshain-yaml.html#requires"><code>requires</code></a> entry. An entry with one
+    endpoint uses <code>GET /require</code> (<code>/require/asyncapi</code>,
+    <code>/require/grpc</code>) and writes <code>&lt;outputDirectory&gt;/&lt;serviceName&gt;.yaml</code>;
+    an entry with two or more endpoints uses <code>POST /require-bundle</code> and writes
+    <code>&lt;serviceName&gt;_bundle.yaml</code>. With <code>apiType: proto</code> (or
+    <code>grpc</code>) the file ends in <code>.proto</code>. The
+    directory is created, the file is written readable by the owner only, and the client prints
+    <code>Saved &lt;file&gt; to &lt;directory&gt;</code>.
+  </li>
+  <li>
+    <strong><code>catalog</code></strong> sends the file named by <code>catalogInfo</code> as
+    <code>PUT /catalog/&lt;serviceName&gt;</code> and prints
+    <code>Catalog recorded for &lt;system&gt; (main+dev): N resources</code> (<code>dev</code> without
+    trunk) and one line per resource. See
+    <a href="../sanshain-yaml.html#the-catalog-phase">the catalog phase</a> for what Sanshain reads.
+  </li>
+</ul>
+<p>
+  There is no dry run: this client never sends <code>dry_run</code>. A pull-request pipeline that
+  wants the checks without storing anything calls the route with <code>curl</code>, see
+  <a href="../ci-integration.html#dry-runs-for-pull-requests">Dry runs for pull requests</a>.
+</p>
+
+<h2 id="options">Options</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>Environment</th>
+      <th>sanshain.yaml</th>
+      <th>Default</th>
+      <th>Since</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>--config &lt;path&gt;</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td><code>sanshain.yaml</code></td>
+      <td>0.2.0</td>
+      <td>The configuration file, relative to the working directory. Relative paths inside it resolve
+        against its directory.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><code>SANSHAIN_URL</code></td>
+      <td><code>sanshainUrl</code></td>
+      <td>— (required)</td>
+      <td>2.2.0 (environment)</td>
+      <td>Base URL of the instance. Without either the client stops with
+        <code>missing required field: sanshainUrl</code> (with best effort a warning, exit 0).</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td><code>SANSHAIN_TOKEN</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>API token, sent as <code>Authorization: Bearer …</code>. Unset, no header is sent.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>serviceName</code> (alias <code>clientName</code>)</td>
+      <td>—</td>
+      <td>1.0.0</td>
+      <td>This system's name: Producer of the provides, Consumer of the requires, system of the
+        catalog push.</td>
+    </tr>
+    <tr>
+      <td><code>--insecure</code></td>
+      <td>—</td>
+      <td><code>insecure</code> accepted, ignored</td>
+      <td>off</td>
+      <td>0.2.0</td>
+      <td>Skip TLS certificate verification, e.g. for a self-signed certificate.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>compression</code></td>
+      <td><code>false</code></td>
+      <td>—</td>
+      <td>Gzip the request body of provide, bundle and catalog push. Single requires and retires are
+        never compressed.</td>
+    </tr>
+    <tr>
+      <td><code>--ga</code></td>
+      <td><code>SANSHAIN_GA</code></td>
+      <td>—</td>
+      <td>snapshot</td>
+      <td>2.0.0</td>
+      <td>Provide as immutable GA; <code>--ga=false</code> or <code>SANSHAIN_GA=false</code> keeps a
+        snapshot despite <code>autoGa</code>.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>autoGa</code></td>
+      <td><code>false</code></td>
+      <td>2.5.0</td>
+      <td>Provide GA whenever the build declares trunk or a tag.</td>
+    </tr>
+    <tr>
+      <td><code>--trunk</code></td>
+      <td><code>SANSHAIN_TRUNK</code></td>
+      <td>—</td>
+      <td>off</td>
+      <td>2.1.0</td>
+      <td>This build is trunk's: provides, requires and the catalog push feed the main graph.</td>
+    </tr>
+    <tr>
+      <td><code>--tag &lt;branch&gt;</code></td>
+      <td><code>SANSHAIN_TAG</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>2.1.0</td>
+      <td>This build belongs to a sanshain-branch (release or hotfix pipeline). Not sent on the
+        catalog push.</td>
+    </tr>
+    <tr>
+      <td><code>--build-url &lt;url&gt;</code></td>
+      <td><code>SANSHAIN_BUILD_URL</code></td>
+      <td>—</td>
+      <td>the runner's variable</td>
+      <td>2.3.0</td>
+      <td>Where this build ran (origin, provide only).</td>
+    </tr>
+    <tr>
+      <td><code>--change-url &lt;url&gt;</code></td>
+      <td><code>SANSHAIN_CHANGE_URL</code></td>
+      <td>—</td>
+      <td>the runner's variable</td>
+      <td>2.3.0</td>
+      <td>The pull or merge request behind this build (origin, provide only).</td>
+    </tr>
+    <tr>
+      <td><code>--tickets &lt;ids&gt;</code></td>
+      <td><code>SANSHAIN_TICKETS</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>2.3.0</td>
+      <td>Ticket ids, comma-separated (origin, provide only).</td>
+    </tr>
+    <tr>
+      <td><code>--note &lt;text&gt;</code></td>
+      <td><code>SANSHAIN_NOTE</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>2.3.0</td>
+      <td>One line of intent (origin, provide only).</td>
+    </tr>
+    <tr>
+      <td><code>--set NAME=value</code> (repeatable)</td>
+      <td><code>SANSHAIN_SET_NAME</code></td>
+      <td><code>annotations</code></td>
+      <td>—</td>
+      <td>2.5.0</td>
+      <td>Fill the <code>{{NAME}}</code> placeholders of the annotations.</td>
+    </tr>
+    <tr>
+      <td><code>--best-effort</code></td>
+      <td><code>SANSHAIN_BEST_EFFORT</code></td>
+      <td><code>bestEffort</code></td>
+      <td>off</td>
+      <td>2.0.0 (file: 1.0.0)</td>
+      <td>Turn failed calls, and a missing or broken <code>sanshain.yaml</code>, into warnings,
+        exit 0.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>strict</code></td>
+      <td><code>false</code></td>
+      <td>1.2.0</td>
+      <td>Fail on missing configuration, unknown fields and any <code>Sanshain-Warning</code>.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>catalogInfo</code></td>
+      <td>—</td>
+      <td>2.2.0</td>
+      <td>Path of the Backstage <code>catalog-info.yaml</code> the <code>catalog</code> command
+        pushes.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>provides[].file</code>, <code>apiType</code></td>
+      <td><code>apiType</code>: <code>openapi</code></td>
+      <td>1.0.0</td>
+      <td>A spec file and its type: <code>openapi</code>, <code>asyncapi</code>, <code>proto</code>
+        (also <code>grpc</code>).</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>provides[].asyncApiFile</code>, <code>protoFile</code></td>
+      <td>—</td>
+      <td>1.0.0</td>
+      <td>Older spelling: a file of that type. One entry may name several of these.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>provides[].openApiFile</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>Older spelling: an OpenAPI file.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>provide</code> (one entry, not a list)</td>
+      <td>—</td>
+      <td>—</td>
+      <td>Older spelling of one <code>provides</code> entry, provided first.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>provides[].retired</code></td>
+      <td><code>false</code></td>
+      <td>2.1.0</td>
+      <td>Retire the family named by <code>apiType</code> on the next <code>provide</code>; no file
+        needed.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>requires[].serviceName</code>, <code>outputDirectory</code>,
+        <code>endpoints[].method</code>, <code>endpoints[].path</code></td>
+      <td>— (all required)</td>
+      <td>—</td>
+      <td>The Producer, where its spec is written, and the endpoints to fetch.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>requires[].version</code></td>
+      <td>— (required)</td>
+      <td>2.0.0</td>
+      <td>The exact <a href="../../start/glossary.html#pin">pin</a>.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>requires[].apiType</code></td>
+      <td><code>openapi</code></td>
+      <td>1.0.0</td>
+      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
+        means proto).</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>requires[].format</code></td>
+      <td>—</td>
+      <td>2.2.0</td>
+      <td>Only <code>openapi</code>, and only with <code>apiType: asyncapi</code>.</td>
+    </tr>
+    <tr>
+      <td>—</td>
+      <td>—</td>
+      <td><code>force</code>, <code>combine</code> (also on a provides entry)</td>
+      <td>—</td>
+      <td>—</td>
+      <td>Accepted, ignored: other clients read them.</td>
+    </tr>
+    <tr>
+      <td><code>--version</code></td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>2.0.0</td>
+      <td>Print <code>sanshain-go 2.5.0</code> and exit, before any configuration is read.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  The changelog begins with 0.1.0, the first release, and names no option before that. Options marked
+  <code>—</code> in the Since column are not named in the changelog: <code>SANSHAIN_TOKEN</code>,
+  <code>sanshainUrl</code>, <code>compression</code>, <code>openApiFile</code>,
+  <code>provide</code>, the requires fields <code>serviceName</code>, <code>outputDirectory</code>
+  and <code>endpoints</code>, and the ignored keys. The 0.1.0 entry describes provide, require,
+  gzip compression and bearer tokens without naming keys.
+</p>
+<p>
+  Every relative path (<code>file</code>, <code>openApiFile</code>, <code>asyncApiFile</code>,
+  <code>protoFile</code>, <code>outputDirectory</code>, <code>catalogInfo</code>) resolves against
+  the directory of the configuration file. The ETag state file does not; see
+  <a href="#caching">Caching</a>.
+</p>
+<p>
+  The 1.x fields are refused by name, at the top level and in every <code>provide</code>,
+  <code>provides</code> and <code>requires</code> entry, as
+  <code>'&lt;field&gt;' is no longer supported — &lt;hint&gt;</code>:
+</p>
+<ul>
+  <li><code>branch</code>: the branch model is gone; pin an exact <code>version</code> on each
+    requires entry, provides read the version from the spec file.</li>
+  <li><code>timeout</code>: pinned versions resolve immediately and never wait; remove it.</li>
+  <li><code>baseVersion</code>: optimistic concurrency is gone; remove it.</li>
+  <li><code>releaseBranches</code>: stability is snapshot unless <code>SANSHAIN_GA=true</code>,
+    <code>--ga</code> or <code>autoGa</code> on a trunk or tag build.</li>
+</ul>
+
+<h2 id="precedence">Precedence</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>The first that is set decides</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>URL</td>
+      <td><code>SANSHAIN_URL</code> (trimmed, blank counts as unset), then <code>sanshainUrl</code>.
+        There is no flag.</td>
+    </tr>
+    <tr>
+      <td>Token</td>
+      <td><code>SANSHAIN_TOKEN</code> only.</td>
+    </tr>
+    <tr>
+      <td>serviceName</td>
+      <td><code>serviceName</code>, then <code>clientName</code>. No flag, no variable.</td>
+    </tr>
+    <tr>
+      <td>Stability</td>
+      <td><code>--ga</code> in any form, also <code>--ga=false</code>; then
+        <code>SANSHAIN_GA</code> when not blank (<code>true</code> or <code>1</code> is GA, any other
+        value, such as <code>no</code>, is snapshot and also overrides <code>autoGa</code>); then
+        <code>autoGa: true</code> with a declared stream; then snapshot.</td>
+    </tr>
+    <tr>
+      <td>Trunk</td>
+      <td><code>--trunk</code> or <code>SANSHAIN_TRUNK</code>: either one switches it on. The flag
+        cannot switch the variable off; <code>--trunk=false</code> with
+        <code>SANSHAIN_TRUNK=true</code> is still a trunk build.</td>
+    </tr>
+    <tr>
+      <td>Tag</td>
+      <td><code>--tag</code> when not blank, then <code>SANSHAIN_TAG</code>; both trimmed.</td>
+    </tr>
+    <tr>
+      <td>Best effort</td>
+      <td><code>--best-effort</code> (it can only switch on); then <code>SANSHAIN_BEST_EFFORT</code>
+        when not empty, which overrides the file both ways (<code>yes</code> counts as off); then
+        <code>bestEffort</code>. For a missing or broken <code>sanshain.yaml</code> only the flag
+        and the variable count.</td>
+    </tr>
+    <tr>
+      <td>Strict</td>
+      <td><code>strict: true</code> in the file only, so a missing or broken
+        <code>sanshain.yaml</code> is never strict.</td>
+    </tr>
+    <tr>
+      <td>Origin</td>
+      <td>Flag, then <code>SANSHAIN_*</code> variable, then (build and change URL only) the runner's
+        variables. Blank values count as unset at every step.</td>
+    </tr>
+    <tr>
+      <td>Placeholders</td>
+      <td><code>--set NAME=value</code> (a later one for the same name wins), then
+        <code>SANSHAIN_SET_NAME</code> (exact case). A <code>--set NAME=</code> with an empty value
+        leaves the placeholder unfilled and does not fall back to the variable.</td>
+    </tr>
+    <tr>
+      <td>TLS, configuration file</td>
+      <td><code>--insecure</code> and <code>--config</code> only.</td>
+    </tr>
+  </tbody>
+</table>
+<p>
+  Every switch read from the environment (<code>SANSHAIN_GA</code>, <code>SANSHAIN_TRUNK</code>,
+  <code>SANSHAIN_BEST_EFFORT</code>) is on for <code>true</code> or <code>1</code>, trimmed and
+  case-insensitive, and off for anything else.
+</p>
+
+<h2 id="stability-and-streams">Stability and streams</h2>
+<p>
+  The rule itself is in
+  <a href="../sanshain-yaml.html#how-stability-is-decided">How stability is decided</a>; this client
+  applies it as listed under <a href="#precedence">Precedence</a>. Every provide is a
+  <a href="../../start/glossary.html#snapshot">snapshot</a> unless the ga switch or
+  <code>autoGa</code> says otherwise. Publishing <a href="../../start/glossary.html#ga">GA</a> needs
+  the <a href="../../start/glossary.html#releaser">releaser</a> role; a GA provide that changes the
+  spec without a version bump fails with <code>409</code> and the proposed version.
+</p>
+<pre><code>sanshain-go --trunk provide          # main graph; GA with autoGa: true
+sanshain-go --tag R1 provide         # sanshain-branch R1; GA with autoGa: true
+sanshain-go --ga=false --trunk provide   # trunk, but a snapshot despite autoGa</code></pre>
+<ul>
+  <li>
+    The <a href="../../start/glossary.html#stream">stream</a> applies to <code>provide</code> and
+    <code>require</code>; <code>catalog</code> sends trunk only, so a tag build's catalog push
+    updates the dev graph alone.
+  </li>
+  <li>
+    Trunk and a tag together: the client prints
+    <code>⚠ trunk and tag are mutually exclusive - this build is recorded in neither</code> and
+    sends neither. With <code>autoGa: true</code> such a provide is still GA, since a stream was
+    declared. Under strict mode the command fails before any request.
+  </li>
+  <li>
+    An unknown tag is recorded in no release graph; the call succeeds and Sanshain's warning is
+    printed (see <a href="#strict-and-best-effort">Strict mode and best effort</a>).
+  </li>
+  <li>
+    A retire carries no stability and no stream, <code>autoGa</code> or not.
+  </li>
+</ul>
+
+<h2 id="origin">Origin</h2>
+<p>
+  Only <code>provide</code> sends an <a href="../../start/glossary.html#origin">origin</a>. The
+  runner variables the client reads on GitHub Actions, GitLab CI and Jenkins, and what Sanshain
+  does with the fields, are in
+  <a href="../ci-integration.html#why-the-origin-of-a-build">Why: the origin of a build</a>.
+</p>
+<pre><code>sanshain-go --tickets ORD-7,ORD-9 --note "Adds the users endpoint" provide</code></pre>
+<ul>
+  <li><code>--build-url</code> / <code>SANSHAIN_BUILD_URL</code> and <code>--change-url</code> /
+    <code>SANSHAIN_CHANGE_URL</code> override the runner's variables. On other CI systems set the
+    two variables yourself.</li>
+  <li><code>--tickets</code> / <code>SANSHAIN_TICKETS</code> is split at commas; ids are trimmed,
+    empty ones dropped, duplicates sent once. <code>--note</code> / <code>SANSHAIN_NOTE</code> is
+    one line. Neither comes from the runner.</li>
+  <li>An empty field is left out of the call. Nothing is read from git.</li>
+  <li>A service before 2.9.0 refuses the origin; the client prints
+    <code>⚠ Sanshain Service before 2.9.0 does not take the build's origin; providing without it</code>
+    on stderr and repeats the provide without it.</li>
+</ul>
+
+<h2 id="annotations">Annotations</h2>
+<p>
+  The file's side, the limits and what Sanshain shows are in
+  <a href="../sanshain-yaml.html#annotations">Annotations</a>. This client checks each entry before
+  any request: exactly the strings <code>scope</code> (<code>version</code> or
+  <code>system</code>), <code>name</code> and <code>value</code>, or it stops naming the entry, for
+  example <code>annotations[0] (requirements): missing 'value'</code>.
+</p>
+<pre><code>sanshain-go --set AREA=7 --set ID=42 provide
+# or
+SANSHAIN_SET_AREA=7 SANSHAIN_SET_ID=42 sanshain-go provide</code></pre>
+<ul>
+  <li>A placeholder is <code>{{NAME}}</code> with letters, digits and <code>_</code> only;
+    <code>{{ A }}</code> or <code>{{a-b}}</code> stays literal text. <code>--set</code> splits at the
+    first <code>=</code>, so the value may contain more.</li>
+  <li>An entry with an unfilled placeholder is left out and the others are sent:
+    <code>⚠ annotation 'requirements' left out: {{ID}} is not set (--set ID=… or SANSHAIN_SET_ID)</code>.
+    The check runs for every command, also for an entry the command would not send.</li>
+  <li><code>provide</code> sends both scopes; <code>require</code> (the <code>annotations</code>
+    query parameter), the bundle and <code>catalog</code> send the <code>system</code> entries; a
+    retire sends none.</li>
+  <li>A service before 2.13.0 refuses them; the client repeats the call without them, sends none for
+    the rest of the run and prints once on stderr
+    <code>⚠ Sanshain Service before 2.13.0 does not take annotations; sending without them</code>.</li>
+</ul>
+
+<h2 id="caching">Caching</h2>
+<ul>
+  <li>
+    Requires keep the <a href="../../start/glossary.html#etag">ETag</a> of each answer in
+    <code>.sanshain-cache.json</code> in the <strong>working directory</strong>, not next to
+    <code>sanshain.yaml</code>. It is JSON, readable by the owner only:
+    <code>{"requires": {"&lt;key&gt;": {"etag": "…", "last_fetched": "&lt;UTC time&gt;"}}}</code>.
+  </li>
+  <li>
+    The key is <code>producer|version|METHOD|path</code> for one endpoint and
+    <code>producer|version|bundle</code> for a bundle, then <code>|format=openapi</code> when a
+    format is asked for, then <code>|out=&lt;outputDirectory&gt;</code>, the output directory as
+    resolved next to <code>sanshain.yaml</code>, so the same endpoint required into two
+    directories is written to both.
+  </li>
+  <li>
+    The next require sends <code>If-None-Match</code>, unless the output file is missing; then the
+    answer is written again. On <code>304</code> the client prints
+    <code>⏭ &lt;serviceName&gt; spec unchanged (304), skipping code generation.</code> and writes
+    nothing. The entry is written after a file was saved, only when the answer carried an ETag.
+  </li>
+  <li>
+    There is no clean command. Delete <code>.sanshain-cache.json</code>, or the downloaded file, to
+    force a download.
+  </li>
+  <li>Provides are not cached: every provide uploads, and an identical upload is a
+    <a href="../../start/glossary.html#idempotent-no-op">no-op</a> on the server.</li>
+</ul>
+
+<h2 id="strict-and-best-effort">Strict mode and best effort</h2>
+<p>
+  <a href="../../start/glossary.html#strict-mode">Strict mode</a> is switched on by
+  <code>strict: true</code> in <code>sanshain.yaml</code> and nothing else. Without it, missing
+  configuration warns and the command exits 0:
+</p>
+<ul>
+  <li><code>⚠ No serviceName configured. Skipping provide. Set strict: true to fail in this case.</code>
+    (also <code>require</code>, <code>catalog</code>)</li>
+  <li><code>⚠ No provide configuration found in sanshain.yaml. Skipping. Set strict: true to fail in this case.</code></li>
+  <li><code>⚠ No requires configured in sanshain.yaml. Skipping. Set strict: true to fail in this case.</code></li>
+  <li><code>⚠ No catalogInfo in sanshain.yaml - skipping catalog.</code></li>
+</ul>
+<p>
+  Under strict mode these fail instead, with <code>serviceName is required (in sanshain.yaml or via
+  environment)</code>, <code>no provide configuration found in sanshain.yaml</code>,
+  <code>no requires configured in sanshain.yaml</code> and
+  <code>strict: sanshain.yaml has no catalogInfo</code> (the catalog checks only
+  <code>serviceName</code> and <code>catalogInfo</code>). Strict mode also fails on:
+</p>
+<ul>
+  <li>Unknown fields: the notice ends in <code>rejected (strict)</code> and the command fails with
+    <code>Error: strict: sanshain.yaml has unknown fields</code>. Under best effort only when the
+    file otherwise loads; a file that does not is broken (see below), and the notice ends in
+    <code>ignored</code>.</li>
+  <li>Trunk and tag together:
+    <code>Error: strict: trunk and tag are mutually exclusive - this build is recorded in neither</code>,
+    before any request.</li>
+  <li>An unfilled placeholder: <code>Error: strict: annotation '…' left out: …</code>, before any
+    request.</li>
+  <li>A <a href="../../start/glossary.html#sanshain-warning"><code>Sanshain-Warning</code></a> on any
+    answer: <code>Error: strict: Sanshain warned: &lt;first warning&gt;</code>, right after the call.
+    Without strict mode each warning is printed as <code>⚠ &lt;text&gt;</code> and the build goes
+    on. The two "Sanshain Service before …" notices are not Sanshain warnings and never fail.</li>
+</ul>
+<p>
+  Best effort is switched on by <code>--best-effort</code>, <code>SANSHAIN_BEST_EFFORT=true</code>
+  or <code>bestEffort: true</code> (see <a href="#precedence">Precedence</a>). A failed call (an
+  error status, a network error) or an unreadable spec or catalog file then prints
+  <code>Warning: &lt;error&gt;</code>, and the command goes on with the next
+  <code>provides</code> or <code>requires</code> entry and exits 0.
+</p>
+<p>
+  A <code>sanshain.yaml</code> that is missing, cannot be read or does not load (invalid YAML,
+  1.x fields, invalid entries, an unsupported <code>apiType</code>) fails the command with
+  <code>Error loading config: &lt;error&gt;</code> without best effort; a missing file is named,
+  as in <code>failed to read config file: open sanshain.yaml: no such file or directory</code>.
+  With <code>--best-effort</code> or <code>SANSHAIN_BEST_EFFORT=true</code> it prints
+  <code>Warning: &lt;error&gt;</code>, calls nothing and exits 0 (since 2.5.0; before, it printed
+  <code>Warning loading config: &lt;error&gt;</code> and a skip notice). Such a file's own
+  <code>bestEffort</code> and <code>strict</code> do not count.
+</p>
+<p>
+  Best effort never softens any strict failure above: missing configuration in every command,
+  unknown fields in a file that otherwise loads, trunk and tag together, unfilled placeholders
+  and Sanshain warnings.
+</p>
+
+<h2 id="failure-modes">Failure modes</h2>
+<p>
+  The client prints <code>Error: &lt;message&gt;</code> and exits 1, or with best effort
+  <code>Warning: &lt;message&gt;</code> and exits 0. A malformed flag, such as <code>--set AREA</code>
+  without <code>=</code>, exits 2 with the usage. Messages and <code>⚠</code> lines go to stdout;
+  only the unknown-field notice and the two "Sanshain Service before …" notices go to stderr.
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>Situation</th>
+      <th>What the client does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>409</code> on provide with a proposed version</td>
+      <td>
+        <code>&lt;server message&gt;</code> and
+        <code>Publish as &lt;version&gt; — update info.version in &lt;file&gt; and re-run</code>
+        (for proto: <code>the // sanshain-version comment</code>). The spec file is never changed.
+        Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td><code>403</code> on provide</td>
+      <td>
+        <code>provide refused (403): &lt;message&gt;</code>. When the service refused for want of the
+        <code>releaser</code> role, it adds that publishing GA requires the role, or to publish a
+        snapshot by leaving <code>--ga</code> / <code>SANSHAIN_GA</code> unset and
+        <code>autoGa</code> off (or setting <code>SANSHAIN_GA=false</code>). Any other
+        <code>403</code>, such as a read-only token's (which needs scope <code>full</code>), shows
+        the service's message alone. Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td><code>403</code> or <code>404</code> on a retire</td>
+      <td>
+        <code>retire refused (403): …</code>, naming the releaser role or a maintainer grant on the
+        Producer when the service refused for want of the role (any other <code>403</code> shows the
+        service's message alone); <code>retire failed (404): …</code> when nothing was ever provided under that name.
+      </td>
+    </tr>
+    <tr>
+      <td><code>404</code> on require (<a href="../../start/glossary.html#unknown">Unknown</a>)</td>
+      <td>
+        <code>failed to require &lt;name&gt;: unknown producer or version (404): … — the pin
+        &lt;name&gt;@&lt;version&gt; does not exist on the server; fix the version in sanshain.yaml
+        (list available: GET /producers/&lt;name&gt;/versions)</code>. Exit 1, nothing waits.
+      </td>
+    </tr>
+    <tr>
+      <td><code>410</code> on require (<a href="../../start/glossary.html#absent">Absent</a>)</td>
+      <td>
+        <code>failed to require &lt;name&gt;: endpoint absent (410): version &lt;version&gt; of
+        &lt;name&gt; exists but deliberately lacks the requested endpoint(s): …</code>. Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>No token, <code>401</code>, any other error status</td>
+      <td>
+        The client does not check the token; the server's answer is printed as
+        <code>request failed with status &lt;code&gt;: &lt;body&gt;</code> (body cut at 1000
+        characters). Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>Network error</td>
+      <td>
+        The Go HTTP error, e.g. <code>Post "…/provide": dial tcp …</code>; on require prefixed
+        <code>failed to require &lt;name&gt;: </code>. Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>Pre-2.0 server</td>
+      <td>
+        After a failed answer the client asks <code>GET /version</code> once and reports
+        <code>Sanshain server at &lt;url&gt; is &lt;version&gt;; this client requires Sanshain 2.x —
+        upgrade the server</code>. Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>Service before 2.4.0: catalog</td>
+      <td>
+        A <code>404</code> on the push is reported as
+        <code>sanshain catalog needs Sanshain Service 2.4.0 or later (server is &lt;version&gt;)</code>.
+        Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>Service before 2.4.0: <code>format: openapi</code></td>
+      <td>
+        A refused parameter or an AsyncAPI answer is reported as
+        <code>format: openapi needs Sanshain Service 2.4.0 or later (server is &lt;version&gt;)</code>;
+        nothing is written. Exit 1.
+      </td>
+    </tr>
+    <tr>
+      <td>Service before 2.9.0: origin; before 2.13.0: annotations</td>
+      <td>The call is repeated without them, with a notice on stderr (see
+        <a href="#origin">Origin</a>, <a href="#annotations">Annotations</a>). The command
+        succeeds.</td>
+    </tr>
+    <tr>
+      <td>Catalog file not readable as the system's Component</td>
+      <td>Sanshain records nothing; its warning is printed (or
+        <code>⚠ Sanshain did not record &lt;file&gt;</code>) and the command exits 0, 1 under
+        strict mode.</td>
+    </tr>
+    <tr>
+      <td>Unknown field in <code>sanshain.yaml</code></td>
+      <td>
+        On stderr, once per run, before the other configuration errors (only a 1.x field is
+        reported earlier):
+        <pre><code>   /\_/\  ?
+  ( O_o )   sanshain.yaml: unknown field 'catalogInf' - ignored
+ ---U-U---</code></pre>
+        Nested keys are named by path, such as <code>provides[1].verison</code>. The run continues;
+        under strict mode it fails (see above), also under best effort when the file otherwise
+        loads.
+      </td>
+    </tr>
+    <tr>
+      <td>1.x field</td>
+      <td><code>Error loading config: '&lt;field&gt;' is no longer supported — &lt;hint&gt;</code>
+        (prefixed with the entry, such as <code>requires[0]: </code>). Exit 1, or a warning under
+        best effort (see <a href="#strict-and-best-effort">Strict mode and best effort</a>).</td>
+    </tr>
+    <tr>
+      <td>Unsupported <code>apiType</code> on a provide or a require</td>
+      <td>
+        <code>Error loading config: provide[0]: unsupported apiType: &lt;value&gt; — use openapi,
+        asyncapi or proto (grpc means proto)</code> (a require's starts
+        <code>requires[0] (&lt;producer&gt;): </code>). Exit 1, before any request, or a warning
+        under best effort.
+      </td>
+    </tr>
+    <tr>
+      <td>Invalid requires entry</td>
+      <td>
+        <code>Error loading config: …</code> naming the entry, e.g.
+        <code>requires[0] (auth-service): missing 'version' — …</code> or the format combination.
+        Exit 1, before any request, or a warning under best effort.
+      </td>
+    </tr>
+    <tr>
+      <td>Missing or unreadable <code>sanshain.yaml</code></td>
+      <td>
+        <code>Error loading config: failed to read config file: open &lt;path&gt;: …</code>. Exit 1,
+        or a warning under best effort.
+      </td>
+    </tr>
+    <tr>
+      <td>Trunk and tag together</td>
+      <td><code>⚠ trunk and tag are mutually exclusive - this build is recorded in neither</code>;
+        neither is sent and the command goes on. Exit 1 before any request under strict mode.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="no-library">No importable library</h2>
+<p>
+  The client code lives in <code>internal/</code> packages of the module
+  (<code>internal/api</code>, <code>internal/config</code>, <code>internal/cache</code>), which Go
+  does not let other modules import. A Go build uses the <code>sanshain-go</code> command; there is
+  no Go API to call from your own code.
+</p>
+
+<h2 id="go-generate">Wiring into go generate</h2>
+<p>
+  <code>go generate</code> runs each command in the directory of the package that holds the
+  directive, not in the module root. Pass <code>--config</code> with the path from that package to
+  <code>sanshain.yaml</code>; the client then resolves <code>outputDirectory</code> against the
+  configuration's directory. The ETag state file lands in the package directory, so add
+  <code>.sanshain-cache.json</code> to <code>.gitignore</code>.
+</p>
+<p class="example-caption"><code>sanshain.yaml</code> in the module root</p>
+<pre><code>serviceName: my-go-service
+requires:
+  - serviceName: auth-service
+    version: 1.2.0
+    outputDirectory: internal/api/auth
+    endpoints:
+      - method: GET
+        path: /users/{id}</code></pre>
+<p class="example-caption"><code>internal/api/doc.go</code></p>
+<pre><code>//go:generate sanshain-go --config ../../sanshain.yaml require
+//go:generate oapi-codegen -package auth -o auth/client.gen.go auth/auth-service.yaml
+package api</code></pre>
+<pre><code>go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
+SANSHAIN_URL=https://sanshain.example.com SANSHAIN_TOKEN=san_… go generate ./...</code></pre>
+<p>
+  The entry has one endpoint, so the file is <code>auth-service.yaml</code>; with two or more it
+  would be <code>auth-service_bundle.yaml</code>. The repository's
+  <a href="https://github.com/paxel/sanshain-go/blob/summer/docs/integration.md">docs/integration.md</a>
+  has the same wiring.
+</p>
+
+<h2 id="ci-recipes">CI recipes</h2>
+<p>
+  A Producer provides after its tests; a Consumer requires before it generates code. Trunk and GA
+  are declared on <code>main</code> only. Instead of setting the ga switch you can put
+  <code>autoGa: true</code> in <code>sanshain.yaml</code> and declare trunk alone. The URL and
+  token come from the CI system's variables and secrets.
+</p>
+<p class="example-caption">GitHub Actions</p>
+<pre><code>- name: Sanshain Require
+  run: |
+    go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
+    sanshain-go require
+  env:
+    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
+    SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}
+    SANSHAIN_TRUNK: ${{ github.ref == 'refs/heads/main' }}
+
+# … build and test …
+
+- name: Sanshain Provide
+  run: sanshain-go provide
+  env:
+    SANSHAIN_URL: ${{ vars.SANSHAIN_URL }}
+    SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}
+    SANSHAIN_TRUNK: ${{ github.ref == 'refs/heads/main' }}
+    SANSHAIN_GA: ${{ github.ref == 'refs/heads/main' &amp;&amp; 'true' || '' }}</code></pre>
+<p>
+  The repository's own GitHub recipes, in
+  <a href="https://github.com/paxel/sanshain-go/blob/summer/docs/integration.md">docs/integration.md</a>,
+  set <code>SANSHAIN_GA: "true"</code> on the release pipeline or <code>SANSHAIN_TRUNK: "true"</code>
+  with <code>autoGa</code>, and add a <code>sanshain-go catalog</code> step with trunk on the trunk
+  pipeline.
+</p>
+<p class="example-caption">GitLab CI</p>
+<pre><code>sanshain-require:
+  image: golang:1.23
+  script:
+    - go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
+    - sanshain-go require
+    # … code generation and tests
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        SANSHAIN_TRUNK: "true"
+    - when: on_success
+
+sanshain-provide:
+  image: golang:1.23
+  stage: deploy
+  script:
+    - go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
+    - sanshain-go provide
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        SANSHAIN_TRUNK: "true"
+        SANSHAIN_GA: "true"
+    - when: on_success</code></pre>
+<p>
+  <code>SANSHAIN_URL</code> and <code>SANSHAIN_TOKEN</code> are CI/CD variables of the project
+  (the token masked). The client takes the job URL and, in merge request pipelines, the merge
+  request URL from GitLab's own variables.
+</p>
+<p class="example-caption">Jenkins (declarative, multibranch)</p>
+<pre><code>pipeline {
+  agent any
+  environment {
+    SANSHAIN_URL   = 'https://sanshain.example.com'
+    SANSHAIN_TOKEN = credentials('sanshain-token')
+    SANSHAIN_TRUNK = "${env.BRANCH_NAME == 'main' ? 'true' : ''}"
+  }
+  stages {
+    stage('Require') {
+      steps { sh 'sanshain-go require' }
+    }
+    // … build and test …
+    stage('Provide') {
+      environment {
+        SANSHAIN_GA = "${env.BRANCH_NAME == 'main' ? 'true' : ''}"
+      }
+      steps { sh 'sanshain-go provide' }
+    }
+  }
+}</code></pre>
+<p>
+  <code>sanshain-go</code> must be on the agent's <code>PATH</code>, from <code>go install</code> or
+  a release binary. The client reads <code>BUILD_URL</code> and, on pull request builds,
+  <code>CHANGE_URL</code> by itself.
+</p>
+
+<p class="checked">Checked against v2.13.0 and sanshain-go 2.5.0.</p>

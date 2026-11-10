@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Roles and permissions](https://paxel.github.io/sanshain-service/operator/roles.html) for the concepts.
-  version: "2.12.0"
+  version: "2.13.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -241,16 +241,37 @@ paths:
       description: |
         The instants this branch's graph changed (every open/close event of
         its append-only pin store), distinct and ascending — the timeline
-        slider's markers (ADR-0005).
+        slider's markers (ADR-0005), optionally only those between `from` and
+        `to` (both inclusive).
       parameters:
         - name: name
           in: path
           required: true
           schema:
             type: string
+        - name: from
+          in: query
+          required: false
+          description: Only instants at or after this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only instants at or before this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: The change instants as a JSON array of RFC 3339 strings.
+        "400":
+          description: "`from` or `to` is no RFC 3339 instant, or `from` is after `to`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
@@ -295,10 +316,32 @@ paths:
       x-scope: global
       description: |
         The instants the main graph changed, distinct and ascending — the
-        timeline slider's markers (ADR-0005).
+        timeline slider's markers (ADR-0005), optionally only those between
+        `from` and `to` (both inclusive).
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Only instants at or after this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only instants at or before this RFC 3339 instant.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: The change instants as a JSON array of RFC 3339 strings.
+        "400":
+          description: "`from` or `to` is no RFC 3339 instant, or `from` is after `to`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
         "401":
           description: Not signed in.
           content:
@@ -433,6 +476,7 @@ paths:
         The Consumer's context (#48): what its Backstage `catalog-info.yaml`
         says about it — owner, description, source location and links.
         `context` is `null` until a catalog push described the system.
+        `annotations` are the system annotations (#91) its builds sent.
       parameters:
         - name: name
           in: path
@@ -1161,6 +1205,8 @@ paths:
           name — owner, description, source location and links from its
           Backstage `catalog-info.yaml` — so the node panel needs no extra
           request. A present-day fact, the same in every scope.
+        - `system_annotations`: the system annotations (#91) of every system
+          that sent some, by name; present-day like `systems`.
       parameters:
         - name: scope
           in: query
@@ -1222,6 +1268,12 @@ paths:
                     type: object
                     additionalProperties:
                       $ref: "#/components/schemas/SystemContext"
+                  system_annotations:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Annotation"
         "400":
           description: A selector instant that is not RFC 3339, or `dev@…`.
           content:
@@ -1316,6 +1368,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/systems/{name}/information:
+    delete:
+      summary: "Delete: systems/name/information"
+      x-permission: manage_producers
+      x-scope: producer
+      description: |
+        Requires the `manage_producers` permission, **or** maintainership of the Producer named in the path.
+
+        Clear system information (#92): removes the system's catalog
+        context (owner, description, source location, links, tags) and its
+        system annotations, and closes its current periphery and missing-
+        component edges in the dev and main graphs. The timeline keeps the
+        closed edges; sanshain-branch copies stay untouched. Audited. The next
+        build's catalog push and calls set everything again. Answers
+        `{"cleared": name}`; `404` for a name that is neither a Producer nor a
+        Consumer. A name that is only a Consumer has no maintainer, so only the
+        global permission clears it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cleared.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Neither a Producer nor a Consumer of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/producers/{name}:
     get:
       summary: "Read: producers/name"
@@ -1327,6 +1423,7 @@ paths:
         The Producer's context (#48): what its Backstage `catalog-info.yaml`
         says about it — owner, description, source location and links.
         `context` is `null` until a catalog push described the system.
+        `annotations` are the system annotations (#91) its builds sent.
       parameters:
         - name: name
           in: path
@@ -2257,6 +2354,404 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "403":
           description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products:
+    get:
+      summary: "Read: products"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Every Product (#76, ADR-0011), sorted by name:
+        `{"products": [{"name", "created_at", "member_count"}]}`.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: products"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        Creates an empty Product. Body `{"name": "<name>"}`: trimmed, 1-100
+        characters, no `/`, `,` or control characters. Names are unique among
+        Products only; a Product may share its name with a system. Audited
+        (`CREATE_PRODUCT`). Answers `201 {"name", "created_at"}`.
+      responses:
+        "201":
+          description: Created.
+        "400":
+          description: The name is empty, too long or contains a forbidden character.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: A Product of that name exists already.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}:
+    get:
+      summary: "Read: products/name"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        One Product: `name`, `created_at`, `members` (each `system`, `origin`
+        `helm` or `manual`, and the roles its system has now: `producer`,
+        `consumer`; neither means "not in Sanshain") and `maintainers`
+        (`users` with `id`, `username`, `display_name`; `groups` with `id`,
+        `name`, `source`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    delete:
+      summary: "Delete: products/name"
+      x-permission: manage_producers
+      x-scope: global
+      description: |
+        Requires the `manage_producers` permission.
+
+        Deletes the Product with its member list and Product Maintainer
+        grants. The member systems stay untouched. Audited (`DELETE_PRODUCT`).
+        Answers `{"deleted": name}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/members:
+    post:
+      summary: "Create or run: products/name/members"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Adds a system by hand (origin `manual`). Body `{"system": "<name>"}`:
+        the name of a Producer or a Consumer. A system that is a member already
+        keeps its origin and answers `200 {"added": false}`; a new member answers
+        `201 {"system", "added": true}` and is audited (`ADD_PRODUCT_MEMBER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Already a member; nothing changed.
+        "201":
+          description: Added.
+        "400":
+          description: The system is neither a Producer nor a Consumer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/members/{system}:
+    delete:
+      summary: "Delete: products/name/members/system"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Removes a member, whatever its origin. A `helm` member comes back with
+        the next import of a chart that lists it. Audited
+        (`REMOVE_PRODUCT_MEMBER`). Answers `{"removed": system}`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: system
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the system is no member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/chart:
+    post:
+      summary: "Create or run: products/name/chart"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path. Product maintainership confers nothing beyond this Product's member list.
+
+        Imports a Helm umbrella `Chart.yaml`, applied directly. Body
+        `{"chart_yaml": "<file text>"}`. Each dependency's `alias`, else its
+        `name`, is a system name. Names that match no Producer and no Consumer
+        are skipped; every other one becomes a `helm` member (a `manual` member
+        it lists becomes `helm`); `helm` members the chart no longer lists are
+        removed; `manual` members stay. Answers
+        `{"added": [...], "removed": [...], "skipped": [...]}`, each sorted; a
+        `manual` member switched to `helm` is in neither list. Audited
+        (`IMPORT_PRODUCT_CHART`, with the three lists). Invalid YAML, a missing
+        or empty `dependencies` list, or a dependency with neither name nor
+        alias is `400` and changes nothing.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Imported; the body reports what changed.
+        "400":
+          description: The chart does not parse, lists no dependencies, or has an unnamed dependency. Nothing changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers:
+    post:
+      summary: "Create or run: products/name/maintainers"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Assigns a Product Maintainer. Body: exactly one of `{"user_id": n}` or
+        `{"group_id": n}` (a native or a directory group). Reassigning is a
+        no-op. Audited (`ASSIGN_PRODUCT_MAINTAINER`). Answers `201`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Assigned.
+        "400":
+          description: Neither or both of user_id and group_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product, user or group of that id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers/groups/{group_id}:
+    delete:
+      summary: "Delete: products/name/maintainers/groups/group_id"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Takes a group's Product maintainership away. Audited
+        (`UNASSIGN_PRODUCT_MAINTAINER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: group_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unassigned.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the group does not maintain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/maintainers/users/{user_id}:
+    delete:
+      summary: "Delete: products/name/maintainers/users/user_id"
+      x-permission: manage_roles
+      x-scope: global
+      description: |
+        Requires the `manage_roles` permission.
+
+        Takes a user's Product maintainership away. Audited
+        (`UNASSIGN_PRODUCT_MAINTAINER`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unassigned.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No Product of that name, or the user does not maintain it.
           content:
             application/json:
               schema:
@@ -4069,9 +4564,16 @@ components:
               icon:
                 type: string
                 nullable: true
+    Annotation:
+      type: object
+      required: [name, value]
+      description: A project-declared annotation (#91) the build filled in; see `api.yaml`.
+      properties:
+        name: { type: string }
+        value: { type: string }
     ParticipantContext:
       type: object
-      required: [name, context]
+      required: [name, context, annotations]
       properties:
         name:
           type: string
@@ -4079,6 +4581,11 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/SystemContext"
+        annotations:
+          type: array
+          description: The system annotations (#91) its builds sent, sorted by name.
+          items:
+            $ref: "#/components/schemas/Annotation"
     WebhookScope:
       type: object
       description: Who a hook belongs to (#47).

@@ -18,9 +18,11 @@
 const GRAPH_VIEW_KEYS = {
   direction: "sanshain_graph_direction",
   compact: "sanshain_graph_compact",
+  density: "sanshain_graph_density",
   rainbow: "sanshain_graph_rainbow",
   topics: "sanshain_graph_topics",
   periphery: "sanshain_graph_periphery",
+  domains: "sanshain_graph_domains",
 };
 function readGraphViewPref(name) {
   try {
@@ -36,6 +38,37 @@ function writeGraphViewPref(name, value) {
     // Forgotten on the next visit; the switch still works now.
   }
 }
+
+// Domain colours: each domain takes one from this palette by a hash of its
+// name, so it keeps its colour across views, filters and links. Purple, red,
+// orange and amber are left out (they mark circular, conflicting, missing,
+// stale and dangling edges); two domains may share a colour, the name beside
+// it tells them apart. `border` is the strong tone, `text` a darker shade.
+const GRAPH_DOMAIN_PALETTE = [
+  { border: "#0d9488", text: "#115e59" }, // teal
+  { border: "#0891b2", text: "#155e75" }, // cyan
+  { border: "#0284c7", text: "#075985" }, // sky
+  { border: "#2563eb", text: "#1e40af" }, // blue
+  { border: "#4f46e5", text: "#3730a3" }, // indigo
+  { border: "#059669", text: "#065f46" }, // emerald
+  { border: "#65a30d", text: "#3f6212" }, // lime
+  { border: "#475569", text: "#1e293b" }, // slate
+  { border: "#57534e", text: "#292524" }, // stone
+];
+
+// FNV-1a over the name's UTF-16 code units: stable, and cheap enough to run
+// per node on every redraw.
+function graphDomainColor(domain) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < domain.length; i++) {
+    hash ^= domain.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const { border, text } = GRAPH_DOMAIN_PALETTE[hash % GRAPH_DOMAIN_PALETTE.length];
+  return { border, text, fill: `${border}14` };
+}
+window.graphDomainColor = graphDomainColor;
+window.GRAPH_DOMAIN_PALETTE = GRAPH_DOMAIN_PALETTE;
 
 // The Focus picker, created by the page script once the toolbar exists.
 let graphFocusPicker = null;
@@ -56,24 +89,39 @@ window.graphProtocolFilters = {
 // The view switches of the custom renderer, presentation only and never
 // resolution inputs: Compact tightens the layout gaps, Rainbow colours the
 // plain edges per source node. The page script remembers them per browser.
-window.graphViewSwitches = { compact: false, rainbow: false, topics: false };
+window.graphViewSwitches = { rainbow: false, topics: false };
+// How tight the custom layout is: "normal", "compact" or "dense".
+window.graphDensity = "normal";
+window.GRAPH_DENSITIES = ["normal", "compact", "dense"];
+// How domains are drawn: "group" puts a domain's services in one frame;
+// "node" writes the domain onto each node and lets the layout arrange freely.
+window.graphDomainsMode = "group";
+// Experimental (z): "domains" draws one node per domain instead of services.
+window.graphLevel = "services";
 
 // How long the mouse rests on a node or edge before its panel opens.
 const GRAPH_HOVER_DELAY_MS = 2000;
 window.GRAPH_HOVER_DELAY_MS = GRAPH_HOVER_DELAY_MS;
 
-// The gaps of the custom layout: dagre's own and the compaction pass's. Compact
-// trims them for installs whose graph outgrows the screen; the airy default
-// stays for the small ones.
-function graphLayoutGaps(isLR, compact) {
-  if (compact) {
+// The gaps of the custom layout: dagre's own, the compaction pass's and the
+// padding of a domain frame. Compact trims them for installs whose graph
+// outgrows the screen; Dense keeps the nodes as they are and leaves only room
+// for the edges and badges between them, for small monitors; the airy default
+// stays for the small installs.
+function graphLayoutGaps(isLR, density) {
+  if (density === "dense") {
     return isLR
-      ? { nodesep: 40, ranksep: 80, edgesep: 40, gap: 14, groupGap: 40 }
-      : { nodesep: 50, ranksep: 110, edgesep: 40, gap: 16, groupGap: 50 };
+      ? { nodesep: 18, ranksep: 50, edgesep: 16, gap: 6, groupGap: 16, framePadding: 22 }
+      : { nodesep: 24, ranksep: 60, edgesep: 16, gap: 8, groupGap: 20, framePadding: 22 };
+  }
+  if (density === "compact") {
+    return isLR
+      ? { nodesep: 40, ranksep: 80, edgesep: 40, gap: 14, groupGap: 40, framePadding: 40 }
+      : { nodesep: 50, ranksep: 110, edgesep: 40, gap: 16, groupGap: 50, framePadding: 40 };
   }
   return isLR
-    ? { nodesep: 100, ranksep: 150, edgesep: 80, gap: 25, groupGap: 100 }
-    : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120 };
+    ? { nodesep: 100, ranksep: 150, edgesep: 80, gap: 25, groupGap: 100, framePadding: 40 }
+    : { nodesep: 120, ranksep: 250, edgesep: 80, gap: 30, groupGap: 120, framePadding: 40 };
 }
 window.graphLayoutGaps = graphLayoutGaps;
 
@@ -416,7 +464,19 @@ function redrawGraph() {
   const customSvg = document.getElementById("custom-graph");
   const mermaidDiv = document.getElementById("mermaid-graph");
 
-  if (mode === "custom" && customSvg) {
+  if (
+    mode === "custom" &&
+    customSvg &&
+    window.graphLevel === "domains" &&
+    window.renderDomainGraph
+  ) {
+    window.renderDomainGraph(filteredReport, customSvg, direction);
+  } else if (mode === "custom" && customSvg) {
+    // The domain view's own zoom and pan handlers go with it.
+    for (const handler of ["onmousemove", "onmouseup", "onmouseleave"]) {
+      customSvg[handler] = null;
+    }
+    customSvg.dataset.level = "services";
     renderCustomGraph(filteredReport, customSvg, direction);
   } else if (mermaidDiv) {
     // renderGraph is defined in service.html and it uses lastGraphReport globally.
@@ -868,6 +928,37 @@ function getFilteredReport(report) {
         });
         continue;
       }
+      // `product:<name>` (#76) focuses the Product's member systems, plus
+      // their neighbours, like `tag:`. A member not in Sanshain has no node.
+      if (target.startsWith("product:")) {
+        const members = graphProductMembers(tag.slice(8).trim());
+        members.forEach((name) => {
+          if (!deps.some((d) => d.client === name || d.service === name)) return;
+          focusNodes.add(name);
+          deps.forEach((d) => {
+            if (d.client === name) focusNodes.add(d.service);
+            if (d.service === name) focusNodes.add(d.client);
+          });
+        });
+        continue;
+      }
+      // `domain:<name>` focuses every service of the domain, plus their
+      // neighbours: where a click in the domain view leads.
+      if (target.startsWith("domain:")) {
+        const wanted = target.slice(7).trim();
+        const members = new Set(
+          (report.services_detailed || [])
+            .filter((s) => (s.domain || "").toLowerCase() === wanted)
+            .map((s) => s.name),
+        );
+        deps.forEach((d) => {
+          if (members.has(d.client) || members.has(d.service)) {
+            focusNodes.add(d.client);
+            focusNodes.add(d.service);
+          }
+        });
+        continue;
+      }
       const exactMatch = deps.find(
         (d) => d.client.toLowerCase() === target || d.service.toLowerCase() === target,
       );
@@ -916,13 +1007,16 @@ function setGraphRedrawMode(mode) {
           : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
     }
   });
+  if (window.updateGraphUrl) window.updateGraphUrl(false);
   redrawGraph();
 }
 window.setGraphRedrawMode = setGraphRedrawMode;
 
-// Switch between the dev and main stream views (ADR-0004). The legend is
+// Switch between the dev, main and branch views (ADR-0004/0005). The legend is
 // view-aware: entries carrying data-stream-only show only in their view.
-function setStreamView(view) {
+// `at` opens the view at that instant (a shared link); `push` adds a history
+// entry, which a switch by the user does and a restore from the address not.
+async function setStreamView(view, at = null, push = true) {
   window.graphStreamView = view;
   if (view !== "branch") {
     window.graphBranchName = null;
@@ -945,98 +1039,242 @@ function setStreamView(view) {
     el.classList.toggle("hidden", !views.includes(view));
   });
   window.graphTimelineAt = null;
+  window.graphTimelineTarget = null;
   window.graphTimelinePins = null;
   window.graphScopePeriphery = null;
   window.graphScopeData = null;
   // A view switch outdates every timeline/periphery request still in flight.
   const token = (window._graphTimelineToken || 0) + 1;
   window._graphTimelineToken = token;
+  if (push) {
+    // A switch by the user wins over a view still being opened from the address.
+    window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
+    if (window.updateGraphUrl) window.updateGraphUrl(true);
+  }
   initTimelineSlider();
-  void refreshTimeline();
+  await refreshTimeline(token);
+  if (token !== window._graphTimelineToken) return;
+  // A range ending before today opens at its right edge, the end of that day.
+  const target = view === "dev" ? null : at || graphTimelineEdges().end;
+  if (target) {
+    await setTimelinePosition(target);
+    return;
+  }
   // One redraw once the scope's periphery and producers are both in: drawing
   // the pins first would show the box and badges of no scope at all.
-  void Promise.all([
+  const [periphery, scopeData] = await Promise.all([
     graphFetchScopePeriphery(view, window.graphBranchName, null),
     graphFetchScopeData(view, window.graphBranchName, null),
-  ]).then(([periphery, scopeData]) => {
-    if (token !== window._graphTimelineToken) return;
-    window.graphScopePeriphery = periphery;
-    window.graphScopeData = scopeData;
-    redrawGraph();
-  });
+  ]);
+  if (token !== window._graphTimelineToken) return;
+  window.graphScopePeriphery = periphery;
+  window.graphScopeData = scopeData;
+  redrawGraph();
 }
 window.setStreamView = setStreamView;
 
 // ── Timeline (ADR-0005) ──────────────────────────────────────────────
-// The slider indexes the graph's change dates; the last position is "now".
+// The slider spans the chosen range of UTC days evenly, one step per second;
+// the change dates are ticks, and the handle snaps to the nearest one or to
+// an edge. The left edge is 00:00 of the start day, the right edge "now" when
+// the range ends today and the end of the end day otherwise.
 
-async function refreshTimeline() {
+const GRAPH_TIMELINE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function graphUtcDay(date) {
+  return date.toISOString().slice(0, 10);
+}
+window.graphUtcDay = graphUtcDay;
+
+// The default range: the last 3 months up to today, in UTC days.
+function graphDefaultTimelineRange(now = new Date()) {
+  const from = new Date(now.getTime());
+  from.setUTCMonth(from.getUTCMonth() - 3);
+  return { from: graphUtcDay(from), to: graphUtcDay(now) };
+}
+window.graphDefaultTimelineRange = graphDefaultTimelineRange;
+
+// A real calendar day written YYYY-MM-DD (2026-02-30 is not).
+function graphIsTimelineDay(day) {
+  if (typeof day !== "string" || !GRAPH_TIMELINE_DAY.test(day)) return false;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && graphUtcDay(parsed) === day;
+}
+window.graphIsTimelineDay = graphIsTimelineDay;
+
+// The range on screen, and whether someone chose it: only a chosen range goes
+// into the address, so a link without one opens on the viewer's last 3 months.
+window.graphTimelineRange = graphDefaultTimelineRange();
+window.graphTimelineRangeChosen = false;
+// When the right edge was "now" at the last refresh.
+window.graphTimelineNowMs = Date.now();
+
+// The two edges as instants; `end` is null when the range reaches today.
+function graphTimelineEdges(range = window.graphTimelineRange, now = new Date()) {
+  return {
+    start: `${range.from}T00:00:00Z`,
+    end: range.to >= graphUtcDay(now) ? null : `${range.to}T23:59:59Z`,
+  };
+}
+window.graphTimelineEdges = graphTimelineEdges;
+
+// The snap stops along the slider, in seconds from the left edge: both edges
+// and every change date strictly between them. The right edge's `at` is null
+// when it stands for "now".
+function graphTimelineStops(range, dates, nowMs) {
+  const { start, end } = graphTimelineEdges(range, new Date(nowMs));
+  const startMs = Date.parse(start);
+  const endMs = end ? Date.parse(end) : nowMs;
+  const max = Math.max(0, Math.round((endMs - startMs) / 1000));
+  const stops = [{ secs: 0, at: start }];
+  for (const d of dates) {
+    const secs = Math.round((Date.parse(d) - startMs) / 1000);
+    if (secs > 0 && secs < max) stops.push({ secs, at: d });
+  }
+  stops.push({ secs: max, at: end });
+  return { stops, max };
+}
+window.graphTimelineStops = graphTimelineStops;
+
+function graphNearestStop(stops, secs) {
+  return stops.reduce((best, s) =>
+    Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best,
+  );
+}
+window.graphNearestStop = graphNearestStop;
+
+function graphCurrentStops() {
+  return graphTimelineStops(
+    window.graphTimelineRange,
+    window.graphTimelineDates,
+    window.graphTimelineNowMs,
+  );
+}
+
+// Where an instant sits on the slider; the right edge for "now".
+function graphTimelineSecondsOf(at) {
+  const { stops, max } = graphCurrentStops();
+  if (!at) return max;
+  const secs = Math.round((Date.parse(at) - Date.parse(stops[0].at)) / 1000);
+  return Math.min(max, Math.max(0, secs));
+}
+
+function graphTimelineLabel(at) {
+  return at ? at.slice(0, 16).replace("T", " ") : "now";
+}
+
+// Move the handle and the label to `at` (null = the right edge).
+function graphShowTimelinePosition(at) {
+  const slider = document.getElementById("graph-timeline-slider");
+  const label = document.getElementById("graph-timeline-label");
+  if (slider) slider.value = String(graphTimelineSecondsOf(at));
+  if (label) label.textContent = graphTimelineLabel(at);
+}
+
+const GRAPH_DAY_FIELD_OK = ["border-slate-300", "bg-white"];
+const GRAPH_DAY_FIELD_BAD = ["border-red-500", "bg-red-50"];
+
+function graphMarkDayField(field, valid) {
+  field.classList.remove(...(valid ? GRAPH_DAY_FIELD_BAD : GRAPH_DAY_FIELD_OK));
+  field.classList.add(...(valid ? GRAPH_DAY_FIELD_OK : GRAPH_DAY_FIELD_BAD));
+  field.setAttribute("aria-invalid", valid ? "false" : "true");
+}
+
+// Bring the range fields, the slider's scale, its ticks, the handle and the
+// Now button in line with the range and the change dates.
+function syncTimelineControls() {
+  const slider = document.getElementById("graph-timeline-slider");
+  if (!slider) return;
+  const { stops, max } = graphCurrentStops();
+  slider.min = "0";
+  slider.max = String(max);
+  graphShowTimelinePosition(window.graphTimelineAt);
+  const ticks = document.getElementById("graph-timeline-ticks");
+  if (ticks) {
+    ticks.replaceChildren();
+    for (const stop of stops.slice(1, -1)) {
+      const tick = document.createElement("span");
+      tick.className = "absolute top-0 h-2 w-px bg-amber-500";
+      tick.style.left = `${max ? (stop.secs / max) * 100 : 0}%`;
+      tick.title = graphTimelineLabel(stop.at);
+      ticks.appendChild(tick);
+    }
+  }
+  const nowBtn = document.getElementById("graph-timeline-now");
+  if (nowBtn) nowBtn.classList.toggle("hidden", graphTimelineEdges().end !== null);
+  for (const [id, value] of [
+    ["graph-timeline-from", window.graphTimelineRange.from],
+    ["graph-timeline-to", window.graphTimelineRange.to],
+  ]) {
+    const field = document.getElementById(id);
+    if (!field) continue;
+    field.value = value;
+    graphMarkDayField(field, true);
+  }
+}
+
+// Fetch the change dates of the view within the range and redraw the
+// controls. A newer view switch, range change or position (a newer token)
+// wins over this one.
+async function refreshTimeline(token = window._graphTimelineToken) {
   const row = document.getElementById("graph-timeline-row");
   if (!row) return;
   const view = window.graphStreamView;
   if (view === "dev") {
     row.classList.add("hidden");
     window.graphTimelineAt = null;
+    window.graphTimelineTarget = null;
     window.graphTimelinePins = null;
     return;
   }
-  const url =
+  const range = window.graphTimelineRange;
+  const base =
     view === "main"
       ? "/admin/trunk/timeline"
       : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/timeline`;
+  const from = encodeURIComponent(`${range.from}T00:00:00Z`);
+  const to = encodeURIComponent(`${range.to}T23:59:59Z`);
+  let dates = [];
   try {
-    const res = await apiCall(url);
-    window.graphTimelineDates = res.ok ? await res.json() : [];
+    const res = await apiCall(`${base}?from=${from}&to=${to}`);
+    dates = res.ok ? await res.json() : [];
   } catch (e) {
     console.warn("Could not load the timeline:", e);
-    window.graphTimelineDates = [];
   }
-  const slider = document.getElementById("graph-timeline-slider");
-  slider.max = String(window.graphTimelineDates.length);
-  slider.value = slider.max;
-  document.getElementById("graph-timeline-label").textContent = "now";
+  if (token !== window._graphTimelineToken) return;
+  window.graphTimelineDates = dates;
+  window.graphTimelineNowMs = Date.now();
+  syncTimelineControls();
   // Greyed for those without release_ga (data-needs on the button), not hidden.
   row.classList.remove("hidden");
 }
 
+// Show the graph of the view at `at`, or the current graph for null ("now").
 async function setTimelinePosition(at) {
-  const slider = document.getElementById("graph-timeline-slider");
-  const label = document.getElementById("graph-timeline-label");
-  if (at === null) {
-    const token = (window._graphTimelineToken || 0) + 1;
-    window._graphTimelineToken = token;
-    slider.value = slider.max;
-    label.textContent = "now";
-    const [periphery, scopeData] = await Promise.all([
-      graphFetchScopePeriphery(window.graphStreamView, window.graphBranchName, null),
-      graphFetchScopeData(window.graphStreamView, window.graphBranchName, null),
-    ]);
-    if (token !== window._graphTimelineToken) return;
-    window.graphTimelineAt = null;
-    window.graphTimelinePins = null;
-    window.graphScopePeriphery = periphery;
-    window.graphScopeData = scopeData;
-    redrawGraph();
-    return;
-  }
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
+  // The instant asked for last, applied or still loading: a step or a drag
+  // compares against it, not against the instant on screen.
+  window.graphTimelineTarget = at;
+  // The handle and label move at once; the graph follows when it loads.
+  graphShowTimelinePosition(at);
   const view = window.graphStreamView;
-  const url =
-    view === "main"
-      ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
-      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
-  // Dragging the slider fires one request per instant it crosses, and they can
+  // Dragging the slider fires one request per stop it crosses, and they can
   // land out of order — on a slow link an earlier response arriving last would
   // leave the graph on an instant the user already scrubbed past. Only the
   // newest request may apply its result.
-  const token = (window._graphTimelineToken || 0) + 1;
-  window._graphTimelineToken = token;
-  // The label tracks the handle immediately; the graph follows when it loads.
-  label.textContent = at.slice(0, 16).replace("T", " ");
   try {
-    const res = await apiCall(url);
-    if (!res.ok || token !== window._graphTimelineToken) return;
-    const pins = await res.json();
-    if (token !== window._graphTimelineToken) return;
+    let pins = null;
+    if (at) {
+      const url =
+        view === "main"
+          ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
+          : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
+      const res = await apiCall(url);
+      if (!res.ok || token !== window._graphTimelineToken) return;
+      pins = await res.json();
+      if (token !== window._graphTimelineToken) return;
+    }
     const [periphery, scopeData] = await Promise.all([
       graphFetchScopePeriphery(view, window.graphBranchName, at),
       graphFetchScopeData(view, window.graphBranchName, at),
@@ -1046,6 +1284,7 @@ async function setTimelinePosition(at) {
     window.graphTimelineAt = at;
     window.graphScopePeriphery = periphery;
     window.graphScopeData = scopeData;
+    if (window.updateGraphUrl) window.updateGraphUrl(false);
     redrawGraph();
   } catch (e) {
     console.warn("Could not load the graph at that instant:", e);
@@ -1053,17 +1292,78 @@ async function setTimelinePosition(at) {
 }
 window.setTimelinePosition = setTimelinePosition;
 
+// The range fields: a day after the other is refused — both turn red and the
+// range on screen stays — anything else becomes the range, a history entry.
+async function setTimelineRangeFromFields() {
+  const fromField = document.getElementById("graph-timeline-from");
+  const toField = document.getElementById("graph-timeline-to");
+  if (!fromField || !toField) return;
+  const from = fromField.value;
+  const to = toField.value;
+  const valid = graphIsTimelineDay(from) && graphIsTimelineDay(to) && from <= to;
+  graphMarkDayField(fromField, valid);
+  graphMarkDayField(toField, valid);
+  if (!valid) return;
+  window.graphTimelineRange = { from, to };
+  window.graphTimelineRangeChosen = true;
+  window.graphTimelineAt = null;
+  window.graphTimelineTarget = null;
+  const token = (window._graphTimelineToken || 0) + 1;
+  window._graphTimelineToken = token;
+  if (window.updateGraphUrl) window.updateGraphUrl(true);
+  await refreshTimeline(token);
+  if (token !== window._graphTimelineToken) return;
+  await setTimelinePosition(graphTimelineEdges().end);
+}
+window.setTimelineRangeFromFields = setTimelineRangeFromFields;
+
+// Step the timeline handle to the previous (-1) or next (+1) tick or edge —
+// the [ and ] keys; nothing in the dev view, which has no timeline.
+function graphStepTimeline(delta) {
+  const slider = document.getElementById("graph-timeline-slider");
+  if (!slider || window.graphStreamView === "dev") return;
+  const { stops } = graphCurrentStops();
+  const secs = Number(slider.value);
+  const stop =
+    delta < 0
+      ? stops.filter((s) => s.secs < secs).pop() || stops[0]
+      : stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+  slider.value = String(stop.secs);
+  if (stop.at === window.graphTimelineTarget) return;
+  void setTimelinePosition(stop.at);
+}
+window.graphStepTimeline = graphStepTimeline;
+
 function initTimelineSlider() {
   const slider = document.getElementById("graph-timeline-slider");
   if (!slider || slider.dataset.wired) return;
   slider.dataset.wired = "1";
+  const moveTo = (stop) => {
+    slider.value = String(stop.secs);
+    if (stop.at === window.graphTimelineTarget) return;
+    void setTimelinePosition(stop.at);
+  };
   slider.addEventListener("input", () => {
-    const idx = Number.parseInt(slider.value, 10);
-    if (idx >= window.graphTimelineDates.length) {
-      void setTimelinePosition(null);
-    } else {
-      void setTimelinePosition(window.graphTimelineDates[idx]);
+    const { stops } = graphCurrentStops();
+    moveTo(graphNearestStop(stops, Number(slider.value)));
+  });
+  // The arrow keys step from tick to tick, Home and End to the edges.
+  slider.addEventListener("keydown", (e) => {
+    const { stops } = graphCurrentStops();
+    const secs = Number(slider.value);
+    let stop = null;
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      stop = stops.filter((s) => s.secs < secs).pop() || stops[0];
+    } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      stop = stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+    } else if (e.key === "Home") {
+      stop = stops[0];
+    } else if (e.key === "End") {
+      stop = stops[stops.length - 1];
     }
+    if (!stop) return;
+    e.preventDefault();
+    moveTo(stop);
   });
 }
 
@@ -1091,6 +1391,9 @@ window.createBranchHere = createBranchHere;
 // Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
 // references included — and draw it with the shared pipeline.
 async function selectBranchView(name) {
+  // Counted at once: the branch's pins are still loading when the view the
+  // address named might be applied.
+  window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
   if (!name) {
     setStreamView("dev");
     return;
@@ -1122,6 +1425,38 @@ function failBranchSelection(name, reason) {
 }
 window.selectBranchView = selectBranchView;
 
+// The member names of the Products a `product:<name>` focus names (#76),
+// fetched once per Product from its read route. Unknown until loaded, and
+// empty for a Product that does not exist.
+const graphProductMemberCache = new Map();
+
+function graphProductMembers(product) {
+  return graphProductMemberCache.get(product) || [];
+}
+
+async function graphLoadFocusProducts() {
+  const wanted = window.graphFocusTags
+    .filter((t) => t.toLowerCase().startsWith("product:"))
+    .map((t) => t.slice(8).trim())
+    .filter((p) => p && !graphProductMemberCache.has(p));
+  if (wanted.length === 0) return;
+  await Promise.all(
+    wanted.map(async (product) => {
+      let members = [];
+      try {
+        const res = await apiCall(`/admin/products/${encodeURIComponent(product)}`);
+        if (res.ok) members = ((await res.json()).members || []).map((m) => m.system);
+        else console.warn(`No Product '${product}' to focus on`);
+      } catch (e) {
+        console.warn(`Could not load Product '${product}':`, e);
+      }
+      graphProductMemberCache.set(product, members);
+    }),
+  );
+  redrawGraph();
+}
+window.graphLoadFocusProducts = graphLoadFocusProducts;
+
 function addFocusTag(name) {
   if (!name || !name.trim()) return;
   const trimmed = name.trim();
@@ -1130,6 +1465,7 @@ function addFocusTag(name) {
   renderFocusTags();
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
+  void graphLoadFocusProducts();
 }
 window.addFocusTag = addFocusTag;
 
@@ -1192,6 +1528,9 @@ window.toggleProtocolFilter = toggleProtocolFilter;
 function _graphEscapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+// The height the domain line adds to a node when domains sit on the nodes.
+const GRAPH_DOMAIN_LINE_H = 16;
 
 function _measureNode(name, hasIcon) {
   const fontSize = 16;
@@ -1488,6 +1827,7 @@ window.graphLayoutUnrequiredBox = graphLayoutUnrequiredBox;
 // ── Main renderer ────────────────────────────────────────────────────
 
 function renderCustomGraph(report, svgElement, direction) {
+  graphDetachPan();
   // Clear previous content
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
@@ -1527,8 +1867,11 @@ function renderCustomGraph(report, svgElement, direction) {
   // cluster bounds, edge tangents).
   const dir = direction === "LR" ? "LR" : "TB";
   const isLR = dir === "LR";
-  const gaps = graphLayoutGaps(isLR, !!switches.compact);
-  svgElement.dataset.compact = switches.compact ? "1" : "0";
+  const density = window.GRAPH_DENSITIES.includes(window.graphDensity)
+    ? window.graphDensity
+    : "normal";
+  const gaps = graphLayoutGaps(isLR, density);
+  svgElement.dataset.density = density;
   const rainbow = !!switches.rainbow;
   svgElement.dataset.rainbow = rainbow ? "1" : "0";
 
@@ -1667,10 +2010,18 @@ function renderCustomGraph(report, svgElement, direction) {
     report.services_detailed.forEach((s) => serviceMetaMap.set(s.name, s));
   }
 
-  const domains = new Set();
-  for (const node of layoutNodes) {
+  // Grouped, a domain is a dagre cluster and a block of its own; on the
+  // nodes, it is only a line and a colour on each node.
+  const groupDomains = window.graphDomainsMode !== "node";
+  const nodeDomain = (node) => {
     const meta = serviceMetaMap.get(node);
-    if (meta && meta.domain) domains.add(meta.domain);
+    return meta && meta.domain ? meta.domain : "";
+  };
+  const domains = new Set();
+  if (groupDomains) {
+    for (const node of layoutNodes) {
+      if (nodeDomain(node)) domains.add(nodeDomain(node));
+    }
   }
 
   // Set domain clusters
@@ -1686,6 +2037,12 @@ function renderCustomGraph(report, svgElement, direction) {
         ? node.slice("topic:".length)
         : node;
     const m = _measureNode(label, !!(meta && meta.icon));
+    if (!groupDomains && nodeDomain(node)) {
+      // One more line for the domain, below the name.
+      m.domain = nodeDomain(node);
+      m.height += GRAPH_DOMAIN_LINE_H;
+      m.width = Math.max(m.width, Math.ceil(m.domain.length * 6.5) + 40);
+    }
     // Main view: the version label sits bottom-right, beside the requires
     // badges on the bottom-left; keep both on the node.
     const requiresCount = (nodeBadges.get(node) || { requires: [] }).requires.length;
@@ -1693,7 +2050,7 @@ function renderCustomGraph(report, svgElement, direction) {
     nodeMetrics.set(node, m);
     if (islandNodes.has(node)) continue;
     g.setNode(node, { label: node, width: m.width, height: m.height });
-    if (meta && meta.domain) {
+    if (groupDomains && meta && meta.domain) {
       g.setParent(node, `domain:${meta.domain}`);
     }
   }
@@ -1807,11 +2164,8 @@ function renderCustomGraph(report, svgElement, direction) {
   // overlapped. Blocks sit side by side in the order dagre placed them, with
   // a gap wide enough for two frames' padding; without domains there is one
   // block and the layout is the plain lane packing.
-  const DOMAIN_FRAME_PADDING = 40;
-  const blockOf = (node) => {
-    const meta = serviceMetaMap.get(node);
-    return meta && meta.domain ? `domain:${meta.domain}` : "";
-  };
+  const DOMAIN_FRAME_PADDING = gaps.framePadding;
+  const blockOf = (node) => (groupDomains && nodeDomain(node) ? `domain:${nodeDomain(node)}` : "");
   const blockNodes = new Map();
   for (const node of layoutNodes) {
     const key = blockOf(node);
@@ -2045,7 +2399,14 @@ function renderCustomGraph(report, svgElement, direction) {
   const centerY = (minY + maxY) / 2;
 
   // Viewport-sized canvas: fill available window height
-  const availableH = window.innerHeight - svgElement.getBoundingClientRect().top - 40;
+  // In fullscreen the canvas fills its container instead.
+  const holder = svgElement.parentElement;
+  const availableH =
+    document.body.dataset.graphFs && holder
+      ? holder.clientHeight -
+        parseFloat(getComputedStyle(holder).paddingTop) -
+        parseFloat(getComputedStyle(holder).paddingBottom)
+      : window.innerHeight - svgElement.getBoundingClientRect().top - 40;
   svgElement.style.height = Math.max(availableH, 300) + "px";
   const vw = svgElement.clientWidth;
   const vh = svgElement.clientHeight;
@@ -2099,17 +2460,18 @@ function renderCustomGraph(report, svgElement, direction) {
       cluster.setAttribute("rx", "12");
       cluster.setAttribute("ry", "12");
       cluster.dataset.domain = node.label;
-      cluster.setAttribute("fill", "rgba(99, 102, 241, 0.03)");
-      cluster.setAttribute("stroke", "rgba(99, 102, 241, 0.15)");
+      const color = graphDomainColor(node.label);
+      cluster.setAttribute("fill", color.fill);
+      cluster.setAttribute("stroke", color.border);
       cluster.setAttribute("stroke-width", "1.5");
-      cluster.setAttribute("stroke-dasharray", "4 4");
       mainG.appendChild(cluster);
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
       label.setAttribute("x", node.x - node.width / 2 + 10);
-      label.setAttribute("y", node.y - node.height / 2 + 15);
-      label.setAttribute("fill", "rgba(99, 102, 241, 0.5)");
-      label.setAttribute("font-size", "10");
+      label.setAttribute("y", node.y - node.height / 2 + 17);
+      label.dataset.domainLabel = node.label;
+      label.setAttribute("fill", color.text);
+      label.setAttribute("font-size", "12");
       label.setAttribute("font-weight", "bold");
       label.setAttribute("text-transform", "uppercase");
       label.textContent = node.label;
@@ -2421,6 +2783,34 @@ function renderCustomGraph(report, svgElement, direction) {
     const meta = serviceMetaMap.get(node);
     const lineH = 20;
     const totalTextH = m.lines.length * lineH;
+    // The domain on the node: a coloured edge on the left and its name in a
+    // line below the service name, which moves up to make room.
+    const domainShift = m.domain ? GRAPH_DOMAIN_LINE_H / 2 : 0;
+    if (m.domain) {
+      const color = graphDomainColor(m.domain);
+      group.dataset.nodeDomain = m.domain;
+      const edge = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      edge.setAttribute("x", cx - hw + 2);
+      edge.setAttribute("y", cy - hh + 6);
+      edge.setAttribute("width", "4");
+      edge.setAttribute("height", Math.max(0, nd.height - 12));
+      edge.setAttribute("rx", "2");
+      edge.setAttribute("fill", color.border);
+      edge.dataset.domainEdge = "1";
+      group.appendChild(edge);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      line.setAttribute("x", nd.x);
+      line.setAttribute("y", nd.y + totalTextH / 2 + domainShift - GRAPH_DOMAIN_LINE_H / 2 + 2);
+      line.setAttribute("text-anchor", "middle");
+      line.setAttribute("dominant-baseline", "central");
+      line.setAttribute("fill", color.text);
+      line.setAttribute("font-size", "11");
+      line.setAttribute("font-weight", "600");
+      line.setAttribute("font-family", "ui-sans-serif, system-ui, sans-serif");
+      line.dataset.domainLine = "1";
+      line.textContent = m.domain;
+      group.appendChild(line);
+    }
     const hasIcon = !!(meta && meta.icon);
     const textXOffset = hasIcon ? 15 : 0;
 
@@ -2438,7 +2828,7 @@ function renderCustomGraph(report, svgElement, direction) {
     m.lines.forEach((line, i) => {
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
       text.setAttribute("x", nd.x + textXOffset);
-      text.setAttribute("y", nd.y - totalTextH / 2 + i * lineH + lineH / 2);
+      text.setAttribute("y", nd.y - totalTextH / 2 - domainShift + i * lineH + lineH / 2);
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("dominant-baseline", "central");
       text.setAttribute("fill", textColor);
@@ -2701,7 +3091,9 @@ function renderCustomGraph(report, svgElement, direction) {
     // Owner, description and link chips from the system's catalog-info
     // (#48), below the version lines; rides the scope payload.
     const systems = (window.graphScopeData && window.graphScopeData.systems) || {};
-    const contextBlock = systemContextHtml(systems[name], true);
+    const annotations = (window.graphScopeData && window.graphScopeData.system_annotations) || {};
+    const contextBlock =
+      systemContextHtml(systems[name], true) + annotationsHtml(annotations[name], true);
     const contextLines = contextBlock ? `<div class="mt-2">${contextBlock}</div>` : "";
 
     // The graph draws Producers and Consumers as the same kind of node, but the
@@ -2855,7 +3247,9 @@ function renderCustomGraph(report, svgElement, direction) {
     });
   });
 
-  svgElement.addEventListener("click", clearHighlight);
+  // Handler properties, not listeners: the canvas outlives every redraw, and
+  // added listeners piled up one set per redraw.
+  svgElement.onclick = clearHighlight;
 
   // ── Legend hover-to-highlight ────────────────────────────────────
   // Expose nodeElements/edgeElements so the legend hover code can access them
@@ -2896,37 +3290,36 @@ function renderCustomGraph(report, svgElement, direction) {
     mainG.setAttribute("transform", `translate(${panX},${panY}) scale(${scale})`);
   }
 
-  svgElement.addEventListener(
-    "wheel",
-    (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(0.2, Math.min(3, scale * delta));
+  svgElement.onwheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.2, Math.min(3, scale * delta));
 
-      // Convert mouse position from screen pixels to SVG viewBox coordinates
-      const rect = svgElement.getBoundingClientRect();
-      const vb = svgElement.viewBox.baseVal;
-      const mx = ((e.clientX - rect.left) / rect.width) * vb.width;
-      const my = ((e.clientY - rect.top) / rect.height) * vb.height;
+    // Convert mouse position from screen pixels to SVG viewBox coordinates
+    const rect = svgElement.getBoundingClientRect();
+    const vb = svgElement.viewBox.baseVal;
+    const mx = ((e.clientX - rect.left) / rect.width) * vb.width;
+    const my = ((e.clientY - rect.top) / rect.height) * vb.height;
 
-      // Zoom toward cursor in SVG space
-      panX = mx - (mx - panX) * (newScale / scale);
-      panY = my - (my - panY) * (newScale / scale);
-      scale = newScale;
-      updateTransform();
-    },
-    { passive: false },
-  );
+    // Zoom toward cursor in SVG space
+    panX = mx - (mx - panX) * (newScale / scale);
+    panY = my - (my - panY) * (newScale / scale);
+    scale = newScale;
+    updateTransform();
+  };
 
-  svgElement.addEventListener("mousedown", (e) => {
+  svgElement.onmousedown = (e) => {
     if (e.button !== 0) return;
     isPanning = true;
     startX = e.clientX;
     startY = e.clientY;
     svgElement.style.cursor = "grabbing";
-  });
+  };
 
-  window.addEventListener("mousemove", (e) => {
+  // A drag may leave the canvas, so moving and letting go are watched on the
+  // window: the previous redraw's pair is taken off first.
+  graphDetachPan();
+  const onMove = (e) => {
     if (!isPanning) return;
     const rect = svgElement.getBoundingClientRect();
     const vb = svgElement.viewBox.baseVal;
@@ -2937,13 +3330,26 @@ function renderCustomGraph(report, svgElement, direction) {
     startX = e.clientX;
     startY = e.clientY;
     updateTransform();
-  });
-
-  window.addEventListener("mouseup", () => {
+  };
+  const onUp = () => {
     isPanning = false;
     svgElement.style.cursor = "default";
-  });
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  _graphPanHandlers = { onMove, onUp };
 }
+
+// The window handlers of the drawn graph's pan, so a redraw or the domain
+// view can take them off.
+let _graphPanHandlers = null;
+function graphDetachPan() {
+  if (!_graphPanHandlers) return;
+  window.removeEventListener("mousemove", _graphPanHandlers.onMove);
+  window.removeEventListener("mouseup", _graphPanHandlers.onUp);
+  _graphPanHandlers = null;
+}
+window.graphDetachPan = graphDetachPan;
 
 /**
  * Returns the SVG markup string for copy/download.

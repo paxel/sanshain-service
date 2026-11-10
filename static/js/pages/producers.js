@@ -189,12 +189,16 @@ async function showProducerVersions(serviceName) {
   // Owner, description, repository and links from the Producer's
   // catalog-info (#48), under the title. Optional: the page reads without it.
   try {
-    const { context } = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}`);
-    const block = systemContextHtml(context, false);
+    const { context, annotations } = await fetchJSON(
+      `/admin/producers/${encodeURIComponent(serviceName)}`,
+    );
+    // The system annotations (#91) its builds sent ride the same card.
+    const block = systemContextHtml(context, false) + annotationsHtml(annotations, false);
     if (block) {
       const card = document.createElement("div");
       card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
       card.innerHTML = block;
+      appendClearSystemInfo(card, serviceName, () => card.remove());
       list.appendChild(card);
     }
   } catch (_) {
@@ -361,6 +365,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
                             &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
                         </p>
                         ${originHtml(v.origin, ticketTemplate, false)}
+                        ${annotationsHtml(v.annotations, false)}
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -436,12 +441,12 @@ async function deleteVersion(serviceName, apiType, version) {
     alert("Could not check dependents: " + e.message);
     return;
   }
-  const base = `Delete ${escapeHtml(apiType)} version <strong>${escapeHtml(version)}</strong> of <strong>${escapeHtml(serviceName)}</strong>?`;
+  const base = safeHtml`Delete ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong>?`;
   const warning =
     dependents.length > 0
-      ? `<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.map((d) => escapeHtml(d)).join(", ")}`
-      : "<br><br>No Consumers are pinned to this version.";
-  confirmDelete(base + warning, async () => {
+      ? safeHtml`<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.join(", ")}`
+      : safeHtml`<br><br>No Consumers are pinned to this version.`;
+  confirmDelete(safeHtml`${base}${warning}`, async () => {
     try {
       const res = await apiCall(
         `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}`,

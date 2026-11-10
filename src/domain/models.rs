@@ -33,11 +33,18 @@ pub enum AppError {
     Internal(String),
     #[error("Breaking Change: {0}")]
     BreakingChange(String),
-    /// A Provide refused by the version rules (GA immutability, or a breaking
-    /// change without a major bump). Answers `409` and carries the next free
-    /// version the Producer should publish as instead.
+    /// A Provide refused by the version rules (GA immutability, snapshot
+    /// ownership, or a breaking change without a major bump). Answers `409`
+    /// and carries the next free version the Producer should publish as
+    /// instead. `rule` names the rule (`immutable_ga`, `snapshot_on_ga`,
+    /// `snapshot_owned`, `breaking_without_major`), as the audit and the
+    /// `provide.rejected` event do; the HTTP body does not carry it.
     #[error("Version Conflict: {message}")]
-    VersionConflict { message: String, proposed: SemVer },
+    VersionConflict {
+        message: String,
+        proposed: SemVer,
+        rule: &'static str,
+    },
 }
 
 impl From<crate::domain::ports::RepositoryError> for AppError {
@@ -1159,6 +1166,103 @@ impl VersionOrigin {
     }
 }
 
+/// Where an annotation (#91) is stored: with the provided version, or once
+/// per system.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationScope {
+    Version,
+    System,
+}
+
+/// One annotation as the build sends it: a project-declared name from
+/// `sanshain.yaml` with the value the build filled in.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AnnotationEntry {
+    pub scope: AnnotationScope,
+    pub name: String,
+    pub value: String,
+}
+
+/// A stored annotation (#91): a name and its value. A value starting with
+/// `http://` or `https://` is shown as a link labelled by the name.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Annotation {
+    pub name: String,
+    pub value: String,
+}
+
+/// The annotations of one call, split by scope and validated.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Annotations {
+    pub version: Vec<Annotation>,
+    pub system: Vec<Annotation>,
+}
+
+impl Annotations {
+    /// At most this many per scope and call.
+    pub const MAX_PER_SCOPE: usize = 20;
+    /// A name is at most this long, of letters, digits, `-` and `_`.
+    pub const MAX_NAME_CHARS: usize = 40;
+    /// A value is at most this long.
+    pub const MAX_VALUE_CHARS: usize = 2048;
+
+    pub fn is_empty(&self) -> bool {
+        self.version.is_empty() && self.system.is_empty()
+    }
+
+    /// Split the entries by scope, refusing by name what is out of bounds:
+    /// a malformed or repeated name, a blank or too long value, more than
+    /// [`Self::MAX_PER_SCOPE`] in one scope. The value is kept as sent,
+    /// trimmed of surrounding whitespace.
+    pub fn from_entries(entries: &[AnnotationEntry]) -> Result<Annotations, String> {
+        let mut out = Annotations::default();
+        for entry in entries {
+            let name = entry.name.trim();
+            let valid_name = !name.is_empty()
+                && name.chars().count() <= Self::MAX_NAME_CHARS
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+            if !valid_name {
+                return Err(format!(
+                    "name '{name}' is not of letters, digits, '-' and '_' (at most {} characters)",
+                    Self::MAX_NAME_CHARS
+                ));
+            }
+            let value = entry.value.trim();
+            if value.is_empty() {
+                return Err(format!("'{name}' has an empty value"));
+            }
+            if value.chars().count() > Self::MAX_VALUE_CHARS {
+                return Err(format!(
+                    "the value of '{name}' is longer than {} characters",
+                    Self::MAX_VALUE_CHARS
+                ));
+            }
+            let (list, scope) = match entry.scope {
+                AnnotationScope::Version => (&mut out.version, "version"),
+                AnnotationScope::System => (&mut out.system, "system"),
+            };
+            if list.iter().any(|a| a.name == name) {
+                return Err(format!("'{name}' appears twice in scope {scope}"));
+            }
+            if list.len() == Self::MAX_PER_SCOPE {
+                return Err(format!(
+                    "at most {} annotations of scope {scope}; '{name}' is one more",
+                    Self::MAX_PER_SCOPE
+                ));
+            }
+            list.push(Annotation {
+                name: name.to_string(),
+                value: value.to_string(),
+            });
+        }
+        Ok(out)
+    }
+}
+
 /// Who owns a system per its Backstage `spec.owner` (#48): the ref's kind
 /// (`group` unless the ref says otherwise, Backstage's default for owners)
 /// and name, both lower-cased like every other ref. The namespace is not
@@ -1205,6 +1309,8 @@ pub struct SystemContext {
 pub struct ParticipantContext {
     pub name: String,
     pub context: Option<SystemContext>,
+    /// The system annotations (#91) its builds sent.
+    pub annotations: Vec<Annotation>,
 }
 
 /// Which periphery set a read or a write addresses (#46). A trunk push
@@ -1281,6 +1387,9 @@ pub struct GraphScopeData {
     /// The context (#48) of every system that pushed one, by name, so the
     /// node panel needs no extra request. Not scoped: a present-day fact.
     pub systems: BTreeMap<String, SystemContext>,
+    /// The system annotations (#91) of every system that sent some, by name;
+    /// present-day like the context.
+    pub system_annotations: BTreeMap<String, Vec<Annotation>>,
 }
 
 /// The answer to a catalog push (#46): the periphery now recorded for the
@@ -1349,6 +1458,10 @@ pub struct DependencyReport {
     /// carries the same map. Application-populated.
     #[serde(default)]
     pub systems: BTreeMap<String, SystemContext>,
+    /// The system annotations (#91) of every system that sent some, by name.
+    /// Present-day like the context. Application-populated.
+    #[serde(default)]
+    pub system_annotations: BTreeMap<String, Vec<Annotation>>,
     /// Trunk entries not refreshed since this instant are stale (half the
     /// trunk TTL). `None` when the TTL is disabled. Application-populated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1503,6 +1616,9 @@ pub struct ProducerVersionInfo {
     /// What the build that provided it said about why (empty when nothing).
     #[serde(default)]
     pub origin: VersionOrigin,
+    /// The version's annotations (#91), sorted by name.
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
     /// Use-based expiry for snapshots when cleanup is enabled; `None` for GA
     /// (never age-culled) or when cleanup is off. Populated by the application
     /// layer; `None` in raw repository results.
@@ -1896,8 +2012,76 @@ pub struct DeliveryPassSummary {
     pub dead: u64,
 }
 
+// --- Products (#76, ADR-0011) ---
+
+/// Where a Product member came from. Each member has exactly one: `helm`
+/// members follow the last pasted umbrella `Chart.yaml`, `manual` members
+/// survive every import.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ProductMemberOrigin {
+    Helm,
+    Manual,
+}
+
+impl ProductMemberOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProductMemberOrigin::Helm => "helm",
+            ProductMemberOrigin::Manual => "manual",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "helm" => Some(ProductMemberOrigin::Helm),
+            "manual" => Some(ProductMemberOrigin::Manual),
+            _ => None,
+        }
+    }
+}
+
+/// One member of a Product: a system by name, with its origin. No link to
+/// the Producer or Consumer rows — a member outlives its system's roles.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProductMember {
+    pub system: String,
+    pub origin: ProductMemberOrigin,
+}
+
+/// A Product (ADR-0011): a named envelope of systems, with its members
+/// sorted by system name.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Product {
+    pub id: i64,
+    pub name: String,
+    pub created_at: String,
+    pub members: Vec<ProductMember>,
+}
+
+/// What applying a chart's system names changed: members added, and
+/// `helm` members removed because the chart no longer lists them. Both
+/// sorted. A `manual` member the chart lists only changes its origin and
+/// appears in neither.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProductImportChanges {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_product_member_origin_round_trips_its_wire_name() {
+        use super::ProductMemberOrigin;
+        for origin in [ProductMemberOrigin::Helm, ProductMemberOrigin::Manual] {
+            assert_eq!(ProductMemberOrigin::parse(origin.as_str()), Some(origin));
+        }
+        assert_eq!(ProductMemberOrigin::Helm.as_str(), "helm");
+        assert_eq!(ProductMemberOrigin::Manual.as_str(), "manual");
+        assert_eq!(ProductMemberOrigin::parse("chart"), None);
+    }
+
     #[test]
     fn a_masked_name_keeps_its_ends_and_the_domain() {
         use super::mask_username;
