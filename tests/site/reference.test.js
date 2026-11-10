@@ -25,6 +25,9 @@ import {
 } from "../../scripts/site/reference.js";
 import { buildSite, DEFAULT_CONTRACTS, readVersion } from "../../scripts/build-site.js";
 
+/** `text` as a literal inside a RegExp: every character with a meaning there is escaped. */
+const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LIB_RS = fs.readFileSync(path.join(REPO_ROOT, "src/lib.rs"), "utf8");
 
@@ -854,7 +857,7 @@ test("the real site build renders both references into the Reference track", () 
   const contractVersion = fs
     .readFileSync(path.join(REPO_ROOT, "api.yaml"), "utf8")
     .match(/^ {2}version: "([^"]+)"/m)[1];
-  assert.match(api, new RegExp(`version ${contractVersion.replace(/\./g, "\\.")}</span>`));
+  assert.match(api, new RegExp(`version ${literal(contractVersion)}</span>`));
   assert.doesNotMatch(api, /gap-count/, "api.yaml has no permission gaps to count");
   // The representative path: anchor, chip, summary, security, body schema link and example, responses.
   assert.match(
@@ -934,7 +937,7 @@ test("the longest admin path sits in a heading with the wrap rule the stylesheet
   assert.match(
     maintenance,
     new RegExp(
-      `<h3 id="[^"]+"><span class="method[^"]*">\\w+</span> <code>${longest.replace(/[{}]/g, "\\$&")}</code>`,
+      `<h3 id="[^"]+"><span class="method[^"]*">\\w+</span> <code>${literal(longest)}</code>`,
     ),
   );
   const css = built("assets/site.css");
