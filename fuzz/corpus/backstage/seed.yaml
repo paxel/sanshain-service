@@ -1,0 +1,25 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: orders
+  description: Takes orders
+  tags: [shop, java]
+  annotations:
+    backstage.io/source-location: url:https://github.com/example/orders
+  links:
+    - url: https://wiki.example.com/orders
+      title: Wiki
+spec:
+  type: service
+  owner: team-shop
+  system: shop
+  dependsOn:
+    - resource:default/orders-db
+    - component:payments
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: orders-db
+spec:
+  type: database

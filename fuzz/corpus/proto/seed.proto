@@ -1,0 +1,15 @@
+// sanshain-version: 1.0.0
+syntax = "proto3";
+package orders.v1;
+
+// Orders, one at a time.
+service OrderService {
+  // One order.
+  rpc GetOrder(GetOrderRequest) returns (Order) {
+    option deprecated = true;
+  }
+  rpc ListOrders(stream GetOrderRequest) returns (stream Order);
+}
+
+message GetOrderRequest { string id = 1; }
+message Order { string id = 1; repeated string items = 2; }

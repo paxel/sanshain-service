@@ -1,0 +1,54 @@
+# Fuzz targets for the parsers that read what Producers and catalog pushes
+# send (see README.md). A crate of its own, outside the service's build:
+# `cargo +nightly fuzz run <target>` from this directory.
+[package]
+name = "sanshain_service-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sanshain_service = { path = ".." }
+
+# Not part of the service's workspace.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "openapi"
+path = "fuzz_targets/openapi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "asyncapi"
+path = "fuzz_targets/asyncapi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proto"
+path = "fuzz_targets/proto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backstage"
+path = "fuzz_targets/backstage.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "helm"
+path = "fuzz_targets/helm.rs"
+test = false
+doc = false
+bench = false
