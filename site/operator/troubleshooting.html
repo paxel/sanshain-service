@@ -167,7 +167,9 @@
     <code>users</code> (<code>DELETE FROM users;</code> with <code>sqlite3</code> on the stopped
     service's file, or <code>psql</code>), which removes <strong>every</strong> account, session and
     API token, so the next start creates the initial admin again with
-    <code>INITIAL_ADMIN_PASSWORD</code> or a new random password on stderr. The Danger Zone's
+    <code>INITIAL_ADMIN_PASSWORD</code> or a new random password in
+    <code>initial-admin-password</code>. The same way out applies when that file was lost before
+    the first login (PostgreSQL without a volume on <code>/data</code>, then a restart). The Danger Zone's
     <strong>Nuke Users</strong> is not a way out: it spares every effective administrator, root
     included, and needs a working admin session anyway.
   </dd>

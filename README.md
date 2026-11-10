@@ -56,7 +56,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 
 ## Quick Start
 1. **Launch**: `docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest`
-2. **Setup**: Access `http://localhost:3000/admin.html` with the random password printed in the logs.
+2. **Setup**: Access `http://localhost:3000/admin.html` with the random password from `docker exec <container> cat /data/initial-admin-password`.
 3. **Demo**: Run `./scripts/demo.sh` to populate the service with sample data.
 
 Detailed instructions: [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html).

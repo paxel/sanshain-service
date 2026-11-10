@@ -82,7 +82,15 @@ async fn change_password_wrong_old_password() {
         password_hash: hash,
         approved: true,
     };
-    let res = auth::change_password(&repo, &user, None, "bad", "new").await;
+    let res = auth::change_password(
+        &repo,
+        &user,
+        None,
+        "bad",
+        "new",
+        std::path::Path::new("/nonexistent/initial-admin-password"),
+    )
+    .await;
     assert!(matches!(res, Err(AppError::Unauthorized)));
 }
 

@@ -146,9 +146,13 @@ async fn dev_mode_opens_the_api_but_not_the_administration() {
         std::env::set_var("INITIAL_AUTH_MODE", "dev");
     }
     let repo = fresh_repo().await;
-    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-        .await
-        .unwrap();
+    services::ensure_initial_admin(
+        &repo,
+        "http://127.0.0.1:3000/admin.html",
+        &std::env::temp_dir().join("sanshain-dev_mode_scope_test-149-initial-admin-password"),
+    )
+    .await
+    .unwrap();
     assert_eq!(services::get_auth_mode(&repo).await.unwrap(), AuthMode::Dev);
     plain_user(&repo, "bob", "bob-pass").await;
     let app = create_app(test_state(repo.clone()));

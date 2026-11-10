@@ -217,7 +217,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Modes (`auth_mode`): `disabled` (Off/maintenance: API 503, only admins sign in), `dev` (needs
   `ALLOW_INSECURE_DEV_MODE=true`; provide/require/catalog/MCP without token as `dev_user`),
   `local` (registration and auto-approve switches), `ldap`, `oidc`. Local accounts always sign in
-  by password in ldap/oidc. Fresh instance starts Off unless `INITIAL_AUTH_MODE`.
+  by password in ldap/oidc. Fresh instance starts Off unless `INITIAL_AUTH_MODE`. Initial admin
+  password: `INITIAL_ADMIN_PASSWORD`, else random in `initial-admin-password` next to the SQLite
+  DB (`/data` with PostgreSQL; `initial_admin_password_file` in
+  `src/infrastructure/sqlite_snapshot.rs`), mode 600, deleted after its change; never printed.
 - Humans: session (7 days, `POST /auth/login`). Builds/assistants: API token `san_…`, scope `full`
   or `read_only` (read_only refused on provide/require/catalog). `/admin/*` takes sessions only
   (API token → 401), except the SQLite backup download (full token). User managers issue tokens

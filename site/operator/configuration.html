@@ -228,10 +228,12 @@
     </tr>
     <tr>
       <td><code>INITIAL_ADMIN_PASSWORD</code></td>
-      <td>random, printed to stderr</td>
+      <td>random, in <code>initial-admin-password</code></td>
       <td>
-        Password of that account, read on the first start only. Set but empty counts as unset: the
-        random password is generated and printed.
+        Password of that account, read on the first start only and never printed. Unset, or set but
+        empty, a random password is written to <code>initial-admin-password</code> next to the
+        SQLite database (<code>/data</code> with PostgreSQL), readable by the service user only and
+        deleted after the first password change.
       </td>
     </tr>
     <tr>

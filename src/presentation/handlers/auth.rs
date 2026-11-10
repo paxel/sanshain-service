@@ -217,6 +217,7 @@ pub async fn auth_change_password(
         current_token,
         &payload.old_password,
         &payload.new_password,
+        &crate::infrastructure::sqlite_snapshot::initial_admin_password_file(&state.db_url),
     )
     .await?;
 

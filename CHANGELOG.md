@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Developer track's start page counts its nine chapters; it said seven.
 
 ### Security
+- The first start no longer prints the initial admin's password: one set in `INITIAL_ADMIN_PASSWORD` is never shown, and a generated one is written to `initial-admin-password` next to the SQLite database (`/data` in the image and with PostgreSQL), readable by the service user only, and deleted after the first password change. A file that cannot be written stops the start.
 - The image no longer installs Alpine's `sqlite-libs`: the binary carries its own SQLite, so the unused library only added scanner findings.
 - Updated `rmcp` to 3.9.0 (RUSTSEC-2026-0462, unbounded response bodies in its Streamable HTTP clients; Sanshain builds only the MCP server, so the affected client transports were never compiled in).
 - `cargo audit` ignores RUSTSEC-2026-0459 (CVE-2026-119375 in the SQLite that `libsqlite3-sys` 0.37 bundles: uninitialized memory returned when a database is opened together with a crafted `-wal` file): the fix needs `libsqlite3-sys` 0.39, which no released `sqlx` accepts yet, and the attack needs Sanshain to open database files someone else wrote, while it opens only its own; the ignore goes with the first `sqlx` release that takes the fix.
