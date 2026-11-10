@@ -2408,8 +2408,8 @@ function renderCustomGraph(report, svgElement, direction) {
   const availableH =
     document.body.dataset.graphFs && holder
       ? holder.clientHeight -
-        parseFloat(getComputedStyle(holder).paddingTop) -
-        parseFloat(getComputedStyle(holder).paddingBottom)
+        Number.parseFloat(getComputedStyle(holder).paddingTop) -
+        Number.parseFloat(getComputedStyle(holder).paddingBottom)
       : window.innerHeight - svgElement.getBoundingClientRect().top - 40;
   svgElement.style.height = Math.max(availableH, 300) + "px";
   const vw = svgElement.clientWidth;
