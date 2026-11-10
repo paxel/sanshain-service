@@ -190,3 +190,19 @@ fn every_page_points_its_icon_at_the_favicon() {
 
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// A heading a script fills later still needs text of its own: a screen reader
+/// reaching it before the data arrives, or after a failed load, gets nothing
+/// to read from an empty one.
+#[test]
+fn no_page_has_an_empty_heading() {
+    let empty = regex::Regex::new(r"<h[1-6][^>]*>\s*</h[1-6]>").expect("pattern");
+    let mut found = Vec::new();
+    for page in pages_with_a_head() {
+        let html = std::fs::read_to_string(&page).expect("read page");
+        for m in empty.find_iter(&html) {
+            found.push(format!("{}: {}", page.display(), m.as_str()));
+        }
+    }
+    assert!(found.is_empty(), "empty headings: {found:#?}");
+}
