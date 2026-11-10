@@ -473,3 +473,29 @@ test("redrawing the graph does not pile up window listeners", async ({ page }) =
   await page.mouse.up();
   expect(await transform()).not.toBe(start);
 });
+
+test("a failed graph load shows its message as text, never as markup", async ({ page }) => {
+  // A body that is no JSON: the parse error quotes it.
+  await page.route("**/report", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: '<img src=x id="injected">',
+    }),
+  );
+  await page.route("**/api/sse/updates", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+  await page.goto("/account.html");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+  await page.goto("/graph.html");
+  const shown = page.locator("#mermaid-graph .text-red-500");
+  await expect(shown).toContainText("Error:", { timeout: 10000 });
+  await expect(shown).toContainText("<img");
+  await expect(page.locator("#mermaid-graph img")).toHaveCount(0);
+});

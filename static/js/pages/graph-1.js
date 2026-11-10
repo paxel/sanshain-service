@@ -173,7 +173,12 @@ async function showGraph() {
     const graphDiv = document.getElementById("mermaid-graph");
     if (graphDiv) {
       graphDiv.classList.remove("hidden");
-      graphDiv.innerHTML = `<div class="text-red-500 p-4">Error: ${err.message}</div>`;
+      // As text: a message can quote what the server sent (a JSON parse error
+      // quotes the body), so it never becomes markup.
+      const message = document.createElement("div");
+      message.className = "text-red-500 p-4";
+      message.textContent = `Error: ${err.message}`;
+      graphDiv.replaceChildren(message);
     }
   }
 }
