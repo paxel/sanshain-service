@@ -499,3 +499,20 @@ test("a failed graph load shows its message as text, never as markup", async ({ 
   await expect(shown).toContainText("<img");
   await expect(page.locator("#mermaid-graph img")).toHaveCount(0);
 });
+
+test("a value escaped for the graph panel cannot leave its attribute", async ({ page }) => {
+  await openGraph(page);
+  const result = await page.evaluate(() => {
+    const path = `/orders" onmouseover="alert(1)' x='<b>&`;
+    const holder = document.createElement("div");
+    holder.innerHTML = `<div title="${window._graphEscapeHtml(path)}">${window._graphEscapeHtml(path)}</div>`;
+    const element = holder.firstElementChild;
+    return {
+      attributes: element.getAttributeNames(),
+      title: element.getAttribute("title"),
+      text: element.textContent,
+    };
+  });
+  const path = `/orders" onmouseover="alert(1)' x='<b>&`;
+  expect(result).toEqual({ attributes: ["title"], title: path, text: path });
+});

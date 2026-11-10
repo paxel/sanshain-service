@@ -1529,8 +1529,15 @@ window.toggleProtocolFilter = toggleProtocolFilter;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+// Text for element content and for quoted attributes alike: the quotes are
+// escaped too, so a value cannot end the attribute it is placed in.
 function _graphEscapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // The height the domain line adds to a node when domains sit on the nodes.
