@@ -35,12 +35,15 @@ jobs:
       - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
           tool: cargo-fuzz
+      # --dev: unoptimised. The optimised sanitizer build of the service crate
+      # needs more memory than a 16 GB runner has (it was OOM-killed on a
+      # 15 GB machine); a few minutes of slower fuzzing is the better trade.
       - name: Replay the saved crashes
         working-directory: fuzz
-        run: cargo +nightly fuzz run "$TARGET" "regressions/$TARGET" -- -runs=0
+        run: cargo +nightly fuzz run --dev "$TARGET" "regressions/$TARGET" -- -runs=0
       - name: Fuzz for 3 minutes
         working-directory: fuzz
-        run: cargo +nightly fuzz run "$TARGET" "corpus/$TARGET" -- -max_total_time=180
+        run: cargo +nightly fuzz run --dev "$TARGET" "corpus/$TARGET" -- -max_total_time=180
       - name: Keep the crashing input
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

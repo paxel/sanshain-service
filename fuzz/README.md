@@ -16,8 +16,11 @@ the lints and tests miss.
 nightly and `cargo install cargo-fuzz`, from this directory:
 
 ```bash
-cargo +nightly fuzz run openapi corpus/openapi -- -max_total_time=60
+cargo +nightly fuzz run --dev openapi corpus/openapi -- -max_total_time=60
 ```
+
+Always `--dev`: the optimised build of the service crate with the sanitizer
+needs more memory than a 16 GB machine has.
 
 `corpus/<target>` holds the seed inputs; libFuzzer adds what it finds there
 (commit only hand-picked seeds).
