@@ -324,5 +324,6 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - CI: `ci.yml` (build, tests, cargo audit, npm audit), `quality.yml` (fmt, clippy, tests,
   tarpaulin floor, UI), `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
   (weekly: the two audits, grype on the released image; ignores in `.cargo/audit.toml`),
-  `pages.yml` (site), `release.yml`, `sonar.yml` (SonarQube Cloud on `summer`).
+  `pages.yml` (site), `release.yml`, `sonar.yml` (SonarQube Cloud on `summer`), `scorecard.yml`
+  (OpenSSF Scorecard on `summer`, publishes the README badge).
 - Branches: `summer` is main; release branches `release/X.Y`.
