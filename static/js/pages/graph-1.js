@@ -296,7 +296,7 @@ async function loadGraph() {
     hideLoader();
     customSvg.classList.add("hidden");
     graphDiv.classList.remove("hidden");
-    graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${err.message}</div>`;
+    graphDiv.innerHTML = `<div class="text-red-500 p-4">Error generating graph: ${escapeHtml(err.message)}</div>`;
   }
 }
 

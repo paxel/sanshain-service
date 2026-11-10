@@ -495,7 +495,10 @@ test("a failed graph load shows its message as text, never as markup", async ({ 
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   await page.goto("/graph.html");
   const shown = page.locator("#mermaid-graph .text-red-500");
-  await expect(shown).toContainText("Error:", { timeout: 10000 });
+  // Whichever handler reports it (loading or showing the graph), the quoted
+  // body stays text.
+  await expect(shown).toContainText("Unexpected token", { timeout: 10000 });
+  // The parse error quotes only the start of the body.
   await expect(shown).toContainText("<img");
   await expect(page.locator("#mermaid-graph img")).toHaveCount(0);
 });
