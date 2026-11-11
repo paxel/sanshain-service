@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Not Dependabot's branches: each exists only for its PR, whose run would
+  # cancel the push run and leave a red cross on the PR.
   push:
-    branches: ["**"]
+    branches: ["**", "!dependabot/**"]
   pull_request:
     branches: ["**"]
 
