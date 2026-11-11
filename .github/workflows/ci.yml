@@ -1,19 +1,21 @@
 name: CI
 
 on:
+  # Not Dependabot's branches: each exists only for its PR, so a push run
+  # would repeat the PR run.
   push:
-    branches: ["**"]
+    branches: ["**", "!dependabot/**"]
   pull_request:
     branches: ["**"]
 
-# A push to a branch with an open PR fires both triggers and runs everything
-# twice. The group must name the bare branch on both events: head_ref is bare
-# on PR events, and ref_name (not ref, which is refs/heads/…) is bare on
-# pushes — with `ref` the twins would land in different groups and nothing
-# would be deduplicated. The loser is cancelled instead of burning a second
-# full run, and a newer push likewise supersedes a stale in-flight one.
+# A push to a branch with an open PR fires both triggers. The event is part of
+# the group, so the push run and the PR run both run to the end: a cancelled
+# twin would count as a failed required check and block the merge until rerun.
+# Within one event a newer push still cancels the older run. The group names
+# the bare branch: head_ref is bare on PR events, ref_name (not ref, which is
+# refs/heads/…) on pushes.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 # The token only reads the code: no job writes to the repository.

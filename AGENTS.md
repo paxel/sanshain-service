@@ -70,9 +70,9 @@ DATABASE_URL=postgres://user:password@localhost/dbname cargo run   # Postgres (n
   of another change.
 - Every action in `.github/workflows/` is pinned to a full commit SHA, with the version it stands
   for in a trailing comment. Never reference an action by tag or branch alone.
-- SonarQube Cloud (`paxel_sanshain-service`) analyses `summer` after each Quality run there
-  (`.github/workflows/sonar.yml`, settings in `sonar-project.properties`): clippy's JSON report
-  plus the LCOV files Quality uploads: Rust from tarpaulin, the page scripts from the UI tests
+- SonarQube Cloud (`paxel_sanshain-service`) analyses `summer` in the `sonar` job of Quality,
+  on pushes to `summer` only (settings in `sonar-project.properties`): clippy's JSON report
+  plus the LCOV files the other Quality jobs upload: Rust from tarpaulin, the page scripts from the UI tests
   (`UI_COVERAGE=1`, `tests/ui/coverage.js`), and `scripts/` from the site tests. Report only; it
   fails no build. UI tests import `test` from `tests/ui/fixtures.js`, not from `@playwright/test`,
   so their coverage is recorded.
