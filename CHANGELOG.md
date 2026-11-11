@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Admin link in the navigation shows only to those who may open the admin dashboard, on every page.
 
 ### Fixed
+- Picking a sanshain-branch whose graph then fails to draw says so, and the branch selector returns to the view shown, instead of failing silently.
 - Panning the graph no longer slows down the page after many redraws.
 - A trunk provide of a new version now shows as a marker on the main graph's timeline, also without a trunk require.
 - An AsyncAPI message given as a local `$ref` (`#/components/messages/…`, also inside `oneOf`) now registers its message contract on a GA provide and is harvested as a subscription; before, only messages written inline counted.
@@ -36,6 +37,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Developer track's start page counts its nine chapters; it said seven.
 
 ### Security
+- The graph page shows a failed load's error message as text: a message quoting what the server sent could put markup into the page.
+- The graph's edge panel escapes quotes in endpoint paths, so a path from a provided spec can no longer end the tooltip attribute it is placed in and add attributes of its own.
+- The first start no longer prints the initial admin's password: one set in `INITIAL_ADMIN_PASSWORD` is never shown, and a generated one is written to `initial-admin-password` next to the SQLite database (`/data` in the image and with PostgreSQL), readable by the service user only, and deleted after the first password change. A file that cannot be written stops the start.
 - The image no longer installs Alpine's `sqlite-libs`: the binary carries its own SQLite, so the unused library only added scanner findings.
 - Updated `rmcp` to 3.9.0 (RUSTSEC-2026-0462, unbounded response bodies in its Streamable HTTP clients; Sanshain builds only the MCP server, so the affected client transports were never compiled in).
 - `cargo audit` ignores RUSTSEC-2026-0459 (CVE-2026-119375 in the SQLite that `libsqlite3-sys` 0.37 bundles: uninitialized memory returned when a database is opened together with a crafted `-wal` file): the fix needs `libsqlite3-sys` 0.39, which no released `sqlx` accepts yet, and the attack needs Sanshain to open database files someone else wrote, while it opens only its own; the ignore goes with the first `sqlx` release that takes the fix.

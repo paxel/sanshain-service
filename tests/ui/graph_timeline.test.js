@@ -171,4 +171,36 @@ test.describe("Graph timeline and links", () => {
     );
     expect(param(page, "from")).toBeNull();
   });
+
+  test("a failure while opening a branch is reported, not lost", async ({ page, request }) => {
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = await login.json();
+    await request.post("/admin/branches", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: BRANCH },
+    });
+    await signIn(page);
+    await page.goto("/graph.html");
+    await expect(page.locator(`#graph-branch-select option[value="${BRANCH}"]`)).toBeAttached({
+      timeout: 10000,
+    });
+    // Drawing the branch fails once its pins are in.
+    await page.evaluate(() => {
+      const fail = () => {
+        throw new Error("drawing failed");
+      };
+      window.redrawGraph = fail;
+      window.setTimelinePosition = async () => fail();
+    });
+    const unhandled = [];
+    page.on("pageerror", (error) => unhandled.push(error.message));
+    const dialog = page.waitForEvent("dialog");
+    await page.selectOption("#graph-branch-select", BRANCH);
+    const shown = await dialog;
+    expect(shown.message()).toBe(`Could not load sanshain-branch '${BRANCH}': drawing failed`);
+    await shown.dismiss();
+    expect(unhandled).toEqual([]);
+  });
 });

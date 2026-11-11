@@ -1,0 +1,11 @@
+apiVersion: v2
+name: shop
+version: 1.0.0
+dependencies:
+  - name: orders
+    version: 1.2.3
+    repository: oci://registry.example.com/charts
+  - name: payments
+    alias: payments-eu
+    version: 2.0.0
+    repository: oci://registry.example.com/charts

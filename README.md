@@ -8,6 +8,7 @@
 [![Quality](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/quality.yml)
 [![Security](https://github.com/paxel/sanshain-service/actions/workflows/security.yml/badge.svg?branch=summer)](https://github.com/paxel/sanshain-service/actions/workflows/security.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=paxel_sanshain-service&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=paxel_sanshain-service)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/paxel/sanshain-service/badge)](https://scorecard.dev/viewer/?uri=github.com/paxel/sanshain-service)
 [![Release](https://img.shields.io/github/v/release/paxel/sanshain-service)](https://github.com/paxel/sanshain-service/releases/latest)
 [![Image](https://img.shields.io/badge/image-ghcr.io-blue)](https://github.com/paxel/sanshain-service/pkgs/container/sanshain-service)
 [![Signed with cosign](https://img.shields.io/badge/signed-cosign-blue)](https://paxel.github.io/sanshain-service/operator/deployment.html#verifying-a-release)
@@ -56,7 +57,7 @@ Sanshain (Japanese for "Sunshine") is a central repository to manage, split, and
 
 ## Quick Start
 1. **Launch**: `docker run -p 3000:3000 -v sanshain-data:/data ghcr.io/paxel/sanshain-service:latest`
-2. **Setup**: Access `http://localhost:3000/admin.html` with the random password printed in the logs.
+2. **Setup**: Access `http://localhost:3000/admin.html` with the random password from `docker exec <container> cat /data/initial-admin-password`.
 3. **Demo**: Run `./scripts/demo.sh` to populate the service with sample data.
 
 Detailed instructions: [**Getting Started**](https://paxel.github.io/sanshain-service/start/getting-started.html).

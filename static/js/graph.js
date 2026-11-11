@@ -1395,7 +1395,11 @@ async function selectBranchView(name) {
   // address named might be applied.
   window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
   if (!name) {
-    setStreamView("dev");
+    try {
+      await setStreamView("dev");
+    } catch (e) {
+      console.error("Could not switch the graph to the dev view:", e);
+    }
     return;
   }
   try {
@@ -1406,7 +1410,7 @@ async function selectBranchView(name) {
     }
     window.graphBranchPins = await res.json();
     window.graphBranchName = name;
-    setStreamView("branch");
+    await setStreamView("branch");
   } catch (e) {
     failBranchSelection(name, e.message || String(e));
   }
@@ -1525,8 +1529,15 @@ window.toggleProtocolFilter = toggleProtocolFilter;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+// Text for element content and for quoted attributes alike: the quotes are
+// escaped too, so a value cannot end the attribute it is placed in.
 function _graphEscapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // The height the domain line adds to a node when domains sit on the nodes.
@@ -2404,8 +2415,8 @@ function renderCustomGraph(report, svgElement, direction) {
   const availableH =
     document.body.dataset.graphFs && holder
       ? holder.clientHeight -
-        parseFloat(getComputedStyle(holder).paddingTop) -
-        parseFloat(getComputedStyle(holder).paddingBottom)
+        Number.parseFloat(getComputedStyle(holder).paddingTop) -
+        Number.parseFloat(getComputedStyle(holder).paddingBottom)
       : window.innerHeight - svgElement.getBoundingClientRect().top - 40;
   svgElement.style.height = Math.max(availableH, 300) + "px";
   const vw = svgElement.clientWidth;

@@ -473,3 +473,49 @@ test("redrawing the graph does not pile up window listeners", async ({ page }) =
   await page.mouse.up();
   expect(await transform()).not.toBe(start);
 });
+
+test("a failed graph load shows its message as text, never as markup", async ({ page }) => {
+  // A body that is no JSON: the parse error quotes it.
+  await page.route("**/report", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: '<img src=x id="injected">',
+    }),
+  );
+  await page.route("**/api/sse/updates", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+  await page.goto("/account.html");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.fill("#login-username", "root");
+  await page.fill("#login-password", adminPassword);
+  await page.click('#login-panel button[type="submit"]');
+  await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+  await page.goto("/graph.html");
+  const shown = page.locator("#mermaid-graph .text-red-500");
+  // Whichever handler reports it (loading or showing the graph), the quoted
+  // body stays text.
+  await expect(shown).toContainText("Unexpected token", { timeout: 10000 });
+  // The parse error quotes only the start of the body.
+  await expect(shown).toContainText("<img");
+  await expect(page.locator("#mermaid-graph img")).toHaveCount(0);
+});
+
+test("a value escaped for the graph panel cannot leave its attribute", async ({ page }) => {
+  await openGraph(page);
+  const result = await page.evaluate(() => {
+    const path = `/orders" onmouseover="alert(1)' x='<b>&`;
+    const holder = document.createElement("div");
+    holder.innerHTML = `<div title="${window._graphEscapeHtml(path)}">${window._graphEscapeHtml(path)}</div>`;
+    const element = holder.firstElementChild;
+    return {
+      attributes: element.getAttributeNames(),
+      title: element.getAttribute("title"),
+      text: element.textContent,
+    };
+  });
+  const path = `/orders" onmouseover="alert(1)' x='<b>&`;
+  expect(result).toEqual({ attributes: ["title"], title: path, text: path });
+});

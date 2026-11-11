@@ -100,9 +100,13 @@ async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
         std::env::set_var("INITIAL_ADMIN_USERNAME", "root");
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
     }
-    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-        .await
-        .unwrap();
+    services::ensure_initial_admin(
+        &repo,
+        "http://127.0.0.1:3000/admin.html",
+        &std::env::temp_dir().join("sanshain-handlers_cov2-103-initial-admin-password"),
+    )
+    .await
+    .unwrap();
     // A fresh instance starts in Off (maintenance); these tests run in Local.
     services::set_auth_mode(&repo, &sanshain_service::domain::models::AuthMode::Local)
         .await

@@ -1,0 +1,31 @@
+openapi: 3.0.3
+info:
+  title: Orders
+  version: 1.2.3
+servers:
+  - url: https://orders.example.com/api
+paths:
+  /orders/{id}:
+    get:
+      summary: One order
+      deprecated: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: string

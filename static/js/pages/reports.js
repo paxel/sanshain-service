@@ -13,7 +13,7 @@ async function showReports() {
     hideLoader();
     const grid = document.getElementById("reports-grid");
     if (grid) {
-      grid.innerHTML = `<div class="text-red-500 text-center py-10 col-span-2">Error: ${err.message}</div>`;
+      grid.innerHTML = `<div class="text-red-500 text-center py-10 col-span-2">Error: ${escapeHtml(err.message)}</div>`;
     }
   }
 }

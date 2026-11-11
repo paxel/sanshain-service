@@ -1,0 +1,28 @@
+asyncapi: 2.6.0
+info:
+  title: Orders
+  version: 1.0.0
+servers:
+  prod:
+    url: kafka.example.com:9092
+    protocol: kafka
+channels:
+  orders.created:
+    publish:
+      message:
+        $ref: '#/components/messages/OrderCreated'
+  payments.done:
+    subscribe:
+      message:
+        name: PaymentDone
+        payload:
+          type: object
+components:
+  messages:
+    OrderCreated:
+      name: OrderCreated
+      payload:
+        type: object
+        properties:
+          id:
+            type: string

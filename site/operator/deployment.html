@@ -103,8 +103,8 @@
         <code>sanshain-secrets</code>: <code>DATABASE_URL</code> and
         <code>INITIAL_ADMIN_PASSWORD</code>, base64-encoded, both commented out in the template. Add
         the ones you set. A key left out, or set to an empty value, counts as unset: the image's
-        SQLite default under <code>/data</code>, and a random initial admin password printed to the
-        log on the first start.
+        SQLite default under <code>/data</code>, and a random initial admin password in
+        <code>/data/initial-admin-password</code> on the first start.
       </td>
     </tr>
     <tr>
@@ -146,7 +146,8 @@ kubectl apply -k deploy/kubernetes -n sanshain</code></pre>
 <pre><code>helm install sanshain deploy/helm/sanshain -n sanshain --create-namespace</code></pre>
 <p>
   With the default values the pod gets SQLite on the data volume and a random initial admin password
-  in the log: the Secret renders <code>DATABASE_URL</code> and <code>INITIAL_ADMIN_PASSWORD</code>
+  in <code>/data/initial-admin-password</code>
+  (<code>kubectl exec -n sanshain sanshain-0 -- cat /data/initial-admin-password</code>): the Secret renders <code>DATABASE_URL</code> and <code>INITIAL_ADMIN_PASSWORD</code>
   only when the value is non-empty, and the service treats an empty value as unset. To choose the
   password:
 </p>
@@ -239,8 +240,8 @@ secrets:
       <td><code>secrets.initialAdminPassword</code></td>
       <td><code>""</code></td>
       <td>
-        <code>INITIAL_ADMIN_PASSWORD</code>, rendered only when non-empty. Empty, the service prints
-        a random password to the log on the first start.
+        <code>INITIAL_ADMIN_PASSWORD</code>, rendered only when non-empty. Empty, the service writes
+        a random password to <code>/data/initial-admin-password</code> on the first start.
       </td>
     </tr>
     <tr>

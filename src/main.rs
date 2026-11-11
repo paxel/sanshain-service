@@ -286,7 +286,15 @@ pub async fn main() {
 
     // Ensure initial admin user exists
     let admin_url = services::initial_admin_url(public_base_url.as_deref(), &bind_address);
-    if let Err(e) = services::ensure_initial_admin(&repo, &admin_url).await {
+    if let Err(e) = services::ensure_initial_admin(
+        &repo,
+        &admin_url,
+        &sanshain_service::infrastructure::sqlite_snapshot::initial_admin_password_file(
+            &db_connection_str,
+        ),
+    )
+    .await
+    {
         tracing::error!("Can't create initial admin: {}", e);
         eprintln!("ERROR: Can't create initial admin: {}", e);
         std::process::exit(1);

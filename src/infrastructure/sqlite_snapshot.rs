@@ -41,6 +41,18 @@ impl Drop for SnapshotLease {
     }
 }
 
+/// Where a generated initial admin password is handed over: next to the
+/// SQLite database (`/data` in the image, the working directory from source),
+/// and `/data` with PostgreSQL, which has no database directory here.
+pub fn initial_admin_password_file(db_url: &str) -> PathBuf {
+    let dir = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
+        PathBuf::from("/data")
+    } else {
+        data_dir(db_url)
+    };
+    dir.join("initial-admin-password")
+}
+
 /// The directory the database file lives in, read from the connection URL.
 ///
 /// An in-memory database has no directory, so the system temporary directory
@@ -153,6 +165,24 @@ impl Drop for SqliteSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_initial_admin_password_file_sits_next_to_the_sqlite_database() {
+        assert_eq!(
+            initial_admin_password_file("sqlite:/data/sanshain.db?mode=rwc"),
+            PathBuf::from("/data/initial-admin-password")
+        );
+        assert_eq!(
+            initial_admin_password_file("sqlite:sanshain.db?mode=rwc"),
+            PathBuf::from("./initial-admin-password")
+        );
+        for postgres in ["postgres://u:p@db/sanshain", "postgresql://u:p@db/sanshain"] {
+            assert_eq!(
+                initial_admin_password_file(postgres),
+                PathBuf::from("/data/initial-admin-password")
+            );
+        }
+    }
 
     #[test]
     fn data_dir_is_the_database_files_directory() {

@@ -118,9 +118,17 @@ export function decodeEntities(text) {
 
 const INLINE_TAG = /^<\/?(a|code|em|strong|kbd|span|b|i|abbr|sup|sub|mark|small|var)\b[^>]*>$/i;
 
-/** Text of an HTML fragment: inline tags vanish, block tags become a space, entities are decoded. */
+/**
+ * Text of an HTML fragment: inline tags vanish, block tags become a space, entities are decoded.
+ * Repeated until nothing changes: removing one tag can join the pieces around it into another.
+ */
 export function stripTags(html) {
-  const text = html.replace(/<[^<>]*>/g, (tag) => (INLINE_TAG.test(tag) ? "" : " "));
+  let text = html;
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(/<[^<>]*>/g, (tag) => (INLINE_TAG.test(tag) ? "" : " "));
+  } while (text !== previous);
   return decodeEntities(text).replace(/\s+/g, " ").trim();
 }
 

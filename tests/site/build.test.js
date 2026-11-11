@@ -121,6 +121,8 @@ test("slugify, stripTags, decodeEntities and readVersion", () => {
     "Mount /data. See Docker.",
   );
   assert.equal(stripTags("<p>one</p><p>two</p>"), "one two");
+  // Removing the inner tag joins the outer pieces into a tag, which goes too.
+  assert.equal(stripTags("a <<b>script>alert(1)<</b>/script> b"), "a alert(1) b");
   assert.equal(decodeEntities("a &amp;lt; b &ndash; &#169; &#x2192; &hellip;"), "a &lt; b – © → …");
   assert.equal(decodeEntities("&unknown; stays"), "&unknown; stays");
   assert.equal(readVersion('[package]\nname = "x"\nversion = "2.6.0"\n'), "2.6.0");

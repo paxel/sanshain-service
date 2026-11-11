@@ -1,0 +1,53 @@
+# Fuzzes the parsers that read what outside systems send: OpenAPI, AsyncAPI
+# and proto provides, catalog pushes (Backstage catalog-info) and a Product's
+# pasted Helm Chart.yaml. Weekly and on demand, a few minutes per parser; the
+# targets are in fuzz/ (see fuzz/README.md). The saved crashes in
+# fuzz/regressions are replayed first, so a fixed crash that comes back fails
+# at once. A new crash fails the job and is kept as an artifact.
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [openapi, asyncapi, proto, backstage, helm]
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cargo fuzz needs nightly (sanitizers); `+nightly` overrides the pin in
+      # rust-toolchain.toml for these commands only.
+      - name: Nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-fuzz
+      # --dev: unoptimised. The optimised sanitizer build of the service crate
+      # needs more memory than a 16 GB runner has (it was OOM-killed on a
+      # 15 GB machine); a few minutes of slower fuzzing is the better trade.
+      - name: Replay the saved crashes
+        working-directory: fuzz
+        run: cargo +nightly fuzz run --dev "$TARGET" "regressions/$TARGET" -- -runs=0
+      - name: Fuzz for 3 minutes
+        working-directory: fuzz
+        run: cargo +nightly fuzz run --dev "$TARGET" "corpus/$TARGET" -- -max_total_time=180
+      - name: Keep the crashing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

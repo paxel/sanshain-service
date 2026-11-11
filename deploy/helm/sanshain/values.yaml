@@ -105,7 +105,7 @@ secrets:
   # DATABASE_URL. Empty: the image's default, SQLite under /data.
   databaseUrl: ""
   # INITIAL_ADMIN_PASSWORD. Empty: the service generates a random password on
-  # the first start and prints it to the log.
+  # the first start and writes it to /data/initial-admin-password.
   initialAdminPassword: ""
 
 # Any other environment variable of the service (see

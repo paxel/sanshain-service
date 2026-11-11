@@ -932,9 +932,12 @@ async function publish(spec) {
 <h2 id="github-action">The GitHub Action</h2>
 <p>
   The repository is also a composite Action: <code>uses: paxel/sanshain-js@summer</code>. It runs
-  <code>npx sanshain &lt;command&gt;</code> in <code>working-directory</code>. It sets up no Node
-  and installs nothing. The CLI that runs is the project's own when it has the package installed
-  (e.g. <code>npm ci</code> before the step); otherwise npx resolves the package from npm.
+  <code>npx --yes --ignore-scripts sanshain@&lt;version&gt; &lt;command&gt;</code> in
+  <code>working-directory</code> and sets up no Node. The version is pinned in the Action's
+  <code>action.yml</code> to a release that is on npm and raised after each release, so the CLI
+  that runs is fixed by the Action's ref, not by the newest version on npm (since 2.6.0; before,
+  plain <code>npx sanshain</code>). A project's own install is used only when it is that version;
+  otherwise npx downloads it, without running any install scripts.
 </p>
 <table>
   <thead>

@@ -146,9 +146,13 @@ async fn fresh_instance() -> (axum::Router, SqliteSpecRepository) {
         std::env::set_var("INITIAL_ADMIN_PASSWORD", "root_password");
         std::env::remove_var("INITIAL_AUTH_MODE");
     }
-    services::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-        .await
-        .unwrap();
+    services::ensure_initial_admin(
+        &repo,
+        "http://127.0.0.1:3000/admin.html",
+        &std::env::temp_dir().join("sanshain-sign_in_test-149-initial-admin-password"),
+    )
+    .await
+    .unwrap();
     (create_app(test_state(repo.clone())), repo)
 }
 

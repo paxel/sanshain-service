@@ -140,9 +140,13 @@ async fn auto_approve_users_toggle() {
 #[tokio::test]
 async fn ensure_initial_admin_creates() {
     let repo = MockRepo::new();
-    auth_service::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-        .await
-        .unwrap();
+    auth_service::ensure_initial_admin(
+        &repo,
+        "http://127.0.0.1:3000/admin.html",
+        &std::env::temp_dir().join("sanshain-unit_low_hanging-143-initial-admin-password"),
+    )
+    .await
+    .unwrap();
     // The guard is dropped before the await: holding a lock across one is a
     // deadlock waiting to happen, and clippy denies it.
     let user_id = {
@@ -160,9 +164,13 @@ async fn ensure_initial_admin_creates() {
 async fn ensure_initial_admin_skips() {
     let repo = MockRepo::new();
     add_user(&repo, "u", &auth_service::hash_password("p").unwrap(), true);
-    auth_service::ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-        .await
-        .unwrap();
+    auth_service::ensure_initial_admin(
+        &repo,
+        "http://127.0.0.1:3000/admin.html",
+        &std::env::temp_dir().join("sanshain-unit_low_hanging-163-initial-admin-password"),
+    )
+    .await
+    .unwrap();
     let users = repo.users.lock().unwrap();
     assert_eq!(users.len(), 1);
 }
@@ -198,9 +206,16 @@ async fn change_password_no_token() {
         let users = repo.users.lock().unwrap();
         users.iter().find(|u| u.id == id).unwrap().clone()
     };
-    let res = auth_service::change_password(&repo, &user, None, "old", "new")
-        .await
-        .unwrap();
+    let res = auth_service::change_password(
+        &repo,
+        &user,
+        None,
+        "old",
+        "new",
+        std::path::Path::new("/nonexistent/initial-admin-password"),
+    )
+    .await
+    .unwrap();
     assert!(res.is_none());
 }
 
@@ -226,10 +241,17 @@ async fn change_password_with_token() {
         let users = repo.users.lock().unwrap();
         users.iter().find(|u| u.id == id).unwrap().clone()
     };
-    let new_sess = auth_service::change_password(&repo, &user, Some(&token), "old", "new")
-        .await
-        .unwrap()
-        .unwrap();
+    let new_sess = auth_service::change_password(
+        &repo,
+        &user,
+        Some(&token),
+        "old",
+        "new",
+        std::path::Path::new("/nonexistent/initial-admin-password"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(new_sess.user_id, id);
 }
 

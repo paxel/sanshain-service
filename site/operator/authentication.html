@@ -270,13 +270,20 @@
   On the first start, with no user in the database, Sanshain creates
   <code>INITIAL_ADMIN_USERNAME</code> (<code>root</code>) with
   <code>INITIAL_ADMIN_PASSWORD</code> or a random password, grants it the <code>admin</code> role
-  and prints both lines to stderr:
+  and prints two lines to stderr, which never carry the password:
 </p>
-<pre><code>[INITIAL SETUP] Admin user created. Username: root, Password: &lt;random&gt;
+<pre><code>[INITIAL SETUP] Admin user created. Username: root; the generated password is in /data/initial-admin-password (deleted after the first password change)
 [INITIAL SETUP] Change this password immediately at https://sanshain.corp/admin.html</code></pre>
 <p>
-  The second line names the admin page under <code>PUBLIC_BASE_URL</code>; without it, under the
-  bind address (<code>http://0.0.0.0:3000/admin.html</code> by default). A set but empty
+  A random password is written to <code>initial-admin-password</code> next to the SQLite database
+  (<code>/data</code> in the image, and <code>/data</code> with PostgreSQL), readable by the service
+  user only, before the account is created; a file that cannot be written stops the start. The
+  file is deleted when that password is changed. With <code>INITIAL_ADMIN_PASSWORD</code> nothing is
+  written and the first line says <code>the password is INITIAL_ADMIN_PASSWORD</code>. With
+  PostgreSQL and no volume on <code>/data</code>, a restart before the first login loses the file;
+  the way back is under <a href="troubleshooting.html">Troubleshooting</a>. The second line names the
+  admin page under <code>PUBLIC_BASE_URL</code>; without it, under the bind address
+  (<code>http://0.0.0.0:3000/admin.html</code> by default). A set but empty
   <code>INITIAL_ADMIN_PASSWORD</code> counts as unset, and an empty password is never accepted at
   login.
 </p>

@@ -91,16 +91,93 @@ pub fn initial_auth_mode(
     Ok(mode)
 }
 
+/// The initial admin's password and where it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InitialAdminPassword {
+    /// `INITIAL_ADMIN_PASSWORD`: the operator knows it, so it is never shown.
+    Configured(String),
+    /// Random: handed over through the password file, never through the log.
+    Generated(String),
+}
+
+impl InitialAdminPassword {
+    pub fn secret(&self) -> &str {
+        match self {
+            Self::Configured(password) | Self::Generated(password) => password,
+        }
+    }
+}
+
 /// The initial admin's password: `INITIAL_ADMIN_PASSWORD` as configured, or a
 /// random one.
 ///
 /// Set but empty counts as unset. The Helm chart and the Kustomize Secret used
 /// to render the key with an empty value when nothing was configured, and ""
 /// reached the service as the password of the bootstrap administrator.
-pub fn initial_admin_password(configured: Option<String>) -> String {
-    configured
-        .filter(|p| !p.trim().is_empty())
-        .unwrap_or_else(generate_random_password)
+pub fn initial_admin_password(configured: Option<String>) -> InitialAdminPassword {
+    match configured.filter(|p| !p.trim().is_empty()) {
+        Some(password) => InitialAdminPassword::Configured(password),
+        None => InitialAdminPassword::Generated(generate_random_password()),
+    }
+}
+
+/// What the first start prints about the bootstrap administrator. It names the
+/// account and where the password is, never the password itself: logs are
+/// collected and kept far longer than the password is valid.
+pub fn initial_setup_message(
+    username: &str,
+    password: &InitialAdminPassword,
+    password_file: &std::path::Path,
+    admin_url: &str,
+) -> String {
+    let source = match password {
+        InitialAdminPassword::Configured(_) => "the password is INITIAL_ADMIN_PASSWORD".to_string(),
+        InitialAdminPassword::Generated(_) => format!(
+            "the generated password is in {} (deleted after the first password change)",
+            password_file.display()
+        ),
+    };
+    format!(
+        "[INITIAL SETUP] Admin user created. Username: {username}; {source}\n\
+         [INITIAL SETUP] Change this password immediately at {admin_url}"
+    )
+}
+
+/// Write a generated password to `path`, readable by the service user only.
+fn write_initial_password_file(path: &std::path::Path, password: &str) -> Result<(), AppError> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let failed = |e: std::io::Error| {
+        AppError::Internal(format!(
+            "cannot write the generated admin password to {}: {e}; set INITIAL_ADMIN_PASSWORD instead",
+            path.display()
+        ))
+    };
+    let mut file = options.open(path).map_err(failed)?;
+    // A file left from an earlier start keeps its mode on open; tighten it.
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))
+        .map_err(failed)?;
+    file.write_all(password.as_bytes()).map_err(failed)?;
+    file.write_all(b"\n").map_err(failed)
+}
+
+/// Delete the password file once the password it holds has been changed. Any
+/// other file, or none, is left alone; a failed delete only warns, because the
+/// new password is already stored.
+fn forget_initial_password(path: &std::path::Path, old_password: &str) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    if content.trim_end_matches('\n') != old_password {
+        return;
+    }
+    if let Err(e) = std::fs::remove_file(path) {
+        tracing::warn!("cannot delete {}: {e}", path.display());
+    }
 }
 
 /// Where the first-login message sends the operator: the admin page under
@@ -114,16 +191,25 @@ pub fn initial_admin_url(public_base_url: Option<&str>, bind_address: &str) -> S
 
 /// Create the bootstrap administrator when no user exists. `admin_url` is
 /// where the printed message sends the operator, see [`initial_admin_url`].
+/// A generated password is written to `password_file` (next to the SQLite
+/// database, see `infrastructure::sqlite_snapshot::initial_admin_password_file`)
+/// before the account exists, so a file that
+/// cannot be written stops the start without leaving an account nobody can
+/// enter.
 pub async fn ensure_initial_admin(
     repo: &impl SpecRepository,
     admin_url: &str,
+    password_file: &std::path::Path,
 ) -> Result<(), AppError> {
     let count = repo.user_count().await?;
     if count == 0 {
         let username =
             std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "root".to_string());
         let password = initial_admin_password(std::env::var("INITIAL_ADMIN_PASSWORD").ok());
-        let hash = hash_password(&password)?;
+        if let InitialAdminPassword::Generated(generated) = &password {
+            write_initial_password_file(password_file, generated)?;
+        }
+        let hash = hash_password(password.secret())?;
         let admin = repo.create_user(&username, &hash, true).await?;
         // The flag is gone, so the bootstrap account's authority comes from an
         // explicit grant. `SANSHAIN_ROOT_USERS` covers it as well by default,
@@ -144,10 +230,9 @@ pub async fn ensure_initial_admin(
         };
         set_auth_mode(repo, &mode).await?;
         eprintln!(
-            "[INITIAL SETUP] Admin user created. Username: {}, Password: {}",
-            username, password
+            "{}",
+            initial_setup_message(&username, &password, password_file, admin_url)
         );
-        eprintln!("[INITIAL SETUP] Change this password immediately at {admin_url}");
     }
     Ok(())
 }
@@ -183,18 +268,24 @@ pub async fn login(
     Ok((session, user))
 }
 
+/// Change the user's own password. `initial_password_file` (where
+/// [`ensure_initial_admin`] wrote a generated password) is deleted when it
+/// holds the old password:
+/// the generated password it handed over is no longer valid.
 pub async fn change_password(
     repo: &impl SpecRepository,
     user: &User,
     current_token: Option<&str>,
     old_password: &str,
     new_password: &str,
+    initial_password_file: &std::path::Path,
 ) -> Result<Option<Session>, AppError> {
     if !verify_password_async(old_password, &user.password_hash).await? {
         return Err(AppError::Unauthorized);
     }
     let new_hash = hash_password_async(new_password).await?;
     repo.update_password(user.id, &new_hash).await?;
+    forget_initial_password(initial_password_file, old_password);
 
     if let Some(token) = current_token {
         repo.delete_session(token).await?;
@@ -1720,9 +1811,13 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_initial_admin_creates_user() {
         let repo = MockRepo::new();
-        ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-            .await
-            .unwrap();
+        ensure_initial_admin(
+            &repo,
+            "http://127.0.0.1:3000/admin.html",
+            &std::env::temp_dir().join("sanshain-auth_service-1816-initial-admin-password"),
+        )
+        .await
+        .unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "root");
@@ -1741,9 +1836,13 @@ mod tests {
     async fn test_ensure_initial_admin_skips_when_users_exist() {
         let repo = MockRepo::new();
         repo.create_user("existing", "hash", true).await.unwrap();
-        ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html")
-            .await
-            .unwrap();
+        ensure_initial_admin(
+            &repo,
+            "http://127.0.0.1:3000/admin.html",
+            &std::env::temp_dir().join("sanshain-auth_service-1837-initial-admin-password"),
+        )
+        .await
+        .unwrap();
         let users = repo.list_users().await.unwrap();
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].username, "existing");
@@ -1858,9 +1957,16 @@ mod tests {
         let repo = MockRepo::new();
         let hash = hash_password("old").unwrap();
         let user = repo.create_user("u", &hash, true).await.unwrap();
-        change_password(&repo, &user, None, "old", "new")
-            .await
-            .unwrap();
+        change_password(
+            &repo,
+            &user,
+            None,
+            "old",
+            "new",
+            std::path::Path::new("/nonexistent/initial-admin-password"),
+        )
+        .await
+        .unwrap();
         login(&repo, "u", "new").await.unwrap();
     }
     /// A directory that accepts every bind must still not let an empty
@@ -1979,13 +2085,123 @@ mod tests {
     fn initial_admin_password_treats_empty_as_unset() {
         assert_eq!(
             initial_admin_password(Some("configured".to_string())),
-            "configured"
+            InitialAdminPassword::Configured("configured".to_string())
         );
         for unset in [None, Some(String::new()), Some("   ".to_string())] {
-            let password = initial_admin_password(unset);
+            let InitialAdminPassword::Generated(password) = initial_admin_password(unset) else {
+                panic!("an unset password is generated");
+            };
             assert_eq!(password.len(), 16, "a random password, not the empty one");
             assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
         }
+    }
+
+    /// The first start's message never carries the password: a configured one
+    /// would land in the collected logs next to the Secret that holds it, a
+    /// generated one is handed over through the file.
+    #[test]
+    fn initial_setup_message_never_shows_the_password() {
+        let file = std::path::Path::new("/data/initial-admin-password");
+        let url = "https://sanshain.example/admin.html";
+        let configured = initial_setup_message(
+            "root",
+            &InitialAdminPassword::Configured("s3cret-from-secret".to_string()),
+            file,
+            url,
+        );
+        assert_eq!(
+            configured,
+            "[INITIAL SETUP] Admin user created. Username: root; the password is INITIAL_ADMIN_PASSWORD\n\
+             [INITIAL SETUP] Change this password immediately at https://sanshain.example/admin.html"
+        );
+        let generated = initial_setup_message(
+            "root",
+            &InitialAdminPassword::Generated("Gen3ratedPassw0rd".to_string()),
+            file,
+            url,
+        );
+        assert_eq!(
+            generated,
+            "[INITIAL SETUP] Admin user created. Username: root; the generated password is in \
+             /data/initial-admin-password (deleted after the first password change)\n\
+             [INITIAL SETUP] Change this password immediately at https://sanshain.example/admin.html"
+        );
+    }
+
+    fn fresh_password_file(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sanshain-{name}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("initial-admin-password")
+    }
+
+    #[tokio::test]
+    async fn a_generated_password_is_written_to_the_file_only_the_owner_reads() {
+        if std::env::var_os("INITIAL_ADMIN_PASSWORD").is_some() {
+            return; // configured: nothing is generated
+        }
+        let repo = MockRepo::new();
+        let file = fresh_password_file("generated");
+        ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html", &file)
+            .await
+            .unwrap();
+        let content = std::fs::read_to_string(&file).unwrap();
+        let password = content.strip_suffix('\n').unwrap();
+        assert_eq!(password.len(), 16);
+        login(&repo, "root", password).await.unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unwritable_password_file_stops_the_start_before_the_account_exists() {
+        if std::env::var_os("INITIAL_ADMIN_PASSWORD").is_some() {
+            return;
+        }
+        let repo = MockRepo::new();
+        let file = std::path::Path::new("/nonexistent-sanshain-dir/initial-admin-password");
+        let err = ensure_initial_admin(&repo, "http://127.0.0.1:3000/admin.html", file)
+            .await
+            .unwrap_err();
+        let AppError::Internal(message) = err else {
+            panic!("an internal error, got {err:?}");
+        };
+        assert!(message.contains("/nonexistent-sanshain-dir/initial-admin-password"));
+        assert!(message.contains("set INITIAL_ADMIN_PASSWORD instead"));
+        assert!(repo.list_users().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn changing_the_initial_password_deletes_its_file() {
+        let repo = MockRepo::new();
+        let user = repo
+            .create_user("root", &hash_password("Gen3rated").unwrap(), true)
+            .await
+            .unwrap();
+        let file = fresh_password_file("change");
+        std::fs::write(&file, "Gen3rated\n").unwrap();
+        change_password(&repo, &user, None, "Gen3rated", "chosen", &file)
+            .await
+            .unwrap();
+        assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn changing_another_password_keeps_the_file() {
+        let repo = MockRepo::new();
+        let user = repo
+            .create_user("alice", &hash_password("old").unwrap(), true)
+            .await
+            .unwrap();
+        let file = fresh_password_file("other");
+        std::fs::write(&file, "Gen3rated\n").unwrap();
+        change_password(&repo, &user, None, "old", "new", &file)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Gen3rated\n");
     }
 
     /// Defect 1 of 2.6.1: an account created with the hash of "" (the shipped

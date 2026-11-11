@@ -53,15 +53,19 @@ DATABASE_URL=sqlite://sanshain.db ./target/release/sanshain_service</code></pre>
 
 <h2>First login</h2>
 <p>
-  On the very first start, with no user in the database, Sanshain creates the initial admin and
-  prints its password to the console (stderr):
+  On the very first start, with no user in the database, Sanshain creates the initial admin with a
+  random password, writes it to <code>initial-admin-password</code> next to the SQLite database and
+  says so on the console (stderr):
 </p>
-<pre><code>[INITIAL SETUP] Admin user created. Username: root, Password: &lt;random&gt;
+<pre><code>[INITIAL SETUP] Admin user created. Username: root; the generated password is in ./initial-admin-password (deleted after the first password change)
 [INITIAL SETUP] Change this password immediately at http://0.0.0.0:3000/admin.html</code></pre>
 <p>
-  The username is <code>root</code> unless <code>INITIAL_ADMIN_USERNAME</code> says otherwise, and
-  <code>INITIAL_ADMIN_PASSWORD</code> replaces the random password (set but empty, it counts as
-  unset). The address is <code>PUBLIC_BASE_URL</code> when set, otherwise the bind address
+  From source that is the working directory; in the image it is <code>/data</code>, read with
+  <code>docker exec &lt;container&gt; cat /data/initial-admin-password</code>. Only the service user
+  can read the file, and it is deleted when the password is changed. The username is
+  <code>root</code> unless <code>INITIAL_ADMIN_USERNAME</code> says otherwise, and
+  <code>INITIAL_ADMIN_PASSWORD</code> replaces the random password; then nothing is written and the
+  log names the variable instead (set but empty, it counts as unset). The address is <code>PUBLIC_BASE_URL</code> when set, otherwise the bind address
   (<code>BIND_ADDRESS</code>, default <code>0.0.0.0:3000</code>). This account is
   <a href="glossary.html#root">root</a>: its authority comes from configuration and cannot be
   revoked from inside the application. When <code>SANSHAIN_ROOT_USERS</code> is set, that list alone
