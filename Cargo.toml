@@ -102,8 +102,7 @@ criterion = "0.8"
 rcgen = "0.14"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "cookies", "form"] }
-testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["postgres"] }
+testcontainers = "0.28"
 
 [[bench]]
 name = "openapi_bench"
