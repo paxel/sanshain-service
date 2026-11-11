@@ -1,21 +1,20 @@
 name: CI
 
 on:
-  # Not Dependabot's branches: each exists only for its PR, so a push run
-  # would repeat the PR run.
+  # Pushes only to summer, which takes nothing but PR merges. Every other branch
+  # is tested by its PR run, which tests the merge of the branch into its base:
+  # with up-to-date branches required, that is the tree the merge puts on
+  # summer. Summer's run after the merge feeds the Sonar job and the badges.
   push:
-    branches: ["**", "!dependabot/**"]
+    branches: [summer]
   pull_request:
     branches: ["**"]
 
-# A push to a branch with an open PR fires both triggers. The event is part of
-# the group, so the push run and the PR run both run to the end: a cancelled
-# twin would count as a failed required check and block the merge until rerun.
-# Within one event a newer push still cancels the older run. The group names
-# the bare branch: head_ref is bare on PR events, ref_name (not ref, which is
-# refs/heads/…) on pushes.
+# A newer push or PR update cancels the older run of the same branch. The
+# group names the bare branch: head_ref is bare on PR events, ref_name (not
+# ref, which is refs/heads/…) on pushes.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 # The token only reads the code: no job writes to the repository.
