@@ -84,7 +84,7 @@ jobs:
       # Ratchet rule (see AGENTS.md): when coverage rises, raise --fail-under to
       # (new value - 2) in the same PR. Never lower it. Floor set 2026-08-13 at
       # 81.03% measured with --engine llvm.
-      # The LCOV file is for the SonarQube Cloud workflow (sonar.yml), which downloads it.
+      # The LCOV file is for the sonar job below, which downloads it.
       - name: Coverage
         run: cargo tarpaulin --out Xml --out Lcov --fail-under 79.03
       - name: Upload the coverage for SonarQube Cloud
@@ -109,7 +109,7 @@ jobs:
       # The Tailwind CSS is a committed artifact (prod serves static/ directly);
       # fail if it drifts from source.
       - run: npm run build:css && git diff --exit-code static/css/app.css
-      # The site build's tests, here for their coverage of scripts/ (sonar.yml
+      # The site build's tests, here for their coverage of scripts/ (the sonar job
       # downloads it); the Pages workflow runs them for the deploy.
       - name: Site tests with coverage
         run: >-
@@ -189,3 +189,55 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+  # SonarQube Cloud analysis of summer; the free plan analyses the main branch
+  # only. Report only: the quality gate shows on
+  # https://sonarcloud.io/summary/new_code?id=paxel_sanshain-service and fails no
+  # build. What is analysed is in sonar-project.properties.
+  #
+  # Only pushes to summer run it, so the token never meets code from a pull
+  # request, and it analyses the commit this run checked out. It runs after the
+  # three jobs above, also when one failed, and takes their LCOV files from this
+  # run; a job that left none leaves the scan without that coverage.
+  #
+  # One-time setup: the project paxel_sanshain-service on SonarQube Cloud with
+  # Automatic Analysis off, and the repository secret SQ_TOKEN.
+  sonar:
+    name: SonarQube Cloud analysis
+    needs: [rust-quality, js-quality, ui-quality]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/summer' }}
+    runs-on: ubuntu-latest
+    steps:
+      # The full history for the blame and the new-code period.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
+      - uses: dtolnay/rust-toolchain@d124f86f28ff42855784ff3319f48ac182c248f8 # 1.99.1 branch
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Clippy report for the analyzer
+        run: |
+          mkdir -p build
+          cargo clippy --all-targets --locked --message-format=json > build/clippy-report.json
+      - name: Rust coverage from rust-quality
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-lcov
+          path: build
+      - name: Page-script coverage from ui-quality
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-ui
+          path: build/ui
+      - name: Site-script coverage from js-quality
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-site
+          path: build/site
+      - uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SQ_TOKEN }}
