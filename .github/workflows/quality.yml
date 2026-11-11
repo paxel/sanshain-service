@@ -146,8 +146,11 @@ jobs:
         with:
           cache: npm
       - run: npm ci --ignore-scripts
+      # Without --with-deps: the runner image has Chrome's system libraries already,
+      # and the apt install of them failed the job whenever the Ubuntu mirrors
+      # could not be reached.
       - name: Install Playwright browser
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install chromium
       - name: Build service
         run: cargo build --locked
       - name: UI Smoke Tests
