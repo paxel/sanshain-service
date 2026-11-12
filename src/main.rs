@@ -441,8 +441,7 @@ pub async fn main() {
     }
 
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(spec_updated_channel_size);
-    let mut system = sysinfo::System::new_all();
-    system.refresh_all();
+    let system = sysinfo::System::new_all().ok();
 
     let state = AppState {
         repo,

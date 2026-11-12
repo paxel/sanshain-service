@@ -13,7 +13,7 @@ until a release with the fix is out.
 
 ## What is already checked
 
-Every push and pull request runs CodeQL and a dependency audit, and SonarQube Cloud and
-OpenSSF Scorecard analyse the main branch. The CodeQL and Scorecard findings are the
+Every pull request and every change to the main branch runs CodeQL and a dependency audit,
+and SonarQube Cloud and OpenSSF Scorecard analyse the main branch. The CodeQL and Scorecard findings are the
 repository's code scanning alerts, SonarQube Cloud's are on its project page; a report does not
 need to repeat them.
