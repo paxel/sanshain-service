@@ -1,7 +1,7 @@
 <!-- page: title="JavaScript client" track="developer" order=3.4 summary="The sanshain npm package: install, the provide, require and catalog commands, every option with its default and the version it arrived in, precedence, stability and streams, origin, annotations, the ETag cache, strict mode and best effort, failure modes, the library exports, the GitHub Action and CI recipes." -->
 <p class="lede">
   <code>sanshain</code> is the npm package for Node builds: a CLI, a library for Node code and a
-  composite GitHub Action, version <code>2.6.0</code>, from
+  composite GitHub Action, version <code>2.7.0</code>, from
   <a href="https://github.com/paxel/sanshain-js">paxel/sanshain-js</a>. It reads
   <a href="../sanshain-yaml.html"><code>sanshain.yaml</code></a> and calls provide, require and
   catalog. This page covers what this client reads, its defaults and how it behaves. The Since
@@ -12,9 +12,9 @@
 <pre><code>npm install --save-dev sanshain</code></pre>
 <p>
   The package installs one command, <code>sanshain</code> (run it as <code>npx sanshain</code> or
-  from a <code>package.json</code> script). It needs Node 20 or later: that is the version the
-  client's CI tests against, and the floor of the commander 14 library it uses. The package declares
-  no <code>engines</code> field, so npm does not enforce this.
+  from a <code>package.json</code> script). It needs Node 22.12 or later (20 before 2.7.0): the
+  package declares it in <code>engines</code>, the client's CI tests 22, 24 and 26, and the commander 15
+  library it uses needs it.
 </p>
 <p>
   To fetch the pinned snippets before every build, the repository suggests a
@@ -341,7 +341,7 @@ npx sanshain catalog --trunk</code></pre>
       <td>—</td>
       <td>—</td>
       <td>—</td>
-      <td>Print the version (<code>2.6.0</code>) or the help.</td>
+      <td>Print the version (<code>2.7.0</code>) or the help.</td>
     </tr>
   </tbody>
 </table>
@@ -933,7 +933,7 @@ async function publish(spec) {
 <p>
   The repository is also a composite Action: <code>uses: paxel/sanshain-js@summer</code>. It runs
   <code>npx --yes --ignore-scripts sanshain@&lt;version&gt; &lt;command&gt;</code> in
-  <code>working-directory</code> and sets up no Node. The version is pinned in the Action's
+  <code>working-directory</code> and sets up no Node, so the job's Node must be 22.12 or later. The version is pinned in the Action's
   <code>action.yml</code> to a release that is on npm and raised after each release, so the CLI
   that runs is fixed by the Action's ref, not by the newest version on npm (since 2.6.0; before,
   plain <code>npx sanshain</code>). A project's own install is used only when it is that version;
@@ -1052,7 +1052,7 @@ async function publish(spec) {
       SANSHAIN_TOKEN: ${{ secrets.SANSHAIN_TOKEN }}</code></pre>
 <p class="example-caption">GitLab CI, a Consumer through the prebuild script (the repository's recipe)</p>
 <pre><code>build:
-  image: node:20
+  image: node:22
   script:
     - npm install
     - npm run build
@@ -1060,14 +1060,14 @@ async function publish(spec) {
     SANSHAIN_TOKEN: $SANSHAIN_TOKEN # Defined in GitLab CI/CD Secrets</code></pre>
 <p class="example-caption">GitLab CI, a Producer</p>
 <pre><code>provide:
-  image: node:20
+  image: node:22
   script:
     - npm ci
     - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then export SANSHAIN_TRUNK=true SANSHAIN_GA=true; fi
     - npx sanshain provide</code></pre>
 <p class="example-caption">Jenkins, a Consumer through the prebuild script (the repository's recipe)</p>
 <pre><code>pipeline {
-    agent { docker { image 'node:20' } }
+    agent { docker { image 'node:22' } }
     environment {
         SANSHAIN_TOKEN = credentials('sanshain-token')
     }
@@ -1091,4 +1091,4 @@ async function publish(spec) {
     }
 }</code></pre>
 
-<p class="checked">Checked against v2.13.0 and sanshain 2.6.0.</p>
+<p class="checked">Checked against v2.13.0 and sanshain 2.7.0.</p>

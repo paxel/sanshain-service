@@ -354,7 +354,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain-go",
         repository: "https://github.com/paxel/sanshain-go",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/go.html",
-        version: "2.5.0",
+        version: "2.6.0",
         install: "go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest",
         provide: "sanshain-go provide",
         provide_ga: "sanshain-go --ga provide",
@@ -371,7 +371,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain",
         repository: "https://github.com/paxel/sanshain-js",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/javascript.html",
-        version: "2.6.0",
+        version: "2.7.0",
         install: "npm install --save-dev sanshain",
         provide: "npx sanshain provide",
         provide_ga: "npx sanshain provide --ga",
@@ -890,7 +890,7 @@ mod tests {
             assert_eq!(client(tool).build_tool, tool, "{}", tool.as_str());
         }
         assert_eq!(client(BuildTool::Cargo).name, "cargo-sanshain");
-        assert_eq!(client(BuildTool::Npm).version, "2.6.0");
+        assert_eq!(client(BuildTool::Npm).version, "2.7.0");
     }
 
     #[test]
