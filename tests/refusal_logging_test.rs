@@ -51,8 +51,7 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         Utc::now() + chrono::Duration::hours(1),
     );
     let (spec_updated_tx, _) = tokio::sync::broadcast::channel(100);
-    let mut system = sysinfo::System::new_all();
-    system.refresh_all();
+    let system = sysinfo::System::new_all().ok();
 
     AppState {
         repo: CachedSpecRepository::new(DatabaseRepo::Sqlite(repo), 256),
