@@ -61,7 +61,7 @@ fn test_app_state(repo: SqliteSpecRepository) -> AppState {
         failures_total: Arc::new(AtomicU64::new(0)),
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
-        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all().ok())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
         snapshot_in_progress: Arc::new(AtomicBool::new(false)),
         mcp: Default::default(),
