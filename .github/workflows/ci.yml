@@ -1,17 +1,18 @@
 name: CI
 
 on:
+  # Pushes only to summer, which takes nothing but PR merges. Every other branch
+  # is tested by its PR run, which tests the merge of the branch into its base:
+  # with up-to-date branches required, that is the tree the merge puts on
+  # summer. Summer's run after the merge feeds the Sonar job and the badges.
   push:
-    branches: ["**"]
+    branches: [summer]
   pull_request:
     branches: ["**"]
 
-# A push to a branch with an open PR fires both triggers and runs everything
-# twice. The group must name the bare branch on both events: head_ref is bare
-# on PR events, and ref_name (not ref, which is refs/heads/…) is bare on
-# pushes — with `ref` the twins would land in different groups and nothing
-# would be deduplicated. The loser is cancelled instead of burning a second
-# full run, and a newer push likewise supersedes a stale in-flight one.
+# A newer push or PR update cancels the older run of the same branch. The
+# group names the bare branch: head_ref is bare on PR events, ref_name (not
+# ref, which is refs/heads/…) on pushes.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -41,7 +42,7 @@ jobs:
 
       # Testcontainers tests pull this image on demand; concurrent in-test pulls
       # are flaky ("bytes remaining on stream"), so fetch it once up front.
-      # Tag must match the testcontainers-modules default (see Cargo.toml).
+      # Tag must match POSTGRES_IMAGE in tests/common/mod.rs.
       - name: Pre-pull testcontainers images
         run: for i in 1 2 3; do docker pull postgres:11-alpine && break || sleep 5; done
 

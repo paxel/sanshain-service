@@ -74,7 +74,8 @@ pub struct AppState {
     pub failures_total: Arc<AtomicU64>,
     pub process_start_time: DateTime<Utc>,
     pub prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
-    pub system: Arc<std::sync::Mutex<sysinfo::System>>,
+    /// `None` on a platform sysinfo does not support; the stats then read 0.
+    pub system: Arc<std::sync::Mutex<Option<sysinfo::System>>>,
     pub max_body_bytes: usize,
     /// Set while a database snapshot (#50) is being produced or streamed, so
     /// only one runs at a time; a second request is answered `409`.

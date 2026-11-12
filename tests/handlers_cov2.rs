@@ -60,7 +60,7 @@ fn test_state(repo: SqliteSpecRepository) -> AppState {
         failures_total: Arc::new(AtomicU64::new(0)),
         process_start_time: Utc::now(),
         prometheus_handle: get_test_prometheus_handle(),
-        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all())),
+        system: Arc::new(std::sync::Mutex::new(sysinfo::System::new_all().ok())),
         max_body_bytes: sanshain_service::DEFAULT_MAX_BODY_BYTES,
         snapshot_in_progress: Arc::new(AtomicBool::new(false)),
         mcp: Default::default(),
@@ -89,6 +89,14 @@ paths:
 // test code for clippy's `allow-unwrap-in-tests`.
 #[cfg(test)]
 async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
+    app_with_seed_where(|_| {}).await
+}
+
+/// [`app_with_seed`] with a change to the state before the app is built.
+#[cfg(test)]
+async fn app_with_seed_where(
+    adjust: impl FnOnce(&mut AppState),
+) -> (axum::Router, CachedSpecRepository, String) {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -135,7 +143,8 @@ async fn app_with_seed() -> (axum::Router, CachedSpecRepository, String) {
     // Hand back the app's *cached* repository, not the bare SQLite one: a
     // write through a second, uncached handle would bypass the app cache's
     // write-through invalidation and be invisible until the TTL expires.
-    let state = test_state(repo);
+    let mut state = test_state(repo);
+    adjust(&mut state);
     let cached_repo = state.repo.clone();
     let app = create_app(state);
     (app, cached_repo, session.token)
@@ -628,6 +637,24 @@ async fn cache_config_get_set_and_database_info() {
         body,
         json!({ "backend": "sqlite", "url": "sqlite::memory:" })
     );
+}
+
+#[tokio::test]
+async fn observability_stats_read_zero_where_sysinfo_is_unsupported() {
+    // sysinfo 0.40 refuses to build a System on a platform it does not
+    // support; the panel then answers with zeros instead of failing.
+    let (app, _repo, token) = app_with_seed_where(|state| {
+        state.system = Arc::new(std::sync::Mutex::new(None));
+    })
+    .await;
+    let auth = format!("Bearer {}", token);
+
+    let (status, stats) = get_json(&app, "/admin/observability/stats", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stats["cpu_usage"], 0.0);
+    assert_eq!(stats["memory_used"], 0);
+    assert_eq!(stats["memory_total"], 0);
+    assert_eq!(stats["requests_total"], 0);
 }
 
 #[tokio::test]

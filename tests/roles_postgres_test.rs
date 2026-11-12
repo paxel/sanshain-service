@@ -10,17 +10,13 @@ use sanshain_service::domain::models::GroupSource;
 use sanshain_service::domain::ports::SpecRepository;
 use sanshain_service::infrastructure::postgres_repository::PostgresSpecRepository;
 use sqlx::postgres::PgPoolOptions;
-use testcontainers_modules::postgres::Postgres;
 
 mod common;
 
 // `cfg(test)` is always true in this crate; the attribute marks the helper as
 // test code so clippy's `allow-*-in-tests` exemptions apply to it.
 #[cfg(test)]
-async fn repo_and_container() -> (
-    PostgresSpecRepository,
-    testcontainers::ContainerAsync<Postgres>,
-) {
+async fn repo_and_container() -> (PostgresSpecRepository, common::PostgresContainer) {
     let container = common::start_postgres().await;
     let host = container.get_host().await.expect("host");
     let port = container.get_host_port_ipv4(5432).await.expect("port");

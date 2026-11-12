@@ -1430,14 +1430,26 @@ pub async fn get_observability_stats(
         .system
         .lock()
         .map_err(|_| AppError::Internal("System stats lock poisoned".to_string()))?;
-    system.refresh_cpu_usage();
-    system.refresh_memory();
+    // On a platform sysinfo does not support the host figures read 0, as they
+    // did before sysinfo 0.40 made that an error; the panel still answers.
+    let (cpu_usage, memory_used, memory_total) = match system.as_mut() {
+        Some(system) => {
+            system.refresh_cpu_usage();
+            system.refresh_memory();
+            (
+                system.global_cpu_usage(),
+                system.used_memory(),
+                system.total_memory(),
+            )
+        }
+        None => (0.0, 0, 0),
+    };
 
     let stats = SystemStats {
-        cpu_usage: system.global_cpu_usage(),
-        memory_used: system.used_memory(),
-        memory_total: system.total_memory(),
-        system_uptime: sysinfo::System::uptime(),
+        cpu_usage,
+        memory_used,
+        memory_total,
+        system_uptime: sysinfo::System::uptime().unwrap_or(0),
         process_uptime: chrono::Utc::now()
             .signed_duration_since(state.process_start_time)
             .num_seconds()

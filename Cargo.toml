@@ -82,7 +82,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 axum-prometheus = "0.10"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
-sysinfo = "0.39"
+sysinfo = "0.40"
 moka = { version = "0.12", features = ["future"] }
 thiserror = "2"
 opentelemetry = { version = "0.33", features = ["trace", "metrics", "logs"] }
@@ -102,8 +102,7 @@ criterion = "0.8"
 rcgen = "0.14"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "cookies", "form"] }
-testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["postgres"] }
+testcontainers = "0.28"
 
 [[bench]]
 name = "openapi_bench"
