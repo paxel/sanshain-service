@@ -51,7 +51,7 @@ jobs:
       # high/critical findings that have a fix, consistent with the source audits above.
       - name: grype
         id: grype
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
           output-format: json
@@ -70,7 +70,7 @@ jobs:
       - name: grype (all findings)
         id: grype-all
         if: always()
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         with:
           image: ghcr.io/${{ github.repository }}:${{ steps.latest.outputs.tag }}
           output-format: json
