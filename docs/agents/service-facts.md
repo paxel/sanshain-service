@@ -111,8 +111,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   |-------------------------|---------|-------------------------------------------------------|-----------------------------------------|
   | `sanshain-maven-plugin` | 2.5.0   | Java 11, `/all_dev/sanshain-maven-plugin/src/main/java/com/sanshain/maven/` (Mojos, `SanshainMojoDelegate` = precedence, `SanshainConfig` = yaml, `SanshainOrigin`, `SanshainHttpClient`, `SpecCombiner`); own `CLAUDE.md` | `mvn verify -B` (JUnit 5, WireMock)     |
   | `sanshain-rs`           | 4.0.0   | Rust workspace: `sanshain/src/lib.rs` (library), `cargo-sanshain/src/main.rs` (CLI) | `cargo test`, clippy                    |
-  | `sanshain-go`           | 2.5.0   | Go: `cmd/sanshain-go/main.go`, `internal/{api,config,cache}` (`api/origin.go`); `ai/rules.md` | `go test ./...`, golangci-lint, gosec   |
-  | `sanshain-js`           | 2.6.0   | TypeScript: `/all_dev/sanshain-js/src/{api,cli,config,cache}.ts`, `bin/`, `action.yml` (GitHub Action) | `npm run build`, `npm test` (jest)      |
+  | `sanshain-go`           | 2.6.0   | Go: `cmd/sanshain-go/main.go`, `internal/{api,config,cache}` (`api/origin.go`); `ai/rules.md` | `go test ./...`, golangci-lint, gosec   |
+  | `sanshain-js`           | 2.7.0   | TypeScript: `/all_dev/sanshain-js/src/{api,cli,config,cache}.ts`, `bin/`, `action.yml` (GitHub Action) | `npm run build`, `npm test` (jest)      |
   | `sanshain-conan`        | 2.5.0   | Python: `sanshainconan/{client,cli,config,integration,catalog,cache}.py`; `ai/rules.md` | `uv run python -m unittest discover tests`, flake8, black, bandit, mypy |
 
 - Every client does the same steps: load `sanshain.yaml`, resolve settings by precedence (flag >

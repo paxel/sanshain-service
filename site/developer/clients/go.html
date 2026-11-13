@@ -2,7 +2,7 @@
 <p class="lede">
   <code>sanshain-go</code> is the command-line client for Go projects: it reads
   <a href="../sanshain-yaml.html"><code>sanshain.yaml</code></a> and calls provide, require and the
-  catalog push. This page documents version <code>2.5.0</code> from
+  catalog push. This page documents version <code>2.6.0</code> from
   <a href="https://github.com/paxel/sanshain-go">paxel/sanshain-go</a>. The Since column of the
   options table names the client version an option arrived in.
 </p>
@@ -12,7 +12,7 @@
 <ul>
   <li>
     The module path is <code>github.com/paxel/sanshain-go/v2</code>. <code>go install</code> needs Go
-    1.23.3 or later (the <code>go</code> directive of its <code>go.mod</code>).
+    1.26 or later (the <code>go</code> directive of its <code>go.mod</code>; 1.23.3 before 2.6.0).
   </li>
   <li>
     Every <a href="https://github.com/paxel/sanshain-go/releases">GitHub release</a> also carries
@@ -22,7 +22,7 @@
     binaries need macOS 12 or later.
   </li>
   <li>The command is <code>sanshain-go</code>; <code>sanshain-go --version</code> prints
-    <code>sanshain-go 2.5.0</code>.</li>
+    <code>sanshain-go 2.6.0</code>.</li>
   <li>Client 2.x speaks Sanshain Service 2.x. The catalog push and <code>format: openapi</code> need
     2.4.0 or later, the origin 2.9.0, annotations 2.13.0; against an older service the client
     reacts as described under <a href="#failure-modes">Failure modes</a>.</li>
@@ -344,7 +344,7 @@ sanshain-go --config deploy/sanshain.yaml require</code></pre>
       <td>—</td>
       <td>—</td>
       <td>2.0.0</td>
-      <td>Print <code>sanshain-go 2.5.0</code> and exit, before any configuration is read.</td>
+      <td>Print <code>sanshain-go 2.6.0</code> and exit, before any configuration is read.</td>
     </tr>
   </tbody>
 </table>
@@ -852,7 +852,7 @@ SANSHAIN_URL=https://sanshain.example.com SANSHAIN_TOKEN=san_… go generate ./.
 </p>
 <p class="example-caption">GitLab CI</p>
 <pre><code>sanshain-require:
-  image: golang:1.23
+  image: golang:1.26
   script:
     - go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
     - sanshain-go require
@@ -864,7 +864,7 @@ SANSHAIN_URL=https://sanshain.example.com SANSHAIN_TOKEN=san_… go generate ./.
     - when: on_success
 
 sanshain-provide:
-  image: golang:1.23
+  image: golang:1.26
   stage: deploy
   script:
     - go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest
@@ -907,4 +907,4 @@ sanshain-provide:
   <code>CHANGE_URL</code> by itself.
 </p>
 
-<p class="checked">Checked against v2.13.0 and sanshain-go 2.5.0.</p>
+<p class="checked">Checked against v2.13.0 and sanshain-go 2.6.0.</p>
