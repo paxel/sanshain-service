@@ -519,3 +519,49 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
   const path = `/orders" onmouseover="alert(1)' x='<b>&`;
   expect(result).toEqual({ attributes: ["title"], title: path, text: path });
 });
+
+// Last in this file: its trunk catalog push gives main a periphery the tests
+// above do not expect.
+test("Periphery is greyed out where the view has none and says why", async ({ page, request }) => {
+  const button = page.locator("#filter-periphery");
+  await openGraph(page);
+  // The fixture's catalog push is no trunk build: main had no periphery in 2020
+  // or now, the dev view shows it.
+  await expect(node(page, `resource:default/${P}-db`)).toHaveCount(1, { timeout: 20000 });
+  await expect(button).toBeEnabled();
+  await page.goto("/graph.html?view=main&at=2020-01-01T00:00:00Z");
+  await expect(button).toBeDisabled({ timeout: 10000 });
+  await expect(button).toHaveAttribute(
+    "title",
+    "No periphery in this view: catalog pushes reach main only from trunk builds",
+  );
+  await expect(button).toHaveClass(/opacity-50/);
+
+  const login = await request.post("/auth/login", {
+    data: { username: "root", password: adminPassword },
+  });
+  const res = await request.put(`/catalog/${CONSUMERS[1]}`, {
+    headers: { Authorization: `Bearer ${(await login.json()).token}` },
+    data: {
+      trunk: true,
+      catalog_info_yaml: [
+        "apiVersion: backstage.io/v1alpha1",
+        "kind: Component",
+        "metadata:",
+        `  name: ${CONSUMERS[1]}`,
+        "spec:",
+        "  type: service",
+        "  dependsOn:",
+        `    - resource:${P}-trunk-db`,
+      ].join("\n"),
+    },
+  });
+  expect(res.ok()).toBe(true);
+  await page.goto("/graph.html?view=main");
+  await expect(node(page, `resource:default/${P}-trunk-db`)).toHaveCount(1, { timeout: 20000 });
+  await expect(button).toBeEnabled();
+  await expect(button).not.toHaveClass(/opacity-50/);
+  await expect(button).toHaveAttribute("title", /Backstage catalog-info\.yaml/);
+  await button.click();
+  await expect(node(page, `resource:default/${P}-trunk-db`)).toHaveCount(0);
+});

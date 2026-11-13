@@ -453,7 +453,29 @@ window.applyGraphHighlights = applyGraphHighlights;
 
 // ── Redraw Coordinator ───────────────────────────────────────────────
 
+// The main and branch views draw only their scope's periphery, which trunk
+// catalog pushes fill. When that scope holds none, the Periphery button has
+// nothing to hide: it is greyed out and says why. `null` is the dev view or a
+// scope still loading, never greyed.
+const GRAPH_NO_PERIPHERY_TITLE =
+  "No periphery in this view: catalog pushes reach main only from trunk builds";
+function graphSyncPeripheryButton() {
+  const btn = document.getElementById("filter-periphery");
+  if (!btn) return;
+  if (btn.dataset.title === undefined) btn.dataset.title = btn.title;
+  const empty =
+    window.graphStreamView !== "dev" &&
+    Array.isArray(window.graphScopePeriphery) &&
+    window.graphScopePeriphery.length === 0;
+  btn.disabled = empty;
+  btn.classList.toggle("opacity-50", empty);
+  btn.classList.toggle("cursor-not-allowed", empty);
+  btn.title = empty ? GRAPH_NO_PERIPHERY_TITLE : btn.dataset.title;
+}
+window.graphSyncPeripheryButton = graphSyncPeripheryButton;
+
 function redrawGraph() {
+  graphSyncPeripheryButton();
   if (typeof lastGraphReport === "undefined" || !lastGraphReport) return;
 
   const mode = typeof currentGraphMode !== "undefined" ? currentGraphMode : "custom";
