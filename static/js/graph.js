@@ -1904,6 +1904,7 @@ function renderCustomGraph(report, svgElement, direction) {
     ? window.graphDensity
     : "normal";
   const gaps = graphLayoutGaps(isLR, density);
+  const normalGaps = graphLayoutGaps(isLR, "normal");
   svgElement.dataset.density = density;
   const rainbow = !!switches.rainbow;
   svgElement.dataset.rainbow = rainbow ? "1" : "0";
@@ -2128,7 +2129,8 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Step 1 — pack one block of nodes: per rank, the role lanes (Consumers,
   // both, Producers) side by side, each lane starting at the same offset on
-  // every rank so the leftmost nodes line up. Positions are relative to the
+  // every rank so the leftmost nodes line up (in Normal; the density scales
+  // that offset, see below). Positions are relative to the
   // block's own start; `mid` is where dagre had the block's centre.
   const packBlock = (nodes) => {
     const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
@@ -2172,21 +2174,40 @@ function renderCustomGraph(report, svgElement, direction) {
       }
     }
 
-    const local = new Map();
+    // The lanes make each rank start further along than the one before it,
+    // by the width of the lanes to its left. Compact shrinks that shift by the
+    // share of Normal's rank gap it keeps, so the edges keep Normal's slope;
+    // Dense reserves no lane across ranks and centres each rank in the block.
+    // On one rank a lane still starts only after the one before it ends.
+    const laneShift = density === "dense" ? 0 : gaps.ranksep / normalGaps.ranksep;
+    const rows = [];
+    let width = 0;
     unitsByRank.forEach((units) => {
       const roleGroups = [[], [], []];
       units.forEach((u) => roleGroups[u.role].push(u));
+      const row = [];
+      let end = null;
       for (let i = 0; i < 3; i++) {
-        let cursor = laneStart[i];
+        if (roleGroups[i].length === 0) continue;
+        const start = laneStart[i] * laneShift;
+        let cursor = end === null ? start : Math.max(start, end + GROUP_GAP);
         roleGroups[i].forEach((u) => {
-          local.set(u.id, cursor + u.width / 2);
+          row.push([u.id, cursor + u.width / 2]);
           cursor += u.width + GAP;
         });
+        end = cursor - GAP;
       }
+      rows.push({ row, end });
+      width = Math.max(width, end);
+    });
+    const local = new Map();
+    rows.forEach(({ row, end }) => {
+      const centre = density === "dense" ? (width - end) / 2 : 0;
+      row.forEach(([id, cf]) => local.set(id, cf + centre));
     });
     return {
       local,
-      width: currentX,
+      width,
       mid: unitsByRank.size > 0 ? sumOldMid / unitsByRank.size : 0,
     };
   };

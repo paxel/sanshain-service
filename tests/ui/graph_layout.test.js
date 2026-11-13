@@ -520,6 +520,52 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
   expect(result).toEqual({ attributes: ["title"], title: path, text: path });
 });
 
+// Ungrouped, one block holds both roles: the Producers' rank starts right of
+// the Consumers' by their lane plus the role gap. Compact scales that shift by
+// its share of Normal's rank gap, so the edges keep their slope; Dense centres
+// every rank instead.
+test("the density scales how far a lower rank moves along", async ({ page }) => {
+  await openGraph(page);
+  // The catalog's resource sits on the Producers' rank too.
+  const producers = [...DOMAINS.alpha, ...DOMAINS.beta, `resource:default/${P}-db`];
+  const measure = async (density) => {
+    await page.goto(`/graph.html?domains=node&density=${density}`);
+    await expect(page.locator("#custom-graph")).toHaveAttribute("data-density", density, {
+      timeout: 20000,
+    });
+    await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+    return page.evaluate(
+      ({ consumers, producers, density }) => {
+        const span = (names) => {
+          const rects = names.map((name) =>
+            document.querySelector(`#custom-graph g.graph-node[data-node="${name}"] > rect`),
+          );
+          const x0 = Math.min(...rects.map((r) => Number(r.getAttribute("x"))));
+          const x1 = Math.max(
+            ...rects.map((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width"))),
+          );
+          return { x0, x1, mid: (x0 + x1) / 2 };
+        };
+        return {
+          consumers: span(consumers),
+          producers: span(producers),
+          gaps: window.graphLayoutGaps(false, density),
+          normal: window.graphLayoutGaps(false, "normal"),
+        };
+      },
+      { consumers: CONSUMERS, producers, density },
+    );
+  };
+  for (const density of ["normal", "compact"]) {
+    const { consumers, producers: p, gaps, normal } = await measure(density);
+    const lane = consumers.x1 - consumers.x0 + gaps.groupGap;
+    const expected = (lane * gaps.ranksep) / normal.ranksep;
+    expect(Math.abs(p.x0 - consumers.x0 - expected), density).toBeLessThan(1);
+  }
+  const dense = await measure("dense");
+  expect(Math.abs(dense.producers.mid - dense.consumers.mid)).toBeLessThan(1);
+});
+
 // Last in this file: its trunk catalog push gives main a periphery the tests
 // above do not expect.
 test("Periphery is greyed out where the view has none and says why", async ({ page, request }) => {
