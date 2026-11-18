@@ -23,6 +23,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 // Sections live on tabs: General, Sign-in, Users.
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} tab
+ */
 const openTab = (page, tab) => page.click(`[data-admin-tab-button="${tab}"]`);
 
 test("auth-mode radios reveal and hide their config forms", async ({ page }) => {
@@ -101,7 +105,7 @@ test("pickers take effect on the tick: group members and maintainers", async ({ 
   await openTab(page, "users");
   const run = Date.now().toString(36);
   const token = await page.evaluate(() => localStorage.getItem("sanshain_token"));
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = { Authorization: `Bearer ${String(token)}` };
   const producer = `picked-${run}`;
   const spec = `openapi: 3.0.0\ninfo:\n  title: ${producer}\n  version: 1.0.0\npaths:\n  /a:\n    get:\n      responses:\n        '200': { description: ok }\n`;
   const provided = await page.request.post("/provide", {

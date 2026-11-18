@@ -1,11 +1,12 @@
 // The graph's timeline range and shareable links: the range fields, the
 // snapping slider, and the view, branch, range, instant and display switches
 // carried in the address.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const BRANCH = "Timeline Link Branch";
 
+/** @param {import("@playwright/test").Page} page */
 async function signIn(page) {
   if (!adminPassword) {
     throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
@@ -18,6 +19,10 @@ async function signIn(page) {
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} name
+ */
 const param = (page, name) => new URL(page.url()).searchParams.get(name);
 
 test.describe("Graph timeline and links", () => {
@@ -61,7 +66,7 @@ test.describe("Graph timeline and links", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/admin/branches", {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: BRANCH },
@@ -176,7 +181,7 @@ test.describe("Graph timeline and links", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/admin/branches", {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: BRANCH },
@@ -192,8 +197,10 @@ test.describe("Graph timeline and links", () => {
         throw new Error("drawing failed");
       };
       window.redrawGraph = fail;
+      // eslint-disable-next-line @typescript-eslint/require-await -- The stub stays async so that its failure is a rejected promise, as the real function's would be.
       window.setTimelinePosition = async () => fail();
     });
+    /** @type {string[]} */
     const unhandled = [];
     page.on("pageerror", (error) => unhandled.push(error.message));
     const dialog = page.waitForEvent("dialog");

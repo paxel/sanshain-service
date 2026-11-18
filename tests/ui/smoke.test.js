@@ -1,4 +1,9 @@
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
+
+/** @typedef {{ x: number, y: number, width: number, height: number }} Rect */
+/** @typedef {{ marker?: string }[] | null} Marked The stubbed answers carry a marker instead of real rows. */
+/** @typedef {{ __xss?: number }} XssWindow An injected handler would set this flag. */
+/** @typedef {{ __copied: string | null }} CopiedWindow The stubbed copy command stores what it took here. */
 
 // The live-update stream stays open by design, so "networkidle" would never
 // arrive: these tests get an empty stream, which the page retries quietly.
@@ -20,7 +25,7 @@ test.describe("Sanshain UI Smoke Test", () => {
     await expect(logo).toBeVisible();
 
     // Verify logo dimensions are not broken (intrinsic vs display)
-    const box = await logo.boundingBox();
+    const box = /** @type {Rect} */ (await logo.boundingBox());
     expect(box.height).toBeLessThan(100); // Should be h-9 (~36px)
   });
 
@@ -64,7 +69,7 @@ test.describe("Sanshain UI Smoke Test", () => {
     } catch (e) {
       const errorText = await page.locator("#login-error").textContent();
       if (errorText && errorText.trim().length > 0) {
-        throw new Error(`Login failed with error: ${errorText}`);
+        throw new Error(`Login failed with error: ${errorText}`, { cause: e });
       }
       throw e;
     }
@@ -109,7 +114,9 @@ test.describe("Sanshain UI Smoke Test", () => {
       throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
     }
 
-    page.on("dialog", async (dialog) => await dialog.dismiss());
+    page.on("dialog", async (dialog) => {
+      await dialog.dismiss();
+    });
 
     // Signed out: hidden.
     await page.goto("/producers.html");
@@ -139,14 +146,16 @@ test.describe("Sanshain UI Smoke Test", () => {
     // account, so the assertion does not depend on the registration or
     // auto-approve settings. That /auth/me reports permissions correctly is a
     // separate concern, covered server-side.
-    await page.evaluate(() => window.updateBannerAuth({ username: "plain", permissions: [] }));
+    await page.evaluate(() => {
+      window.updateBannerAuth({ username: "plain", permissions: [] });
+    });
     await expect(page.locator("#nav-audit-link")).toBeHidden();
 
     // ...and the same call with the permission brings it back, so the assertion
     // above is about the permission and not about the call having no effect.
-    await page.evaluate(() =>
-      window.updateBannerAuth({ username: "root", permissions: ["view_audit"] }),
-    );
+    await page.evaluate(() => {
+      window.updateBannerAuth({ username: "root", permissions: ["view_audit"] });
+    });
     await expect(page.locator("#nav-audit-link")).toBeVisible();
 
     // A partial administrator — someone who administers users but may not read
@@ -154,9 +163,9 @@ test.describe("Sanshain UI Smoke Test", () => {
     // permission model makes possible and the old all-or-nothing gate could not
     // express: holding *an* administrative permission is no longer the same as
     // holding this one.
-    await page.evaluate(() =>
-      window.updateBannerAuth({ username: "manager", permissions: ["manage_users"] }),
-    );
+    await page.evaluate(() => {
+      window.updateBannerAuth({ username: "manager", permissions: ["manage_users"] });
+    });
     await expect(page.locator("#nav-audit-link")).toBeHidden();
   });
 });
@@ -190,7 +199,7 @@ test.describe("Endpoint viewer", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
 
     // Seed one version for the viewer to open.
     await request.post("/provide", {
@@ -200,11 +209,13 @@ test.describe("Endpoint viewer", () => {
   });
 
   test("the viewer shows the version history of the endpoint", async ({ page }) => {
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -224,7 +235,9 @@ test.describe("Role, group and maintainer management", () => {
     if (!adminPassword) {
       throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
     }
-    page.on("dialog", async (dialog) => await dialog.accept());
+    page.on("dialog", async (dialog) => {
+      await dialog.accept();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
@@ -298,7 +311,7 @@ test.describe("One-click promote", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -331,8 +344,11 @@ test.describe("One-click promote", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+    const headers = {
+      Authorization: `Bearer ${/** @type {{ token: string }} */ (await json(login)).token}`,
+    };
     const producer = `${SERVICE}-ci`;
+    /** @param {object} extra */
     const provide = (extra) =>
       request.post("/provide", {
         headers,
@@ -343,7 +359,7 @@ test.describe("One-click promote", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${producer}`);
@@ -365,7 +381,7 @@ test.describe("One-click promote", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}`);
@@ -397,7 +413,7 @@ test.describe("One-click promote", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -423,7 +439,7 @@ test.describe("One-click promote", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -453,7 +469,9 @@ test.describe("Snapshot cleanup settings", () => {
     if (!adminPassword) {
       throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
     }
-    page.on("dialog", async (dialog) => await dialog.accept());
+    page.on("dialog", async (dialog) => {
+      await dialog.accept();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
@@ -495,7 +513,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
       data: { producername: SERVICE, stability: "snapshot", openapi_yaml: SPEC, trunk: true },
@@ -512,7 +530,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -539,7 +557,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/admin/branches", {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: "Smoke Graph Branch" },
@@ -548,7 +566,7 @@ test.describe("Main graph view (ADR-0004)", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -631,7 +649,7 @@ test.describe("Escaping", () => {
     const handlers = await page.evaluate((value) => {
       const host = document.createElement("div");
       host.innerHTML = `<span title="${value}">x</span>`;
-      const span = host.firstElementChild;
+      const span = /** @type {Element} */ (host.firstElementChild);
       return {
         attrs: span.getAttributeNames(),
         title: span.getAttribute("title"),
@@ -649,15 +667,19 @@ test.describe("Escaping", () => {
     const name = '<img src="x" onerror="window.__xss = 1">';
 
     const plain = await page.evaluate((value) => {
-      window.confirmAction(`Delete ${value}?`, () => {});
-      const el = document.getElementById("confirm-message");
+      window.confirmAction(`Delete ${value}?`, () => {
+        // Nothing is confirmed: only the message is looked at.
+      });
+      const el = /** @type {HTMLElement} */ (document.getElementById("confirm-message"));
       return { images: el.querySelectorAll("img").length, text: el.textContent };
     }, name);
     expect(plain).toEqual({ images: 0, text: `Delete ${name}?` });
 
     const marked = await page.evaluate((value) => {
-      window.confirmAction(window.safeHtml`Delete <strong>${value}</strong>?`, () => {});
-      const el = document.getElementById("confirm-message");
+      window.confirmAction(window.safeHtml`Delete <strong>${value}</strong>?`, () => {
+        // Nothing is confirmed: only the message is looked at.
+      });
+      const el = /** @type {HTMLElement} */ (document.getElementById("confirm-message"));
       const strong = el.querySelectorAll("strong");
       return {
         images: el.querySelectorAll("img").length,
@@ -666,7 +688,9 @@ test.describe("Escaping", () => {
       };
     }, name);
     expect(marked).toEqual({ images: 0, strong: 1, name });
-    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+    expect(
+      await page.evaluate(() => /** @type {XssWindow} */ (/** @type {unknown} */ (window)).__xss),
+    ).toBeUndefined();
   });
 });
 
@@ -676,6 +700,7 @@ test.describe("Release-graph regressions", () => {
   const PINNED = "reg28-pinned-svc"; // pinned by the consumer
   const DOOMED = "reg28-doomed-svc"; // its version gets deleted -> dangling
   const CONSUMER = "reg28-consumer";
+  /** @param {string} title */
   const spec = (title) =>
     [
       "openapi: 3.0.3",
@@ -697,7 +722,7 @@ test.describe("Release-graph regressions", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const auth = { Authorization: `Bearer ${token}` };
     for (const name of [LONER, PINNED, DOOMED]) {
       await request.post("/provide", {
@@ -715,14 +740,15 @@ test.describe("Release-graph regressions", () => {
     const del = await request.delete(`/admin/producers/${DOOMED}/versions/openapi/1.0.0`, {
       headers: auth,
     });
-    if (!del.ok()) throw new Error(`delete-version failed: ${del.status()}`);
+    if (!del.ok()) throw new Error(`delete-version failed: ${String(del.status())}`);
   });
 
+  /** @param {import("@playwright/test").Page} page */
   async function loginAndOpenMainView(page) {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
@@ -771,18 +797,25 @@ test.describe("Release-graph regressions", () => {
     const result = await page.evaluate(async () => {
       const originalApi = window.apiCall;
       const originalRedraw = window.redrawGraph;
-      window.redrawGraph = () => {};
-      const resolvers = {};
+      window.redrawGraph = () => {
+        // Nothing is drawn: the test looks at the data only.
+      };
+      const resolvers = /** @type {{ newer: () => void, older: () => void }} */ ({});
       window.apiCall = (url) => {
         const key = url.includes("T01") ? "older" : "newer";
-        const answer = { ok: true, json: async () => [{ marker: key }] };
+        // This is as much of a response as the page reads.
+        const answer = /** @type {Response} */ (
+          /** @type {unknown} */ ({ ok: true, json: () => Promise.resolve([{ marker: key }]) })
+        );
         // The periphery of the instant (#46) is fetched after its pins; answer
         // it at once so only the pin responses are raced.
         // So is the scope data fetched beside it.
         if (url.includes("/admin/periphery") || url.includes("/admin/graph/scope"))
           return Promise.resolve(answer);
         return new Promise((resolve) => {
-          resolvers[key] = () => resolve(answer);
+          resolvers[key] = () => {
+            resolve(answer);
+          };
         });
       };
       try {
@@ -794,8 +827,12 @@ test.describe("Release-graph regressions", () => {
         await older;
         return {
           at: window.graphTimelineAt,
-          marker: window.graphTimelinePins?.[0]?.marker ?? null,
-          peripheryMarker: window.graphScopePeriphery?.[0]?.marker ?? null,
+          marker:
+            /** @type {Marked} */ (/** @type {unknown} */ (window.graphTimelinePins))?.[0]
+              ?.marker ?? null,
+          peripheryMarker:
+            /** @type {Marked} */ (/** @type {unknown} */ (window.graphScopePeriphery))?.[0]
+              ?.marker ?? null,
         };
       } finally {
         window.apiCall = originalApi;
@@ -856,7 +893,7 @@ test.describe("Endpoint card navigation", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
       data: { producername: SERVICE, stability: "ga", openapi_yaml: SPEC },
@@ -867,7 +904,7 @@ test.describe("Endpoint card navigation", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}&api_type=openapi&version=1.0.0`);
@@ -876,12 +913,11 @@ test.describe("Endpoint card navigation", () => {
     await expect(card.locator(".endpoint-summary")).toHaveText("Reads one widget.");
     // Under the path, starting where the path starts, not floating
     // between the path and the clients badge.
-    const path = await card.locator("span.font-mono").boundingBox();
-    const summary = await card.locator(".endpoint-summary").boundingBox();
-    const badge = await card
-      .locator(".client-badge-wrapper, :text('unused')")
-      .first()
-      .boundingBox();
+    const path = /** @type {Rect} */ (await card.locator("span.font-mono").boundingBox());
+    const summary = /** @type {Rect} */ (await card.locator(".endpoint-summary").boundingBox());
+    const badge = /** @type {Rect} */ (
+      await card.locator(".client-badge-wrapper, :text('unused')").first().boundingBox()
+    );
     expect(summary.y).toBeGreaterThanOrEqual(path.y + path.height - 1);
     expect(Math.abs(summary.x - path.x)).toBeLessThan(1);
     expect(summary.x + summary.width).toBeLessThan(badge.x);
@@ -890,11 +926,13 @@ test.describe("Endpoint card navigation", () => {
   test("clicking an endpoint card opens that endpoint, not a URL of undefineds", async ({
     page,
   }) => {
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
@@ -904,7 +942,9 @@ test.describe("Endpoint card navigation", () => {
 
     // The args must survive the round trip through the attribute — this is the
     // step that silently produced an empty list.
-    const args = await card.evaluate((el) => JSON.parse(el.getAttribute("data-click-args")));
+    const args = await card.evaluate((el) =>
+      JSON.parse(/** @type {string} */ (el.getAttribute("data-click-args"))),
+    );
     expect(args, "the card's action args must parse and carry all five values").toEqual([
       SERVICE,
       "openapi",
@@ -958,7 +998,7 @@ test.describe("Graph node navigation", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const auth = { Authorization: `Bearer ${token}` };
     await request.post("/provide", {
       headers: auth,
@@ -979,17 +1019,20 @@ test.describe("Graph node navigation", () => {
   });
 
   test("a consumer node links to the consumers page, not a 404 on producers", async ({ page }) => {
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
     await page.goto("/graph.html");
     await expect(page.locator(`[data-node="${CONSUMER}"]`).first()).toBeVisible({ timeout: 20000 });
 
+    /** @param {string} node */
     const hrefFor = async (node) => {
       await page.locator(`[data-node="${node}"]`).first().hover();
       await expect(page.locator("#graph-tooltip")).toBeVisible();
@@ -1017,10 +1060,11 @@ test.describe("Diff views", () => {
   const WS = "diff-ws-fixture";
 
   // > 2500 lines; between the two versions only `info.version` differs.
+  /** @param {string} version */
   const bigSpec = (version) => {
     const props = [];
     for (let i = 0; i < 1300; i++) {
-      props.push(`        p${i}:`, "          type: string");
+      props.push(`        p${String(i)}:`, "          type: string");
     }
     return [
       "openapi: 3.0.0",
@@ -1045,6 +1089,11 @@ test.describe("Diff views", () => {
 
   // 1.1.0 re-indents the tags list and adds trailing spaces — whitespace only,
   // apart from `info.version`.
+  /**
+   * @param {string} version
+   * @param {string} tagIndent
+   * @param {string} trailing
+   */
   const wsSpec = (version, tagIndent, trailing) =>
     [
       "openapi: 3.0.0",
@@ -1063,15 +1112,20 @@ test.describe("Diff views", () => {
       "",
     ].join("\n");
 
+  /** @param {import("@playwright/test").Page} page */
   const login = async (page) => {
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
-    await page.evaluate(() => localStorage.removeItem("sanshain.diffLayout"));
+    await page.evaluate(() => {
+      localStorage.removeItem("sanshain.diffLayout");
+    });
   };
 
   test.beforeAll(async ({ request }) => {
@@ -1081,7 +1135,11 @@ test.describe("Diff views", () => {
     const loginRes = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await loginRes.json();
+    const { token } = /** @type {{ token: string }} */ (await json(loginRes));
+    /**
+     * @param {string} producername
+     * @param {string} openapi_yaml
+     */
     const provide = (producername, openapi_yaml) =>
       request.post("/provide", {
         headers: { Authorization: `Bearer ${token}` },
@@ -1179,6 +1237,7 @@ test.describe("Diff views", () => {
     });
     await page.waitForLoadState("networkidle");
 
+    /** @type {string[]} */
     const diffRequests = [];
     page.on("request", (r) => {
       if (r.url().includes("/diff")) diffRequests.push(r.url());
@@ -1202,18 +1261,22 @@ test.describe("Diff views", () => {
     });
     await page.waitForLoadState("networkidle");
     await page.evaluate(() => {
-      window.__copied = null;
+      const stubbed = /** @type {CopiedWindow} */ (/** @type {unknown} */ (window));
+      stubbed.__copied = null;
       navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- The test stubs the command the page falls back to when the clipboard refuses.
       document.execCommand = (cmd) => {
-        const el = document.activeElement;
-        window.__copied =
+        const el = /** @type {HTMLTextAreaElement | null} */ (document.activeElement);
+        stubbed.__copied =
           cmd === "copy" && el ? el.value.slice(el.selectionStart, el.selectionEnd) : null;
         return true;
       };
     });
     await page.click("#copy-btn");
     await expect(page.getByText("Copied to clipboard!")).toBeVisible();
-    const copied = await page.evaluate(() => window.__copied);
+    const copied = await page.evaluate(
+      () => /** @type {CopiedWindow} */ (/** @type {unknown} */ (window)).__copied,
+    );
     expect(copied).toContain(`--- ${WS} 1.0.0`);
     expect(copied).toContain("+  version: 1.1.0");
   });
@@ -1240,7 +1303,9 @@ test.describe("Diff views", () => {
 
   test("narrow screens are always unified, without a layout switch", async ({ page }) => {
     await login(page);
-    await page.evaluate(() => localStorage.setItem("sanshain.diffLayout", "split"));
+    await page.evaluate(() => {
+      localStorage.setItem("sanshain.diffLayout", "split");
+    });
     await page.setViewportSize({ width: 375, height: 800 });
     await page.goto(
       `/yaml.html?service=${WS}&api_type=openapi&compare_version=1.0.0&version=1.1.0`,
@@ -1264,6 +1329,10 @@ test.describe("Blame blocks", () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
   const SERVICE = "blame-fixture";
 
+  /**
+   * @param {string} version
+   * @param {string} description
+   */
   const spec = (version, description) =>
     [
       "openapi: 3.0.0",
@@ -1286,12 +1355,12 @@ test.describe("Blame blocks", () => {
     const loginRes = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await loginRes.json();
-    for (const [version, description] of [
+    const { token } = /** @type {{ token: string }} */ (await json(loginRes));
+    for (const [version, description] of /** @type {[string, string][]} */ ([
       ["1.0.0", "OK"],
       ["1.1.0", "Fine"],
       ["1.2.0", "Fine"],
-    ]) {
+    ])) {
       await request.post("/provide", {
         headers: { Authorization: `Bearer ${token}` },
         data: {
@@ -1303,12 +1372,15 @@ test.describe("Blame blocks", () => {
     }
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const login = async (page) => {
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   };
@@ -1352,8 +1424,13 @@ test.describe("Blame blocks", () => {
       }),
     );
     for (const s of styles) expect(s.bar).toBe("2px");
-    for (let i = 1; i < styles.length; i++) expect(styles[i].bg).not.toBe(styles[i - 1].bg);
-    expect(styles[0].bg).toBe(styles[2].bg);
+    for (let i = 1; i < styles.length; i++)
+      expect(/** @type {(typeof styles)[number]} */ (styles[i]).bg).not.toBe(
+        /** @type {(typeof styles)[number]} */ (styles[i - 1]).bg,
+      );
+    expect(/** @type {(typeof styles)[number]} */ (styles[0]).bg).toBe(
+      /** @type {(typeof styles)[number]} */ (styles[2]).bg,
+    );
   });
 
   test("the endpoint blame uses the same blocks", async ({ page }) => {
@@ -1403,19 +1480,20 @@ test.describe("Graph without the BROKER node", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const res = await request.post("/provide/asyncapi", {
       headers: { Authorization: `Bearer ${token}` },
       data: { producername: SUBSCRIBER, stability: "snapshot", asyncapi_yaml: SPEC },
     });
-    if (!res.ok()) throw new Error(`provide failed: ${res.status()} ${await res.text()}`);
+    if (!res.ok()) throw new Error(`provide failed: ${String(res.status())} ${await res.text()}`);
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const openGraph = async (page) => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
@@ -1461,6 +1539,7 @@ test.describe("Graph provides/requires badges", () => {
   const TRUNK_CONSUMER = "s7-trunk-consumer";
   const SUB = "s7-subscriber"; // pins A's channel
   const PRODUCT = "s7-product"; // a Product of GRPC (#76)
+  /** @param {string} title */
   const openapi = (title) =>
     [
       "openapi: 3.0.3",
@@ -1474,6 +1553,11 @@ test.describe("Graph provides/requires badges", () => {
       "        '200':",
       "          description: OK",
     ].join("\n");
+  /**
+   * @param {string} title
+   * @param {string} channel
+   * @param {string[]} [extra]
+   */
   const asyncapi = (title, channel, extra = []) =>
     [
       "asyncapi: 2.6.0",
@@ -1504,10 +1588,14 @@ test.describe("Graph provides/requires badges", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const headers = { Authorization: `Bearer ${token}` };
+    /**
+     * @param {import("@playwright/test").APIResponse} res
+     * @param {string} what
+     */
     const ok = async (res, what) => {
-      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+      if (!res.ok()) throw new Error(`${what} failed: ${String(res.status())} ${await res.text()}`);
     };
     await ok(
       await request.post("/provide", {
@@ -1671,16 +1759,21 @@ test.describe("Graph provides/requires badges", () => {
     );
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const openGraph = async (page) => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} name
+   */
   const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
 
   test("the Topics switch draws channels as nodes between publishers and subscribers", async ({
@@ -1688,6 +1781,10 @@ test.describe("Graph provides/requires badges", () => {
   }) => {
     await openGraph(page);
     await expect(node(page, ASYNC_A)).toHaveCount(1, { timeout: 20000 });
+    /**
+     * @param {string} from
+     * @param {string} to
+     */
     const edge = (from, to) =>
       page.locator(`#custom-graph path.graph-edge[data-from="${from}"][data-to="${to}"]`);
     const topicA = node(page, "topic:s7.a.events");
@@ -1813,16 +1910,17 @@ test.describe("Graph provides/requires badges", () => {
     await expect(a).toHaveCount(1, { timeout: 20000 });
     await expect(a).toHaveAttribute("data-requires", "rest,grpc");
     const geometry = await a.evaluate((g) => {
-      const rect = g.querySelector("rect");
+      const rect = /** @type {Element} */ (g.querySelector("rect"));
       const box = {
-        left: +rect.getAttribute("x"),
-        top: +rect.getAttribute("y"),
-        right: +rect.getAttribute("x") + +rect.getAttribute("width"),
-        bottom: +rect.getAttribute("y") + +rect.getAttribute("height"),
+        left: Number(rect.getAttribute("x")),
+        top: Number(rect.getAttribute("y")),
+        right: Number(rect.getAttribute("x")) + Number(rect.getAttribute("width")),
+        bottom: Number(rect.getAttribute("y")) + Number(rect.getAttribute("height")),
       };
+      /** @param {string} sel */
       const at = (sel) => {
-        const c = g.querySelector(`[data-badge="${sel}"] circle`);
-        return { cx: +c.getAttribute("cx"), cy: +c.getAttribute("cy") };
+        const c = /** @type {Element} */ (g.querySelector(`[data-badge="${sel}"] circle`));
+        return { cx: Number(c.getAttribute("cx")), cy: Number(c.getAttribute("cy")) };
       };
       return { box, msg: at("provides-msg"), rest: at("requires-rest"), grpc: at("requires-grpc") };
     });
@@ -1892,7 +1990,7 @@ test.describe("Graph provides/requires badges", () => {
     // A is required too now (the pinned subscriber): both roles, square shape.
     expect(code).toContain(`s7_async_a["${ASYNC_A}<br/>▲ MSG   ▼ REST · gRPC"]`);
     expect(code).toContain(`s7_grpc_svc["${GRPC}<br/>▲ gRPC"]`);
-    const text = await page.locator("#mermaid-graph svg").textContent();
+    const text = /** @type {string} */ (await page.locator("#mermaid-graph svg").textContent());
     expect(text.replace(/\s+/g, " ")).toContain("▲ MSG ▼ REST · gRPC");
   });
 });
@@ -1910,6 +2008,10 @@ test.describe("Graph (unrequired) box", () => {
   const BRANCH = "s8-rel";
   // A four-link chain: decisively tall when vertical, wide when horizontal.
   const DEEP = ["s8-deep-1", "s8-deep-2", "s8-deep-3", "s8-deep-4"];
+  /**
+   * @param {string} title
+   * @param {string} [version]
+   */
   const openapi = (title, version = "1.0.0") =>
     [
       "openapi: 3.0.3",
@@ -1923,6 +2025,11 @@ test.describe("Graph (unrequired) box", () => {
       "        '200':",
       "          description: OK",
     ].join("\n");
+  /**
+   * @param {string} title
+   * @param {string} channel
+   * @param {string} [op]
+   */
   const asyncapi = (title, channel, op = "publish") =>
     [
       "asyncapi: 2.6.0",
@@ -1945,10 +2052,14 @@ test.describe("Graph (unrequired) box", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const headers = { Authorization: `Bearer ${token}` };
+    /**
+     * @param {import("@playwright/test").APIResponse} res
+     * @param {string} what
+     */
     const ok = async (res, what) => {
-      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+      if (!res.ok()) throw new Error(`${what} failed: ${String(res.status())} ${await res.text()}`);
     };
     await ok(
       await request.post("/provide", {
@@ -2040,10 +2151,10 @@ test.describe("Graph (unrequired) box", () => {
     for (let i = 1; i < DEEP.length; i++) {
       await ok(
         await request.get(
-          `/require?consumername=${DEEP[i - 1]}&producername=${DEEP[i]}&version=1.0.0&path=/thing&method=GET`,
+          `/require?consumername=${String(DEEP[i - 1])}&producername=${String(DEEP[i])}&version=1.0.0&path=/thing&method=GET`,
           { headers },
         ),
-        `require ${DEEP[i]}`,
+        `require ${String(DEEP[i])}`,
       );
     }
     // A dev-only (not trunk-flagged) subscription to a channel nobody owns.
@@ -2077,19 +2188,32 @@ test.describe("Graph (unrequired) box", () => {
     );
   });
 
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} [query]
+   */
   const openGraph = async (page, query = "") => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/graph.html${query}`);
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
   };
+  /** @param {import("@playwright/test").Page} page */
   const box = (page) => page.locator("#custom-graph #graph-unrequired-box");
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} name
+   */
   const chip = (page, name) =>
     page.locator(`#custom-graph g.graph-unrequired-chip[data-chip="${name}"]`);
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} name
+   */
   const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
 
   test("unrequired producers are chips in one box, not loose nodes", async ({ page }) => {
@@ -2180,18 +2304,20 @@ test.describe("Graph (unrequired) box", () => {
 
   test("the box sits beside a tall graph and below a wide one", async ({ page }) => {
     // The chain and the box: the middle links focus all four.
-    await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
+    await openGraph(page, `?focus=${String(DEEP[1])},${String(DEEP[2])},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const measure = () =>
       page.evaluate(() => {
-        const frame = document.querySelector("#graph-unrequired-box rect");
+        const frame = /** @type {Element} */ (document.querySelector("#graph-unrequired-box rect"));
         const nodes = [...document.querySelectorAll("#custom-graph g.graph-node > rect")];
         return {
-          boxX: +frame.getAttribute("x"),
-          boxY: +frame.getAttribute("y"),
-          maxRight: Math.max(...nodes.map((r) => +r.getAttribute("x") + +r.getAttribute("width"))),
+          boxX: Number(frame.getAttribute("x")),
+          boxY: Number(frame.getAttribute("y")),
+          maxRight: Math.max(
+            ...nodes.map((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width"))),
+          ),
           maxBottom: Math.max(
-            ...nodes.map((r) => +r.getAttribute("y") + +r.getAttribute("height")),
+            ...nodes.map((r) => Number(r.getAttribute("y")) + Number(r.getAttribute("height"))),
           ),
           side: {
             tall: graphOverflowSide({ minX: 0, minY: 0, maxX: 300, maxY: 301 }, false),
@@ -2220,14 +2346,14 @@ test.describe("Graph (unrequired) box", () => {
   test("Compact and Dense tighten the layout; density and direction are remembered", async ({
     page,
   }) => {
-    await openGraph(page, `?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
+    await openGraph(page, `?focus=${String(DEEP[1])},${String(DEEP[2])},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const height = () =>
       page.evaluate(() => {
         const nodes = [...document.querySelectorAll("#custom-graph g.graph-node > rect")];
-        const top = Math.min(...nodes.map((r) => +r.getAttribute("y")));
+        const top = Math.min(...nodes.map((r) => Number(r.getAttribute("y"))));
         const bottom = Math.max(
-          ...nodes.map((r) => +r.getAttribute("y") + +r.getAttribute("height")),
+          ...nodes.map((r) => Number(r.getAttribute("y")) + Number(r.getAttribute("height"))),
         );
         return bottom - top;
       });
@@ -2253,7 +2379,7 @@ test.describe("Graph (unrequired) box", () => {
     // them; a plain link takes the remembered switches.
     expect(new URL(page.url()).searchParams.get("density")).toBe("dense");
     expect(new URL(page.url()).searchParams.get("direction")).toBe("LR");
-    await page.goto(`/graph.html?focus=${DEEP[1]},${DEEP[2]},${LONE}`);
+    await page.goto(`/graph.html?focus=${String(DEEP[1])},${String(DEEP[2])},${LONE}`);
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     await expect(svg).toHaveAttribute("data-density", "dense");
     await expect(page.locator("#graph-direction-label")).toHaveText("Horizontal");
@@ -2273,7 +2399,11 @@ test.describe("Graph (unrequired) box", () => {
     await expect(box(page)).toHaveCount(1, { timeout: 20000 });
     const strokes = () =>
       page.evaluate(() =>
-        [...document.querySelectorAll("#custom-graph path.graph-edge")].map((p) => ({
+        [
+          .../** @type {NodeListOf<SVGPathElement>} */ (
+            document.querySelectorAll("#custom-graph path.graph-edge")
+          ),
+        ].map((p) => ({
           from: p.dataset.from,
           type: p.dataset.edgeType,
           stroke: p.getAttribute("stroke"),
@@ -2362,9 +2492,11 @@ test.describe("Graph (unrequired) box", () => {
       );
       return { inside, many, lr };
     });
-    expect(packed.inside[0].x).toBeGreaterThanOrEqual(480);
-    expect(packed.inside[0].x + 200).toBeLessThanOrEqual(1000);
-    expect(packed.inside[0].y + 100).toBeLessThanOrEqual(600);
+    const [placed] = packed.inside;
+    if (!placed) throw new Error("the island was not placed");
+    expect(placed.x).toBeGreaterThanOrEqual(480);
+    expect(placed.x + 200).toBeLessThanOrEqual(1000);
+    expect(placed.y + 100).toBeLessThanOrEqual(600);
     // Overflow goes to the chosen side, never widening / heightening the frame.
     for (const p of packed.many) {
       expect(p.y).toBeGreaterThan(600);
@@ -2376,19 +2508,24 @@ test.describe("Graph (unrequired) box", () => {
     }
     // In the real graph the island overlaps no other node.
     const overlaps = await page.evaluate((island) => {
+      /** @param {Element} g */
       const rectOf = (g) => {
-        const r = g.querySelector("rect");
-        const x = +r.getAttribute("x");
-        const y = +r.getAttribute("y");
+        const r = /** @type {Element} */ (g.querySelector("rect"));
+        const x = Number(r.getAttribute("x"));
+        const y = Number(r.getAttribute("y"));
         return {
           x0: x,
           y0: y,
-          x1: x + +r.getAttribute("width"),
-          y1: y + +r.getAttribute("height"),
+          x1: x + Number(r.getAttribute("width")),
+          y1: y + Number(r.getAttribute("height")),
         };
       };
-      const all = [...document.querySelectorAll("#custom-graph g.graph-node")];
-      const own = rectOf(all.find((g) => g.dataset.node === island));
+      const all = [
+        .../** @type {NodeListOf<SVGGElement>} */ (
+          document.querySelectorAll("#custom-graph g.graph-node")
+        ),
+      ];
+      const own = rectOf(/** @type {SVGGElement} */ (all.find((g) => g.dataset.node === island)));
       return all
         .filter((g) => g.dataset.node !== island)
         .map(rectOf)
@@ -2443,6 +2580,7 @@ test.describe("Superseded snapshots", () => {
   const PRODUCER = "s9-producer"; // snapshot 1.0.0, GA 1.1.0, snapshot 1.2.0
   const OLD_PIN = "s9-old-pin"; // pins the superseded snapshot 1.0.0
   const NEW_PIN = "s9-new-pin"; // pins the snapshot 1.2.0, above the GA
+  /** @param {string} version */
   const openapi = (version) =>
     [
       "openapi: 3.0.3",
@@ -2464,16 +2602,20 @@ test.describe("Superseded snapshots", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const headers = { Authorization: `Bearer ${token}` };
+    /**
+     * @param {import("@playwright/test").APIResponse} res
+     * @param {string} what
+     */
     const ok = async (res, what) => {
-      if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+      if (!res.ok()) throw new Error(`${what} failed: ${String(res.status())} ${await res.text()}`);
     };
-    for (const [version, stability] of [
+    for (const [version, stability] of /** @type {[string, string][]} */ ([
       ["1.0.0", "snapshot"],
       ["1.1.0", "ga"],
       ["1.2.0", "snapshot"],
-    ]) {
+    ])) {
       await ok(
         await request.post("/provide", {
           headers,
@@ -2482,10 +2624,10 @@ test.describe("Superseded snapshots", () => {
         `provide ${version} ${stability}`,
       );
     }
-    for (const [client, version] of [
+    for (const [client, version] of /** @type {[string, string][]} */ ([
       [OLD_PIN, "1.0.0"],
       [NEW_PIN, "1.2.0"],
-    ]) {
+    ])) {
       await ok(
         await request.get(
           `/require?consumername=${client}&producername=${PRODUCER}&version=${version}&path=/thing&method=GET`,
@@ -2496,11 +2638,12 @@ test.describe("Superseded snapshots", () => {
     }
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const login = async (page) => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   };
@@ -2511,6 +2654,7 @@ test.describe("Superseded snapshots", () => {
     await login(page);
     await page.goto(`/producers.html?service=${PRODUCER}`);
     // Match the card's own version heading: the superseded text names a version too.
+    /** @param {string} version */
     const card = (version) =>
       page.locator(".endpoint-card", {
         has: page.getByRole("heading", { name: version, exact: true }),
@@ -2527,12 +2671,14 @@ test.describe("Superseded snapshots", () => {
     await login(page);
     await page.goto("/graph.html");
     await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
+    /** @param {string} client */
     const edge = (client) =>
       page.locator(`#custom-graph path.graph-edge[data-from="${client}"][data-to="${PRODUCER}"]`);
     await expect(edge(OLD_PIN)).toHaveAttribute("data-outdated", "1", { timeout: 20000 });
     await expect(edge(OLD_PIN)).toHaveAttribute("data-snapshot", "1");
     await expect(edge(NEW_PIN)).toHaveAttribute("data-outdated", "0");
 
+    /** @param {string} client */
     const hit = (client) =>
       page.locator(`#custom-graph path.edge-hit[data-from="${client}"][data-to="${PRODUCER}"]`);
     const tooltip = page.locator("#graph-tooltip");
@@ -2551,26 +2697,36 @@ test.describe("Superseded snapshots", () => {
 test.describe("Graph toolbar layout", () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {number} width
+   */
   const openGraphAt = async (page, width) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/graph.html");
     await expect(page.locator("#graph-download-png")).toBeVisible({ timeout: 10000 });
   };
   // The ids (or labels) of visible toolbar controls reaching outside the viewport.
+  /** @param {import("@playwright/test").Page} page */
   const controlsOutside = (page) =>
     page.evaluate(() =>
-      [...document.querySelectorAll("#graph-toolbar-row :is(button, select, input)")]
+      [
+        .../** @type {NodeListOf<HTMLElement>} */ (
+          document.querySelectorAll("#graph-toolbar-row :is(button, select, input)")
+        ),
+      ]
         .filter((el) => el.offsetParent !== null)
         .map((el) => ({ id: el.id || el.textContent.trim(), box: el.getBoundingClientRect() }))
         .filter(({ box }) => box.left < 0 || box.right > window.innerWidth)
         .map(({ id }) => id),
     );
+  /** @param {import("@playwright/test").Page} page */
   const pageScrollsSideways = (page) =>
     page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
 
@@ -2596,7 +2752,7 @@ test.describe("Observability log lines", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto("/observability.html");
@@ -2638,7 +2794,7 @@ test.describe("Annotations", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const res = await request.post("/provide", {
       headers: { Authorization: `Bearer ${token}` },
       data: {
@@ -2659,7 +2815,7 @@ test.describe("Annotations", () => {
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}`);
@@ -2677,11 +2833,13 @@ test.describe("Annotations", () => {
 
   // #92: the card's button clears the system information after a confirm.
   test("clearing the system information removes the card", async ({ page }) => {
-    page.on("dialog", async (d) => await d.accept());
+    page.on("dialog", async (d) => {
+      await d.accept();
+    });
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill('input[id="login-username"]', "root");
-    await page.fill('input[id="login-password"]', adminPassword);
+    await page.fill('input[id="login-password"]', /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
     await page.goto(`/producers.html?service=${SERVICE}`);

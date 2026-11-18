@@ -2,11 +2,15 @@
 // types, flags, descriptions, the version that last changed each node and a
 // copyable example per body; folded endpoints in the full-spec viewer that
 // load when opened; and the choice remembered in the browser.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const PRODUCER = `structure-${Date.now().toString(36)}`;
 
+/**
+ * @param {string} version
+ * @param {string[]} extra
+ */
 const spec = (version, extra) =>
   [
     "openapi: 3.0.0",
@@ -43,13 +47,13 @@ test.beforeAll(async ({ request }) => {
   const login = await request.post("/auth/login", {
     data: { username: "root", password: adminPassword },
   });
-  const { token } = await login.json();
+  const { token } = /** @type {{ token: string }} */ (await json(login));
   const headers = { Authorization: `Bearer ${token}` };
   const currency = ["        currency:", "          type: string", "          default: EUR"];
-  for (const [version, extra] of [
+  for (const [version, extra] of /** @type {[string, string[]][]} */ ([
     ["1.0.0", []],
     ["1.1.0", currency],
-  ]) {
+  ])) {
     const res = await request.post("/provide", {
       headers,
       data: { producername: PRODUCER, stability: "snapshot", openapi_yaml: spec(version, extra) },
@@ -63,10 +67,12 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.removeItem("sanshain_spec_view"));
+  await page.evaluate(() => {
+    localStorage.removeItem("sanshain_spec_view");
+  });
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 });

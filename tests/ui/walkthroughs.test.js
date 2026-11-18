@@ -13,18 +13,27 @@ import path from "node:path";
 
 // Takes the screenshot and asserts the file was written and is not empty, so
 // a capture that breaks fails the recording instead of leaving a gap in the docs.
+/**
+ * @param {import("@playwright/test").Page | import("@playwright/test").Locator} target
+ * @param {import("@playwright/test").PageScreenshotOptions & { path: string }} options
+ */
 const capture = async (target, options) => {
   await target.screenshot(options);
   expect(fs.statSync(options.path).size, options.path).toBeGreaterThan(0);
 };
 
-const evidenceDir = process.env.EVIDENCE_DIR || "site/evidence";
+const evidenceDir = process.env.EVIDENCE_DIR?.length ? process.env.EVIDENCE_DIR : "site/evidence";
 const imagesDir = "site/assets/images";
 const token = process.env.SANSHAIN_TOKEN;
 
+/** @param {string} name */
 const dev = (name) => path.join(evidenceDir, "developer", name);
+/** @param {string} name */
 const ops = (name) => path.join(evidenceDir, "operator", name);
+/** @param {string} name */
 const img = (name) => path.join(imagesDir, name);
+
+/** @typedef {{ applySockeGimmick?: (theme: string) => void }} GimmickWindow A page may put this theme hook on `window`. */
 
 test.describe("Recorded walkthroughs", () => {
   test.beforeAll(() => {
@@ -36,20 +45,35 @@ test.describe("Recorded walkthroughs", () => {
 
   test.beforeEach(async ({ page, context }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    page.on("dialog", (dialog) => dialog.dismiss().catch(() => {}));
+    page.on("dialog", (dialog) =>
+      dialog.dismiss().catch(() => {
+        // A dialog that is already gone needs no dismissal.
+      }),
+    );
     if (testInfo.title.includes("signed out")) return;
     await page.addInitScript((t) => {
       localStorage.setItem("sanshain_token", t);
       document.cookie = `sanshain_token=${t};path=/;max-age=3600`;
       localStorage.setItem("sanshain_theme", "light");
       window.SANSHAIN_FAST_SCREENSHOT = true;
-    }, token);
+    }, /** @type {string} */ (token));
     await context.addCookies([
-      { name: "sanshain_token", value: token, domain: "127.0.0.1", path: "/" },
-      { name: "sanshain_token", value: token, domain: "localhost", path: "/" },
+      {
+        name: "sanshain_token",
+        value: /** @type {string} */ (token),
+        domain: "127.0.0.1",
+        path: "/",
+      },
+      {
+        name: "sanshain_token",
+        value: /** @type {string} */ (token),
+        domain: "localhost",
+        path: "/",
+      },
     ]);
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const loaderGone = async (page) => {
     await page.waitForSelector("#app-loader", { state: "hidden", timeout: 10000 }).catch(() =>
       page.evaluate(() => {
@@ -59,16 +83,25 @@ test.describe("Recorded walkthroughs", () => {
     );
   };
 
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} theme
+   */
   const setTheme = async (page, theme) => {
     await page.evaluate((t) => {
       document.cookie = `sanshain_theme=${t};path=/;max-age=31536000;SameSite=Lax`;
       localStorage.setItem("sanshain_theme", t);
       document.documentElement.classList.toggle("dark", t === "dark");
-      if (window.applySockeGimmick) window.applySockeGimmick(t);
+      const themed = /** @type {GimmickWindow} */ (window);
+      if (themed.applySockeGimmick) themed.applySockeGimmick(t);
     }, theme);
     await page.waitForTimeout(400);
   };
 
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} title
+   */
   const section = (page, title) =>
     page.locator("section", { has: page.locator(`h2:text-is("${title}")`) });
 
@@ -167,7 +200,9 @@ test.describe("Recorded walkthroughs", () => {
   test("operator 02: the sign-in form, signed out", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/account.html", { waitUntil: "domcontentloaded" });
-    await page.evaluate(() => localStorage.clear());
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
     await page.reload({ waitUntil: "domcontentloaded" });
     await loaderGone(page);
     await page.waitForSelector("#auth-screen:not(.hidden)", { timeout: 20000 });
@@ -197,7 +232,10 @@ test.describe("Recorded walkthroughs", () => {
     await page.goto("/admin.html#users", { waitUntil: "domcontentloaded" });
     await page.click('[data-user-chip="status:approved"]');
     await page.waitForFunction(
-      () => document.getElementById("users-list").innerText.includes("maria"),
+      () =>
+        /** @type {HTMLElement} */ (document.getElementById("users-list")).innerText.includes(
+          "maria",
+        ),
       { timeout: 30000 },
     );
     await page.waitForTimeout(500);
@@ -207,7 +245,9 @@ test.describe("Recorded walkthroughs", () => {
   test("operator 09: the audit timeline", async ({ page }) => {
     await page.goto("/audit.html", { waitUntil: "domcontentloaded" });
     await loaderGone(page);
-    await page.waitForSelector(".timeline-item", { timeout: 20000 }).catch(() => {});
+    await page.waitForSelector(".timeline-item", { timeout: 20000 }).catch(() => {
+      // The capture is taken with or without timeline items.
+    });
     await page.waitForTimeout(1500);
     await capture(page, { path: ops("09-audit.png") });
   });

@@ -4,6 +4,7 @@
 // and write the report, build/ui-coverage/lcov.info.
 export const uiCoverageEnabled = Boolean(process.env.UI_COVERAGE);
 
+/** @type {import("monocart-coverage-reports").CoverageReportOptions} */
 export const uiCoverageOptions = {
   name: "Sanshain UI tests",
   outputDir: "build/ui-coverage",

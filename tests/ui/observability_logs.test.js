@@ -8,19 +8,27 @@ test("the log filter keeps the chosen level and above, oldest first", async ({ p
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   await page.goto("/observability.html");
   await expect(page.locator("#log-filter")).toBeVisible({ timeout: 10000 });
   const picked = await page.evaluate(() => {
+    /**
+     * @param {string} timestamp
+     * @param {string} message
+     */
     const entry = (timestamp, message) => ({ timestamp, message });
-    currentLogs = {
+    // The filter reads the time and the message only, so the entries carry nothing else.
+    /** @type {unknown} */
+    const logs = {
       errors: [entry("2026-01-04", "e")],
       warnings: [entry("2026-01-02", "w")],
       infos: [entry("2026-01-03", "i")],
       debugs: [entry("2026-01-01", "d")],
     };
+    currentLogs = /** @type {typeof currentLogs} */ (logs);
+    /** @param {string} filter */
     const names = (filter) =>
       filteredLogs(filter)
         .map((l) => l.message)
