@@ -11,4 +11,6 @@ if (document.readyState === "loading") {
 } else {
   initAudit();
 }
-window.addEventListener("sanshain-update", () => loadTimeline());
+window.addEventListener("sanshain-update", () => {
+  void loadTimeline();
+});

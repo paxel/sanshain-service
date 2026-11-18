@@ -3,10 +3,28 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What common.js and the controls, through its dispatcher, use by name.
+/* exported onSessionExpired, saveWebhookAllowedHosts, downloadDatabaseSnapshot, saveCacheConfig */
+/* exported clearCache, saveTrunkMaxAge, triggerTrunkCleanup, saveSnapshotMaxAge */
+/* exported saveTicketUrlTemplate, triggerSnapshotCleanup, saveDependencyMaxAge */
+/* exported triggerDependencyCleanup, toggleRegistration, toggleAutoApproveUsers, toggleGravatar */
+/* exported toggleDetailedErrors, grantRole, revokeRole, createGroup, removeGroupMember */
+/* exported addGroupRole, toggleUserChip, renameServiceAccount, approveUser, pasteSpecSubmit */
+/* exported filterServices, setProducerExternal, toggleVersions, deleteVersion, promoteVersionRow */
+/* exported filterClients, saveAuthConfig, testLdapConnection, confirmNukeUsers */
+/* exported confirmNukeServices, confirmNukeClients, confirmNukeDatabase, confirmDeleteUser */
+/* exported confirmDeleteGroup, confirmDeleteService, confirmDeleteClient, openMetadataModal */
+
 // Use sanshainToken and renderBanner from common.js
 // The signed-in caller, for gating affordances (the Promote button).
 // Hiding is a usability affordance; the server's GA gate is the boundary.
+/** @type {SanshainUser | null} */
 let adminActor = null;
+
+/**
+ * What `createPicker` gives back.
+ * @typedef {{ input: HTMLInputElement, refresh: () => void }} AdminPickerHandle
+ */
 
 function onSessionExpired() {
   window.location.href = "/account.html";
@@ -14,15 +32,24 @@ function onSessionExpired() {
 
 function showNotAdmin() {
   hideLoader();
-  document.getElementById("not-admin-screen").classList.remove("hidden");
-  document.getElementById("admin-dashboard").classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("not-admin-screen")).classList.remove(
+    "hidden",
+  );
+  /** @type {HTMLElement} */ (document.getElementById("admin-dashboard")).classList.add("hidden");
 }
 
 function showDashboard() {
   hideLoader();
-  document.getElementById("not-admin-screen").classList.add("hidden");
-  document.getElementById("admin-dashboard").classList.remove("hidden");
-  document.getElementById("create-branch-btn").addEventListener("click", createBranch);
+  /** @type {HTMLElement} */ (document.getElementById("not-admin-screen")).classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("admin-dashboard")).classList.remove(
+    "hidden",
+  );
+  /** @type {HTMLElement} */ (document.getElementById("create-branch-btn")).addEventListener(
+    "click",
+    () => {
+      void createBranch();
+    },
+  );
   void loadAll();
 }
 
@@ -34,7 +61,7 @@ async function checkSession() {
   try {
     const res = await apiCall("/auth/me");
     if (res.ok) {
-      const data = await res.json();
+      const data = /** @type {SanshainUser} */ (await res.json());
       adminActor = data;
       // Anyone holding at least one administrative permission has
       // something to do here; the individual sections gate
@@ -49,17 +76,21 @@ async function checkSession() {
       // Providing from the browser is a Producer-administration
       // act; the form is shown to those who may do it.
       if (hasPermission(data, "manage_producers")) {
-        document.getElementById("paste-spec-section").classList.remove("hidden");
+        /** @type {HTMLElement} */ (document.getElementById("paste-spec-section")).classList.remove(
+          "hidden",
+        );
       }
       // Global hooks and the allow-list are instance configuration (#47).
       if (hasPermission(data, "manage_settings")) {
-        document.getElementById("webhooks-section").classList.remove("hidden");
-        void loadWebhooks();
+        /** @type {HTMLElement} */ (document.getElementById("webhooks-section")).classList.remove(
+          "hidden",
+        );
+        loadWebhooks();
       }
     } else {
       window.location.href = "/account.html";
     }
-  } catch (_) {
+  } catch {
     window.location.href = "/account.html";
   }
 }
@@ -67,11 +98,16 @@ async function checkSession() {
 // --- Instance settings (#harmless values, readable by everyone signed in) ---
 // One fetch shows every harmless setting's real value, also to someone who may
 // not change it: a greyed control must never show a value it did not receive.
+/** @type {Promise<InstanceSettings | null> | null} */
 let instanceSettingsRequest = null;
+/**
+ * @param {boolean} [refresh]
+ * @returns {Promise<InstanceSettings | null>}
+ */
 function instanceSettings(refresh = false) {
   if (refresh || !instanceSettingsRequest) {
     instanceSettingsRequest = apiCall("/admin/instance-settings")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? /** @type {Promise<InstanceSettings>} */ (res.json()) : null))
       .catch(() => null);
   }
   return instanceSettingsRequest;
@@ -79,6 +115,10 @@ function instanceSettings(refresh = false) {
 
 // A section whose content the caller may not read: say so instead of loading
 // it and drawing a 403 as an empty or wrong value.
+/**
+ * @param {string} elementId
+ * @param {string} permission
+ */
 function lockedNote(elementId, permission) {
   const el = document.getElementById(elementId);
   if (el) {
@@ -92,25 +132,35 @@ function lockedNote(elementId, permission) {
 // The open tab is in the address, so it can be linked, and remembered in this
 // browser for the next visit.
 const ADMIN_TABS = ["general", "sign-in", "users"];
+/** @type {Record<string, string[]>} */
 const ADMIN_TAB_PERMISSIONS = {
   "sign-in": ["manage_auth_config", "manage_settings"],
   users: ["manage_users", "manage_roles"],
 };
 const ADMIN_TAB_KEY = "sanshain_admin_tab";
 
+/**
+ * @param {string} tab
+ * @returns {boolean}
+ */
 function adminTabAllowed(tab) {
   const needs = ADMIN_TAB_PERMISSIONS[tab];
   if (!needs) return true;
-  return adminActor?.is_root || needs.some((p) => hasPermission(adminActor, p));
+  return (adminActor?.is_root ?? false) || needs.some((p) => hasPermission(adminActor, p));
 }
 
+/** @param {string} open */
 function paintAdminTabs(open) {
-  document.querySelectorAll("[data-admin-tab-button]").forEach((button) => {
-    const tab = button.dataset.adminTabButton;
+  /** @type {NodeListOf<HTMLButtonElement>} */ (
+    document.querySelectorAll("[data-admin-tab-button]")
+  ).forEach((button) => {
+    const tab = /** @type {string} */ (button.dataset.adminTabButton);
     const allowed = adminTabAllowed(tab);
     const selected = tab === open;
     button.disabled = !allowed;
-    button.title = allowed ? "" : `Needs ${ADMIN_TAB_PERMISSIONS[tab].join(" or ")}`;
+    button.title = allowed
+      ? ""
+      : `Needs ${/** @type {string[]} */ (ADMIN_TAB_PERMISSIONS[tab]).join(" or ")}`;
     button.setAttribute("aria-selected", String(selected));
     button.className = `px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
       !allowed
@@ -120,18 +170,21 @@ function paintAdminTabs(open) {
           : "border-transparent text-slate-500 hover:text-slate-800"
     }`;
   });
-  document.querySelectorAll("[data-admin-tab]").forEach((section) => {
-    section.hidden = section.dataset.adminTab !== open;
-  });
+  /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-admin-tab]")).forEach(
+    (section) => {
+      section.hidden = section.dataset.adminTab !== open;
+    },
+  );
 }
 
+/** @param {string} tab */
 function openAdminTab(tab) {
   if (!ADMIN_TABS.includes(tab) || !adminTabAllowed(tab)) tab = "general";
   paintAdminTabs(tab);
   history.replaceState(null, "", `#${tab}`);
   try {
     localStorage.setItem(ADMIN_TAB_KEY, tab);
-  } catch (_) {
+  } catch {
     // Forgotten on the next visit; the tab still opens now.
   }
 }
@@ -146,8 +199,8 @@ function initialAdminTab() {
   const fromAddress = location.hash.slice(1);
   if (ADMIN_TABS.includes(fromAddress)) return fromAddress;
   try {
-    return localStorage.getItem(ADMIN_TAB_KEY) || "general";
-  } catch (_) {
+    return (localStorage.getItem(ADMIN_TAB_KEY) ?? "") || "general";
+  } catch {
     return "general";
   }
 }
@@ -156,7 +209,9 @@ function initialAdminTab() {
 async function loadAll() {
   openAdminTab(initialAdminTab());
   // Each section loads only what the caller may read; the rest says whose it is.
-  const can = (permission) => adminActor?.is_root || hasPermission(adminActor, permission);
+  /** @param {string} permission */
+  const can = (permission) =>
+    (adminActor?.is_root ?? false) || hasPermission(adminActor, permission);
   if (can("manage_settings")) void loadDatabaseInfo();
   else lockedNote("db-url", "manage_settings");
   void loadCacheConfig();
@@ -188,27 +243,35 @@ async function loadAll() {
 }
 
 // --- Webhooks (#47) ---
-async function loadWebhooks() {
+function loadWebhooks() {
   void loadWebhookAllowedHosts();
-  void renderWebhookPanel(document.getElementById("webhooks-panel"), "/admin/webhooks");
+  void renderWebhookPanel(
+    /** @type {HTMLElement} */ (document.getElementById("webhooks-panel")),
+    "/admin/webhooks",
+  );
 }
 
 async function loadWebhookAllowedHosts() {
   try {
     const res = await apiCall("/admin/settings/webhook-allowed-hosts");
     if (!res.ok) return;
-    const data = await res.json();
-    document.getElementById("webhook-allowed-hosts").value = (data.hosts || []).join("\n");
-  } catch (_) {
+    const data = /** @type {WebhookAllowedHosts} */ (await res.json());
+    /** @type {HTMLTextAreaElement} */ (document.getElementById("webhook-allowed-hosts")).value = (
+      data.hosts ?? []
+    ).join("\n");
+  } catch {
     /* the textarea stays as it is */
   }
 }
 
 async function saveWebhookAllowedHosts() {
-  const result = document.getElementById("webhook-allowed-hosts-result");
-  const hosts = document
-    .getElementById("webhook-allowed-hosts")
-    .value.split("\n")
+  const result = /** @type {HTMLElement} */ (
+    document.getElementById("webhook-allowed-hosts-result")
+  );
+  const hosts = /** @type {HTMLTextAreaElement} */ (
+    document.getElementById("webhook-allowed-hosts")
+  ).value
+    .split("\n")
     .map((h) => h.trim())
     .filter(Boolean);
   try {
@@ -221,12 +284,14 @@ async function saveWebhookAllowedHosts() {
       result.className = "text-sm text-red-600";
       return;
     }
-    const data = await res.json();
-    document.getElementById("webhook-allowed-hosts").value = (data.hosts || []).join("\n");
-    result.textContent = `Saved (${data.hosts.length} host pattern(s)).`;
+    const data = /** @type {WebhookAllowedHosts} */ (await res.json());
+    /** @type {HTMLTextAreaElement} */ (document.getElementById("webhook-allowed-hosts")).value = (
+      data.hosts ?? []
+    ).join("\n");
+    result.textContent = `Saved (${String(/** @type {string[]} */ (data.hosts).length)} host pattern(s)).`;
     result.className = "text-sm text-green-600";
   } catch (err) {
-    result.textContent = "Not saved: " + err.message;
+    result.textContent = "Not saved: " + /** @type {Error} */ (err).message;
     result.className = "text-sm text-red-600";
   }
 }
@@ -236,21 +301,25 @@ async function loadDatabaseInfo() {
   try {
     const res = await apiCall("/admin/settings/database");
     if (res.ok) {
-      const data = await res.json();
-      document.getElementById("db-backend").textContent =
+      const data = /** @type {DatabaseInfo} */ (await res.json());
+      /** @type {HTMLElement} */ (document.getElementById("db-backend")).textContent =
         data.backend === "postgres" ? "PostgreSQL" : "SQLite";
-      document.getElementById("db-url").textContent = data.url;
+      /** @type {HTMLElement} */ (document.getElementById("db-url")).textContent = data.url;
       // The snapshot is SQLite-only and a whole-database export, so the
       // button shows only where the route would answer (#50).
       if (data.backend === "sqlite" && hasPermission(adminActor, "run_destructive_operations")) {
-        document.getElementById("db-snapshot").classList.remove("hidden");
+        /** @type {HTMLElement} */ (document.getElementById("db-snapshot")).classList.remove(
+          "hidden",
+        );
       }
     }
-  } catch (_) {}
+  } catch {
+    // The database panel stays as the page drew it.
+  }
 }
 
 async function downloadDatabaseSnapshot() {
-  const btn = document.getElementById("db-snapshot-btn");
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById("db-snapshot-btn"));
   btn.disabled = true;
   try {
     const res = await apiCall("/admin/backup/sqlite");
@@ -259,13 +328,13 @@ async function downloadDatabaseSnapshot() {
       return;
     }
     // The server names the file after the instance version and the time.
-    const disposition = res.headers.get("Content-Disposition") || "";
-    const named = disposition.match(/filename="([^"]+)"/);
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const named = /filename="([^"]+)"/.exec(disposition);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = named ? named[1] : "sanshain.db";
+    a.download = named ? /** @type {string} */ (named[1]) : "sanshain.db";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -283,46 +352,74 @@ async function loadCacheConfig() {
     const settings = await instanceSettings(true);
     if (settings) {
       const data = settings.cache;
-      document.getElementById("cache-memory-mb").value = data.memory_limit_mb;
+      /** @type {HTMLInputElement} */ (document.getElementById("cache-memory-mb")).value = String(
+        data.memory_limit_mb,
+      );
       if (data.enabled) {
-        document.getElementById("cache-stats").classList.remove("hidden");
-        document.getElementById("cache-disabled-msg").classList.add("hidden");
-        document.getElementById("cache-hit-rate").textContent = `${data.hit_rate.toFixed(1)}%`;
-        document.getElementById("cache-entries").textContent = data.entry_count;
-        document.getElementById("cache-memory-used").textContent =
+        /** @type {HTMLElement} */ (document.getElementById("cache-stats")).classList.remove(
+          "hidden",
+        );
+        /** @type {HTMLElement} */ (document.getElementById("cache-disabled-msg")).classList.add(
+          "hidden",
+        );
+        /** @type {HTMLElement} */ (document.getElementById("cache-hit-rate")).textContent =
+          `${data.hit_rate.toFixed(1)}%`;
+        /** @type {HTMLElement} */ (document.getElementById("cache-entries")).textContent = String(
+          data.entry_count,
+        );
+        /** @type {HTMLElement} */ (document.getElementById("cache-memory-used")).textContent =
           `${data.memory_used_mb.toFixed(1)} MB`;
-        document.getElementById("cache-hits-misses").textContent =
-          `${data.hit_count} / ${data.miss_count}`;
+        /** @type {HTMLElement} */ (document.getElementById("cache-hits-misses")).textContent =
+          `${String(data.hit_count)} / ${String(data.miss_count)}`;
       } else {
-        document.getElementById("cache-stats").classList.add("hidden");
-        document.getElementById("cache-disabled-msg").classList.remove("hidden");
+        /** @type {HTMLElement} */ (document.getElementById("cache-stats")).classList.add("hidden");
+        /** @type {HTMLElement} */ (document.getElementById("cache-disabled-msg")).classList.remove(
+          "hidden",
+        );
       }
     }
-  } catch (_) {}
+  } catch {
+    // The cache panel stays as the page drew it.
+  }
 }
 
 async function saveCacheConfig() {
-  const mb = Number.parseInt(document.getElementById("cache-memory-mb").value, 10);
+  const mb = Number.parseInt(
+    /** @type {HTMLInputElement} */ (document.getElementById("cache-memory-mb")).value,
+    10,
+  );
   if (Number.isNaN(mb) || mb < 0) return;
   try {
     const res = await apiCall("/admin/settings/cache", { method: "POST", body: { memory_mb: mb } });
     if (res.ok) {
-      document.getElementById("cache-action-result").textContent = "✓ Saved";
-      setTimeout(() => (document.getElementById("cache-action-result").textContent = ""), 3000);
+      /** @type {HTMLElement} */ (document.getElementById("cache-action-result")).textContent =
+        "✓ Saved";
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (document.getElementById("cache-action-result")).textContent =
+          "";
+      }, 3000);
       void loadCacheConfig();
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
 }
 
 async function clearCache() {
   try {
     const res = await apiCall("/admin/cache/clear", { method: "POST", body: {} });
     if (res.ok) {
-      document.getElementById("cache-action-result").textContent = "✓ Cache cleared";
-      setTimeout(() => (document.getElementById("cache-action-result").textContent = ""), 3000);
+      /** @type {HTMLElement} */ (document.getElementById("cache-action-result")).textContent =
+        "✓ Cache cleared";
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (document.getElementById("cache-action-result")).textContent =
+          "";
+      }, 3000);
       void loadCacheConfig();
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was cleared, and the result line stays empty.
+  }
 }
 
 // --- Snapshot Cleanup ---
@@ -331,7 +428,8 @@ async function loadTrunkMaxAge() {
   try {
     const settings = await instanceSettings();
     if (settings) {
-      document.getElementById("trunk-max-age-days").value = settings.trunk_max_age_days;
+      /** @type {HTMLInputElement} */ (document.getElementById("trunk-max-age-days")).value =
+        String(settings.trunk_max_age_days);
     }
   } catch (e) {
     console.warn("Could not load trunk max age:", e);
@@ -339,32 +437,38 @@ async function loadTrunkMaxAge() {
 }
 
 async function saveTrunkMaxAge() {
-  const days = Number.parseInt(document.getElementById("trunk-max-age-days").value, 10);
+  const days = Number.parseInt(
+    /** @type {HTMLInputElement} */ (document.getElementById("trunk-max-age-days")).value,
+    10,
+  );
   const res = await apiCall("/admin/settings/trunk-max-age", { method: "POST", body: { days } });
-  document.getElementById("trunk-cleanup-result").textContent = res.ok ? "Saved." : "Save failed.";
+  /** @type {HTMLElement} */ (document.getElementById("trunk-cleanup-result")).textContent = res.ok
+    ? "Saved."
+    : "Save failed.";
 }
 
 async function triggerTrunkCleanup() {
   const res = await apiCall("/admin/cleanup/trunk", { method: "POST" });
   if (res.ok) {
-    const data = await res.json();
-    document.getElementById("trunk-cleanup-result").textContent =
-      `Closed ${data.closed} stale trunk pins.`;
+    const data = /** @type {{ closed: number }} */ (await res.json());
+    /** @type {HTMLElement} */ (document.getElementById("trunk-cleanup-result")).textContent =
+      `Closed ${String(data.closed)} stale trunk pins.`;
   } else {
-    document.getElementById("trunk-cleanup-result").textContent = "Cleanup failed.";
+    /** @type {HTMLElement} */ (document.getElementById("trunk-cleanup-result")).textContent =
+      "Cleanup failed.";
   }
 }
 
 // --- Sanshain-branches (ADR-0005) ---
 async function loadBranches() {
-  const list = document.getElementById("branches-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("branches-list"));
   try {
     const res = await apiCall("/admin/branches");
     if (!res.ok) {
       list.innerHTML = '<div class="text-slate-400 italic">Could not load branches.</div>';
       return;
     }
-    const branches = await res.json();
+    const branches = /** @type {BranchInfo[]} */ (await res.json());
     if (branches.length === 0) {
       list.innerHTML = '<div class="text-slate-400 italic">No sanshain-branches yet.</div>';
       return;
@@ -383,32 +487,45 @@ async function loadBranches() {
                             <button data-rename data-needs="manage_producers" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Rename</button>
                             <button data-delete data-needs="manage_producers" class="px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-red-50 text-red-600">Delete</button>
                         </div>`;
-      row.querySelector("[data-branch-name]").textContent = b.name;
-      row.querySelector("[data-branch-source]").textContent = b.source;
-      row.querySelector("[data-branch-asof]").textContent = (b.as_of || "")
+      /** @type {HTMLElement} */ (row.querySelector("[data-branch-name]")).textContent = b.name;
+      /** @type {HTMLElement} */ (row.querySelector("[data-branch-source]")).textContent = b.source;
+      /** @type {HTMLElement} */ (row.querySelector("[data-branch-asof]")).textContent = (
+        b.as_of ?? ""
+      )
         .slice(0, 16)
         .replace("T", " ");
-      row.querySelector("[data-branch-creator]").textContent = b.created_by;
-      row.querySelector("[data-rename]").addEventListener("click", () => renameBranch(b.name));
-      row
-        .querySelector("[data-delete]")
-        .addEventListener("click", () =>
+      /** @type {HTMLElement} */ (row.querySelector("[data-branch-creator]")).textContent =
+        b.created_by;
+      /** @type {HTMLElement} */ (row.querySelector("[data-rename]")).addEventListener(
+        "click",
+        () => {
+          void renameBranch(b.name);
+        },
+      );
+      /** @type {HTMLElement} */ (row.querySelector("[data-delete]")).addEventListener(
+        "click",
+        () => {
           confirmDelete(
             safeHtml`Delete sanshain-branch <strong>${b.name}</strong>? Its graph and timeline are removed and the name is freed.`,
             () => deleteBranch(b.name),
-          ),
-        );
+          );
+        },
+      );
       list.appendChild(row);
     }
   } catch (e) {
-    list.innerHTML = `<div class="text-red-500">Failed to load branches: ${escapeHtml(e.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500">Failed to load branches: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
   }
 }
 
 async function createBranch() {
-  const name = document.getElementById("new-branch-name").value.trim();
+  const name = /** @type {HTMLInputElement} */ (
+    document.getElementById("new-branch-name")
+  ).value.trim();
   if (!name) return;
-  const asOfRaw = document.getElementById("new-branch-as-of").value;
+  const asOfRaw = /** @type {HTMLInputElement} */ (document.getElementById("new-branch-as-of"))
+    .value;
+  /** @type {{ name: string, as_of?: string }} */
   const body = { name };
   if (asOfRaw) body.as_of = new Date(asOfRaw).toISOString();
   const res = await apiCall("/admin/branches", { method: "POST", body });
@@ -416,11 +533,12 @@ async function createBranch() {
     alert("Could not create the branch: " + (await errorMessage(res)));
     return;
   }
-  document.getElementById("new-branch-name").value = "";
-  document.getElementById("new-branch-as-of").value = "";
+  /** @type {HTMLInputElement} */ (document.getElementById("new-branch-name")).value = "";
+  /** @type {HTMLInputElement} */ (document.getElementById("new-branch-as-of")).value = "";
   void loadBranches();
 }
 
+/** @param {string} name */
 async function renameBranch(name) {
   const newName = prompt(`Rename sanshain-branch '${name}' to:`, name);
   if (!newName || newName === name) return;
@@ -435,6 +553,7 @@ async function renameBranch(name) {
   void loadBranches();
 }
 
+/** @param {string} name */
 async function deleteBranch(name) {
   const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}`, { method: "DELETE" });
   if (!res.ok) {
@@ -448,13 +567,19 @@ async function loadSnapshotMaxAge() {
   try {
     const settings = await instanceSettings();
     if (settings) {
-      document.getElementById("snapshot-max-age-days").value = settings.snapshot_max_age_days;
+      /** @type {HTMLInputElement} */ (document.getElementById("snapshot-max-age-days")).value =
+        String(settings.snapshot_max_age_days);
     }
-  } catch (_) {}
+  } catch {
+    // The field keeps the value the page drew.
+  }
 }
 
 async function saveSnapshotMaxAge() {
-  const days = Number.parseInt(document.getElementById("snapshot-max-age-days").value, 10);
+  const days = Number.parseInt(
+    /** @type {HTMLInputElement} */ (document.getElementById("snapshot-max-age-days")).value,
+    10,
+  );
   if (Number.isNaN(days) || days < 0) return;
   try {
     const res = await apiCall("/admin/settings/snapshot-max-age", {
@@ -462,25 +587,37 @@ async function saveSnapshotMaxAge() {
       body: { days },
     });
     if (res.ok) {
-      document.getElementById("snapshot-cleanup-result").textContent = "✓ Saved";
-      setTimeout(() => (document.getElementById("snapshot-cleanup-result").textContent = ""), 3000);
+      /** @type {HTMLElement} */ (document.getElementById("snapshot-cleanup-result")).textContent =
+        "✓ Saved";
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (
+          document.getElementById("snapshot-cleanup-result")
+        ).textContent = "";
+      }, 3000);
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
 }
 
 async function loadTicketUrlTemplateSetting() {
   try {
     const res = await apiCall("/admin/ticket-url-template");
     if (res.ok) {
-      const data = await res.json();
-      document.getElementById("ticket-url-template").value = data.template || "";
+      const data = /** @type {{ template?: string | null }} */ (await res.json());
+      /** @type {HTMLInputElement} */ (document.getElementById("ticket-url-template")).value =
+        data.template ?? "";
     }
-  } catch (_) {}
+  } catch {
+    // The field stays empty.
+  }
 }
 
 async function saveTicketUrlTemplate() {
-  const template = document.getElementById("ticket-url-template").value.trim();
-  const result = document.getElementById("ticket-url-template-result");
+  const template = /** @type {HTMLInputElement} */ (
+    document.getElementById("ticket-url-template")
+  ).value.trim();
+  const result = /** @type {HTMLElement} */ (document.getElementById("ticket-url-template-result"));
   try {
     const res = await apiCall("/admin/settings/ticket-url-template", {
       method: "POST",
@@ -492,20 +629,28 @@ async function saveTicketUrlTemplate() {
       result.textContent = "✗ " + (await errorMessage(res));
     }
     setTimeout(() => (result.textContent = ""), 5000);
-  } catch (_) {}
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
 }
 
 async function triggerSnapshotCleanup() {
   try {
     const res = await apiCall("/admin/cleanup/snapshots", { method: "POST", body: {} });
     if (res.ok) {
-      const data = await res.json();
-      document.getElementById("snapshot-cleanup-result").textContent =
-        `✓ Deleted ${data.deleted} snapshot${data.deleted !== 1 ? "s" : ""}`;
-      setTimeout(() => (document.getElementById("snapshot-cleanup-result").textContent = ""), 5000);
+      const data = /** @type {{ deleted: number }} */ (await res.json());
+      /** @type {HTMLElement} */ (document.getElementById("snapshot-cleanup-result")).textContent =
+        `✓ Deleted ${String(data.deleted)} snapshot${data.deleted !== 1 ? "s" : ""}`;
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (
+          document.getElementById("snapshot-cleanup-result")
+        ).textContent = "";
+      }, 5000);
       void loadServices();
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was cleaned up, and the result line stays empty.
+  }
 }
 
 // --- Dependency Cleanup ---
@@ -513,13 +658,19 @@ async function loadDependencyMaxAge() {
   try {
     const settings = await instanceSettings();
     if (settings) {
-      document.getElementById("dependency-max-age-days").value = settings.dependency_max_age_days;
+      /** @type {HTMLInputElement} */ (document.getElementById("dependency-max-age-days")).value =
+        String(settings.dependency_max_age_days);
     }
-  } catch (_) {}
+  } catch {
+    // The field keeps the value the page drew.
+  }
 }
 
 async function saveDependencyMaxAge() {
-  const days = Number.parseInt(document.getElementById("dependency-max-age-days").value, 10);
+  const days = Number.parseInt(
+    /** @type {HTMLInputElement} */ (document.getElementById("dependency-max-age-days")).value,
+    10,
+  );
   if (Number.isNaN(days) || days < 1) return;
   try {
     const res = await apiCall("/admin/settings/dependency-max-age", {
@@ -527,34 +678,50 @@ async function saveDependencyMaxAge() {
       body: { days },
     });
     if (res.ok) {
-      document.getElementById("dependency-cleanup-result").textContent = "✓ Saved";
-      setTimeout(
-        () => (document.getElementById("dependency-cleanup-result").textContent = ""),
-        3000,
-      );
+      /** @type {HTMLElement} */ (
+        document.getElementById("dependency-cleanup-result")
+      ).textContent = "✓ Saved";
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (
+          document.getElementById("dependency-cleanup-result")
+        ).textContent = "";
+      }, 3000);
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
 }
 
 async function triggerDependencyCleanup() {
   try {
     const res = await apiCall("/admin/cleanup/dependencies", { method: "POST", body: {} });
     if (res.ok) {
-      const data = await res.json();
-      document.getElementById("dependency-cleanup-result").textContent =
-        `✓ Deleted ${data.deleted} dependencies`;
-      setTimeout(
-        () => (document.getElementById("dependency-cleanup-result").textContent = ""),
-        5000,
-      );
+      const data = /** @type {{ deleted: number }} */ (await res.json());
+      /** @type {HTMLElement} */ (
+        document.getElementById("dependency-cleanup-result")
+      ).textContent = `✓ Deleted ${String(data.deleted)} dependencies`;
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (
+          document.getElementById("dependency-cleanup-result")
+        ).textContent = "";
+      }, 5000);
       void loadClients();
     }
-  } catch (_) {}
+  } catch {
+    // Nothing was cleaned up, and the result line stays empty.
+  }
 }
 
 // --- Local users: registration and auto-acknowledge ---
 // Two switches that save on click. They apply in Local mode only, so the
 // panel holding them shows only while Local is the selected mode.
+/**
+ * @typedef {object} LocalUserSwitch
+ * @property {string} url Where a flip is saved.
+ * @property {"registration_enabled" | "auto_approve_users" | "gravatar_enabled"} key
+ * @property {boolean} on
+ */
+/** @type {Record<string, LocalUserSwitch>} */
 const localUserSwitches = {
   registration: { url: "/admin/settings/registration", key: "registration_enabled", on: false },
   "auto-approve": { url: "/admin/settings/auto-approve", key: "auto_approve_users", on: false },
@@ -572,13 +739,16 @@ async function loadAutoApproveUsers() {
       devModeAllowed = !!settings.dev_mode_allowed;
       onAuthModeChange();
     }
-  } catch (_) {}
+  } catch {
+    // The switches stay as the page drew them.
+  }
 }
 
+/** @param {string} id */
 function paintSwitch(id) {
-  const on = localUserSwitches[id].on;
-  const toggle = document.getElementById(`${id}-toggle`);
-  const dot = document.getElementById(`${id}-dot`);
+  const on = /** @type {LocalUserSwitch} */ (localUserSwitches[id]).on;
+  const toggle = /** @type {HTMLElement} */ (document.getElementById(`${id}-toggle`));
+  const dot = /** @type {HTMLElement} */ (document.getElementById(`${id}-dot`));
   toggle.classList.toggle("bg-indigo-600", on);
   toggle.classList.toggle("bg-slate-200", !on);
   dot.classList.toggle("translate-x-6", on);
@@ -586,8 +756,9 @@ function paintSwitch(id) {
   toggle.setAttribute("aria-checked", String(on));
 }
 
+/** @param {string} id */
 async function flipSwitch(id) {
-  const sw = localUserSwitches[id];
+  const sw = /** @type {LocalUserSwitch} */ (localUserSwitches[id]);
   try {
     const res = await apiCall(sw.url, { method: "POST", body: { enabled: !sw.on } });
     if (!res.ok) {
@@ -596,10 +767,10 @@ async function flipSwitch(id) {
     }
     sw.on = !sw.on;
     paintSwitch(id);
-    instanceSettings(true);
+    void instanceSettings(true);
     void loadUsers();
   } catch (e) {
-    alert("Failed to save: " + e.message);
+    alert("Failed to save: " + /** @type {Error} */ (e).message);
   }
 }
 
@@ -618,33 +789,42 @@ function toggleGravatar() {
 // --- Detailed sign-in errors ---
 // On for 15 minutes while an admin helps someone who cannot sign in; the
 // server turns it off by itself, and the status repaints when it lapses.
+/** @type {string | null | undefined} */
 let detailedErrorsUntil = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let detailedErrorsTimer = null;
 
 function paintDetailedErrors() {
   const until = detailedErrorsUntil ? new Date(detailedErrorsUntil) : null;
   const on = !!until && until > new Date();
-  const toggle = document.getElementById("detailed-errors-toggle");
-  const dot = document.getElementById("detailed-errors-dot");
+  const toggle = /** @type {HTMLElement} */ (document.getElementById("detailed-errors-toggle"));
+  const dot = /** @type {HTMLElement} */ (document.getElementById("detailed-errors-dot"));
   toggle.classList.toggle("bg-indigo-600", on);
   toggle.classList.toggle("bg-slate-200", !on);
   dot.classList.toggle("translate-x-6", on);
   dot.classList.toggle("translate-x-1", !on);
   toggle.setAttribute("aria-checked", String(on));
-  document.getElementById("detailed-errors-status").textContent = on
+  /** @type {HTMLElement} */ (document.getElementById("detailed-errors-status")).textContent = on
     ? `On until ${until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
     : "Off.";
-  clearTimeout(detailedErrorsTimer);
-  if (on) detailedErrorsTimer = setTimeout(paintDetailedErrors, until - new Date() + 1000);
+  clearTimeout(detailedErrorsTimer ?? undefined);
+  if (on) {
+    detailedErrorsTimer = setTimeout(
+      paintDetailedErrors,
+      until.getTime() - new Date().getTime() + 1000,
+    );
+  }
 }
 
 async function loadDetailedErrors() {
   try {
     const res = await apiCall("/admin/auth-config/detailed-errors");
     if (!res.ok) return;
-    detailedErrorsUntil = (await res.json()).until;
+    detailedErrorsUntil = /** @type {{ until?: string | null }} */ (await res.json()).until;
     paintDetailedErrors();
-  } catch (_) {}
+  } catch {
+    // The switch stays as the page drew it.
+  }
 }
 
 async function toggleDetailedErrors() {
@@ -658,10 +838,10 @@ async function toggleDetailedErrors() {
       alert("Failed to save: " + (await errorMessage(res)));
       return;
     }
-    detailedErrorsUntil = (await res.json()).until;
+    detailedErrorsUntil = /** @type {{ until?: string | null }} */ (await res.json()).until;
     paintDetailedErrors();
   } catch (e) {
-    alert("Failed to save: " + e.message);
+    alert("Failed to save: " + /** @type {Error} */ (e).message);
   }
 }
 
@@ -670,35 +850,48 @@ async function toggleDetailedErrors() {
 // Roles are fixed in the service, so this screen assigns them; it cannot
 // compose new ones. What each role confers is shown so an administrator
 // can see what they are handing over.
+/** @type {RoleCatalogueEntry[]} */
 let roleCatalogue = [];
+/** @type {AdminUserRow[]} */
 let knownUsers = [];
+/** @type {GroupDetail[]} */
 let knownGroups = [];
 
 async function loadRoleCatalogue() {
   try {
     const res = await apiCall("/admin/roles");
     if (!res.ok) return;
-    const data = await res.json();
-    roleCatalogue = data.roles || [];
+    const data = /** @type {RoleCatalogue} */ (await res.json());
+    roleCatalogue = data.roles ?? [];
     const note = document.getElementById("root-note");
     if (note) {
       note.textContent =
         "Root is held by configuration (SANSHAIN_ROOT_USERS) and cannot be granted or revoked here.";
     }
-  } catch (_) {}
+  } catch {
+    // Without the catalogue no role can be granted from the lists.
+  }
 }
 
 function grantableRoles() {
   return roleCatalogue.filter((r) => r.globally_grantable);
 }
 
+/**
+ * @param {string} roleName
+ * @returns {string}
+ */
 function roleTitle(roleName) {
   const entry = roleCatalogue.find((r) => r.role === roleName);
   return entry ? `Confers: ${entry.permissions.join(", ")}` : "";
 }
 
+/**
+ * @param {AdminUserRow} user
+ * @returns {string}
+ */
 function roleControls(user) {
-  const held = user.roles || [];
+  const held = user.roles ?? [];
   const options = grantableRoles()
     .filter((r) => !held.includes(r.role))
     .map(
@@ -707,7 +900,7 @@ function roleControls(user) {
     )
     .join("");
   const grant = options
-    ? `<select id="grant-role-${user.id}" class="text-xs rounded-sm border-slate-200">
+    ? `<select id="grant-role-${String(user.id)}" class="text-xs rounded-sm border-slate-200">
                        <option value="">grant role…</option>${options}
                    </select>
                    <button data-click="grantRole" data-needs="manage_roles" data-click-args="${attrJson([user.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Grant</button>`
@@ -724,11 +917,14 @@ function roleControls(user) {
   return grant + revoke;
 }
 
+/** @param {number} userId */
 async function grantRole(userId) {
-  const select = document.getElementById(`grant-role-${userId}`);
+  const select = /** @type {HTMLSelectElement | null} */ (
+    document.getElementById(`grant-role-${String(userId)}`)
+  );
   const role = select ? select.value : "";
   if (!role) return;
-  const res = await apiCall(`/admin/users/${userId}/roles`, {
+  const res = await apiCall(`/admin/users/${String(userId)}/roles`, {
     method: "POST",
     body: { role },
   });
@@ -739,19 +935,23 @@ async function grantRole(userId) {
   void loadUsers();
 }
 
+/**
+ * @param {number} userId
+ * @param {string} role
+ */
 async function revokeRole(userId, role) {
   // Warn rather than block: root is configured outside the database and
   // is the recovery path, so this is recoverable — but it is easy to do
   // by accident and hard to notice.
   const me = await currentActor();
-  if (me && me.id === userId && (me.roles || []).length === 1) {
+  if (me?.id === userId && (me.roles ?? []).length === 1) {
     if (
       !window.confirm(`Revoke your own last role (${role})? You will lose access to this page.`)
     ) {
       return;
     }
   }
-  const res = await apiCall(`/admin/users/${userId}/roles/${encodeURIComponent(role)}`, {
+  const res = await apiCall(`/admin/users/${String(userId)}/roles/${encodeURIComponent(role)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -761,11 +961,12 @@ async function revokeRole(userId, role) {
   void loadUsers();
 }
 
+/** @returns {Promise<SanshainUser | null>} */
 async function currentActor() {
   try {
     const res = await apiCall("/auth/me");
-    return res.ok ? await res.json() : null;
-  } catch (_) {
+    return res.ok ? /** @type {SanshainUser | null} */ (await res.json()) : null;
+  } catch {
     return null;
   }
 }
@@ -779,8 +980,8 @@ async function loadGroups() {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    const data = await res.json();
-    knownGroups = data.groups || [];
+    const data = /** @type {GroupList} */ (await res.json());
+    knownGroups = data.groups ?? [];
     if (knownGroups.length === 0) {
       list.innerHTML = '<p class="text-sm text-slate-500 italic">No groups yet.</p>';
       mountDirectoryGroupPicker();
@@ -793,7 +994,7 @@ async function loadGroups() {
         const badge = directory
           ? '<span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">directory</span>'
           : '<span class="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">sanshain</span>';
-        const roles = (g.roles || [])
+        const roles = (g.roles ?? [])
           .map(
             (
               r,
@@ -803,16 +1004,16 @@ async function loadGroups() {
           )
           .join(" ");
         const addable = grantableRoles()
-          .filter((r) => !(g.roles || []).includes(r.role))
+          .filter((r) => !(g.roles ?? []).includes(r.role))
           .map(
             (r) =>
               `<option value="${escapeHtml(r.role)}" title="${escapeHtml(roleTitle(r.role))}">${escapeHtml(r.role)}</option>`,
           )
           .join("");
-        const memberIds = g.member_ids || [];
+        const memberIds = g.member_ids ?? [];
         const members = directory
           ? '<span class="text-xs text-slate-400 italic">membership from the directory</span>'
-          : `<span class="text-xs text-slate-500">${memberIds.length} member(s)</span>`;
+          : `<span class="text-xs text-slate-500">${String(memberIds.length)} member(s)</span>`;
         const memberChips = directory ? "" : groupMemberChips(g);
         return `
                     <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in">
@@ -825,7 +1026,7 @@ async function loadGroups() {
                             <div class="flex items-center space-x-2">
                                 ${
                                   addable
-                                    ? `<select id="group-role-${g.id}" class="text-xs rounded-sm border-slate-200">
+                                    ? `<select id="group-role-${String(g.id)}" class="text-xs rounded-sm border-slate-200">
                                     <option value="">add role…</option>${addable}
                                 </select>
                                 <button data-click="addGroupRole" data-needs="manage_roles" data-click-args="${attrJson([g.id])}" class="text-indigo-600 hover:text-indigo-800 text-sm">Add</button>`
@@ -839,25 +1040,31 @@ async function loadGroups() {
                           directory
                             ? ""
                             : `<div class="mt-2 flex flex-wrap items-center gap-2">
-                            <span class="flex flex-wrap gap-2" data-member-chips="${g.id}">${memberChips}</span>
-                            <div class="w-56" data-member-picker="${g.id}"></div>
+                            <span class="flex flex-wrap gap-2" data-member-chips="${String(g.id)}">${memberChips}</span>
+                            <div class="w-56" data-member-picker="${String(g.id)}"></div>
                         </div>`
                         }
                     </div>`;
       })
       .join("");
-    list.querySelectorAll("[data-member-picker]").forEach(mountGroupMemberPicker);
+    /** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll("[data-member-picker]")).forEach(
+      mountGroupMemberPicker,
+    );
     mountDirectoryGroupPicker();
     refreshMaintainerPickers();
-  } catch (_) {
+  } catch {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
 
+/**
+ * @param {GroupDetail} g
+ * @returns {string}
+ */
 function groupMemberChips(g) {
-  const chips = (g.member_ids || []).map((id) => {
+  const chips = (g.member_ids ?? []).map((id) => {
     const u = knownUsers.find((x) => x.id === id);
-    const label = u ? personLabel(u) : `user #${id}`;
+    const label = u ? personLabel(u) : `user #${String(id)}`;
     return `<button data-click="removeGroupMember" data-needs="manage_roles" data-click-args="${attrJson([g.id, id])}"
                                 title="Remove ${escapeAttr(label)} from ${escapeAttr(g.name)}"
                                 class="text-xs text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">✕ ${escapeHtml(label)}</button>`;
@@ -867,37 +1074,42 @@ function groupMemberChips(g) {
 
 // Members are ticked into a Sanshain group and unticked out of it, each tick
 // saved at once.
+/** @param {HTMLElement} root */
 function mountGroupMemberPicker(root) {
   const groupId = Number(root.dataset.memberPicker);
   const group = () => knownGroups.find((g) => g.id === groupId);
   createPicker(root, {
-    id: `group-member-${groupId}`,
+    id: `group-member-${String(groupId)}`,
     placeholder: "Add or remove members…",
     multiple: true,
     options: () => knownUsers.map((u) => ({ value: u.id, label: personLabel(u) })),
-    isSelected: (id) => (group()?.member_ids || []).includes(id),
+    isSelected: (id) => (group()?.member_ids ?? []).includes(id),
     onToggle: async (id, checked) => {
       const res = checked
-        ? await apiCall(`/admin/groups/${groupId}/members`, {
+        ? await apiCall(`/admin/groups/${String(groupId)}/members`, {
             method: "POST",
             body: { user_id: id },
           })
-        : await apiCall(`/admin/groups/${groupId}/members/${id}`, { method: "DELETE" });
+        : await apiCall(`/admin/groups/${String(groupId)}/members/${String(id)}`, {
+            method: "DELETE",
+          });
       if (!res.ok) {
         alert(`Failed to ${checked ? "add" : "remove"} member: ${await errorMessage(res)}`);
         return;
       }
-      const g = group();
+      const g = /** @type {GroupDetail} */ (group());
       g.member_ids = checked
-        ? [...(g.member_ids || []), id]
-        : (g.member_ids || []).filter((x) => x !== id);
-      document.querySelector(`[data-member-chips="${groupId}"]`).innerHTML = groupMemberChips(g);
+        ? [...(g.member_ids ?? []), id]
+        : (g.member_ids ?? []).filter((x) => x !== id);
+      /** @type {HTMLElement} */ (
+        document.querySelector(`[data-member-chips="${String(groupId)}"]`)
+      ).innerHTML = groupMemberChips(g);
     },
   });
 }
 
 async function createGroup() {
-  const input = document.getElementById("new-group-name");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("new-group-name"));
   const name = input ? input.value.trim() : "";
   if (!name) return;
   const res = await apiCall("/admin/groups", { method: "POST", body: { name } });
@@ -905,12 +1117,18 @@ async function createGroup() {
     alert("Failed to create: " + (await errorMessage(res)));
     return;
   }
-  input.value = "";
+  /** @type {HTMLInputElement} */ (input).value = "";
   void loadGroups();
 }
 
+/**
+ * @param {number} groupId
+ * @param {number} userId
+ */
 async function removeGroupMember(groupId, userId) {
-  const res = await apiCall(`/admin/groups/${groupId}/members/${userId}`, { method: "DELETE" });
+  const res = await apiCall(`/admin/groups/${String(groupId)}/members/${String(userId)}`, {
+    method: "DELETE",
+  });
   if (!res.ok) {
     alert("Failed to remove member: " + (await errorMessage(res)));
     return;
@@ -918,8 +1136,11 @@ async function removeGroupMember(groupId, userId) {
   void loadGroups();
 }
 
+/** @param {number} groupId */
 async function addGroupRole(groupId) {
-  const select = document.getElementById(`group-role-${groupId}`);
+  const select = /** @type {HTMLSelectElement | null} */ (
+    document.getElementById(`group-role-${String(groupId)}`)
+  );
   const role = select ? select.value : "";
   if (!role) return;
   await setGroupRoles(groupId, role, true);
@@ -927,11 +1148,16 @@ async function addGroupRole(groupId) {
 
 // The endpoint replaces the whole set, so the current roles are read and
 // the one change applied to them.
+/**
+ * @param {number} groupId
+ * @param {string} role
+ * @param {boolean} add
+ */
 async function setGroupRoles(groupId, role, add) {
   const group = knownGroups.find((g) => g.id === groupId);
-  const current = group ? group.roles || [] : [];
+  const current = group ? (group.roles ?? []) : [];
   const roles = add ? current.concat([role]) : current.filter((r) => r !== role);
-  const res = await apiCall(`/admin/groups/${groupId}`, { method: "PUT", body: { roles } });
+  const res = await apiCall(`/admin/groups/${String(groupId)}`, { method: "PUT", body: { roles } });
   if (!res.ok) {
     alert("Failed to update roles: " + (await errorMessage(res)));
     return;
@@ -939,8 +1165,9 @@ async function setGroupRoles(groupId, role, add) {
   void loadGroups();
 }
 
+/** @param {number} groupId */
 async function deleteGroup(groupId) {
-  const res = await apiCall(`/admin/groups/${groupId}`, { method: "DELETE" });
+  const res = await apiCall(`/admin/groups/${String(groupId)}`, { method: "DELETE" });
   if (!res.ok) {
     alert("Failed to delete: " + (await errorMessage(res)));
     return;
@@ -951,23 +1178,36 @@ async function deleteGroup(groupId) {
 // Directory groups are found by searching LDAP while typing, so a team such
 // as "carla" can be added without knowing its DN. Answers for a configured
 // LDAP only; anything else leaves the search empty.
+/** @type {DirectoryGroupHit[]} */
 let directoryHits = [];
+/** @type {ReturnType<typeof setTimeout> | null} */
 let directorySearchTimer = null;
+/**
+ * @param {string} text
+ * @param {() => void} then
+ */
 function searchDirectoryGroups(text, then) {
-  clearTimeout(directorySearchTimer);
+  clearTimeout(directorySearchTimer ?? undefined);
   if (text.length < 2) {
     directoryHits = [];
     then();
     return;
   }
-  directorySearchTimer = setTimeout(async () => {
-    try {
-      const res = await apiCall(`/admin/directory-groups?q=${encodeURIComponent(text)}`);
-      directoryHits = res.ok ? (await res.json()).groups || [] : [];
-    } catch (_) {
-      directoryHits = [];
-    }
-    then();
+  directorySearchTimer = setTimeout(() => {
+    void (async () => {
+      try {
+        const res = await apiCall(`/admin/directory-groups?q=${encodeURIComponent(text)}`);
+        if (res.ok) {
+          const data = /** @type {DirectoryGroupHits} */ (await res.json());
+          directoryHits = data.groups ?? [];
+        } else {
+          directoryHits = [];
+        }
+      } catch {
+        directoryHits = [];
+      }
+      then();
+    })();
   }, 250);
 }
 
@@ -982,13 +1222,17 @@ function newDirectoryOptions() {
     }));
 }
 
+/**
+ * @param {string} dn
+ * @returns {Promise<GroupDetail | null>}
+ */
 async function addDirectoryGroup(dn) {
   const res = await apiCall("/admin/groups/directory", { method: "POST", body: { dn } });
   if (!res.ok) {
     alert("Could not add the directory group: " + (await errorMessage(res)));
     return null;
   }
-  const group = await res.json();
+  const group = /** @type {GroupDetail} */ (await res.json());
   directoryHits = directoryHits.map((h) => (h.dn === dn ? { ...h, group_id: group.id } : h));
   if (!knownGroups.some((g) => g.id === group.id)) {
     knownGroups.push({ ...group, roles: [], member_ids: [] });
@@ -996,6 +1240,7 @@ async function addDirectoryGroup(dn) {
   return group;
 }
 
+/** @type {AdminPickerHandle | null} */
 let directoryGroupPicker = null;
 function mountDirectoryGroupPicker() {
   const root = document.getElementById("directory-group-picker");
@@ -1006,7 +1251,11 @@ function mountDirectoryGroupPicker() {
     multiple: false,
     options: newDirectoryOptions,
     isSelected: () => false,
-    onSearch: (text) => searchDirectoryGroups(text, () => directoryGroupPicker.refresh()),
+    onSearch: (text) => {
+      searchDirectoryGroups(text, () => {
+        /** @type {AdminPickerHandle} */ (directoryGroupPicker).refresh();
+      });
+    },
     onPick: async (value) => {
       if (await addDirectoryGroup(value.slice(3))) void loadGroups();
     },
@@ -1017,13 +1266,20 @@ function mountDirectoryGroupPicker() {
 // Maintainers: pick a Producer, then tick the users and groups responsible
 // for it. Each tick or untick is saved at once. A directory group found by
 // typing its name is added to Sanshain on the tick.
+/** @type {ProducerMaintainers[]} */
 let maintainerData = [];
 let maintainerProducer = "";
+/** @type {AdminPickerHandle | null} */
 let maintainerProducerPicker = null;
+/** @type {AdminPickerHandle | null} */
 let maintainerSubjectPicker = null;
 
+/**
+ * @param {string} producer
+ * @returns {{ user_ids?: number[], group_ids?: number[] }}
+ */
 function maintainersOf(producer) {
-  return maintainerData.find((p) => p.producer === producer) || { user_ids: [], group_ids: [] };
+  return maintainerData.find((p) => p.producer === producer) ?? { user_ids: [], group_ids: [] };
 }
 
 function refreshMaintainerPickers() {
@@ -1039,7 +1295,7 @@ function refreshMaintainerPickers() {
       isSelected: (value) => value === maintainerProducer,
       onPick: (value) => {
         maintainerProducer = value;
-        maintainerSubjectPicker.refresh();
+        /** @type {AdminPickerHandle} */ (maintainerSubjectPicker).refresh();
       },
       selectedLabel: () => maintainerProducer,
     });
@@ -1050,26 +1306,36 @@ function refreshMaintainerPickers() {
       options: () =>
         maintainerProducer
           ? knownUsers
-              .map((u) => ({ value: `user:${u.id}`, label: personLabel(u), group: "Users" }))
+              .map((u) => ({
+                value: `user:${String(u.id)}`,
+                label: personLabel(u),
+                group: "Users",
+              }))
               .concat(
                 knownGroups.map((g) => ({
-                  value: `group:${g.id}`,
+                  value: `group:${String(g.id)}`,
                   label: g.source === "ldap" ? `${g.name} (directory)` : g.name,
                   group: "Groups",
                 })),
               )
               .concat(newDirectoryOptions())
           : [],
-      onSearch: (text) => searchDirectoryGroups(text, () => maintainerSubjectPicker.refresh()),
+      onSearch: (text) => {
+        searchDirectoryGroups(text, () => {
+          /** @type {AdminPickerHandle} */ (maintainerSubjectPicker).refresh();
+        });
+      },
       isSelected: (value) => {
         const [kind, id] = value.split(":");
         const m = maintainersOf(maintainerProducer);
-        return (kind === "user" ? m.user_ids : m.group_ids || []).includes(Number(id));
+        return (
+          kind === "user" ? /** @type {number[]} */ (m.user_ids) : (m.group_ids ?? [])
+        ).includes(Number(id));
       },
       onToggle: async (value, checked) => {
         if (value.startsWith("dn:")) {
           const group = await addDirectoryGroup(value.slice(3));
-          if (group) await setMaintainer(maintainerProducer, `group:${group.id}`, true);
+          if (group) await setMaintainer(maintainerProducer, `group:${String(group.id)}`, true);
           return;
         }
         await setMaintainer(maintainerProducer, value, checked);
@@ -1077,7 +1343,7 @@ function refreshMaintainerPickers() {
     });
   }
   maintainerProducerPicker.refresh();
-  maintainerSubjectPicker.refresh();
+  /** @type {AdminPickerHandle} */ (maintainerSubjectPicker).refresh();
 }
 
 // One request fills the whole section: /admin/maintainers answers for
@@ -1092,29 +1358,29 @@ async function loadMaintainers() {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    const data = await res.json();
-    maintainerData = data.producers || [];
+    const data = /** @type {MaintainerList} */ (await res.json());
+    maintainerData = data.producers ?? [];
     refreshMaintainerPickers();
     renderMaintainers();
-  } catch (_) {
+  } catch {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
 
 function renderMaintainers() {
-  const list = document.getElementById("maintainers-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("maintainers-list"));
   const rows = maintainerData
-    .filter((p) => (p.user_ids || []).length || (p.group_ids || []).length)
+    .filter((p) => (p.user_ids ?? []).length || (p.group_ids ?? []).length)
     .map((p) => {
-      const users = (p.user_ids || []).map((id) => {
+      const users = (p.user_ids ?? []).map((id) => {
         const u = knownUsers.find((x) => x.id === id);
-        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `user:${id}`, false])}"
-                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + id)}</button>`;
+        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `user:${String(id)}`, false])}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(u ? personLabel(u) : "user " + String(id))}</button>`;
       });
-      const groups = (p.group_ids || []).map((id) => {
+      const groups = (p.group_ids ?? []).map((id) => {
         const g = knownGroups.find((x) => x.id === id);
-        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `group:${id}`, false])}"
-                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + id)}</button>`;
+        return `<button data-click="setMaintainer" data-needs="manage_roles" data-click-args="${attrJson([p.producer, `group:${String(id)}`, false])}"
+                                class="text-xs text-slate-400 hover:text-red-600">✕ ${escapeHtml(g ? g.name : "group " + String(id))}</button>`;
       });
       return `
                         <div class="bg-slate-50 px-4 py-2 rounded-lg fade-in" data-maintained="${escapeAttr(p.producer)}">
@@ -1127,8 +1393,13 @@ function renderMaintainers() {
     : '<p class="text-sm text-slate-500 italic">No Producer has a maintainer yet.</p>';
 }
 
+/**
+ * @param {string} producer
+ * @param {string} subject `user:<id>` or `group:<id>`.
+ * @param {boolean} assign
+ */
 async function setMaintainer(producer, subject, assign) {
-  const [kind, id] = subject.split(":");
+  const [kind, id] = /** @type {[string, string]} */ (subject.split(":"));
   const res = assign
     ? await apiCall(`/admin/producers/${encodeURIComponent(producer)}/maintainers`, {
         method: "POST",
@@ -1145,8 +1416,8 @@ async function setMaintainer(producer, subject, assign) {
   if (m) {
     const key = kind === "user" ? "user_ids" : "group_ids";
     m[key] = assign
-      ? [...(m[key] || []), Number(id)]
-      : (m[key] || []).filter((x) => x !== Number(id));
+      ? [...(m[key] ?? []), Number(id)]
+      : (m[key] ?? []).filter((x) => x !== Number(id));
   }
   renderMaintainers();
 }
@@ -1154,6 +1425,7 @@ async function setMaintainer(producer, subject, assign) {
 // --- Users ---
 // What kind of account a row is: a service account, or how the person last
 // signed in. "unknown" until their first sign-in since that was recorded.
+/** @type {Record<string, [string, string]>} */
 const ACCOUNT_KIND_TAGS = {
   service: ["service account", "bg-slate-200 text-slate-700"],
   local: ["local", "bg-emerald-100 text-emerald-700"],
@@ -1161,23 +1433,27 @@ const ACCOUNT_KIND_TAGS = {
   oidc: ["OIDC", "bg-violet-100 text-violet-700"],
   unknown: ["unknown", "bg-slate-100 text-slate-400"],
 };
+/**
+ * @param {AdminUserRow} user
+ * @returns {string}
+ */
 function accountKindTag(user) {
   const kind = ACCOUNT_KIND_TAGS[user.kind] ? user.kind : "unknown";
-  const [label, colours] = ACCOUNT_KIND_TAGS[kind];
+  const [label, colours] = /** @type {[string, string]} */ (ACCOUNT_KIND_TAGS[kind]);
   const marker = kind === "service" ? " data-service-account" : "";
   return `<span class="text-xs ${colours} px-2 py-0.5 rounded-full" data-account-kind="${kind}"${marker}>${label}</span>`;
 }
 async function loadUsers() {
-  const list = document.getElementById("users-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("users-list"));
   try {
     const res = await apiCall("/admin/users");
     if (!res.ok) {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    knownUsers = await res.json();
+    knownUsers = /** @type {AdminUserRow[]} */ (await res.json());
     renderUsers();
-  } catch (_) {
+  } catch {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
@@ -1186,22 +1462,27 @@ async function loadUsers() {
 // Hundreds of accounts are no list to scroll. With nothing searched and no
 // chip set, only the accounts waiting for approval show, plus how many more
 // there are. Chips of different kinds narrow together; chips of one kind widen.
+/** @type {{ text: string, kind: Set<string>, status: Set<string>, role: Set<string> }} */
 const userFilter = { text: "", kind: new Set(), status: new Set(), role: new Set() };
 const USER_KIND_CHIPS = Object.keys(ACCOUNT_KIND_TAGS);
 
+/**
+ * @param {AdminUserRow} u
+ * @returns {boolean}
+ */
 function userMatches(u) {
   const text = userFilter.text.toLowerCase();
   if (
     text &&
     !u.username.toLowerCase().includes(text) &&
-    !(u.display_name || "").toLowerCase().includes(text)
+    !(u.display_name ?? "").toLowerCase().includes(text)
   ) {
     return false;
   }
   if (userFilter.kind.size && !userFilter.kind.has(u.kind)) return false;
   const status = u.approved ? "approved" : "pending";
   if (userFilter.status.size && !userFilter.status.has(status)) return false;
-  if (userFilter.role.size && !(u.roles || []).some((r) => userFilter.role.has(r))) return false;
+  if (userFilter.role.size && !(u.roles ?? []).some((r) => userFilter.role.has(r))) return false;
   return true;
 }
 
@@ -1212,18 +1493,29 @@ function userFilterActive() {
 }
 
 function renderUserChips() {
+  /**
+   * @param {"kind" | "status" | "role"} group
+   * @param {string} value
+   * @param {string} label
+   */
   const chip = (group, value, label) => {
     const on = userFilter[group].has(value);
-    return `<button type="button" data-click="toggleUserChip" data-click-args="${attrJson([group, value])}" data-user-chip="${group}:${escapeAttr(value)}" aria-pressed="${on}"
+    return `<button type="button" data-click="toggleUserChip" data-click-args="${attrJson([group, value])}" data-user-chip="${group}:${escapeAttr(value)}" aria-pressed="${String(on)}"
       class="text-xs px-2 py-0.5 rounded-full border ${on ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"}">${escapeHtml(label)}</button>`;
   };
-  const roles = [...new Set(knownUsers.flatMap((u) => u.roles || []))].sort(byCodeUnit);
+  const roles = [...new Set(knownUsers.flatMap((u) => u.roles ?? []))].sort(byCodeUnit);
+  /**
+   * @param {string} title
+   * @param {string[]} chips
+   */
   const group = (title, chips) =>
     `<span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 ml-1">${title}</span>${chips.join("")}`;
-  document.getElementById("users-chips").innerHTML = [
+  /** @type {HTMLElement} */ (document.getElementById("users-chips")).innerHTML = [
     group(
       "Kind",
-      USER_KIND_CHIPS.map((k) => chip("kind", k, ACCOUNT_KIND_TAGS[k][0])),
+      USER_KIND_CHIPS.map((k) =>
+        chip("kind", k, /** @type {[string, string]} */ (ACCOUNT_KIND_TAGS[k])[0]),
+      ),
     ),
     group("Status", [chip("status", "pending", "pending"), chip("status", "approved", "approved")]),
     roles.length
@@ -1235,6 +1527,10 @@ function renderUserChips() {
   ].join("");
 }
 
+/**
+ * @param {"kind" | "status" | "role"} group
+ * @param {string} value
+ */
 function toggleUserChip(group, value) {
   const set = userFilter[group];
   if (set.has(value)) set.delete(value);
@@ -1243,8 +1539,8 @@ function toggleUserChip(group, value) {
 }
 
 function renderUsers() {
-  const list = document.getElementById("users-list");
-  const more = document.getElementById("users-more");
+  const list = /** @type {HTMLElement} */ (document.getElementById("users-list"));
+  const more = /** @type {HTMLElement} */ (document.getElementById("users-more"));
   renderUserChips();
   if (knownUsers.length === 0) {
     list.innerHTML = '<p class="text-sm text-slate-500 italic">No users registered.</p>';
@@ -1259,11 +1555,15 @@ function renderUsers() {
     : `<p class="text-sm text-slate-500 italic">${userFilterActive() ? "No user matches." : "Nobody is waiting for approval."}</p>`;
   const hidden = knownUsers.length - shown.length;
   more.textContent = userFilterActive()
-    ? `${shown.length} of ${knownUsers.length} users.`
-    : `${hidden} more user${hidden === 1 ? "" : "s"}: search or pick a filter.`;
+    ? `${String(shown.length)} of ${String(knownUsers.length)} users.`
+    : `${String(hidden)} more user${hidden === 1 ? "" : "s"}: search or pick a filter.`;
   more.classList.toggle("hidden", hidden === 0 && !userFilterActive());
 }
 
+/**
+ * @param {AdminUserRow} u
+ * @returns {string}
+ */
 function userRow(u) {
   return `
                     <div class="flex justify-between items-center bg-slate-50 px-4 py-2 rounded-lg fade-in">
@@ -1276,7 +1576,7 @@ function userRow(u) {
                                 : `<span class="font-medium text-slate-800" data-username>${escapeHtml(u.username)}</span>`
                             }
                             ${accountKindTag(u)}
-                            ${(u.roles || []).map((r) => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(" ")}
+                            ${(u.roles ?? []).map((r) => `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${escapeHtml(r)}</span>`).join(" ")}
                             ${
                               u.approved
                                 ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">approved</span>'
@@ -1284,49 +1584,63 @@ function userRow(u) {
                             }
                         </div>
                         <div class="flex items-center space-x-2">
-                            ${u.service_account ? `<button data-click="renameServiceAccount" data-needs="manage_users" data-click-args="${attrJson([u.id, u.display_name || ""])}" class="text-slate-500 hover:text-indigo-700 text-sm">Name</button>` : ""}
+                            ${u.service_account ? `<button data-click="renameServiceAccount" data-needs="manage_users" data-click-args="${attrJson([u.id, u.display_name ?? ""])}" class="text-slate-500 hover:text-indigo-700 text-sm">Name</button>` : ""}
                             ${roleControls(u)}
                             ${!u.approved ? `<button data-click="approveUser" data-needs="manage_users" data-click-args="${attrJson([u.id])}" class="text-green-600 hover:text-green-800 text-sm">Approve</button>` : ""}
-                            ${!(u.roles || []).includes("admin") ? `<button data-click="confirmDeleteUser" data-needs="manage_users" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
+                            ${!(u.roles ?? []).includes("admin") ? `<button data-click="confirmDeleteUser" data-needs="manage_users" data-click-args="${attrJson([u.username, u.id])}" class="text-red-500 hover:text-red-700 text-sm">Delete</button>` : ""}
                         </div>
                     </div>
                 `;
 }
 
-document.getElementById("users-search").addEventListener("input", (e) => {
-  userFilter.text = e.target.value.trim();
-  renderUsers();
-});
+/** @type {HTMLElement} */ (document.getElementById("users-search")).addEventListener(
+  "input",
+  (e) => {
+    userFilter.text = /** @type {HTMLInputElement} */ (e.target).value.trim();
+    renderUsers();
+  },
+);
 
-document.getElementById("service-account-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const input = document.getElementById("service-account-name");
-  try {
-    const res = await apiCall("/admin/users", {
-      method: "POST",
-      body: { username: input.value.trim() },
-    });
-    if (!res.ok) {
-      alert("Could not create the service account: " + (await errorMessage(res)));
-      return;
-    }
-    // Show the new account: it is approved, so the default view would hide it.
-    const search = document.getElementById("users-search");
-    search.value = input.value.trim();
-    userFilter.text = search.value;
-    input.value = "";
-    void loadUsers();
-  } catch (err) {
-    alert("Could not create the service account: " + err.message);
-  }
-});
+/** @type {HTMLElement} */ (document.getElementById("service-account-form")).addEventListener(
+  "submit",
+  (e) => {
+    void (async () => {
+      e.preventDefault();
+      const input = /** @type {HTMLInputElement} */ (
+        document.getElementById("service-account-name")
+      );
+      try {
+        const res = await apiCall("/admin/users", {
+          method: "POST",
+          body: { username: input.value.trim() },
+        });
+        if (!res.ok) {
+          alert("Could not create the service account: " + (await errorMessage(res)));
+          return;
+        }
+        // Show the new account: it is approved, so the default view would hide it.
+        const search = /** @type {HTMLInputElement} */ (document.getElementById("users-search"));
+        search.value = input.value.trim();
+        userFilter.text = search.value;
+        input.value = "";
+        void loadUsers();
+      } catch (err) {
+        alert("Could not create the service account: " + /** @type {Error} */ (err).message);
+      }
+    })();
+  },
+);
 
 // A service account's display name, set by whoever manages users.
+/**
+ * @param {number} id
+ * @param {string} current
+ */
 async function renameServiceAccount(id, current) {
   const name = prompt("Display name (empty shows the account name):", current);
   if (name === null) return;
   try {
-    const res = await apiCall(`/admin/users/${id}/display-name`, {
+    const res = await apiCall(`/admin/users/${String(id)}/display-name`, {
       method: "PUT",
       body: { display_name: name },
     });
@@ -1336,37 +1650,59 @@ async function renameServiceAccount(id, current) {
     }
     void loadUsers();
   } catch (err) {
-    alert("Could not set the display name: " + err.message);
+    alert("Could not set the display name: " + /** @type {Error} */ (err).message);
   }
 }
+/** @param {number} id */
 async function approveUser(id) {
   try {
-    await apiCall(`/admin/users/${id}/approve`, { method: "POST" });
+    await apiCall(`/admin/users/${String(id)}/approve`, { method: "POST" });
     void loadUsers();
-  } catch (_) {}
+  } catch {
+    // The list is not reloaded, so the account still shows as pending.
+  }
 }
 
+/** @param {number} id */
 async function deleteUser(id) {
   try {
-    await apiCall(`/admin/users/${id}`, { method: "DELETE" });
+    await apiCall(`/admin/users/${String(id)}`, { method: "DELETE" });
     void loadUsers();
-  } catch (_) {}
+  } catch {
+    // The list is not reloaded, so the account still shows.
+  }
 }
 
 // --- Paste-a-spec Producer Creation ---
 // The same publish every client gets: no placeholder content, no side
 // door. The signed-in admin is the authenticated Actor, so attribution
 // lands on their name.
-document.getElementById("paste-spec-ga").addEventListener("change", (e) => {
-  document.getElementById("paste-spec-ga-warning").classList.toggle("hidden", !e.target.checked);
-});
+/** @type {HTMLElement} */ (document.getElementById("paste-spec-ga")).addEventListener(
+  "change",
+  (e) => {
+    const ga = /** @type {HTMLInputElement} */ (e.target);
+    /** @type {HTMLElement} */ (document.getElementById("paste-spec-ga-warning")).classList.toggle(
+      "hidden",
+      !ga.checked,
+    );
+  },
+);
 
+/** @param {boolean} dryRun */
 async function pasteSpecSubmit(dryRun) {
-  const name = document.getElementById("paste-spec-name").value.trim();
-  const apiType = document.getElementById("paste-spec-type").value;
-  const content = document.getElementById("paste-spec-content").value;
-  const ga = document.getElementById("paste-spec-ga").checked;
-  const resultEl = document.getElementById("paste-spec-result");
+  const name = /** @type {HTMLInputElement} */ (
+    document.getElementById("paste-spec-name")
+  ).value.trim();
+  const apiType = /** @type {HTMLSelectElement} */ (document.getElementById("paste-spec-type"))
+    .value;
+  const content = /** @type {HTMLTextAreaElement} */ (document.getElementById("paste-spec-content"))
+    .value;
+  const ga = /** @type {HTMLInputElement} */ (document.getElementById("paste-spec-ga")).checked;
+  const resultEl = /** @type {HTMLElement} */ (document.getElementById("paste-spec-result"));
+  /**
+   * @param {string} cls
+   * @param {string} text
+   */
   const show = (cls, text) => {
     resultEl.classList.remove("hidden");
     resultEl.className = "mt-3 text-sm " + cls;
@@ -1394,16 +1730,17 @@ async function pasteSpecSubmit(dryRun) {
   try {
     const res = await apiCall("/admin/producers/provide", { method: "POST", body });
     if (res.ok) {
-      const data = await res.json();
-      const c = data.changes || {};
+      const data = /** @type {ProvideResult} */ (await res.json());
+      const c = data.changes ?? {};
       show(
         "text-green-600",
         `${dryRun ? "✓ Valid — would publish" : "✓ Published"} ${name} ` +
           `${data.version} as ${data.stability} ` +
-          `(+${c.inserts ?? 0} ~${c.updates ?? 0} -${c.deletes ?? 0})`,
+          `(+${String(c.inserts ?? 0)} ~${String(c.updates ?? 0)} -${String(c.deletes ?? 0)})`,
       );
       if (!dryRun) {
-        document.getElementById("paste-spec-content").value = "";
+        /** @type {HTMLTextAreaElement} */ (document.getElementById("paste-spec-content")).value =
+          "";
         void loadServices();
       }
     } else {
@@ -1411,47 +1748,56 @@ async function pasteSpecSubmit(dryRun) {
       show("text-red-600", (dryRun ? "Rejected (dry run): " : "Rejected: ") + msg);
     }
   } catch (e) {
-    show("text-red-600", "Error: " + e.message);
+    show("text-red-600", "Error: " + /** @type {Error} */ (e).message);
   }
 }
 
 // --- Services ---
-let allServices = [];
+/** @type {ProducerSummary[]} */
+let adminServices = [];
 
 async function loadServices() {
-  const list = document.getElementById("services-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
   try {
     const res = await apiCall("/admin/producers");
     if (!res.ok) {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    allServices = await res.json();
-    renderServices(allServices);
-  } catch (_) {
+    adminServices = /** @type {ProducerSummary[]} */ (await res.json());
+    renderServices(adminServices);
+  } catch {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
 
 function filterServices() {
-  const q = document.getElementById("services-filter").value.toLowerCase().trim();
+  const q = /** @type {HTMLInputElement} */ (document.getElementById("services-filter")).value
+    .toLowerCase()
+    .trim();
+  // An entry without a name is taken as the name itself, as it always was.
   const filtered = q
-    ? allServices.filter((s) => (s.name || s).toLowerCase().includes(q))
-    : allServices;
+    ? adminServices.filter((s) => {
+        const name = /** @type {string} */ (/** @type {unknown} */ (s.name || s));
+        return name.toLowerCase().includes(q);
+      })
+    : adminServices;
   renderServices(filtered);
 }
 
+/** @param {ProducerSummary[]} services */
 function renderServices(services) {
-  const list = document.getElementById("services-list");
-  const countEl = document.getElementById("services-count");
-  countEl.textContent = `${services.length} of ${allServices.length} services`;
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
+  const countEl = /** @type {HTMLElement} */ (document.getElementById("services-count"));
+  countEl.textContent = `${String(services.length)} of ${String(adminServices.length)} services`;
   if (services.length === 0) {
     list.innerHTML = '<p class="text-sm text-slate-500 italic">No services found.</p>';
     return;
   }
   list.innerHTML = "";
   for (const svcObj of services) {
-    const svc = svcObj.name || svcObj;
+    // An entry without a name is taken as the name itself, as it always was.
+    const svc = /** @type {string} */ (/** @type {unknown} */ (svcObj.name || svcObj));
     const div = document.createElement("div");
     div.className = "bg-slate-50 rounded-lg p-4 fade-in";
     div.innerHTML = `
@@ -1470,7 +1816,7 @@ function renderServices(services) {
                                     <span class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${svcObj.external ? "translate-x-5" : "translate-x-1"}"></span>
                                 </button>
                             </label>
-                            <button data-click="openMetadataModal" data-needs="manage_producers" data-click-args="${attrJson([svc, svcObj.icon || "", svcObj.domain || ""])}"
+                            <button data-click="openMetadataModal" data-needs="manage_producers" data-click-args="${attrJson([svc, svcObj.icon ?? "", svcObj.domain ?? ""])}"
                                 class="text-indigo-600 hover:text-indigo-800 text-sm">Metadata</button>
                             <button data-click="confirmDeleteService" data-needs="manage_producers" data-needs-producer="${escapeHtml(svc)}" data-click-args="${attrJson([svc])}"
                                 class="text-red-500 hover:text-red-700 text-sm">Delete</button>
@@ -1483,6 +1829,10 @@ function renderServices(services) {
 }
 
 // External: an outside API the company does not maintain.
+/**
+ * @param {string} name
+ * @param {boolean} external
+ */
 async function setProducerExternal(name, external) {
   try {
     const res = await apiCall(`/admin/producers/${encodeURIComponent(name)}/external`, {
@@ -1495,12 +1845,17 @@ async function setProducerExternal(name, external) {
     }
     void loadServices();
   } catch (e) {
-    alert("Failed to save: " + e.message);
+    alert("Failed to save: " + /** @type {Error} */ (e).message);
   }
 }
 
+/**
+ * @param {HTMLElement} btn
+ * @param {string} serviceName
+ */
 async function toggleVersions(btn, serviceName) {
-  const container = btn.closest(".bg-slate-50").querySelector(".versions-container");
+  const card = /** @type {HTMLElement} */ (btn.closest(".bg-slate-50"));
+  const container = /** @type {HTMLElement} */ (card.querySelector(".versions-container"));
   if (!container.classList.contains("hidden")) {
     container.classList.add("hidden");
     btn.textContent = "▶";
@@ -1513,6 +1868,10 @@ async function toggleVersions(btn, serviceName) {
 
 // Fetch-and-render for one Producer's versions panel, callable
 // directly (post-promote refresh) without driving the toggle button.
+/**
+ * @param {Element} container
+ * @param {string} serviceName
+ */
 async function renderVersions(container, serviceName) {
   container.innerHTML = '<p class="text-xs text-slate-500">Loading...</p>';
   try {
@@ -1521,7 +1880,7 @@ async function renderVersions(container, serviceName) {
       container.innerHTML = '<p class="text-xs text-red-500">Failed</p>';
       return;
     }
-    const versions = await res.json();
+    const versions = /** @type {ProducerVersionInfo[]} */ (await res.json());
     if (versions.length === 0) {
       container.innerHTML = '<p class="text-xs text-slate-500 italic">No versions</p>';
       return;
@@ -1538,7 +1897,7 @@ async function renderVersions(container, serviceName) {
                                 ? '<span class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full font-bold uppercase">GA</span>'
                                 : '<span class="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full font-bold uppercase">snapshot</span>'
                             }
-                            <span class="text-xs text-slate-400">${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? "s" : ""}</span>
+                            <span class="text-xs text-slate-400">${String(v.endpoint_count)} endpoint${v.endpoint_count !== 1 ? "s" : ""}</span>
                         </span>
                         <span class="flex items-center gap-3">
                             ${
@@ -1554,28 +1913,39 @@ async function renderVersions(container, serviceName) {
                 `,
       )
       .join("");
-  } catch (_) {
+  } catch {
     container.innerHTML = '<p class="text-xs text-red-500">Failed</p>';
   }
 }
 
+/** @param {string} name */
 async function deleteService(name) {
   try {
     await apiCall(`/admin/producers/${encodeURIComponent(name)}`, { method: "DELETE" });
     void loadServices();
-  } catch (_) {}
+  } catch {
+    // The list is not reloaded, so the service still shows.
+  }
 }
 
 // The sole escape hatch from GA immutability: fetch the dependents
 // first so the confirmation names the Consumers whose builds break.
+/**
+ * @param {string} service
+ * @param {string} apiType
+ * @param {string} version
+ */
 async function deleteVersion(service, apiType, version) {
+  /** @type {string[]} */
   let dependents = [];
   try {
     const res = await apiCall(
       `/admin/producers/${encodeURIComponent(service)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`,
     );
-    if (res.ok) dependents = await res.json();
-  } catch (_) {}
+    if (res.ok) dependents = /** @type {string[]} */ (await res.json());
+  } catch {
+    // Without the dependents the confirmation names none.
+  }
   const warning =
     dependents.length > 0
       ? safeHtml`<br><br><span class="text-red-600 font-semibold">Pinned Consumers (their requires fail with 404) and referencing sanshain-branches (left dangling):</span><br>${dependents.join(", ")}`
@@ -1599,6 +1969,12 @@ async function deleteVersion(service, apiType, version) {
 // One-click release (#28): shared flow from common.js; this wrapper
 // only supplies the page's refresh (re-render the open versions panel
 // so the badge flips).
+/**
+ * @param {HTMLElement} btn
+ * @param {string} service
+ * @param {string} apiType
+ * @param {string} version
+ */
 function promoteVersionRow(btn, service, apiType, version) {
   const container = btn.closest(".bg-slate-50")?.querySelector(".versions-container");
   promoteVersion(service, apiType, version, async () => {
@@ -1609,33 +1985,37 @@ function promoteVersionRow(btn, service, apiType, version) {
 }
 
 // --- Clients ---
-let allClients = [];
+/** @type {string[]} */
+let adminClients = [];
 
 async function loadClients() {
-  const list = document.getElementById("clients-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("clients-list"));
   try {
     const res = await apiCall("/admin/consumers");
     if (!res.ok) {
       list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
       return;
     }
-    allClients = await res.json();
-    renderClients(allClients);
-  } catch (_) {
+    adminClients = /** @type {string[]} */ (await res.json());
+    renderClients(adminClients);
+  } catch {
     list.innerHTML = '<p class="text-sm text-red-500">Failed to load</p>';
   }
 }
 
 function filterClients() {
-  const q = document.getElementById("clients-filter").value.toLowerCase().trim();
-  const filtered = q ? allClients.filter((c) => c.toLowerCase().includes(q)) : allClients;
+  const q = /** @type {HTMLInputElement} */ (document.getElementById("clients-filter")).value
+    .toLowerCase()
+    .trim();
+  const filtered = q ? adminClients.filter((c) => c.toLowerCase().includes(q)) : adminClients;
   renderClients(filtered);
 }
 
+/** @param {string[]} clients */
 function renderClients(clients) {
-  const list = document.getElementById("clients-list");
-  const countEl = document.getElementById("clients-count");
-  countEl.textContent = `${clients.length} of ${allClients.length} clients`;
+  const list = /** @type {HTMLElement} */ (document.getElementById("clients-list"));
+  const countEl = /** @type {HTMLElement} */ (document.getElementById("clients-count"));
+  countEl.textContent = `${String(clients.length)} of ${String(adminClients.length)} clients`;
   if (clients.length === 0) {
     list.innerHTML = '<p class="text-sm text-slate-500 italic">No clients found.</p>';
     return;
@@ -1653,17 +2033,21 @@ function renderClients(clients) {
     .join("");
 }
 
+/** @param {string} name */
 async function deleteClient(name) {
   try {
     await apiCall(`/admin/consumers/${encodeURIComponent(name)}`, { method: "DELETE" });
     void loadClients();
-  } catch (_) {}
+  } catch {
+    // The list is not reloaded, so the client still shows.
+  }
 }
 
 // --- Auth Config ---
 // Whether the server lets Dev mode be chosen (ALLOW_INSECURE_DEV_MODE).
 let devModeAllowed = false;
 
+/** @type {Record<string, string>} */
 const AUTH_MODE_HELP = {
   disabled:
     "Maintenance: the API answers 503 and only administrators sign in, through the source that was active before or a local password.",
@@ -1687,69 +2071,108 @@ async function loadAuthConfig() {
   try {
     const res = await apiCall("/admin/auth-config");
     if (res.ok) {
-      const data = await res.json();
-      const radios = document.querySelectorAll('input[name="auth-mode"]');
+      const data = /** @type {AuthConfigView} */ (await res.json());
+      const radios = /** @type {NodeListOf<HTMLInputElement>} */ (
+        document.querySelectorAll('input[name="auth-mode"]')
+      );
       radios.forEach((r) => (r.checked = r.value === data.auth_mode));
       onAuthModeChange();
       if (data.ldap_config) {
-        document.getElementById("ldap-server-url").value = data.ldap_config.server_url || "";
-        document.getElementById("ldap-bind-dn").value = data.ldap_config.bind_dn || "";
-        document.getElementById("ldap-bind-password").value = data.ldap_config.bind_password || "";
-        document.getElementById("ldap-base-dn").value = data.ldap_config.base_dn || "";
-        document.getElementById("ldap-user-filter").value = data.ldap_config.user_filter || "";
-        document.getElementById("ldap-username-attribute").value =
-          data.ldap_config.username_attribute || "";
-        document.getElementById("ldap-admin-group").value = data.ldap_config.admin_group || "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-server-url")).value =
+          data.ldap_config.server_url ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-bind-dn")).value =
+          data.ldap_config.bind_dn ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-bind-password")).value =
+          data.ldap_config.bind_password ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-base-dn")).value =
+          data.ldap_config.base_dn ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-user-filter")).value =
+          data.ldap_config.user_filter ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-username-attribute")).value =
+          data.ldap_config.username_attribute ?? "";
+        /** @type {HTMLInputElement} */ (document.getElementById("ldap-admin-group")).value =
+          data.ldap_config.admin_group ?? "";
       }
       if (data.oidc_config) {
         for (const [key, id] of Object.entries(OIDC_FIELDS)) {
-          document.getElementById(id).value = data.oidc_config[key] || "";
+          /** @type {HTMLInputElement} */ (document.getElementById(id)).value =
+            data.oidc_config[key] ?? "";
         }
       }
     }
-  } catch (_) {}
+  } catch {
+    // The form stays as the page drew it.
+  }
 }
 
 function onAuthModeChange() {
-  const selected = document.querySelector('input[name="auth-mode"]:checked');
+  const selected = /** @type {HTMLInputElement | null} */ (
+    document.querySelector('input[name="auth-mode"]:checked')
+  );
   const mode = selected ? selected.value : "";
-  document.getElementById("ldap-config-form").classList.toggle("hidden", mode !== "ldap");
-  document.getElementById("oidc-config-form").classList.toggle("hidden", mode !== "oidc");
-  document.getElementById("local-users-panel").classList.toggle("hidden", mode !== "local");
-  document.getElementById("auth-mode-help").textContent = AUTH_MODE_HELP[mode] || "";
-  const devRadio = document.querySelector('input[name="auth-mode"][value="dev"]');
+  /** @type {HTMLElement} */ (document.getElementById("ldap-config-form")).classList.toggle(
+    "hidden",
+    mode !== "ldap",
+  );
+  /** @type {HTMLElement} */ (document.getElementById("oidc-config-form")).classList.toggle(
+    "hidden",
+    mode !== "oidc",
+  );
+  /** @type {HTMLElement} */ (document.getElementById("local-users-panel")).classList.toggle(
+    "hidden",
+    mode !== "local",
+  );
+  /** @type {HTMLElement} */ (document.getElementById("auth-mode-help")).textContent =
+    AUTH_MODE_HELP[mode] ?? "";
+  const devRadio = /** @type {HTMLInputElement} */ (
+    document.querySelector('input[name="auth-mode"][value="dev"]')
+  );
   // Dev stays selectable when it is already the mode, so the page never
   // shows no mode at all.
   devRadio.disabled = !devModeAllowed && !devRadio.checked;
-  document.getElementById("dev-mode-hint").classList.toggle("hidden", devModeAllowed);
+  /** @type {HTMLElement} */ (document.getElementById("dev-mode-hint")).classList.toggle(
+    "hidden",
+    devModeAllowed,
+  );
 }
 
 function getLdapConfigFromForm() {
   return {
-    server_url: document.getElementById("ldap-server-url").value,
-    bind_dn: document.getElementById("ldap-bind-dn").value,
-    bind_password: document.getElementById("ldap-bind-password").value || null,
-    base_dn: document.getElementById("ldap-base-dn").value,
-    user_filter: document.getElementById("ldap-user-filter").value || "(uid={username})",
-    username_attribute: document.getElementById("ldap-username-attribute").value.trim(),
-    admin_group: document.getElementById("ldap-admin-group").value,
+    server_url: /** @type {HTMLInputElement} */ (document.getElementById("ldap-server-url")).value,
+    bind_dn: /** @type {HTMLInputElement} */ (document.getElementById("ldap-bind-dn")).value,
+    bind_password:
+      /** @type {HTMLInputElement} */ (document.getElementById("ldap-bind-password")).value || null,
+    base_dn: /** @type {HTMLInputElement} */ (document.getElementById("ldap-base-dn")).value,
+    user_filter:
+      /** @type {HTMLInputElement} */ (document.getElementById("ldap-user-filter")).value ||
+      "(uid={username})",
+    username_attribute: /** @type {HTMLInputElement} */ (
+      document.getElementById("ldap-username-attribute")
+    ).value.trim(),
+    admin_group: /** @type {HTMLInputElement} */ (document.getElementById("ldap-admin-group"))
+      .value,
   };
 }
 
+/** @returns {Record<string, string | null>} */
 function getOidcConfigFromForm() {
+  /** @type {Record<string, string | null>} */
   const config = {};
   for (const [key, id] of Object.entries(OIDC_FIELDS)) {
-    config[key] = document.getElementById(id).value.trim();
+    config[key] = /** @type {HTMLInputElement} */ (document.getElementById(id)).value.trim();
   }
-  config.client_secret = config.client_secret || null;
+  config.client_secret = (config.client_secret ?? "") || null;
   if (!config.username_claim) delete config.username_claim;
   if (!config.groups_claim) delete config.groups_claim;
   return config;
 }
 
 async function saveAuthConfig() {
-  const selected = document.querySelector('input[name="auth-mode"]:checked');
+  const selected = /** @type {HTMLInputElement | null} */ (
+    document.querySelector('input[name="auth-mode"]:checked')
+  );
   if (!selected) return;
+  /** @type {{ auth_mode: string, ldap_config?: ReturnType<typeof getLdapConfigFromForm>, oidc_config?: Record<string, string | null> }} */
   const body = { auth_mode: selected.value };
   if (selected.value === "ldap") {
     body.ldap_config = getLdapConfigFromForm();
@@ -1765,30 +2188,38 @@ async function saveAuthConfig() {
       alert("Failed to save: " + (await errorMessage(res)));
     }
   } catch (e) {
-    alert("Error: " + e.message);
+    alert("Error: " + /** @type {Error} */ (e).message);
   }
 }
 
 // The 400 of the connection test: the message, and the network diagnosis
 // lines the service appends when the directory was unreachable.
+/**
+ * @param {Response} res
+ * @returns {Promise<{ message: string, diagnostics: string[] }>}
+ */
 async function connectionTestFailure(res) {
   const raw = await res.text();
-  if (!raw) return { message: `Request failed (${res.status})`, diagnostics: [] };
+  if (!raw) return { message: `Request failed (${String(res.status)})`, diagnostics: [] };
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = /** @type {{ error?: unknown, diagnostics?: unknown[] | null } | null} */ (
+      JSON.parse(raw)
+    );
     if (parsed && typeof parsed.error === "string") {
       const diagnostics = Array.isArray(parsed.diagnostics)
         ? parsed.diagnostics.filter((line) => typeof line === "string")
         : [];
       return { message: parsed.error, diagnostics };
     }
-  } catch (_) {}
+  } catch {
+    // Not JSON: the raw text is the message.
+  }
   return { message: raw, diagnostics: [] };
 }
 
 async function testLdapConnection() {
-  const resultEl = document.getElementById("ldap-test-result");
-  const troubleEl = document.getElementById("ldap-troubleshooting");
+  const resultEl = /** @type {HTMLElement} */ (document.getElementById("ldap-test-result"));
+  const troubleEl = /** @type {HTMLElement} */ (document.getElementById("ldap-troubleshooting"));
   resultEl.classList.remove("hidden", "bg-green-50", "text-green-700", "bg-red-50", "text-red-700");
   troubleEl.classList.add("hidden");
   resultEl.textContent = "Testing…";
@@ -1818,49 +2249,65 @@ async function testLdapConnection() {
     }
   } catch (e) {
     resultEl.classList.remove("bg-slate-50", "text-slate-600");
-    resultEl.textContent = "✗ " + e.message;
+    resultEl.textContent = "✗ " + /** @type {Error} */ (e).message;
     resultEl.classList.add("bg-red-50", "text-red-700");
     troubleEl.classList.remove("hidden");
   }
 }
 
 // --- Nuke Modal ---
+/** @type {(() => Promise<void>) | null} */
 let nukeCallback = null;
 let nukeExpectedText = "";
 
+/**
+ * @param {string} message
+ * @param {string} expectedText What the person has to type to confirm.
+ * @param {() => Promise<void>} callback
+ */
 function nukeConfirm(message, expectedText, callback) {
-  document.getElementById("nuke-message").textContent = message;
-  document.getElementById("nuke-expected-text").textContent = expectedText;
-  document.getElementById("nuke-input").value = "";
-  document.getElementById("nuke-error").classList.add("hidden");
-  document.getElementById("nuke-yes").disabled = true;
+  /** @type {HTMLElement} */ (document.getElementById("nuke-message")).textContent = message;
+  /** @type {HTMLElement} */ (document.getElementById("nuke-expected-text")).textContent =
+    expectedText;
+  /** @type {HTMLInputElement} */ (document.getElementById("nuke-input")).value = "";
+  /** @type {HTMLElement} */ (document.getElementById("nuke-error")).classList.add("hidden");
+  /** @type {HTMLButtonElement} */ (document.getElementById("nuke-yes")).disabled = true;
   nukeExpectedText = expectedText;
   nukeCallback = callback;
-  document.getElementById("nuke-modal").classList.remove("hidden");
-  document.getElementById("nuke-input").focus();
+  /** @type {HTMLElement} */ (document.getElementById("nuke-modal")).classList.remove("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("nuke-input")).focus();
 }
 
-document.getElementById("nuke-input").addEventListener("input", function () {
-  document.getElementById("nuke-yes").disabled = this.value !== nukeExpectedText;
-});
+/** @type {HTMLInputElement} */ (document.getElementById("nuke-input")).addEventListener(
+  "input",
+  function () {
+    /** @type {HTMLButtonElement} */ (document.getElementById("nuke-yes")).disabled =
+      this.value !== nukeExpectedText;
+  },
+);
 
-document.getElementById("nuke-yes").addEventListener("click", async function () {
-  const input = document.getElementById("nuke-input").value;
-  if (input !== nukeExpectedText) return;
-  if (nukeCallback) {
-    try {
-      await nukeCallback();
-      closeNukeModal();
-    } catch (e) {
-      const errEl = document.getElementById("nuke-error");
-      errEl.textContent = "Operation failed: " + e.message;
-      errEl.classList.remove("hidden");
-    }
-  }
-});
+/** @type {HTMLElement} */ (document.getElementById("nuke-yes")).addEventListener(
+  "click",
+  function () {
+    void (async () => {
+      const input = /** @type {HTMLInputElement} */ (document.getElementById("nuke-input")).value;
+      if (input !== nukeExpectedText) return;
+      if (nukeCallback) {
+        try {
+          await nukeCallback();
+          closeNukeModal();
+        } catch (e) {
+          const errEl = /** @type {HTMLElement} */ (document.getElementById("nuke-error"));
+          errEl.textContent = "Operation failed: " + /** @type {Error} */ (e).message;
+          errEl.classList.remove("hidden");
+        }
+      }
+    })();
+  },
+);
 
 function closeNukeModal() {
-  document.getElementById("nuke-modal").classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("nuke-modal")).classList.add("hidden");
   nukeCallback = null;
 }
 
@@ -1869,7 +2316,7 @@ async function nukeServices() {
     method: "POST",
     body: { confirmation: "DELETE ALL SERVICES" },
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!res.ok) throw new Error("HTTP " + String(res.status));
   void loadServices();
 }
 
@@ -1878,7 +2325,7 @@ async function nukeClients() {
     method: "POST",
     body: { confirmation: "DELETE ALL CLIENTS" },
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!res.ok) throw new Error("HTTP " + String(res.status));
   void loadClients();
 }
 
@@ -1887,7 +2334,7 @@ async function nukeUsers() {
     method: "POST",
     body: { confirmation: "DELETE ALL USERS" },
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!res.ok) throw new Error("HTTP " + String(res.status));
   void loadUsers();
 }
 
@@ -1896,7 +2343,7 @@ async function nukeDatabase() {
     method: "POST",
     body: { confirmation: "NUKE DATABASE" },
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
+  if (!res.ok) throw new Error("HTTP " + String(res.status));
   void loadAll();
 }
 
@@ -1927,17 +2374,27 @@ function confirmNukeDatabase() {
 // Confirm-then-delete wrappers: each delete button declares data-click to one
 // of these (with the entity name/id in data-click-args) instead of building a
 // confirmDelete() call with a delete-callback closure inline.
+/**
+ * @param {string} username
+ * @param {number} id
+ */
 function confirmDeleteUser(username, id) {
   confirmDelete(safeHtml`Delete user <strong>${username}</strong>?`, () => deleteUser(id));
 }
+/**
+ * @param {string} name
+ * @param {number} id
+ */
 function confirmDeleteGroup(name, id) {
   confirmDelete(safeHtml`Delete group <strong>${name}</strong>?`, () => deleteGroup(id));
 }
+/** @param {string} svc */
 function confirmDeleteService(svc) {
   confirmDelete(safeHtml`Delete service <strong>${svc}</strong> and all its data?`, () =>
     deleteService(svc),
   );
 }
+/** @param {string} client */
 function confirmDeleteClient(client) {
   confirmDelete(safeHtml`Delete client <strong>${client}</strong> and all its dependencies?`, () =>
     deleteClient(client),
@@ -1945,39 +2402,54 @@ function confirmDeleteClient(client) {
 }
 
 // --- Metadata Modal ---
+/**
+ * @param {string} svc
+ * @param {string} icon
+ * @param {string} domain
+ */
 function openMetadataModal(svc, icon, domain) {
-  document.getElementById("metadata-service-name").textContent = svc;
-  document.getElementById("metadata-svc-hidden").value = svc;
-  document.getElementById("metadata-icon").value = icon || "";
-  document.getElementById("metadata-domain").value = domain || "";
-  document.getElementById("metadata-modal").classList.remove("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("metadata-service-name")).textContent = svc;
+  /** @type {HTMLInputElement} */ (document.getElementById("metadata-svc-hidden")).value = svc;
+  /** @type {HTMLInputElement} */ (document.getElementById("metadata-icon")).value = icon || "";
+  /** @type {HTMLInputElement} */ (document.getElementById("metadata-domain")).value = domain || "";
+  /** @type {HTMLElement} */ (document.getElementById("metadata-modal")).classList.remove("hidden");
 }
 
 function closeMetadataModal() {
-  document.getElementById("metadata-modal").classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("metadata-modal")).classList.add("hidden");
 }
 
-document.getElementById("metadata-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = document.getElementById("metadata-svc-hidden").value;
-  const icon = document.getElementById("metadata-icon").value.trim() || null;
-  const domain = document.getElementById("metadata-domain").value.trim() || null;
+/** @type {HTMLElement} */ (document.getElementById("metadata-form")).addEventListener(
+  "submit",
+  (e) => {
+    void (async () => {
+      e.preventDefault();
+      const name = /** @type {HTMLInputElement} */ (document.getElementById("metadata-svc-hidden"))
+        .value;
+      const icon =
+        /** @type {HTMLInputElement} */ (document.getElementById("metadata-icon")).value.trim() ||
+        null;
+      const domain =
+        /** @type {HTMLInputElement} */ (document.getElementById("metadata-domain")).value.trim() ||
+        null;
 
-  try {
-    const res = await apiCall("/admin/producers/metadata", {
-      method: "POST",
-      body: { name, icon, domain },
-    });
-    if (res.ok) {
-      closeMetadataModal();
-      void loadServices();
-    } else {
-      alert("Failed to save metadata: " + res.status);
-    }
-  } catch (err) {
-    alert("Error: " + err.message);
-  }
-});
+      try {
+        const res = await apiCall("/admin/producers/metadata", {
+          method: "POST",
+          body: { name, icon, domain },
+        });
+        if (res.ok) {
+          closeMetadataModal();
+          void loadServices();
+        } else {
+          alert("Failed to save metadata: " + String(res.status));
+        }
+      } catch (err) {
+        alert("Error: " + /** @type {Error} */ (err).message);
+      }
+    })();
+  },
+);
 
 // --- Init ---
 void fetchCsrfToken().then(() => checkSession());
