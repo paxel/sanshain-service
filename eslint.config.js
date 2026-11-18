@@ -26,13 +26,7 @@ export default defineConfig(
   },
   {
     // Temporary: the groups san-1003 has not cleaned yet. Its last commit removes this block.
-    ignores: [
-      "static/js/graph.js",
-      "static/js/graph-domains.js",
-      "static/js/pages/graph-0.js",
-      "static/js/pages/graph-1.js",
-      "tests/ui/",
-    ],
+    ignores: ["tests/ui/"],
   },
   eslint.configs.recommended,
   tseslint.configs.strictTypeChecked,
