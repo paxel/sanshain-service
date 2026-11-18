@@ -7,6 +7,17 @@
 // errors, event names — is set as text or escaped; controls are bound as
 // listeners, never inline.
 
+// What the pages use by name.
+/* exported renderWebhookPanel */
+
+/**
+ * What a hook's row asks of the panel that holds it.
+ * @typedef {object} WebhookPanelActions
+ * @property {() => Promise<void>} reload
+ * @property {(secret: string, title: string) => void} showSecret
+ * @property {(message: string) => void} showError
+ */
+
 const WEBHOOK_EVENT_TYPES = [
   "version.published",
   "provide.rejected",
@@ -18,6 +29,10 @@ const WEBHOOK_EVENT_TYPES = [
 
 const WEBHOOK_FORMATS = ["json", "slack", "teams"];
 
+/**
+ * @param {string} status
+ * @returns {string}
+ */
 function webhookStatusClass(status) {
   switch (status) {
     case "delivered":
@@ -31,11 +46,19 @@ function webhookStatusClass(status) {
   }
 }
 
+/**
+ * @param {string | null | undefined} iso
+ * @returns {string}
+ */
 function webhookStamp(iso) {
-  return (iso || "").slice(0, 19).replace("T", " ");
+  return (iso ?? "").slice(0, 19).replace("T", " ");
 }
 
 // Confirm through the page's modal when it has one, else the browser's.
+/**
+ * @param {string} message
+ * @param {() => unknown} onConfirm
+ */
 function webhookConfirm(message, onConfirm) {
   if (document.getElementById("confirm-modal") && typeof confirmAction === "function") {
     confirmAction(message, onConfirm);
@@ -47,14 +70,20 @@ function webhookConfirm(message, onConfirm) {
 // Render the panel into `container`. Resolves to `true` when the caller may
 // see this scope's hooks, `false` (container left empty) when the server
 // refuses — a plain user on a Producer page.
+/**
+ * @param {Element} container
+ * @param {string} basePath
+ * @returns {Promise<boolean>}
+ */
 async function renderWebhookPanel(container, basePath) {
   container.innerHTML = "";
+  /** @type {Webhook[]} */
   let hooks;
   try {
     const res = await apiCall(basePath);
     if (!res.ok) return false;
-    hooks = await res.json();
-  } catch (_) {
+    hooks = /** @type {Webhook[]} */ (await res.json());
+  } catch {
     return false;
   }
   container.setAttribute("data-webhook-panel", basePath);
@@ -104,21 +133,31 @@ async function renderWebhookPanel(container, basePath) {
     </div>`;
   container.appendChild(form);
 
-  const errorEl = form.querySelector("[data-webhook-error]");
-  const secretBox = form.querySelector("[data-webhook-secret-box]");
-  const secretEl = form.querySelector("[data-webhook-secret]");
+  const errorEl = /** @type {HTMLElement} */ (form.querySelector("[data-webhook-error]"));
+  const secretBox = /** @type {HTMLElement} */ (form.querySelector("[data-webhook-secret-box]"));
+  const secretEl = /** @type {HTMLElement} */ (form.querySelector("[data-webhook-secret]"));
+  /** @param {string} message */
   const showError = (message) => {
     errorEl.textContent = message;
     errorEl.classList.remove("hidden");
   };
+  /**
+   * @param {string} secret
+   * @param {string} title
+   */
   const showSecret = (secret, title) => {
-    secretBox.querySelector("p").textContent = title;
+    /** @type {HTMLElement} */ (secretBox.querySelector("p")).textContent = title;
     secretEl.textContent = secret;
     secretBox.classList.remove("hidden");
   };
-  form.querySelector("[data-webhook-copy]").addEventListener("click", () => {
-    navigator.clipboard.writeText(secretEl.textContent).catch(() => {});
-  });
+  /** @type {HTMLElement} */ (form.querySelector("[data-webhook-copy]")).addEventListener(
+    "click",
+    () => {
+      navigator.clipboard.writeText(secretEl.textContent).catch(() => {
+        // Copying is a convenience: the secret stays on screen to be copied by hand.
+      });
+    },
+  );
 
   const list = document.createElement("div");
   list.className = "space-y-2";
@@ -128,52 +167,66 @@ async function renderWebhookPanel(container, basePath) {
   const reload = async () => {
     try {
       const res = await apiCall(basePath);
-      hooks = res.ok ? await res.json() : [];
-    } catch (_) {
+      hooks = res.ok ? /** @type {Webhook[]} */ (await res.json()) : [];
+    } catch {
       hooks = [];
     }
     renderWebhookList(list, basePath, hooks, { reload, showSecret, showError });
   };
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorEl.classList.add("hidden");
-    secretBox.classList.add("hidden");
-    const body = {
-      url: form.querySelector("[data-webhook-url]").value.trim(),
-      format: form.querySelector("[data-webhook-format]").value,
-      event_types: [...form.querySelectorAll("[data-webhook-types] input:checked")].map(
-        (i) => i.value,
-      ),
-    };
-    const glob = form.querySelector("[data-webhook-glob]").value.trim();
-    if (glob) body.producer_glob = glob;
-    try {
-      const res = await apiCall(basePath, { method: "POST", body });
-      if (!res.ok) {
-        showError(await errorMessage(res));
-        return;
+  form.addEventListener("submit", (e) => {
+    void (async () => {
+      e.preventDefault();
+      errorEl.classList.add("hidden");
+      secretBox.classList.add("hidden");
+      /** @type {{ url: string, format: string, event_types: string[], producer_glob?: string }} */
+      const body = {
+        url: /** @type {HTMLInputElement} */ (
+          form.querySelector("[data-webhook-url]")
+        ).value.trim(),
+        format: /** @type {HTMLSelectElement} */ (form.querySelector("[data-webhook-format]"))
+          .value,
+        event_types: [...form.querySelectorAll("[data-webhook-types] input:checked")].map(
+          (i) => /** @type {HTMLInputElement} */ (i).value,
+        ),
+      };
+      const glob = /** @type {HTMLInputElement} */ (
+        form.querySelector("[data-webhook-glob]")
+      ).value.trim();
+      if (glob) body.producer_glob = glob;
+      try {
+        const res = await apiCall(basePath, { method: "POST", body });
+        if (!res.ok) {
+          showError(await errorMessage(res));
+          return;
+        }
+        const created = /** @type {WebhookSecret} */ (await res.json());
+        /** @type {HTMLInputElement} */ (form.querySelector("[data-webhook-url]")).value = "";
+        /** @type {HTMLInputElement} */ (form.querySelector("[data-webhook-glob]")).value = "";
+        form.querySelectorAll("[data-webhook-types] input").forEach((i) => {
+          /** @type {HTMLInputElement} */ (i).checked = false;
+        });
+        showSecret(
+          created.secret,
+          "Hook created — copy the signing secret now, it will not be shown again.",
+        );
+        await reload();
+      } catch (err) {
+        showError(/** @type {Error} */ (err).message);
       }
-      const created = await res.json();
-      form.querySelector("[data-webhook-url]").value = "";
-      form.querySelector("[data-webhook-glob]").value = "";
-      form.querySelectorAll("[data-webhook-types] input").forEach((i) => {
-        i.checked = false;
-      });
-      showSecret(
-        created.secret,
-        "Hook created — copy the signing secret now, it will not be shown again.",
-      );
-      await reload();
-    } catch (err) {
-      showError(err.message);
-    }
+    })();
   });
 
   renderWebhookList(list, basePath, hooks, { reload, showSecret, showError });
   return true;
 }
 
+/**
+ * @param {Element} list
+ * @param {string} basePath
+ * @param {Webhook[]} hooks
+ * @param {WebhookPanelActions} actions
+ */
 function renderWebhookList(list, basePath, hooks, actions) {
   list.innerHTML = "";
   if (!hooks.length) {
@@ -188,13 +241,20 @@ function renderWebhookList(list, basePath, hooks, actions) {
   }
 }
 
+/**
+ * @param {string} basePath
+ * @param {Webhook} hook
+ * @param {WebhookPanelActions} actions
+ * @returns {HTMLElement}
+ */
 function renderWebhookRow(basePath, hook, actions) {
-  const hookPath = `${basePath}/${hook.id}`;
+  const hookPath = `${basePath}/${String(hook.id)}`;
   const row = document.createElement("div");
   row.className = "border border-slate-200 rounded-lg px-3 py-2 text-sm";
   row.setAttribute("data-webhook-row", String(hook.id));
+  /** @type {string[]} */
   const filters = [];
-  if (hook.event_types && hook.event_types.length) filters.push(hook.event_types.join(", "));
+  if (hook.event_types?.length) filters.push(hook.event_types.join(", "));
   if (hook.producer_glob) filters.push(`producers ${hook.producer_glob}`);
   row.innerHTML = `
     <div class="flex items-start justify-between gap-3 flex-wrap">
@@ -220,66 +280,101 @@ function renderWebhookRow(basePath, hook, actions) {
       </div>
     </div>
     <div data-webhook-log class="hidden mt-2"></div>`;
-  row.querySelector("[data-webhook-row-url]").textContent = hook.url;
-  const logEl = row.querySelector("[data-webhook-log]");
+  /** @type {HTMLElement} */ (row.querySelector("[data-webhook-row-url]")).textContent = hook.url;
+  const logEl = /** @type {HTMLElement} */ (row.querySelector("[data-webhook-log]"));
 
+  /**
+   * @param {Response} res
+   * @param {string} what
+   */
   const fail = async (res, what) => {
     actions.showError(`${what}: ${await errorMessage(res)}`);
   };
 
-  row.querySelector('[data-act="toggle"]').addEventListener("click", async () => {
-    const res = await apiCall(hookPath, { method: "PATCH", body: { paused: !hook.paused } });
-    if (!res.ok) return fail(res, "Could not change the hook");
-    actions.reload();
-  });
-  row.querySelector('[data-act="test"]').addEventListener("click", async () => {
-    const res = await apiCall(`${hookPath}/test`, { method: "POST" });
-    if (!res.ok) return fail(res, "Could not queue the test event");
-    logEl.classList.remove("hidden");
-    void renderWebhookLog(logEl, hookPath, actions);
-  });
-  row.querySelector('[data-act="rotate"]').addEventListener("click", () => {
-    webhookConfirm(
-      "Rotate the signing secret? The receiver must be updated; deliveries from now on are signed with the new one.",
-      async () => {
-        const res = await apiCall(`${hookPath}/rotate-secret`, { method: "POST" });
-        if (!res.ok) return fail(res, "Could not rotate the secret");
-        const rotated = await res.json();
-        actions.showSecret(
-          rotated.secret,
-          "Secret rotated — copy the new signing secret now, it will not be shown again.",
-        );
-        actions.reload();
-      },
-    );
-  });
-  row.querySelector('[data-act="log"]').addEventListener("click", () => {
-    const open = logEl.classList.toggle("hidden");
-    if (!open) void renderWebhookLog(logEl, hookPath, actions);
-  });
-  row.querySelector('[data-act="delete"]').addEventListener("click", () => {
-    webhookConfirm(`Delete the hook for ${hook.url}? Its delivery log goes with it.`, async () => {
-      const res = await apiCall(hookPath, { method: "DELETE" });
-      if (!res.ok) return fail(res, "Could not delete the hook");
-      actions.reload();
-    });
-  });
+  /** @type {HTMLElement} */ (row.querySelector('[data-act="toggle"]')).addEventListener(
+    "click",
+    () => {
+      void (async () => {
+        const res = await apiCall(hookPath, { method: "PATCH", body: { paused: !hook.paused } });
+        if (!res.ok) return fail(res, "Could not change the hook");
+        void actions.reload();
+      })();
+    },
+  );
+  /** @type {HTMLElement} */ (row.querySelector('[data-act="test"]')).addEventListener(
+    "click",
+    () => {
+      void (async () => {
+        const res = await apiCall(`${hookPath}/test`, { method: "POST" });
+        if (!res.ok) return fail(res, "Could not queue the test event");
+        logEl.classList.remove("hidden");
+        void renderWebhookLog(logEl, hookPath, actions);
+      })();
+    },
+  );
+  /** @type {HTMLElement} */ (row.querySelector('[data-act="rotate"]')).addEventListener(
+    "click",
+    () => {
+      webhookConfirm(
+        "Rotate the signing secret? The receiver must be updated; deliveries from now on are signed with the new one.",
+        async () => {
+          const res = await apiCall(`${hookPath}/rotate-secret`, { method: "POST" });
+          if (!res.ok) return fail(res, "Could not rotate the secret");
+          const rotated = /** @type {WebhookSecret} */ (await res.json());
+          actions.showSecret(
+            rotated.secret,
+            "Secret rotated — copy the new signing secret now, it will not be shown again.",
+          );
+          void actions.reload();
+        },
+      );
+    },
+  );
+  /** @type {HTMLElement} */ (row.querySelector('[data-act="log"]')).addEventListener(
+    "click",
+    () => {
+      const open = logEl.classList.toggle("hidden");
+      if (!open) void renderWebhookLog(logEl, hookPath, actions);
+    },
+  );
+  /** @type {HTMLElement} */ (row.querySelector('[data-act="delete"]')).addEventListener(
+    "click",
+    () => {
+      webhookConfirm(
+        `Delete the hook for ${hook.url}? Its delivery log goes with it.`,
+        async () => {
+          const res = await apiCall(hookPath, { method: "DELETE" });
+          if (!res.ok) return fail(res, "Could not delete the hook");
+          void actions.reload();
+        },
+      );
+    },
+  );
   return row;
 }
 
+/**
+ * @param {Element} logEl
+ * @param {string} hookPath
+ * @param {WebhookPanelActions} actions
+ * @returns {Promise<void>}
+ */
 async function renderWebhookLog(logEl, hookPath, actions) {
   logEl.innerHTML = '<p class="text-xs text-slate-400">Loading deliveries…</p>';
+  /** @type {WebhookDelivery[]} */
   let rows;
   try {
     const res = await apiCall(`${hookPath}/deliveries?limit=50`);
     if (!res.ok) {
       logEl.innerHTML = "";
-      return actions.showError(`Could not load the deliveries: ${await errorMessage(res)}`);
+      actions.showError(`Could not load the deliveries: ${await errorMessage(res)}`);
+      return;
     }
-    rows = await res.json();
+    rows = /** @type {WebhookDelivery[]} */ (await res.json());
   } catch (err) {
     logEl.innerHTML = "";
-    return actions.showError(err.message);
+    actions.showError(/** @type {Error} */ (err).message);
+    return;
   }
   logEl.innerHTML = "";
   if (!rows.length) {
@@ -306,17 +401,28 @@ async function renderWebhookLog(logEl, hookPath, actions) {
       <td class="py-1 pr-2 font-mono">${escapeHtml(d.event_type)}</td>
       <td class="py-1 pr-2 whitespace-nowrap">${escapeHtml(webhookStamp(d.occurred_at))}</td>
       <td class="py-1 pr-2"><span class="px-1.5 py-0.5 rounded-full font-semibold ${webhookStatusClass(d.status)}" data-webhook-status>${escapeHtml(d.status)}</span></td>
-      <td class="py-1 pr-2">${Number(d.attempts) || 0}</td>
+      <td class="py-1 pr-2">${String(Number(d.attempts) || 0)}</td>
       <td class="py-1 pr-2 whitespace-nowrap">${retrying ? escapeHtml(webhookStamp(d.next_attempt_at)) : "—"}</td>
       <td class="py-1 pr-2">${d.last_response_code == null ? "—" : escapeHtml(String(d.last_response_code))}</td>
       <td class="py-1 pr-2 text-slate-500 break-all" data-webhook-last-error></td>
       <td class="py-1 text-right"><button type="button" data-act="redeliver" class="px-2 py-0.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-indigo-600">Redeliver</button></td>`;
-    tr.querySelector("[data-webhook-last-error]").textContent = d.last_error || "";
-    tr.querySelector('[data-act="redeliver"]').addEventListener("click", async () => {
-      const res = await apiCall(`${hookPath}/deliveries/${d.id}/redeliver`, { method: "POST" });
-      if (!res.ok) return actions.showError(`Could not redeliver: ${await errorMessage(res)}`);
-      void renderWebhookLog(logEl, hookPath, actions);
-    });
+    /** @type {HTMLElement} */ (tr.querySelector("[data-webhook-last-error]")).textContent =
+      d.last_error ?? "";
+    /** @type {HTMLElement} */ (tr.querySelector('[data-act="redeliver"]')).addEventListener(
+      "click",
+      () => {
+        void (async () => {
+          const res = await apiCall(`${hookPath}/deliveries/${String(d.id)}/redeliver`, {
+            method: "POST",
+          });
+          if (!res.ok) {
+            actions.showError(`Could not redeliver: ${await errorMessage(res)}`);
+            return;
+          }
+          void renderWebhookLog(logEl, hookPath, actions);
+        })();
+      },
+    );
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
