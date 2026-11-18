@@ -5,9 +5,10 @@
 
 // Backward-compatibility redirect: map old hash-based URLs to new standalone pages
 const hash = window.location.hash.replace(/^#/, "").toLowerCase();
+/** @type {Record<string, string>} */
 const map = {
   clients: "/consumers.html",
   graph: "/graph.html",
   reports: "/reports.html",
 };
-window.location.replace(map[hash] || "/producers.html");
+window.location.replace(map[hash] ?? "/producers.html");

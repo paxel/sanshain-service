@@ -3,22 +3,65 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What the breadcrumb and the endpoint cards name in their data-click attributes.
+/* exported goBackToServices, openEndpointYaml, toggleClientPopover */
+
 // The signed-in caller, for gating affordances (the Promote button).
 // Hiding is a usability affordance; the server's GA gate is the boundary.
+/** @type {SanshainUser | null} */
 let currentUser = null;
 // version-key -> sanshain-branch names referencing it (reverse lookup).
+/** @type {Map<string, string[]>} */
 let branchMembershipMap = new Map();
 
 // The ticket URL template of the instance, for the origin chips of a version row.
+/** @type {string | null} */
 let ticketTemplate = null;
+
+/**
+ * `BranchMembership` in `src/domain/models.rs`.
+ * @typedef {object} ProducersBranchMembership
+ * @property {string | null} [api_type]
+ * @property {string} version
+ * @property {string} branch
+ */
+
+/**
+ * `ListedEndpoint` in `src/application/spec_service.rs`: an endpoint of one version, as
+ * `GET /admin/producers/{name}/endpoints` lists it.
+ * @typedef {object} ProducersListedEndpoint
+ * @property {string | null} [api_type]
+ * @property {string} path
+ * @property {string} method
+ * @property {string | null} [summary]
+ * @property {boolean} [deprecated]
+ */
+
+/**
+ * `DependencyInfo` in `src/domain/models.rs`: one edge of the dependency graph of `GET /report`.
+ * @typedef {object} ProducersDependency
+ * @property {string | null} [api_type]
+ * @property {string} client
+ * @property {string} service
+ * @property {string | number} version Compared as text: the page does not rely on its type.
+ * @property {string} path
+ * @property {string} method
+ */
+
+/**
+ * `DependencyReport` in `src/domain/models.rs`, as far as this page reads `GET /report`.
+ * @typedef {object} ProducersReport
+ * @property {ProducersDependency[]} dependency_graph
+ * @property {unknown[]} [unused_endpoints]
+ */
 
 async function loadServices() {
   showLoader();
-  const list = document.getElementById("services-list");
-  const breadcrumb = document.getElementById("service-breadcrumb");
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
+  const breadcrumb = /** @type {HTMLElement} */ (document.getElementById("service-breadcrumb"));
   breadcrumb.classList.add("hidden");
   breadcrumb.innerHTML = "";
-  document.getElementById("service-search").value = "";
+  /** @type {HTMLInputElement} */ (document.getElementById("service-search")).value = "";
   list.innerHTML = '<div class="text-center py-10">Loading services...</div>';
 
   try {
@@ -28,7 +71,7 @@ async function loadServices() {
     hideLoader();
   } catch (err) {
     hideLoader();
-    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
 }
 
@@ -37,14 +80,16 @@ function goBackToServices() {
   void loadServices();
 }
 
+/** @param {string} serviceName */
 function goBackToVersions(serviceName) {
   history.pushState({ service: serviceName }, "", `?service=${encodeURIComponent(serviceName)}`);
   void showProducerVersions(serviceName);
 }
 
+/** @param {ProducerSummary[] | null | undefined} allServicesIn */
 function renderServiceList(allServicesIn) {
-  const list = document.getElementById("services-list");
-  const breadcrumb = document.getElementById("service-breadcrumb");
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
+  const breadcrumb = /** @type {HTMLElement} */ (document.getElementById("service-breadcrumb"));
   breadcrumb.classList.add("hidden");
   breadcrumb.innerHTML = "";
 
@@ -52,9 +97,9 @@ function renderServiceList(allServicesIn) {
   // version lines must have at least one endpoint. A Producer whose only
   // versions are empty (e.g. an OpenAPI spec provided with no paths)
   // provides no benefit to list here.
-  const services = (allServicesIn || []).filter((svc) => producerHasAnyEndpoints(svc.name));
+  const services = (allServicesIn ?? []).filter((svc) => producerHasAnyEndpoints(svc.name));
 
-  if (!services || services.length === 0) {
+  if (services.length === 0) {
     list.innerHTML = `
                 <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
                     <div class="text-slate-500 mb-4">
@@ -71,10 +116,10 @@ function renderServiceList(allServicesIn) {
   list.innerHTML = "";
   for (const svc of services) {
     const name = svc.name;
-    const versions = (svc.versions || []).filter((v) => (v.endpoint_count || 0) > 0);
+    const versions = (svc.versions ?? []).filter((v) => (v.endpoint_count ?? 0) > 0);
     const isFav = !!svc.is_favorite;
-    const icon = svc.icon || null;
-    const domain = svc.domain || null;
+    const icon = (svc.icon ?? "") || null;
+    const domain = (svc.domain ?? "") || null;
     const card = document.createElement("div");
     card.className =
       "bg-white p-5 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
@@ -114,7 +159,7 @@ function renderServiceList(allServicesIn) {
                             </div>
                             <div class="text-sm text-slate-500">
                                 <span class="w-2 h-2 inline-block rounded-full bg-green-500 mr-1"></span>
-                                ${versions.length} version${versions.length !== 1 ? "s" : ""}
+                                ${String(versions.length)} version${versions.length !== 1 ? "s" : ""}
                             </div>
                         </div>
                     </div>
@@ -125,33 +170,44 @@ function renderServiceList(allServicesIn) {
     // Bound as a listener rather than an `onclick` attribute so the
     // service name (client-supplied, unvalidated) is never spliced into
     // markup.
-    card
-      .querySelector("[data-toggle-favorite]")
-      .addEventListener("click", (event) => toggleFavorite(event, "service", name, isFav));
+    /** @type {HTMLElement} */ (card.querySelector("[data-toggle-favorite]")).addEventListener(
+      "click",
+      (event) => {
+        void toggleFavorite(event, "service", name, isFav);
+      },
+    );
     list.appendChild(card);
   }
 }
 
-document.getElementById("service-search").addEventListener("input", function () {
-  const q = this.value.toLowerCase();
-  if (!q) {
-    renderServiceList(allServices);
-    return;
-  }
-  renderServiceList(allServices.filter((svc) => svc.name.toLowerCase().includes(q)));
-});
+/** @type {HTMLInputElement} */ (document.getElementById("service-search")).addEventListener(
+  "input",
+  function () {
+    const q = this.value.toLowerCase();
+    if (!q) {
+      renderServiceList(allServices);
+      return;
+    }
+    renderServiceList(allServices.filter((svc) => svc.name.toLowerCase().includes(q)));
+  },
+);
 
 const API_TYPE_ORDER = ["openapi", "asyncapi", "proto"];
 
+/**
+ * @param {string | null | undefined} iso
+ * @returns {string}
+ */
 function formatTimestamp(iso) {
   return iso ? iso.slice(0, 16).replace("T", " ") : "";
 }
 
 // The version timeline: one list per API type, newest first.
+/** @param {string} serviceName */
 async function showProducerVersions(serviceName) {
   hideLoader();
-  const list = document.getElementById("services-list");
-  const breadcrumb = document.getElementById("service-breadcrumb");
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
+  const breadcrumb = /** @type {HTMLElement} */ (document.getElementById("service-breadcrumb"));
   breadcrumb.classList.remove("hidden");
   breadcrumb.innerHTML = `
             <button data-click="goBackToServices" class="hover:text-indigo-600 font-medium">Producers</button>
@@ -160,12 +216,15 @@ async function showProducerVersions(serviceName) {
 
   list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading versions...</div>';
 
+  /** @type {ProducerVersionInfo[] | null} */
   let versions;
   try {
-    versions = await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/versions`);
+    versions = /** @type {ProducerVersionInfo[] | null} */ (
+      await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/versions`)
+    );
     ticketTemplate = await loadTicketUrlTemplate();
   } catch (err) {
-    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
     return;
   }
 
@@ -173,15 +232,15 @@ async function showProducerVersions(serviceName) {
   // version. Optional decoration — the listing renders without it.
   branchMembershipMap = new Map();
   try {
-    const memberships = await fetchJSON(
-      `/admin/producers/${encodeURIComponent(serviceName)}/branch-memberships`,
+    const memberships = /** @type {ProducersBranchMembership[]} */ (
+      await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/branch-memberships`)
     );
     for (const m of memberships) {
-      const key = `${(m.api_type || "openapi").toLowerCase()}|${m.version}`;
+      const key = `${((m.api_type ?? "") || "openapi").toLowerCase()}|${m.version}`;
       if (!branchMembershipMap.has(key)) branchMembershipMap.set(key, []);
-      branchMembershipMap.get(key).push(m.branch);
+      /** @type {string[]} */ (branchMembershipMap.get(key)).push(m.branch);
     }
-  } catch (_) {
+  } catch {
     /* chips are optional */
   }
   list.innerHTML = "";
@@ -189,8 +248,8 @@ async function showProducerVersions(serviceName) {
   // Owner, description, repository and links from the Producer's
   // catalog-info (#48), under the title. Optional: the page reads without it.
   try {
-    const { context, annotations } = await fetchJSON(
-      `/admin/producers/${encodeURIComponent(serviceName)}`,
+    const { context, annotations } = /** @type {ParticipantContext} */ (
+      await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}`)
     );
     // The system annotations (#91) its builds sent ride the same card.
     const block = systemContextHtml(context, false) + annotationsHtml(annotations, false);
@@ -198,10 +257,12 @@ async function showProducerVersions(serviceName) {
       const card = document.createElement("div");
       card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
       card.innerHTML = block;
-      appendClearSystemInfo(card, serviceName, () => card.remove());
+      appendClearSystemInfo(card, serviceName, () => {
+        card.remove();
+      });
       list.appendChild(card);
     }
-  } catch (_) {
+  } catch {
     /* the context is optional */
   }
 
@@ -233,11 +294,12 @@ async function showProducerVersions(serviceName) {
   }
 
   // Group into version lines by API type.
+  /** @type {Map<string, ProducerVersionInfo[]>} */
   const lines = new Map();
   for (const v of versions) {
     const key = (v.api_type || "openapi").toLowerCase();
     if (!lines.has(key)) lines.set(key, []);
-    lines.get(key).push(v);
+    /** @type {ProducerVersionInfo[]} */ (lines.get(key)).push(v);
   }
   const orderedTypes = [...lines.keys()].sort((a, b) => {
     const ia = API_TYPE_ORDER.indexOf(a),
@@ -246,12 +308,18 @@ async function showProducerVersions(serviceName) {
   });
 
   for (const apiType of orderedTypes) {
-    const line = lines.get(apiType);
+    const line = /** @type {ProducerVersionInfo[]} */ (lines.get(apiType));
     line.sort((a, b) => compareSemver(b.version, a.version)); // newest first
     list.appendChild(renderVersionLine(serviceName, apiType, line));
   }
 }
 
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {ProducerVersionInfo[]} line Newest first.
+ * @returns {HTMLElement}
+ */
 function renderVersionLine(serviceName, apiType, line) {
   const section = document.createElement("div");
   section.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
@@ -261,7 +329,7 @@ function renderVersionLine(serviceName, apiType, line) {
   header.innerHTML = `
             <div class="flex items-center gap-2">
                 <span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">${escapeHtml(apiType)}</span>
-                <span class="text-sm text-slate-500">${line.length} version${line.length !== 1 ? "s" : ""}</span>
+                <span class="text-sm text-slate-500">${String(line.length)} version${line.length !== 1 ? "s" : ""}</span>
             </div>`;
 
   // Diff control: any two versions of the line, defaulting to the two
@@ -282,8 +350,8 @@ function renderVersionLine(serviceName, apiType, line) {
     };
     const fromSel = mkSelect();
     const toSel = mkSelect();
-    fromSel.value = line[1].version; // second-newest
-    toSel.value = line[0].version; // newest
+    fromSel.value = /** @type {ProducerVersionInfo} */ (line[1]).version; // second-newest
+    toSel.value = /** @type {ProducerVersionInfo} */ (line[0]).version; // newest
     const arrow = document.createElement("span");
     arrow.className = "text-slate-500";
     arrow.textContent = "→";
@@ -292,9 +360,9 @@ function renderVersionLine(serviceName, apiType, line) {
     diffBtn.className =
       "px-3 py-1 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700";
     diffBtn.textContent = "Diff";
-    diffBtn.addEventListener("click", () =>
-      showLineDiff(serviceName, apiType, fromSel.value, toSel.value, diffOutput),
-    );
+    diffBtn.addEventListener("click", () => {
+      void showLineDiff(serviceName, apiType, fromSel.value, toSel.value, diffOutput);
+    });
     diffCtl.append(fromSel, arrow, toSel, diffBtn);
     header.appendChild(diffCtl);
   }
@@ -316,6 +384,13 @@ function renderVersionLine(serviceName, apiType, line) {
 
 // latestGa: the highest GA of the entry's line (or null). A snapshot below it
 // is superseded — consumers pinning it should move to that GA.
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {ProducerVersionInfo} v
+ * @param {string | null} latestGa
+ * @returns {HTMLElement}
+ */
 function renderVersionEntry(serviceName, apiType, v, latestGa) {
   const isSnapshot = v.stability !== "ga";
   const supersededBadge =
@@ -325,7 +400,7 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
   let expiryBadge = "";
   if (isSnapshot && v.expires_at) {
     const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / 86400000);
-    const label = daysLeft <= 0 ? "Expiring" : `Expires in ${daysLeft}d`;
+    const label = daysLeft <= 0 ? "Expiring" : `Expires in ${String(daysLeft)}d`;
     const urgent = daysLeft <= 3;
     expiryBadge = `<span class="text-[10px] ${urgent ? "text-red-700 bg-red-100" : "text-amber-700 bg-amber-100"} px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="This snapshot expires once neither provided nor required for the configured window (${escapeHtml(v.expires_at)}).">${label}</span>`;
   }
@@ -355,12 +430,12 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
                             <h3 class="font-semibold text-slate-800 font-mono">${escapeHtml(v.version)}</h3>
                             ${stabilityBadge(v.stability)}
                             ${v.trunk_provided_at ? `<span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter" title="Trunk CI last provided this version ${escapeHtml(v.trunk_provided_at)}">trunk</span>` : ""}
-                            ${(branchMembershipMap.get(`${apiType}|${v.version}`) || []).map((b) => `<span class="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold tracking-tighter" title="Referenced by sanshain-branch ${escapeHtml(b)}">${escapeHtml(b)}</span>`).join("")}
+                            ${(branchMembershipMap.get(`${apiType}|${v.version}`) ?? []).map((b) => `<span class="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-bold tracking-tighter" title="Referenced by sanshain-branch ${escapeHtml(b)}">${escapeHtml(b)}</span>`).join("")}
                             ${supersededBadge}
                             ${expiryBadge}
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">
-                            ${v.endpoint_count} endpoint${v.endpoint_count !== 1 ? "s" : ""}
+                            ${String(v.endpoint_count)} endpoint${v.endpoint_count !== 1 ? "s" : ""}
                             &middot; <span data-provider></span>
                             &middot; updated ${escapeHtml(formatTimestamp(v.updated_at))}
                         </p>
@@ -384,20 +459,27 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
             </div>`;
   // Author is Consumer-supplied, unverified attribution — set as text,
   // never spliced into markup.
-  card.querySelector("[data-provider]").textContent = `by ${provider}`;
-  card.querySelector("[data-view]").addEventListener("click", (e) => {
+  /** @type {HTMLElement} */ (card.querySelector("[data-provider]")).textContent =
+    `by ${String(provider)}`;
+  /** @type {HTMLElement} */ (card.querySelector("[data-view]")).addEventListener("click", (e) => {
     e.stopPropagation();
     // No path/method params — yaml.html opens in full-spec mode.
     window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(v.version)}`;
   });
-  card.querySelector("[data-download]").addEventListener("click", (e) => {
-    e.stopPropagation();
-    void downloadFullApi(serviceName, apiType, v.version);
-  });
-  card.querySelector("[data-delete]").addEventListener("click", (e) => {
-    e.stopPropagation();
-    void deleteVersion(serviceName, apiType, v.version);
-  });
+  /** @type {HTMLElement} */ (card.querySelector("[data-download]")).addEventListener(
+    "click",
+    (e) => {
+      e.stopPropagation();
+      void downloadFullApi(serviceName, apiType, v.version);
+    },
+  );
+  /** @type {HTMLElement} */ (card.querySelector("[data-delete]")).addEventListener(
+    "click",
+    (e) => {
+      e.stopPropagation();
+      void deleteVersion(serviceName, apiType, v.version);
+    },
+  );
   const promoteBtn = card.querySelector("[data-promote]");
   if (promoteBtn) {
     promoteBtn.addEventListener("click", (e) => {
@@ -412,6 +494,13 @@ function renderVersionEntry(serviceName, apiType, v, latestGa) {
   return card;
 }
 
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} from
+ * @param {string} to
+ * @param {HTMLElement} output
+ */
 async function showLineDiff(serviceName, apiType, from, to, output) {
   if (from === to) {
     output.innerHTML = '<div class="text-sm text-slate-500 italic">Same version selected.</div>';
@@ -421,24 +510,34 @@ async function showLineDiff(serviceName, apiType, from, to, output) {
     caption: `${escapeHtml(from)} → ${escapeHtml(to)}`,
     emptyHtml: `No differences between ${escapeHtml(from)} and ${escapeHtml(to)}.`,
     load: (ignoreWhitespace) =>
-      fetchVersionDiff(serviceName, apiType, from, to, {
-        format: "json",
-        ignore_whitespace: String(ignoreWhitespace),
-      }),
+      /** @type {Promise<TextDiff>} */ (
+        fetchVersionDiff(serviceName, apiType, from, to, {
+          format: "json",
+          ignore_whitespace: String(ignoreWhitespace),
+        })
+      ),
   });
 }
 
 // Delete-version is the sole escape hatch from GA immutability. Always
 // offered; the server refuses callers without the permission (403). The
 // dependents are fetched FIRST so the confirmation names who breaks.
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} version
+ */
 async function deleteVersion(serviceName, apiType, version) {
-  let dependents = [];
+  /** @type {string[]} */
+  let dependents;
   try {
-    dependents = await fetchJSON(
-      `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`,
+    dependents = /** @type {string[]} */ (
+      await fetchJSON(
+        `/admin/producers/${encodeURIComponent(serviceName)}/versions/${encodeURIComponent(apiType)}/${encodeURIComponent(version)}/dependents`,
+      )
     );
   } catch (e) {
-    alert("Could not check dependents: " + e.message);
+    alert("Could not check dependents: " + /** @type {Error} */ (e).message);
     return;
   }
   const base = safeHtml`Delete ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong>?`;
@@ -459,11 +558,16 @@ async function deleteVersion(serviceName, apiType, version) {
       await loadAllProducers();
       void showProducerVersions(serviceName);
     } catch (e) {
-      alert("Failed to delete: " + e.message);
+      alert("Failed to delete: " + /** @type {Error} */ (e).message);
     }
   });
 }
 
+/**
+ * @param {string} service
+ * @param {string} apiType
+ * @param {string | number} version
+ */
 async function downloadFullApi(service, apiType, version) {
   try {
     const res = await apiCall(
@@ -478,20 +582,25 @@ async function downloadFullApi(service, apiType, version) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${service}-${version}.${apiType === "proto" ? "proto" : "yaml"}`;
+    a.download = `${service}-${String(version)}.${apiType === "proto" ? "proto" : "yaml"}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (e) {
-    alert("Failed to download the full API: " + e.message);
+    alert("Failed to download the full API: " + /** @type {Error} */ (e).message);
   }
 }
 
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string | number} version Compared as text with the versions of the report.
+ */
 async function showVersionEndpoints(serviceName, apiType, version) {
   showLoader();
-  const list = document.getElementById("services-list");
-  const breadcrumb = document.getElementById("service-breadcrumb");
+  const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
+  const breadcrumb = /** @type {HTMLElement} */ (document.getElementById("service-breadcrumb"));
   breadcrumb.classList.remove("hidden");
   // Service names come straight from client `/provide` payloads and are
   // not validated, so they must never be interpolated raw into markup —
@@ -503,15 +612,20 @@ async function showVersionEndpoints(serviceName, apiType, version) {
             <button type="button" data-back-to-versions class="hover:text-indigo-600 font-medium">${escapeHtml(serviceName)}</button>
             <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
             <span class="text-slate-800 font-semibold font-mono">${escapeHtml(apiType)} ${escapeHtml(version)}</span>`;
-  breadcrumb
-    .querySelector("[data-back-to-versions]")
-    .addEventListener("click", () => goBackToVersions(serviceName));
+  /** @type {HTMLElement} */ (breadcrumb.querySelector("[data-back-to-versions]")).addEventListener(
+    "click",
+    () => {
+      goBackToVersions(serviceName);
+    },
+  );
 
   list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading endpoints...</div>';
 
   try {
-    const providedEndpoints = await fetchJSON(
-      `/admin/producers/${encodeURIComponent(serviceName)}/endpoints?api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}`,
+    const providedEndpoints = /** @type {ProducersListedEndpoint[] | null} */ (
+      await fetchJSON(
+        `/admin/producers/${encodeURIComponent(serviceName)}/endpoints?api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}`,
+      )
     );
     if (providedEndpoints && providedEndpoints.length > 0) {
       const dlBtn = document.createElement("button");
@@ -519,15 +633,20 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       dlBtn.className =
         "ml-4 px-2.5 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700";
       dlBtn.textContent = "Download full API";
-      dlBtn.addEventListener("click", () => downloadFullApi(serviceName, apiType, version));
+      dlBtn.addEventListener("click", () => {
+        void downloadFullApi(serviceName, apiType, version);
+      });
       breadcrumb.appendChild(dlBtn);
     }
+    /** @type {ProducersReport} */
     let report = { dependency_graph: [], unused_endpoints: [] };
     try {
-      report = await fetchJSON("/report");
-    } catch (_) {}
+      report = /** @type {ProducersReport} */ (await fetchJSON("/report"));
+    } catch {
+      // Without the report every endpoint reads as unused.
+    }
 
-    const uniqueEndpoints = (providedEndpoints || []).map((e) => ({
+    const uniqueEndpoints = (providedEndpoints ?? []).map((e) => ({
       api_type: e.api_type,
       path: e.path,
       method: e.method,
@@ -541,14 +660,16 @@ async function showVersionEndpoints(serviceName, apiType, version) {
       (e) =>
         e.service === serviceName &&
         String(e.version) === String(version) &&
-        (e.api_type || "openapi").toLowerCase() === apiType.toLowerCase(),
+        ((e.api_type ?? "") || "openapi").toLowerCase() === apiType.toLowerCase(),
     );
 
+    /** @type {Record<string, Set<string>>} */
     const clientsMap = {};
     versionDeps.forEach((e) => {
       const key = `${e.method}:${e.path}`;
-      if (!clientsMap[key]) clientsMap[key] = new Set();
-      clientsMap[key].add(e.client);
+      const clients = clientsMap[key] ?? new Set();
+      clientsMap[key] = clients;
+      clients.add(e.client);
     });
 
     const usedKeys = new Set(versionDeps.map((e) => `${e.method}:${e.path}`));
@@ -573,15 +694,16 @@ async function showVersionEndpoints(serviceName, apiType, version) {
     const unusedCount = uniqueEndpoints.length - usedCount;
     summary.innerHTML = `
                 <div class="text-sm text-slate-600">
-                    <span class="font-semibold text-slate-800">${uniqueEndpoints.length}</span> endpoints total &middot;
-                    <span class="text-green-600 font-medium">${usedCount} used</span> &middot;
-                    <span class="text-amber-600 font-medium">${unusedCount} unused</span>
+                    <span class="font-semibold text-slate-800">${String(uniqueEndpoints.length)}</span> endpoints total &middot;
+                    <span class="text-green-600 font-medium">${String(usedCount)} used</span> &middot;
+                    <span class="text-amber-600 font-medium">${String(unusedCount)} unused</span>
                     <span class="text-slate-400">(at this Pin)</span>
                     <span class="text-indigo-700 font-medium" data-endpoint-filter-count></span>
                 </div>
                 <div data-endpoint-filter-bar></div>`;
     list.appendChild(summary);
 
+    /** @type {{ ep: FilterableEndpoint, card: HTMLElement }[]} */
     const shownCards = [];
     for (const ep of uniqueEndpoints) {
       const key = `${ep.method}:${ep.path}`;
@@ -601,7 +723,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                         <div class="flex items-start min-w-0">
                             <div class="flex items-center shrink-0">
                                 <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider mr-2 bg-slate-100 text-slate-500 border border-slate-200">
-                                    ${escapeHtml(ep.api_type || "REST")}
+                                    ${escapeHtml((ep.api_type ?? "") || "REST")}
                                 </span>
                                 <span class="px-2 py-1 rounded-sm text-[10px] font-bold uppercase mr-3 ${getMethodColor(ep.method)}">
                                     ${escapeHtml(ep.method)}
@@ -619,7 +741,7 @@ async function showVersionEndpoints(serviceName, apiType, version) {
                             ${
                               isUnused
                                 ? '<span class="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full mr-2">unused</span>'
-                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${escapeHtml(clients.join(","))}" data-click="toggleClientPopover" data-click-args='["$this"]'>${clients.length} client${clients.length !== 1 ? "s" : ""} ▾</span>`
+                                : `<span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full mr-2 relative client-badge-wrapper" data-clients="${escapeHtml(clients.join(","))}" data-click="toggleClientPopover" data-click-args='["$this"]'>${String(clients.length)} client${clients.length !== 1 ? "s" : ""} ▾</span>`
                             }
                             <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
@@ -634,7 +756,9 @@ async function showVersionEndpoints(serviceName, apiType, version) {
     empty.innerHTML = endpointFilterEmptyHtml();
     list.appendChild(empty);
     const filter = endpointFilterFromUrl();
-    const count = summary.querySelector("[data-endpoint-filter-count]");
+    const count = /** @type {HTMLElement} */ (
+      summary.querySelector("[data-endpoint-filter-count]")
+    );
     const apply = () => {
       let shown = 0;
       for (const { ep, card } of shownCards) {
@@ -643,35 +767,47 @@ async function showVersionEndpoints(serviceName, apiType, version) {
         if (match) shown += 1;
       }
       count.textContent = endpointFilterActive(filter)
-        ? `· ${shown} of ${shownCards.length} shown`
+        ? `· ${String(shown)} of ${String(shownCards.length)} shown`
         : "";
       empty.classList.toggle("hidden", shown > 0);
     };
     const control = renderEndpointFilter(
-      summary.querySelector("[data-endpoint-filter-bar]"),
+      /** @type {HTMLElement} */ (summary.querySelector("[data-endpoint-filter-bar]")),
       filter,
       ["used", "unused", "deprecated"],
       apply,
     );
-    empty
-      .querySelector("[data-endpoint-filter-clear]")
-      .addEventListener("click", () => control.clear());
+    /** @type {HTMLElement} */ (
+      empty.querySelector("[data-endpoint-filter-clear]")
+    ).addEventListener("click", () => {
+      control.clear();
+    });
     apply();
   } catch (err) {
     hideLoader();
-    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
 }
 
 // Opens the endpoint's stored YAML — the endpoint card's delegated action
 // (was card.onclick). A named global so the card's data-click resolves.
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} version
+ * @param {string} path
+ * @param {string} method
+ */
 function openEndpointYaml(serviceName, apiType, version, path, method) {
   window.location.href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
 }
 
+/** @param {HTMLElement} badge */
 function toggleClientPopover(badge) {
-  document.querySelectorAll(".client-popover").forEach((p) => p.remove());
-  const clients = badge.dataset.clients.split(",").filter(Boolean);
+  document.querySelectorAll(".client-popover").forEach((p) => {
+    p.remove();
+  });
+  const clients = /** @type {string} */ (badge.dataset.clients).split(",").filter(Boolean);
   if (clients.length === 0) return;
   const popover = document.createElement("div");
   popover.className =
@@ -694,8 +830,9 @@ function toggleClientPopover(badge) {
   badge.style.position = "relative";
   badge.appendChild(popover);
   setTimeout(() => {
+    /** @param {MouseEvent} e */
     const handler = (e) => {
-      if (!badge.contains(e.target)) {
+      if (!badge.contains(/** @type {Node | null} */ (e.target))) {
         popover.remove();
         document.removeEventListener("click", handler);
       }
@@ -704,15 +841,18 @@ function toggleClientPopover(badge) {
   }, 0);
 }
 
+/** @param {string} clientName */
 function navigateToClient(clientName) {
-  document.querySelectorAll(".client-popover").forEach((p) => p.remove());
+  document.querySelectorAll(".client-popover").forEach((p) => {
+    p.remove();
+  });
   window.location.href = `/consumers.html?name=${encodeURIComponent(clientName)}`;
 }
 
 async function handleDeepLink() {
   const params = new URLSearchParams(window.location.search);
   const service = params.get("service");
-  const apiType = params.get("api_type") || "openapi";
+  const apiType = (params.get("api_type") ?? "") || "openapi";
   const version = params.get("version");
   const path = params.get("path");
   const method = params.get("method");

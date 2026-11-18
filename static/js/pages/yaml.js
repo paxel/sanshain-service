@@ -8,51 +8,111 @@
 // that do not include the endpoint (absent — a deliberate omission). In
 // full-spec mode it is the whole stored document, and null marks a version
 // whose document could not be loaded.
+/**
+ * One version of the line: `EndpointHistoryEntry` in `src/application/spec_service.rs` in
+ * endpoint mode, built from `ProducerVersionInfo` and the stored document in full-spec mode.
+ * @typedef {object} YamlVersion
+ * @property {string} version
+ * @property {string} stability
+ * @property {string | undefined} [provided_by]
+ * @property {string | undefined} [updated_at]
+ * @property {VersionOrigin | null | undefined} [origin]
+ * @property {string | null | undefined} [yaml_content] Null marks an absent or unavailable version.
+ * @property {boolean} [changed]
+ */
+
+/**
+ * `EndpointView` in `src/application/spec_service.rs`: `GET /admin/endpoint-yaml`.
+ * @typedef {object} YamlEndpointView
+ * @property {string} state `served`, `absent` or `unknown`.
+ * @property {string | null} [version]
+ * @property {string | null} [stability]
+ * @property {string | null} [yaml]
+ */
+
+/**
+ * `BlameBlock` in `src/application/spec_service.rs`: lines last changed in the same version.
+ * @typedef {object} YamlBlameBlock
+ * @property {string} version
+ * @property {string} [provided_by]
+ * @property {string | null} [updated_at]
+ * @property {VersionOrigin | null} [origin]
+ * @property {number} start_line
+ * @property {string[]} lines
+ */
+
+/**
+ * The prefetched patch of the selected pair of versions.
+ * @typedef {object} YamlPatchState
+ * @property {string} key
+ * @property {string | null} text
+ * @property {string | null} error
+ */
+
+/** @type {YamlVersion[]} */
 let globalVersions = [];
-let ticketTemplate = null;
+/** @type {string | null} */
+let yamlTicketTemplate = null;
 
 // The origin of a version as one line of text, for a tooltip.
+/**
+ * @param {VersionOrigin | null | undefined} origin
+ * @returns {string}
+ */
 function originText(origin) {
   if (!origin) return "";
   const parts = [];
   if (origin.note) parts.push(origin.note);
   if (origin.change_url) parts.push(`change: ${origin.change_url}`);
   if (origin.build_url && origin.trunk_build) parts.push(`build: ${origin.build_url}`);
-  if ((origin.tickets || []).length) parts.push(`tickets: ${origin.tickets.join(", ")}`);
+  if (origin.tickets?.length) parts.push(`tickets: ${origin.tickets.join(", ")}`);
   return parts.join(" · ");
 }
+/** @type {YamlVersion | null | undefined} */
 let activeVersion = null;
 let isDiffMode = false;
 let isBlameOn = false;
 
 // Retrieve endpoint identity from query params
 const params = new URLSearchParams(window.location.search);
-const serviceName = params.get("service");
-const apiType = (params.get("api_type") || "openapi").toLowerCase();
-const endpointPath = params.get("path");
-const endpointMethod = params.get("method");
-let queryVersion = params.get("version") || null;
-let queryCompareVersion = params.get("compare_version") || null;
+// The three below are read as strings throughout: a page opened without them leaves for the
+// Producers list further down, and until then a missing one reads as "null", as it always did.
+const serviceName = /** @type {string} */ (params.get("service"));
+const apiType = ((params.get("api_type") ?? "") || "openapi").toLowerCase();
+const endpointPath = /** @type {string} */ (params.get("path"));
+const endpointMethod = /** @type {string} */ (params.get("method"));
+let queryVersion = (params.get("version") ?? "") || null;
+let queryCompareVersion = (params.get("compare_version") ?? "") || null;
 
 // DOM bindings
-const breadcrumbService = document.getElementById("breadcrumb-service");
-const breadcrumbVersion = document.getElementById("breadcrumb-version");
-const endpointMethodEl = document.getElementById("endpoint-method");
-const endpointPathEl = document.getElementById("endpoint-path");
+const breadcrumbService = /** @type {HTMLElement} */ (
+  document.getElementById("breadcrumb-service")
+);
+const breadcrumbVersion = /** @type {HTMLElement} */ (
+  document.getElementById("breadcrumb-version")
+);
+const endpointMethodEl = /** @type {HTMLElement} */ (document.getElementById("endpoint-method"));
+const endpointPathEl = /** @type {HTMLElement} */ (document.getElementById("endpoint-path"));
 
-const versionsListContainer = document.getElementById("versions-list-container");
-const diffFromSelect = document.getElementById("diff-from");
-const diffToSelect = document.getElementById("diff-to");
-const compareBtn = document.getElementById("compare-btn");
+const versionsListContainer = /** @type {HTMLElement} */ (
+  document.getElementById("versions-list-container")
+);
+const diffFromSelect = /** @type {HTMLSelectElement} */ (document.getElementById("diff-from"));
+const diffToSelect = /** @type {HTMLSelectElement} */ (document.getElementById("diff-to"));
+const compareBtn = /** @type {HTMLButtonElement} */ (document.getElementById("compare-btn"));
 
-const viewYamlBtn = document.getElementById("view-yaml-btn");
-const viewDiffBtn = document.getElementById("view-diff-btn");
-const viewStructureBtn = document.getElementById("view-structure-btn");
-const blameToggle = document.getElementById("blame-toggle");
-const blameToggleContainer = document.getElementById("blame-toggle-container");
-const copyBtn = document.getElementById("copy-btn");
-const downloadBtn = document.getElementById("download-btn");
-const viewerContainer = document.getElementById("viewer-container");
+const viewYamlBtn = /** @type {HTMLButtonElement} */ (document.getElementById("view-yaml-btn"));
+const viewDiffBtn = /** @type {HTMLButtonElement} */ (document.getElementById("view-diff-btn"));
+const viewStructureBtn = /** @type {HTMLButtonElement} */ (
+  document.getElementById("view-structure-btn")
+);
+const blameToggle = /** @type {HTMLInputElement} */ (document.getElementById("blame-toggle"));
+const blameToggleContainer = /** @type {HTMLElement} */ (
+  document.getElementById("blame-toggle-container")
+);
+const copyBtn = /** @type {HTMLButtonElement} */ (document.getElementById("copy-btn"));
+const downloadBtn = /** @type {HTMLButtonElement} */ (document.getElementById("download-btn"));
+const viewerContainer = /** @type {HTMLElement} */ (document.getElementById("viewer-container"));
 
 // The structure view covers OpenAPI and AsyncAPI; a proto reads as text. The
 // choice between YAML and Structure is remembered in the browser.
@@ -61,15 +121,16 @@ const hasStructure = apiType !== "proto";
 let isStructureMode = false;
 try {
   isStructureMode = hasStructure && localStorage.getItem(STRUCTURE_PREF_KEY) === "structure";
-} catch (_) {
+} catch {
   // Storage blocked: start in YAML.
 }
 if (!hasStructure) viewStructureBtn.classList.add("hidden");
 
+/** @param {string} view `yaml` or `structure`. */
 function rememberView(view) {
   try {
     localStorage.setItem(STRUCTURE_PREF_KEY, view);
-  } catch (_) {
+  } catch {
     // Storage blocked: the choice lasts until the page closes.
   }
 }
@@ -82,7 +143,7 @@ const isFullSpecMode = !endpointPath && !endpointMethod;
 if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
   breadcrumbService.textContent = serviceName;
   breadcrumbVersion.textContent = queryVersion ? `${apiType} ${queryVersion}` : apiType;
-  document.getElementById("back-link").href =
+  /** @type {HTMLAnchorElement} */ (document.getElementById("back-link")).href =
     `/producers.html?service=${encodeURIComponent(serviceName)}`;
   if (isFullSpecMode) {
     document.title = "Sanshain - Full Spec Viewer";
@@ -94,6 +155,7 @@ if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
     endpointMethodEl.textContent = endpointMethod;
     endpointPathEl.textContent = endpointPath;
     // Method badge colors based on method
+    /** @type {Record<string, string>} */
     const colors = {
       GET: "bg-green-100 text-green-800",
       POST: "bg-blue-100 text-indigo-800",
@@ -101,7 +163,7 @@ if (serviceName && (isFullSpecMode || (endpointPath && endpointMethod))) {
       DELETE: "bg-red-100 text-red-800",
       PATCH: "bg-purple-100 text-purple-800",
     };
-    const mClass = colors[endpointMethod.toUpperCase()] || "bg-slate-100 text-slate-800";
+    const mClass = colors[endpointMethod.toUpperCase()] ?? "bg-slate-100 text-slate-800";
     endpointMethodEl.className = `px-2.5 py-0.5 rounded-sm text-sm font-semibold uppercase ${mClass}`;
   }
 } else {
@@ -115,8 +177,12 @@ void checkDiscoveryAuth(async () => {
   await (isFullSpecMode ? loadFullSpecVersions() : loadEndpointVersions());
 });
 
+/**
+ * @param {{ provided_by?: string | null | undefined }} v
+ * @returns {string}
+ */
 function attribution(v) {
-  return v.provided_by || "anonymous";
+  return (v.provided_by ?? "") || "anonymous";
 }
 
 async function loadEndpointVersions() {
@@ -129,9 +195,9 @@ async function loadEndpointVersions() {
     // asks the server for the resolution state and renders the answer.
     const noHistory = res.status === 404;
     if (!noHistory && !res.ok) {
-      throw new Error(`Fetch error: ${res.status}`);
+      throw new Error(`Fetch error: ${String(res.status)}`);
     }
-    const versions = noHistory ? [] : await res.json();
+    const versions = /** @type {YamlVersion[] | null} */ (noHistory ? [] : await res.json());
     if (!versions || versions.length === 0) {
       await loadSingleVersionFallback();
       return;
@@ -143,7 +209,7 @@ async function loadEndpointVersions() {
   } catch (e) {
     console.error(e);
     hideLoader();
-    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(e.message)}</div>`;
+    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
   }
 }
 
@@ -156,10 +222,10 @@ async function loadFullSpecVersions() {
       `/admin/producers/${encodeURIComponent(serviceName)}/versions?api_type=${encodeURIComponent(apiType)}`,
     );
     if (!res.ok) {
-      throw new Error(`Fetch error: ${res.status}`);
+      throw new Error(`Fetch error: ${String(res.status)}`);
     }
-    const allLines = await res.json();
-    const line = (allLines || []).filter(
+    const allLines = /** @type {ProducerVersionInfo[] | null} */ (await res.json());
+    const line = (allLines ?? []).filter(
       (v) => (v.api_type || "openapi").toLowerCase() === apiType,
     );
     if (line.length === 0) {
@@ -176,7 +242,7 @@ async function loadFullSpecVersions() {
         return specRes.ok ? await specRes.text() : null;
       }),
     );
-    ticketTemplate = await loadTicketUrlTemplate();
+    yamlTicketTemplate = await loadTicketUrlTemplate();
     globalVersions = line.map((v, i) => ({
       version: v.version,
       stability: v.stability,
@@ -185,13 +251,14 @@ async function loadFullSpecVersions() {
       origin: v.origin,
       yaml_content: contents[i],
       // A promotion keeps the content; only a new hash is a change.
-      changed: i === 0 || v.content_hash !== line[i - 1].content_hash,
+      changed:
+        i === 0 || v.content_hash !== /** @type {ProducerVersionInfo} */ (line[i - 1]).content_hash,
     }));
     presentVersions();
   } catch (e) {
     console.error(e);
     hideLoader();
-    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(e.message)}</div>`;
+    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
   }
 }
 
@@ -213,13 +280,13 @@ function presentVersions() {
   // version that carries content, else the newest entry.
   const withContent = globalVersions.filter((v) => v.yaml_content != null);
   activeVersion =
-    (queryVersion && globalVersions.find((v) => v.version === queryVersion)) ||
-    withContent[withContent.length - 1] ||
+    (queryVersion ? globalVersions.find((v) => v.version === queryVersion) : undefined) ??
+    withContent[withContent.length - 1] ??
     globalVersions[globalVersions.length - 1];
 
   if (queryCompareVersion) {
     diffFromSelect.value = queryCompareVersion;
-    diffToSelect.value = activeVersion.version;
+    diffToSelect.value = /** @type {YamlVersion} */ (activeVersion).version;
     isDiffMode = true;
   }
 
@@ -232,6 +299,7 @@ function presentVersions() {
 // the server states how it resolved (served / absent / unknown), so the
 // view renders that answer rather than inferring one from an empty body.
 async function loadSingleVersionFallback() {
+  /** @param {string} html */
   const showMessage = (html) => {
     viewerContainer.innerHTML = `<div class="text-slate-400 italic">${html}</div>`;
     hideLoader();
@@ -245,10 +313,10 @@ async function loadSingleVersionFallback() {
       `/admin/endpoint-yaml?producername=${encodeURIComponent(serviceName)}&version=${encodeURIComponent(queryVersion)}&api_type=${encodeURIComponent(apiType)}&path=${encodeURIComponent(endpointPath)}&method=${encodeURIComponent(endpointMethod)}`,
     );
     if (!res.ok) {
-      showMessage(`Could not load this endpoint (HTTP ${res.status}).`);
+      showMessage(`Could not load this endpoint (HTTP ${String(res.status)}).`);
       return;
     }
-    const view = await res.json();
+    const view = /** @type {YamlEndpointView} */ (await res.json());
     const version = escapeHtml(queryVersion);
     if (view.state === "absent") {
       showMessage(
@@ -264,8 +332,8 @@ async function loadSingleVersionFallback() {
     }
     globalVersions = [
       {
-        version: view.version || queryVersion,
-        stability: view.stability || "snapshot",
+        version: (view.version ?? "") || queryVersion,
+        stability: (view.stability ?? "") || "snapshot",
         provided_by: "",
         updated_at: "",
         yaml_content: view.yaml,
@@ -281,7 +349,7 @@ async function loadSingleVersionFallback() {
   } catch (e) {
     console.error(e);
     hideLoader();
-    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load spec: ${escapeHtml(e.message)}</div>`;
+    viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load spec: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
   }
 }
 
@@ -289,7 +357,7 @@ function renderVersionsSidebar() {
   const cards = [...globalVersions]
     .reverse()
     .map((v) => {
-      const isActive = !isDiffMode && activeVersion && activeVersion.version === v.version;
+      const isActive = !isDiffMode && activeVersion?.version === v.version;
       const isAbsent = v.yaml_content == null;
       const changedBadge = v.changed
         ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">changed</span>'
@@ -310,7 +378,7 @@ function renderVersionsSidebar() {
                         </div>
                         <div class="flex items-center gap-1">
                             <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                            <span>${escapeHtml((v.updated_at || "").slice(0, 16).replace("T", " "))}</span>
+                            <span>${escapeHtml((v.updated_at ?? "").slice(0, 16).replace("T", " "))}</span>
                         </div>
                     </div>
                 </div>
@@ -318,11 +386,16 @@ function renderVersionsSidebar() {
     })
     .join("");
   versionsListContainer.innerHTML = cards;
-  versionsListContainer.querySelectorAll(".version-card").forEach((card) => {
-    card.addEventListener("click", () => selectVersion(card.dataset.version));
+  /** @type {NodeListOf<HTMLElement>} */ (
+    versionsListContainer.querySelectorAll(".version-card")
+  ).forEach((card) => {
+    card.addEventListener("click", () => {
+      selectVersion(/** @type {string} */ (card.dataset.version));
+    });
   });
 }
 
+/** @param {string} version */
 function selectVersion(version) {
   isDiffMode = false;
   activeVersion = globalVersions.find((v) => v.version === version);
@@ -369,8 +442,12 @@ function updateToolbarState() {
   }
 }
 
+/**
+ * @param {YamlVersion | null | undefined} v
+ * @returns {string}
+ */
 function contentOf(v) {
-  return v && v.yaml_content != null ? v.yaml_content : "";
+  return v?.yaml_content ?? "";
 }
 
 function renderYamlView() {
@@ -381,6 +458,7 @@ function renderYamlView() {
       : `<div class="text-slate-400 italic">Version ${escapeHtml(activeVersion.version)} does not include this endpoint — a Require for it answers 410.</div>`;
     return;
   }
+  /** @param {string} s */
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const lines = activeVersion.yaml_content.split("\n");
 
@@ -391,7 +469,7 @@ function renderYamlView() {
     // Line numbers column
     html += `<div class="w-12 shrink-0 text-slate-500 text-right pr-3 border-r border-slate-800 select-none">`;
     for (let i = 1; i <= lines.length; i++) {
-      html += `<div>${i}</div>`;
+      html += `<div>${String(i)}</div>`;
     }
     html += `</div>`;
     // Content column
@@ -406,6 +484,7 @@ function renderYamlView() {
 
 // Query parameters selecting what the server diffs: one endpoint's snippet
 // in endpoint mode, the whole stored document in full-spec mode.
+/** @returns {Record<string, string>} */
 function diffTarget() {
   return isFullSpecMode ? {} : { path: endpointPath, method: endpointMethod };
 }
@@ -415,22 +494,29 @@ function diffTarget() {
 // click can write it to the clipboard without awaiting anything first (a
 // browser may refuse clipboard writes once the click's user activation is
 // spent).
+/** @type {YamlPatchState} */
 let diffPatch = { key: "", text: null, error: null };
 
+/**
+ * @param {string} fromVersion
+ * @param {string} toVersion
+ */
 function prefetchPatch(fromVersion, toVersion) {
+  /** @type {YamlPatchState} */
   const state = { key: `${fromVersion}|${toVersion}`, text: null, error: null };
   diffPatch = state;
   fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, diffTarget())
     .then((text) => {
-      state.text = text;
+      state.text = /** @type {string} */ (text);
     })
-    .catch((e) => {
-      state.error = e.message;
+    .catch((/** @type {unknown} */ e) => {
+      state.error = /** @type {Error} */ (e).message;
     });
 }
 
 // The prefetched patch for the selected pair, or null (with a toast saying
 // why) when it is not available.
+/** @returns {string | null} */
 function readyPatch() {
   const key = `${diffFromSelect.value}|${diffToSelect.value}`;
   if (diffPatch.key !== key || (diffPatch.text == null && !diffPatch.error)) {
@@ -450,9 +536,10 @@ function renderDiffView() {
   if (!fromVersion || !toVersion) return;
 
   prefetchPatch(fromVersion, toVersion);
+  /** @param {string} version */
   const originOf = (version) => {
     const v = globalVersions.find((x) => x.version === version);
-    const html = v ? originHtml(v.origin, ticketTemplate, true) : "";
+    const html = v ? originHtml(v.origin, yamlTicketTemplate, true) : "";
     return html
       ? `<div class="mt-1 text-[11px]" data-diff-origin="${escapeHtml(version)}"><span class="text-slate-400">${escapeHtml(version)}:</span>${html}</div>`
       : "";
@@ -464,12 +551,14 @@ function renderDiffView() {
     // differ in whitespace alone: the switch would have no effect there.
     ignoreWhitespaceSwitch: isFullSpecMode,
     load: (ignoreWhitespace) =>
-      fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, {
-        ...diffTarget(),
-        format: "json",
-        context: "all",
-        ignore_whitespace: String(ignoreWhitespace),
-      }),
+      /** @type {Promise<TextDiff>} */ (
+        fetchVersionDiff(serviceName, apiType, fromVersion, toVersion, {
+          ...diffTarget(),
+          format: "json",
+          context: "all",
+          ignore_whitespace: String(ignoreWhitespace),
+        })
+      ),
   });
 }
 
@@ -492,13 +581,21 @@ viewStructureBtn.onclick = () => {
 
 // The structure of one version from the server: the whole document's
 // endpoints (folded, loaded when opened) or this page's endpoint.
+/**
+ * @param {string} version
+ * @param {Record<string, string>} target
+ * @returns {Promise<StructureView>}
+ */
 async function fetchStructure(version, target) {
   const q = new URLSearchParams({ api_type: apiType, version, ...target });
-  const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/structure?${q}`);
+  const res = await apiCall(
+    `/admin/producers/${encodeURIComponent(serviceName)}/structure?${q.toString()}`,
+  );
   if (!res.ok) throw new Error(await errorMessage(res));
-  return res.json();
+  return /** @type {Promise<StructureView>} */ (res.json());
 }
 
+/** @param {YamlVersion | null | undefined} version */
 async function renderStructure(version) {
   if (!version) return;
   const stillShown = () => activeVersion === version && isStructureMode && !isDiffMode;
@@ -531,15 +628,17 @@ viewDiffBtn.onclick = () => {
   isDiffMode = true;
   // set compare versions to standard values if they aren't configured
   if (diffFromSelect.value === diffToSelect.value) {
-    diffFromSelect.value = globalVersions[0].version;
-    diffToSelect.value = globalVersions[globalVersions.length - 1].version;
+    diffFromSelect.value = /** @type {YamlVersion} */ (globalVersions[0]).version;
+    diffToSelect.value = /** @type {YamlVersion} */ (
+      globalVersions[globalVersions.length - 1]
+    ).version;
   }
   updateUrlParams();
   renderActiveView();
 };
 
-blameToggle.onchange = (e) => {
-  isBlameOn = e.target.checked;
+blameToggle.onchange = /** @param {Event} e */ (e) => {
+  isBlameOn = /** @type {HTMLInputElement} */ (e.target).checked;
   renderActiveView();
 };
 
@@ -569,21 +668,26 @@ copyBtn.onclick = () => {
   if (textToCopy) copyText(textToCopy);
 };
 
+/** @param {string} text */
 function copyText(text) {
   const fallback = () => {
     const textarea = document.createElement("textarea");
     textarea.value = text;
     document.body.appendChild(textarea);
     textarea.select();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- This is the fallback for pages without the async clipboard, which only have execCommand.
     const copied = document.execCommand("copy");
     document.body.removeChild(textarea);
     showToast(copied ? "Copied to clipboard!" : "Copy failed — select the text manually.");
   };
-  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- A page served without TLS has no navigator.clipboard, which the DOM types do not say.
+  if (!navigator.clipboard?.writeText) {
     fallback();
     return;
   }
-  navigator.clipboard.writeText(text).then(() => showToast("Copied to clipboard!"), fallback);
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("Copied to clipboard!");
+  }, fallback);
 }
 
 // Download / Export as file
@@ -620,16 +724,20 @@ downloadBtn.onclick = () => {
 // and answers blocks of consecutive lines last changed in the same version.
 // Each block shows user, version and date once, on its first line; a thin
 // gutter bar spans the block and neighbouring blocks alternate background.
+/** @param {YamlVersion} version */
 async function renderBlameView(version) {
   const q = new URLSearchParams({ api_type: apiType, version: version.version, ...diffTarget() });
+  /** @type {YamlBlameBlock[]} */
   let blocks;
   try {
-    const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/blame?${q}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    blocks = await res.json();
+    const res = await apiCall(
+      `/admin/producers/${encodeURIComponent(serviceName)}/blame?${q.toString()}`,
+    );
+    if (!res.ok) throw new Error(`HTTP ${String(res.status)}`);
+    blocks = /** @type {YamlBlameBlock[]} */ (await res.json());
   } catch (e) {
     if (activeVersion === version && isBlameOn && !isDiffMode && !isStructureMode) {
-      viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load blame: ${escapeHtml(e.message)}</div>`;
+      viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load blame: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
     }
     return;
   }
@@ -645,13 +753,13 @@ async function renderBlameView(version) {
       const meta = `
           <span class="font-bold text-indigo-400 shrink-0 mr-1" ${why ? `title="${escapeHtml(why)}" data-origin-title` : ""}>${escapeHtml(b.version)}</span>
           <span class="truncate max-w-[70px]" title="${escapeHtml(user)}">${escapeHtml(shortUser)}</span>
-          <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${escapeHtml((b.updated_at || "").slice(0, 10))}</span>`;
+          <span class="opacity-70 text-[10px] font-light shrink-0 ml-1">${escapeHtml((b.updated_at ?? "").slice(0, 10))}</span>`;
       const lines = b.lines
         .map(
           (text, li) => `
           <div class="blame-line flex items-stretch">
             <div class="blame-meta w-48 shrink-0 text-slate-400 px-3 py-0.5 border-r border-slate-800 text-[11px] flex items-center justify-between select-none">${li === 0 ? meta : ""}</div>
-            <div class="w-12 shrink-0 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${b.start_line + li}</div>
+            <div class="w-12 shrink-0 text-slate-500 text-right pr-2.5 py-0.5 border-r border-slate-800 select-none">${String(b.start_line + li)}</div>
             <div class="grow pl-3 py-0.5 text-slate-200 whitespace-pre">${escapeHtml(text)}</div>
           </div>`,
         )
@@ -683,6 +791,7 @@ function updateUrlParams() {
   history.pushState({}, "", `${window.location.pathname}?${urlParams.toString()}`);
 }
 
+/** @param {string} message */
 function showToast(message) {
   const toast = document.createElement("div");
   toast.className =
@@ -691,7 +800,9 @@ function showToast(message) {
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 300);
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
   }, 2000);
 }
 

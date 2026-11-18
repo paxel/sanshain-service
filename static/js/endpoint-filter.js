@@ -4,14 +4,20 @@
 // link can be shared. Every word of `q` must match the path, the method or
 // the summary; `show` holds at most one of used/unused plus deprecated.
 
+// What the page scripts loaded after this one use by name.
+/* exported endpointFilterFromUrl, endpointFilterActive, endpointFilterMatches */
+/* exported renderEndpointFilter, endpointFilterEmptyHtml */
+
 const ENDPOINT_FILTER_USE = ["used", "unused"];
 
+/** @returns {EndpointFilter} */
 function endpointFilterFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const show = new Set((params.get("show") || "").split(",").filter(Boolean));
-  return { q: params.get("q") || "", show };
+  const show = new Set((params.get("show") ?? "").split(",").filter(Boolean));
+  return { q: params.get("q") ?? "", show };
 }
 
+/** @param {EndpointFilter} filter */
 function endpointFilterToUrl(filter) {
   const params = new URLSearchParams(window.location.search);
   const q = filter.q.trim();
@@ -25,17 +31,26 @@ function endpointFilterToUrl(filter) {
   history.replaceState(history.state, "", search ? `?${search}` : window.location.pathname);
 }
 
+/**
+ * @param {EndpointFilter} filter
+ * @returns {boolean}
+ */
 function endpointFilterActive(filter) {
   return filter.q.trim() !== "" || filter.show.size > 0;
 }
 
 // `ep` carries method, path, summary, deprecated and, on the producer view,
 // `used`.
+/**
+ * @param {FilterableEndpoint} ep
+ * @param {EndpointFilter} filter
+ * @returns {boolean}
+ */
 function endpointFilterMatches(ep, filter) {
   if (filter.show.has("deprecated") && !ep.deprecated) return false;
   if (filter.show.has("used") && !ep.used) return false;
   if (filter.show.has("unused") && ep.used) return false;
-  const haystack = `${ep.method} ${ep.path} ${ep.summary || ""}`.toLowerCase();
+  const haystack = `${ep.method} ${ep.path} ${ep.summary ?? ""}`.toLowerCase();
   return filter.q
     .toLowerCase()
     .split(/\s+/)
@@ -46,22 +61,36 @@ function endpointFilterMatches(ep, filter) {
 // Draw the search box and `chips` (a subset of "used", "unused",
 // "deprecated"; "All" comes with used/unused) into `container`. `onChange`
 // runs after every change, once the URL holds the new filter.
+/**
+ * @param {HTMLElement} container
+ * @param {EndpointFilter} filter
+ * @param {EndpointFilterChip[]} chips
+ * @param {() => void} onChange
+ * @returns {EndpointFilterControl}
+ */
 function renderEndpointFilter(container, filter, chips, onChange) {
+  /** @param {boolean} on */
   const chipCls = (on) =>
     `px-2.5 py-1 rounded-full text-xs font-semibold border ${on ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"}`;
+  /** @type {Record<EndpointFilterChip, string>} */
   const labels = { all: "All", used: "Used", unused: "Unused", deprecated: "Deprecated" };
+  /** @type {EndpointFilterChip[]} */
   const names = chips.includes("used") ? ["all", ...chips] : chips;
   container.className = "flex flex-wrap items-center gap-2";
   container.innerHTML = `
       <input type="search" data-endpoint-filter-q placeholder="Filter by path, method or summary…"
         class="flex-1 min-w-48 px-3 py-1.5 rounded-lg border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500" />
       ${names.map((name) => `<button type="button" data-endpoint-filter-chip="${name}">${labels[name]}</button>`).join("")}`;
-  const input = container.querySelector("[data-endpoint-filter-q]");
+  const input = /** @type {HTMLInputElement} */ (
+    container.querySelector("[data-endpoint-filter-q]")
+  );
   input.value = filter.q;
 
   const paintChips = () => {
-    container.querySelectorAll("[data-endpoint-filter-chip]").forEach((button) => {
-      const name = button.dataset.endpointFilterChip;
+    /** @type {NodeListOf<HTMLElement>} */ (
+      container.querySelectorAll("[data-endpoint-filter-chip]")
+    ).forEach((button) => {
+      const name = /** @type {string} */ (button.dataset.endpointFilterChip);
       const on =
         name === "all"
           ? !ENDPOINT_FILTER_USE.some((s) => filter.show.has(s))
@@ -81,9 +110,11 @@ function renderEndpointFilter(container, filter, chips, onChange) {
     changed();
   });
   container.addEventListener("click", (e) => {
-    const button = e.target.closest("[data-endpoint-filter-chip]");
+    const button = /** @type {HTMLElement | null} */ (
+      /** @type {Element} */ (e.target).closest("[data-endpoint-filter-chip]")
+    );
     if (!button) return;
-    const name = button.dataset.endpointFilterChip;
+    const name = /** @type {string} */ (button.dataset.endpointFilterChip);
     if (name === "deprecated") {
       if (filter.show.has(name)) filter.show.delete(name);
       else filter.show.add(name);
@@ -107,6 +138,7 @@ function renderEndpointFilter(container, filter, chips, onChange) {
 }
 
 // The "nothing matches" line with its Clear filter link.
+/** @returns {string} */
 function endpointFilterEmptyHtml() {
   return `<div class="text-center py-10 text-slate-500 italic" data-endpoint-filter-empty>No endpoints match this filter. <button type="button" class="not-italic font-semibold text-indigo-600 hover:text-indigo-800" data-endpoint-filter-clear>Clear filter</button></div>`;
 }

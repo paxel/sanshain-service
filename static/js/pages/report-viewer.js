@@ -3,15 +3,18 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What the buttons of the page name in their data-click attributes.
+/* exported copyMarkdown, downloadMarkdown */
+
 let rawMarkdown = "";
 let reportFilename = "report.md";
 
 async function loadReport() {
   const params = new URLSearchParams(window.location.search);
   const src = params.get("src");
-  const title = params.get("title") || "Report";
+  const title = (params.get("title") ?? "") || "Report";
 
-  document.getElementById("report-title").textContent = title;
+  /** @type {HTMLElement} */ (document.getElementById("report-title")).textContent = title;
   document.title = title + " — Sanshain";
 
   if (!src) {
@@ -19,37 +22,40 @@ async function loadReport() {
     return;
   }
   // The request carries the user's token, so it only goes to this service.
+  /** @type {URL | null} */
   let url;
   try {
     url = new URL(src, window.location.origin);
   } catch {
     url = null;
   }
-  if (!url || url.origin !== window.location.origin) {
+  if (url?.origin !== window.location.origin) {
     showError("The report source must be on this server.");
     return;
   }
 
   // Derive filename from src
-  const srcPath = src.split("?")[0].split("/").pop() || "report";
+  const srcBase = /** @type {string} */ (src.split("?")[0]);
+  const srcPath = (srcBase.split("/").pop() ?? "") || "report";
   reportFilename = `${srcPath}.md`;
 
   try {
+    /** @type {Record<string, string>} */
     const headers = {};
     const token = localStorage.getItem("sanshain_token");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) headers.Authorization = `Bearer ${token}`;
     const resp = await fetch(url, { headers });
     if (!resp.ok) {
       if (resp.status === 401 || resp.status === 403) {
         showError("Authentication required. Please log in first.");
       } else {
-        showError(`Server returned ${resp.status} ${resp.statusText}`);
+        showError(`Server returned ${String(resp.status)} ${resp.statusText}`);
       }
       return;
     }
     rawMarkdown = await resp.text();
-    document.getElementById("loading").classList.add("hidden");
-    const content = document.getElementById("report-content");
+    /** @type {HTMLElement} */ (document.getElementById("loading")).classList.add("hidden");
+    const content = /** @type {HTMLElement} */ (document.getElementById("report-content"));
     let html = marked.parse(rawMarkdown);
     // Wrap tables in a scrollable container for long service names
     html = html
@@ -58,19 +64,20 @@ async function loadReport() {
     content.innerHTML = html;
     content.classList.remove("hidden");
   } catch (e) {
-    showError(e.message);
+    showError(/** @type {Error} */ (e).message);
   }
 }
 
+/** @param {string} msg */
 function showError(msg) {
-  document.getElementById("loading").classList.add("hidden");
-  document.getElementById("error").classList.remove("hidden");
-  document.getElementById("error-detail").textContent = msg;
+  /** @type {HTMLElement} */ (document.getElementById("loading")).classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("error")).classList.remove("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("error-detail")).textContent = msg;
 }
 
 function copyMarkdown() {
   if (!rawMarkdown) return;
-  const btn = document.getElementById("copy-btn");
+  const btn = /** @type {HTMLElement} */ (document.getElementById("copy-btn"));
   void navigator.clipboard.writeText(rawMarkdown).then(() => {
     btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copied!`;
     setTimeout(() => {
