@@ -1,27 +1,79 @@
+# Release on tag: `git tag v2.14.0 && git push origin v2.14.0` produces everything.
+#
+#   version     - the tag names the version in Cargo.toml
+#   gate        - paxel/gates release-gate.yml: no open alert or SonarQube Cloud finding that
+#                 is not accepted, no known vulnerability, no licence outside the allowlist,
+#                 and a CHANGELOG section for the version
+#   build       - the static musl binaries, sanshain-linux-x86_64 and sanshain-linux-aarch64
+#   provenance  - paxel/gates provenance.yml: a CycloneDX SBOM of the source, signed build
+#                 provenance for both binaries and its Sigstore bundle as a file of its own
+#   publish     - GitHub Release, notes = the CHANGELOG section for the tag, with every file
+#                 of the jobs before and the docker-compose.yaml for the version; then the
+#                 image on ghcr.io around the attested binaries, its SBOM as a cosign
+#                 attestation and its keyless cosign signature
+#
+# One-time setup (repository secrets):
+#   GATES_ALERTS_TOKEN - read access to the repository's alerts, for the release gate
 name: Release
 
 on:
   push:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'
+  # A manual re-run for a tag that already exists: the way back when a release job fails for
+  # a reason that has since been fixed, without moving or burning a tag.
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v0.1.0)"
         required: true
 
-# Read only by default; the release job asks for what publishing needs.
+# Read only by default; the publish job asks for what publishing needs.
 permissions:
   contents: read
 
 env:
+  CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-binary:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      # The mistake a hand-cut tag makes: tagging without bumping the manifest. The binary
+      # answers /version with what the manifest says, so the tag would name a version the
+      # service does not report.
+      - name: Tag matches the crate version
+        id: v
+        run: |
+          ver=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          tag=${RELEASE_TAG#v}
+          [ "$ver" = "$tag" ] || { echo "::error::tag v$tag != crate version $ver"; exit 1; }
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: version
+    uses: paxel/gates/.github/workflows/release-gate.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    permissions:
+      contents: read
+      security-events: read
+    with:
+      version: ${{ needs.version.outputs.version }}
+    secrets:
+      alerts-token: ${{ secrets.GATES_ALERTS_TOKEN }}
+
+  build:
+    name: Binary (${{ matrix.arch }})
+    needs: gate
     strategy:
       matrix:
         include:
@@ -29,11 +81,14 @@ jobs:
             arch: x86_64
           - target: aarch64-unknown-linux-musl
             arch: aarch64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
+      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate commits.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
         with:
@@ -49,21 +104,52 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
 
+      # cross has had no release since 0.2.5, and the release has always built with its main
+      # branch. It is installed from the commit of that branch named here, with its own
+      # lockfile; moving it is a deliberate change of this line.
       - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: >-
+          cargo install cross --locked
+          --git https://github.com/cross-rs/cross
+          --rev a9301e91f72bba3850460512685f6b16062015ff
 
       - name: Build release binary
-        run: cross build --release --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cross build --release --locked --target "$TARGET"
 
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      # Both builds are called sanshain_service; the release names them by architecture, and
+      # the provenance job puts the files of every dist-* artifact into one directory.
+      - name: Name the binary by its architecture
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          cp "target/$TARGET/release/sanshain_service" "dist/sanshain-linux-$ARCH"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sanshain-linux-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/sanshain_service
+          name: dist-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
 
-  release:
-    needs: build-binary
-    runs-on: ubuntu-latest
+  provenance:
+    needs: build
+    uses: paxel/gates/.github/workflows/provenance.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    with:
+      name: sanshain-service
+      tag: ${{ github.event.inputs.tag || github.ref_name }}
+      artifacts: dist-*
+
+  publish:
+    name: GitHub Release and image
+    needs: [version, provenance]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       packages: write
@@ -71,53 +157,50 @@ jobs:
       id-token: write # keyless cosign signing through GitHub's OIDC identity
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # sbom-action writes output-file without creating its directory.
-      - name: Create the SBOM directory
-        run: mkdir -p sboms
-
-      # Runs before the binaries and the docker context land in the workspace, so the SBOM
-      # covers the source tree only (Cargo.lock and package-lock.json: what the binaries contain).
-      - name: Generate the source SBOM (CycloneDX)
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
-          path: .
-          format: cyclonedx-json
-          output-file: sboms/sanshain-service-${{ env.RELEASE_TAG }}-source.cdx.json
-          upload-artifact: false
-          upload-release-assets: false
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      # Both binaries, with the source SBOM and the Sigstore bundle beside them:
+      # `gh attestation verify <file> -R paxel/sanshain-service` checks a download, with
+      # `--bundle <the sigstore file>` offline.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: binaries
+          name: release-files
+          path: dist
 
-      - name: Prepare release assets
+      - name: Release notes from the CHANGELOG section
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          mkdir -p release-assets
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
+            grab && (/^## \[/ || /^---/) { exit }
+            grab { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
 
-          cp binaries/sanshain-linux-x86_64/sanshain_service release-assets/sanshain-linux-x86_64
-          cp binaries/sanshain-linux-aarch64/sanshain_service release-assets/sanshain-linux-aarch64
-          chmod +x release-assets/sanshain-linux-x86_64 release-assets/sanshain-linux-aarch64
+      # The files a deployment starts from, as every release has carried them: the compose
+      # file for this version, the Dockerfile the image is built from, and the changelog.
+      - name: Deployment files
+        run: |
+          mkdir -p deploy-files
+          sed "s|__VERSION__|${RELEASE_TAG}|g" docker-compose.release.template.yaml > deploy-files/docker-compose.yaml
+          cp Dockerfile.release.template deploy-files/Dockerfile
+          cp CHANGELOG.md deploy-files/
 
-          # Prepare docker-compose.yaml from template (substitute version)
-          sed 's|__VERSION__|${{ env.RELEASE_TAG }}|g' docker-compose.release.template.yaml > release-assets/docker-compose.yaml
-
-          cp Dockerfile.release.template release-assets/Dockerfile
-          cp CHANGELOG.md release-assets/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      # softprops updates an existing release rather than failing on it, so a re-run for the
+      # same tag is safe.
+      - name: Create or update the release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Sanshain ${{ env.RELEASE_TAG }}
-          body_path: CHANGELOG.md
+          body_path: notes.md
+          fail_on_unmatched_files: true
           files: |
-            release-assets/sanshain-linux-x86_64
-            release-assets/sanshain-linux-aarch64
-            release-assets/Dockerfile
-            release-assets/docker-compose.yaml
-            release-assets/CHANGELOG.md
+            dist/*
+            deploy-files/*
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -141,13 +224,14 @@ jobs:
             type=raw,value=${{ env.RELEASE_TAG }}
             type=raw,value=latest
 
+      # The image holds the attested binaries, not a second build.
       - name: Prepare Docker build context
         run: |
           mkdir -p docker-context
           cp Dockerfile.release.template docker-context/Dockerfile
           # Rename to Docker's TARGETARCH convention (amd64/arm64) for Dockerfile COPY
-          cp binaries/sanshain-linux-x86_64/sanshain_service docker-context/sanshain-amd64
-          cp binaries/sanshain-linux-aarch64/sanshain_service docker-context/sanshain-arm64
+          cp dist/sanshain-linux-x86_64 docker-context/sanshain-amd64
+          cp dist/sanshain-linux-aarch64 docker-context/sanshain-arm64
           cp -r static docker-context/static
           cp -r src/infrastructure/migrations docker-context/migrations
 
@@ -160,6 +244,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # sbom-action writes output-file without creating its directory.
+      - name: Create the SBOM directory
+        run: mkdir -p sboms
 
       # Everything below addresses the pushed image by digest, never by a mutable tag.
       - name: Generate the image SBOM (CycloneDX)
@@ -189,12 +277,11 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
 
-      - name: Upload the SBOMs to the GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Upload the image SBOM to the GitHub release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           # A release without its SBOM assets is a failed release, not a quiet one.
           fail_on_unmatched_files: true
           files: |
             sboms/sanshain-service-${{ env.RELEASE_TAG }}.cdx.json
-            sboms/sanshain-service-${{ env.RELEASE_TAG }}-source.cdx.json
