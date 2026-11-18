@@ -35,7 +35,6 @@ export default defineConfig(
       "static/js/structure.js",
       "static/js/endpoint-filter.js",
       "tests/ui/",
-      "site/assets/",
     ],
   },
   eslint.configs.recommended,
