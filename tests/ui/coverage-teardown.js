@@ -1,7 +1,15 @@
-// Writes build/ui-coverage/lcov.info from every test's coverage after the run.
+// Writes coverage/ui.lcov from every test's coverage after the run.
+import { copyFileSync } from "node:fs";
 import MCR from "monocart-coverage-reports";
-import { uiCoverageEnabled, uiCoverageOptions } from "./coverage.js";
+import {
+  uiCoverageEnabled,
+  uiCoverageLcov,
+  uiCoverageOptions,
+  uiCoverageReport,
+} from "./coverage.js";
 
 export default async function teardown() {
-  if (uiCoverageEnabled) await MCR(uiCoverageOptions).generate();
+  if (!uiCoverageEnabled) return;
+  await MCR(uiCoverageOptions).generate();
+  copyFileSync(uiCoverageReport, uiCoverageLcov);
 }
