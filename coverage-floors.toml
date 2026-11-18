@@ -1,0 +1,21 @@
+# The coverage ratchet (paxel/gates coverage_ratchet.py): one part per measured package. CI
+# writes coverage/<name>.lcov and fails below the floor. Run the ratchet without --check
+# locally after a rise; it raises the floor to the measured value minus 0.1 and writes
+# .github/badges/coverage-<name>.json. Commit both with the change that earned them.
+#
+# site: the documentation site build in scripts/, measured by the site tests
+# (`npm run test:coverage` writes coverage/lcov.info, which the shared TypeScript gate copies
+# to coverage/site.lcov).
+#
+# ui: the page scripts in static/js/, measured by the Playwright UI tests with UI_COVERAGE=1
+# (tests/ui/coverage.js writes coverage/ui.lcov).
+
+[[parts]]
+name = "site"
+lcov = "coverage/site.lcov"
+floor = 97.40
+
+[[parts]]
+name = "ui"
+lcov = "coverage/ui.lcov"
+floor = 69.69
