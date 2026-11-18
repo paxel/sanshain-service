@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM rust:1.99.1-alpine AS builder
+FROM rust:1.100.0-alpine AS builder
 
 # SQLite is compiled into the binary (sqlx sqlite-bundled): no sqlite package here or below.
 RUN apk add --no-cache musl-dev openssl-dev pkgconfig
