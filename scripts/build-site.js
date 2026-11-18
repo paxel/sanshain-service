@@ -17,6 +17,59 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const REPO_URL = "https://github.com/paxel/sanshain-service";
 
+/**
+ * A page of the site, authored or generated. A generated page brings its own table of
+ * contents in `toc`; without one the build makes it from the headings.
+ * @typedef {object} Page
+ * @property {string} title
+ * @property {string} track
+ * @property {number} order
+ * @property {string} summary
+ * @property {string} url
+ * @property {string} body
+ * @property {string} [toc]
+ */
+
+/** @typedef {{ file: string, url: string, title: string, order: number, summary: string }} ContractSpec */
+/** @typedef {{ dir: string, linksFile: string, adrDir: string, url: string, order: number }} Arc42Spec */
+/** @typedef {{ level: number, id: string, text: string }} Heading */
+/** @typedef {{ title: string, url: string, order: number, summary: string | undefined }} NavPage */
+/** @typedef {{ id: string, label: string, pages: NavPage[] }[]} Nav */
+/** @typedef {{ version: string, base: string, pages: string[], latest: boolean }} VersionEntry */
+
+/**
+ * What every rendered page needs beside its own content.
+ * @typedef {object} RenderContext
+ * @property {Nav} nav
+ * @property {string} version
+ * @property {VersionEntry[]} [versions]
+ * @property {string | null} [tag]
+ */
+
+/**
+ * @typedef {object} CollectOptions
+ * @property {string} [srcDir]
+ * @property {ContractSpec[]} [contracts]
+ * @property {Arc42Spec | null} [arc42]
+ * @property {string} [evidenceDir]
+ */
+
+/**
+ * @typedef {object} BuildOptions
+ * @property {string} [srcDir]
+ * @property {string} [outDir]
+ * @property {string} [version]
+ * @property {string | undefined} [base]
+ * @property {ContractSpec[]} [contracts]
+ * @property {Arc42Spec | null} [arc42]
+ * @property {string} [evidenceDir]
+ * @property {string} [assetsDir]
+ * @property {Page[] | null} [pages]
+ * @property {string | null} [tag]
+ * @property {VersionEntry[]} [versions]
+ * @property {Set<string>} [knownTargets]
+ */
+
 export const TRACKS = [
   { id: "start", label: "Start" },
   { id: "developer", label: "Developer" },
@@ -30,6 +83,10 @@ const FRONT_MATTER_KEYS = ["title", "track", "order", "summary"];
 // written to the output only; the framing prose is the authored
 // site/reference/api-usage.html. `repoRoot` is the tree the contracts are read
 // from: the working tree, or an extracted release tag (build-site-all.js).
+/**
+ * @param {string} [repoRoot]
+ * @returns {ContractSpec[]}
+ */
 export function defaultContracts(repoRoot = REPO_ROOT) {
   return [
     {
@@ -53,6 +110,10 @@ export function defaultContracts(repoRoot = REPO_ROOT) {
 
 // The arc42 Architecture page (issue #55), built from the whiteboxed export
 // and the link map; written to the output only.
+/**
+ * @param {string} [repoRoot]
+ * @returns {Arc42Spec}
+ */
 export function defaultArc42(repoRoot = REPO_ROOT) {
   return {
     dir: path.join(repoRoot, "docs/arc42"),
@@ -66,9 +127,13 @@ export function defaultArc42(repoRoot = REPO_ROOT) {
 export const DEFAULT_CONTRACTS = defaultContracts();
 export const DEFAULT_ARC42 = defaultArc42();
 
-/** The changelog of the sources a build was made from: the release tag's, or summer's for an untagged working tree. */
+/**
+ * The changelog of the sources a build was made from: the release tag's, or summer's for an untagged working tree.
+ * @param {string | null} tag
+ * @returns {string}
+ */
 export function changelogUrl(tag) {
-  return `${REPO_URL}/blob/${tag || "summer"}/CHANGELOG.md`;
+  return `${REPO_URL}/blob/${(tag ?? "") || "summer"}/CHANGELOG.md`;
 }
 
 const FONTS_HREF =
@@ -87,6 +152,7 @@ const SUN_MARK =
 
 export { escapeHtml };
 
+/** @type {Record<string, string>} */
 const NAMED_ENTITIES = {
   lt: "<",
   gt: ">",
@@ -105,12 +171,18 @@ const NAMED_ENTITIES = {
   raquo: "»",
 };
 
-/** Decodes numeric and the named entities the pages use; `&amp;` last so `&amp;lt;` stays `&lt;`. */
+/**
+ * Decodes numeric and the named entities the pages use; `&amp;` last so `&amp;lt;` stays `&lt;`.
+ * @param {string} text
+ * @returns {string}
+ */
 export function decodeEntities(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
-    .replace(/&([a-z]+);/gi, (whole, name) =>
+    .replace(/&#x([0-9a-f]+);/gi, (_, /** @type {string} */ hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, /** @type {string} */ dec) => String.fromCodePoint(Number(dec)))
+    .replace(/&([a-z]+);/gi, (whole, /** @type {string} */ name) =>
       name === "amp" ? whole : (NAMED_ENTITIES[name] ?? whole),
     )
     .replace(/&amp;/g, "&");
@@ -121,6 +193,8 @@ const INLINE_TAG = /^<\/?(a|code|em|strong|kbd|span|b|i|abbr|sup|sub|mark|small|
 /**
  * Text of an HTML fragment: inline tags vanish, block tags become a space, entities are decoded.
  * Repeated until nothing changes: removing one tag can join the pieces around it into another.
+ * @param {string} html
+ * @returns {string}
  */
 export function stripTags(html) {
   let text = html;
@@ -132,6 +206,10 @@ export function stripTags(html) {
   return decodeEntities(text).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 export function slugify(text) {
   const slug = stripTags(text)
     .toLowerCase()
@@ -141,29 +219,44 @@ export function slugify(text) {
   return slug || "section";
 }
 
+/**
+ * @param {string} cargoToml
+ * @returns {string}
+ */
 export function readVersion(cargoToml) {
   const match = /^version\s*=\s*"([^"]+)"/m.exec(cargoToml);
   if (!match) throw new Error("Cargo.toml: no package version found");
-  return match[1];
+  return /** @type {string} */ (match[1]);
 }
 
+/**
+ * @param {string} html
+ * @returns {Set<string>}
+ */
 function collectIds(html) {
+  /** @type {Set<string>} */
   const ids = new Set();
   const re = /\sid\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>"']+))/g;
   let m;
-  while ((m = re.exec(html)) !== null) ids.add(m[1] ?? m[2] ?? m[3]);
+  while ((m = re.exec(html)) !== null) ids.add(/** @type {string} */ (m[1] ?? m[2] ?? m[3]));
   return ids;
 }
 
 // ---------------------------------------------------------------------------
 // Front matter: <!-- page: title="…" track="start" order=1 summary="…" -->
 
+/**
+ * @param {string} source
+ * @param {string} [file]
+ * @returns {{ meta: { title: string, track: string, order: number, summary: string }, body: string }}
+ */
 export function parseFrontMatter(source, file = "page") {
   const match = /^\s*<!--\s*page:([\s\S]*?)-->/.exec(source);
   if (!match) throw new Error(`${file}: missing front matter (<!-- page: … -->)`);
+  /** @type {Record<string, string>} */
   const meta = {};
   const pair = /^([a-z]+)\s*=\s*(?:"([^"]*)"|([^\s"]+))(?:\s+|$)/;
-  let rest = match[1].trim();
+  let rest = /** @type {string} */ (match[1]).trim();
   while (rest.length) {
     const m = pair.exec(rest);
     if (!m) {
@@ -172,10 +265,11 @@ export function parseFrontMatter(source, file = "page") {
           `pairs; a bare value is a single token, values with spaces must be quoted`,
       );
     }
-    if (!FRONT_MATTER_KEYS.includes(m[1])) {
-      throw new Error(`${file}: unknown front-matter key "${m[1]}"`);
+    const key = /** @type {string} */ (m[1]);
+    if (!FRONT_MATTER_KEYS.includes(key)) {
+      throw new Error(`${file}: unknown front-matter key "${key}"`);
     }
-    meta[m[1]] = m[2] !== undefined ? m[2] : m[3];
+    meta[key] = /** @type {string} */ (m[2] ?? m[3]);
     rest = rest.slice(m[0].length);
   }
   if (!meta.title) throw new Error(`${file}: front matter has no title`);
@@ -183,9 +277,10 @@ export function parseFrontMatter(source, file = "page") {
     throw new Error(`${file}: unknown track "${meta.track}"`);
   }
   const order = meta.order === undefined ? 0 : Number(meta.order);
-  if (Number.isNaN(order)) throw new Error(`${file}: order "${meta.order}" is not a number`);
+  if (Number.isNaN(order))
+    throw new Error(`${file}: order "${String(meta.order)}" is not a number`);
   return {
-    meta: { title: meta.title, track: meta.track || "", order, summary: meta.summary || "" },
+    meta: { title: meta.title, track: meta.track ?? "", order, summary: meta.summary ?? "" },
     body: source.slice(match[0].length).trim(),
   };
 }
@@ -195,23 +290,35 @@ export function parseFrontMatter(source, file = "page") {
 // One pass over the h2/h3 matches feeds the rendered HTML, the TOC and the
 // index sections, so they can never disagree about what a heading is.
 
+/**
+ * @param {string} body
+ * @returns {{ html: string, headings: Heading[], intro: string, sections: string[] }}
+ */
 export function processHeadings(body) {
+  /** @typedef {{ start: number, end: number, html: string }} HeadingMatch */
   const used = collectIds(body); // authored ids on any element are never rewritten
+  /** @type {Set<string>} */
   const emitted = new Set();
+  /** @type {Heading[]} */
   const headings = [];
+  /** @type {HeadingMatch[]} */
   const matches = [];
   const re = /<(h[23])(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
   let m;
   while ((m = re.exec(body)) !== null) {
-    const [whole, tag, attrs = "", inner] = m;
+    const [whole, tagName, attrs = "", innerHtml] = m;
+    const tag = /** @type {string} */ (tagName);
+    const inner = /** @type {string} */ (innerHtml);
     const text = stripTags(inner);
     const authored = /\sid\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/.exec(attrs);
-    const base = authored ? (authored[1] ?? authored[2] ?? authored[3]) : slugify(text);
+    const base = authored
+      ? /** @type {string} */ (authored[1] ?? authored[2] ?? authored[3])
+      : slugify(text);
     let id = base;
     let n = 1;
     // An authored id keeps its name unless an earlier heading already emitted
     // it; a generated id must not collide with any id in the page.
-    while (authored ? emitted.has(id) : used.has(id)) id = `${base}-${++n}`;
+    while (authored ? emitted.has(id) : used.has(id)) id = `${base}-${String(++n)}`;
     emitted.add(id);
     used.add(id);
     headings.push({ level: Number(tag[1]), id, text });
@@ -227,15 +334,20 @@ export function processHeadings(body) {
   }
   let html = "";
   let cursor = 0;
+  /** @type {string[]} */
   const sections = [];
   for (let i = 0; i < matches.length; i++) {
-    html += body.slice(cursor, matches[i].start) + matches[i].html;
-    cursor = matches[i].end;
-    const next = i + 1 < matches.length ? matches[i + 1].start : body.length;
+    const match = /** @type {HeadingMatch} */ (matches[i]);
+    html += body.slice(cursor, match.start) + match.html;
+    cursor = match.end;
+    const next =
+      i + 1 < matches.length ? /** @type {HeadingMatch} */ (matches[i + 1]).start : body.length;
     sections.push(stripTags(body.slice(cursor, next)));
   }
   html += body.slice(cursor);
-  const intro = stripTags(body.slice(0, matches.length ? matches[0].start : body.length));
+  const intro = stripTags(
+    body.slice(0, matches.length ? /** @type {HeadingMatch} */ (matches[0]).start : body.length),
+  );
   return { html, headings, intro, sections };
 }
 
@@ -247,9 +359,16 @@ export function processHeadings(body) {
 
 const EVIDENCE_BLOCK = /<pre(\s[^>]*?)?\sdata-evidence\s*=\s*"([^"]+)"([^>]*)>([\s\S]*?)<\/pre>/g;
 
-/** Fills every evidence block of a page body from evidenceDir; throws, naming page and file, when one is missing. */
+/**
+ * Fills every evidence block of a page body from evidenceDir; throws, naming page and file, when one is missing.
+ * @param {string} body
+ * @param {string} evidenceDir
+ * @param {string} [pageUrl]
+ * @returns {string}
+ */
 export function inlineEvidence(body, evidenceDir, pageUrl = "page") {
-  return body.replace(EVIDENCE_BLOCK, (whole, before = "", name, after) => {
+  /** @type {(whole: string, before: string | undefined, name: string, after: string) => string} */
+  const fill = (whole, before = "", name, after) => {
     if (name.split("/").some((part) => part === "" || part === "." || part === "..")) {
       throw new Error(`${pageUrl}: evidence name "${name}" must be a plain relative path`);
     }
@@ -263,14 +382,21 @@ export function inlineEvidence(body, evidenceDir, pageUrl = "page") {
     const text = fs.readFileSync(file, "utf8").trimEnd();
     if (!text) throw new Error(`${pageUrl}: evidence file "${name}" is empty (${file})`);
     return `<pre${before} data-evidence="${name}"${after}><code>${escapeHtml(text)}</code></pre>`;
-  });
+  };
+  return body.replace(EVIDENCE_BLOCK, fill);
 }
 
 // ---------------------------------------------------------------------------
 // Pages, nav and search index
 
+/**
+ * @param {string} srcDir
+ * @returns {Page[]}
+ */
 export function loadPages(srcDir) {
+  /** @type {Page[]} */
   const pages = [];
+  /** @type {(dir: string) => void} */
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -287,15 +413,24 @@ export function loadPages(srcDir) {
   return sortPages(pages);
 }
 
-/** Landing page first, then tracks in order, then page order: the search index inherits this order and uses it to break ranking ties. */
+/**
+ * Landing page first, then tracks in order, then page order: the search index inherits this order and uses it to break ranking ties.
+ * @template {Pick<Page, "track" | "order" | "url">} T
+ * @param {T[]} pages
+ * @returns {T[]}
+ */
 export function sortPages(pages) {
-  const trackNo = (id) => (id ? TRACKS.findIndex((t) => t.id === id) : -1);
+  const trackNo = (/** @type {string} */ id) => (id ? TRACKS.findIndex((t) => t.id === id) : -1);
   return pages.sort(
     (a, b) =>
       trackNo(a.track) - trackNo(b.track) || a.order - b.order || a.url.localeCompare(b.url),
   );
 }
 
+/**
+ * @param {(Pick<Page, "title" | "track" | "order" | "url"> & { summary?: string })[]} pages
+ * @returns {Nav}
+ */
 export function buildNav(pages) {
   return TRACKS.map((track) => ({
     ...track,
@@ -313,8 +448,12 @@ export const GENERATED_DIAGRAM = /<figure class="arc42-diagram"[^>]*>[\s\S]*?<\/
 /** Recorded evidence is an HTTP dump or a transcript: the step's prose says what it shows. */
 export const GENERATED_EVIDENCE = /<pre[^>]*\sdata-evidence=[^>]*>[\s\S]*?<\/pre>/g;
 
+/**
+ * @param {(Pick<Page, "title" | "track" | "summary" | "url" | "body"> & { order?: number })[]} pages
+ * @returns {{ title: string, track: string, url: string, summary: string, intro: string, headings: { id: string, text: string, body: string }[] }[]}
+ */
 export function buildIndex(pages) {
-  const trackLabel = (id) => TRACKS.find((t) => t.id === id)?.label || "";
+  const trackLabel = (/** @type {string} */ id) => TRACKS.find((t) => t.id === id)?.label ?? "";
   return pages.map((page) => {
     const { headings, intro, sections } = processHeadings(
       page.body
@@ -328,7 +467,7 @@ export function buildIndex(pages) {
       url: page.url,
       summary: page.summary,
       intro,
-      headings: headings.map((h, i) => ({ id: h.id, text: h.text, body: sections[i] || "" })),
+      headings: headings.map((h, i) => ({ id: h.id, text: h.text, body: sections[i] ?? "" })),
     };
   });
 }
@@ -336,13 +475,23 @@ export function buildIndex(pages) {
 // ---------------------------------------------------------------------------
 // Rendering
 
+/**
+ * @param {string} url
+ * @returns {string}
+ */
 function relPrefix(url) {
   const depth = url.split("/").length - 1;
   return depth === 0 ? "" : "../".repeat(depth);
 }
 
+/**
+ * @param {Nav} nav
+ * @param {string} currentUrl
+ * @param {string} rel
+ * @returns {string}
+ */
 function renderNav(nav, currentUrl, rel) {
-  const link = (p) =>
+  const link = (/** @type {NavPage} */ p) =>
     `<li><a href="${rel}${p.url}"${p.url === currentUrl ? ' aria-current="page"' : ""}>${escapeHtml(p.title)}</a></li>`;
   const home = `<a class="nav-home" href="${rel}index.html"${currentUrl === "index.html" ? ' aria-current="page"' : ""}>Overview</a>`;
   const tracks = nav
@@ -358,10 +507,17 @@ function renderNav(nav, currentUrl, rel) {
   return home + tracks;
 }
 
+/**
+ * @param {Heading[]} headings
+ * @returns {string}
+ */
 function renderToc(headings) {
   if (!headings.length) return "";
   const items = headings
-    .map((h) => `<li class="toc-l${h.level}"><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`)
+    .map(
+      (h) =>
+        `<li class="toc-l${String(h.level)}"><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`,
+    )
     .join("");
   return `<aside class="toc" aria-label="Table of contents">\n<p class="eyebrow">On this page</p><ol>${items}</ol>\n</aside>\n`;
 }
@@ -373,12 +529,23 @@ function renderToc(headings) {
 // so the menu can send a reader to the same chapter where it exists and to the
 // start page where it does not, decided here and not by a 404 at read time.
 
-/** The URL of `pageUrl` in another version of the site, or of its start page when that version lacks the chapter. */
+/**
+ * The URL of `pageUrl` in another version of the site, or of its start page when that version lacks the chapter.
+ * @param {VersionEntry} entry
+ * @param {string} pageUrl
+ * @returns {string}
+ */
 export function versionHref(entry, pageUrl) {
   const target = pageUrl && entry.pages.includes(pageUrl) ? pageUrl : "index.html";
   return `${entry.base}${target}`;
 }
 
+/**
+ * @param {string} version
+ * @param {VersionEntry[]} versions
+ * @param {string} currentUrl
+ * @returns {string}
+ */
 function renderVersionMenu(version, versions, currentUrl) {
   const chip = `<span class="chip" title="Sanshain Service version">v${escapeHtml(version)}</span>`;
   if (!versions.length) return chip;
@@ -396,7 +563,13 @@ function renderVersionMenu(version, versions, currentUrl) {
   );
 }
 
-/** A one-line pointer to the latest release on every page of an older one. */
+/**
+ * A one-line pointer to the latest release on every page of an older one.
+ * @param {string} version
+ * @param {VersionEntry[]} versions
+ * @param {string} currentUrl
+ * @returns {string}
+ */
 function renderVersionNotice(version, versions, currentUrl) {
   const latest = versions.find((entry) => entry.latest);
   if (!latest || latest.version === version) return "";
@@ -406,6 +579,22 @@ function renderVersionNotice(version, versions, currentUrl) {
   );
 }
 
+/**
+ * @param {object} options
+ * @param {string} options.title
+ * @param {string | undefined} options.summary
+ * @param {string} options.rel
+ * @param {string} options.root
+ * @param {Nav} options.nav
+ * @param {string} options.currentUrl
+ * @param {string} options.eyebrow
+ * @param {string} options.main
+ * @param {string} options.toc
+ * @param {string} options.version
+ * @param {VersionEntry[]} [options.versions]
+ * @param {string | null} [options.tag]
+ * @returns {string}
+ */
 function shell({
   title,
   summary,
@@ -471,6 +660,11 @@ ${toc}</div>
 `;
 }
 
+/**
+ * @param {{ title: string, url: string, body: string, track?: string, summary?: string, order?: number, toc?: string }} page
+ * @param {RenderContext} context
+ * @returns {string}
+ */
 export function renderPage(page, { nav, version, versions = [], tag = null }) {
   const rel = relPrefix(page.url);
   const { html, headings } = processHeadings(page.body);
@@ -489,13 +683,17 @@ export function renderPage(page, { nav, version, versions = [], tag = null }) {
     currentUrl: page.url,
     eyebrow: track ? track.label : "",
     main,
-    toc: page.toc !== undefined ? page.toc : renderToc(headings),
+    toc: page.toc ?? renderToc(headings),
     version,
     versions,
     tag,
   });
 }
 
+/**
+ * @param {RenderContext & { base?: string }} context
+ * @returns {string}
+ */
 export function render404({ nav, version, versions = [], tag = null, base = "/" }) {
   const main = `<h1>Page not found</h1>
 <p class="lede">There is nothing at this address. The chapter may have moved, or the link was older than the site.</p>
@@ -523,17 +721,26 @@ const ATTR_LINK = /\s(?:xlink:)?(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>
 const SRCSET = /\ssrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]+))\s*\)/g;
 
-/** Every link (href or xlink:href, also inside inline SVG, src, srcset candidates, CSS url()) in one output file. */
+/**
+ * Every link (href or xlink:href, also inside inline SVG, src, srcset candidates, CSS url()) in one output file.
+ * @param {string} file
+ * @param {string} content
+ * @returns {string[]}
+ */
 export function extractLinks(file, content) {
+  /** @type {string[]} */
   const links = [];
   if (file.endsWith(".css")) {
-    for (const m of content.matchAll(CSS_URL)) links.push((m[1] ?? m[2] ?? m[3]).trim());
+    for (const m of content.matchAll(CSS_URL)) {
+      links.push(/** @type {string} */ (m[1] ?? m[2] ?? m[3]).trim());
+    }
     return links;
   }
   if (!file.endsWith(".html")) return links;
-  for (const m of content.matchAll(ATTR_LINK)) links.push(m[1] ?? m[2] ?? m[3]);
+  for (const m of content.matchAll(ATTR_LINK))
+    links.push(/** @type {string} */ (m[1] ?? m[2] ?? m[3]));
   for (const m of content.matchAll(SRCSET)) {
-    for (const candidate of (m[1] ?? m[2]).split(",")) {
+    for (const candidate of /** @type {string} */ (m[1] ?? m[2]).split(",")) {
       const url = candidate.trim().split(/\s+/)[0];
       if (url) links.push(url);
     }
@@ -549,12 +756,15 @@ const EXTERNAL = /^(https?:|mailto:|data:|tel:)/i;
  * with the base, or name a file of another version of the site listed in
  * `knownTargets` (root-relative paths). Throws on the first broken link or
  * anchor, naming the file and the link.
+ * @param {Map<string, string>} files
+ * @param {{ base?: string, knownTargets?: Set<string> }} [options]
  */
 export function checkLinks(files, { base = "/", knownTargets = new Set() } = {}) {
+  /** @type {Map<string, Set<string>>} */
   const ids = new Map();
   for (const [file, html] of files) if (file.endsWith(".html")) ids.set(file, collectIds(html));
-  const asIndex = (target) => `${target.replace(/\/$/, "")}/index.html`;
-  const exists = (target) => files.has(target) || files.has(asIndex(target));
+  const asIndex = (/** @type {string} */ target) => `${target.replace(/\/$/, "")}/index.html`;
+  const exists = (/** @type {string} */ target) => files.has(target) || files.has(asIndex(target));
   for (const [file, content] of files) {
     for (const link of extractLinks(file, content)) {
       if (EXTERNAL.test(link)) continue;
@@ -593,6 +803,7 @@ export function checkLinks(files, { base = "/", knownTargets = new Set() } = {})
 
 // Authored pages must not use root-relative links: on GitHub Pages the site
 // lives under /<repo>/, so "/start/x.html" breaks there however it looks locally.
+/** @param {Pick<Page, "url" | "body">} page */
 function rejectRootRelativeLinks(page) {
   for (const link of extractLinks(page.url, page.body)) {
     if (link.startsWith("/")) {
@@ -607,6 +818,11 @@ function rejectRootRelativeLinks(page) {
 // ---------------------------------------------------------------------------
 // Build
 
+/**
+ * @param {string} from
+ * @param {string} to
+ * @param {string[]} files
+ */
 function copyDir(from, to, files) {
   fs.mkdirSync(to, { recursive: true });
   for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
@@ -620,12 +836,17 @@ function copyDir(from, to, files) {
   }
 }
 
+/** @type {(dir: string, parent: string) => boolean} */
 const isInside = (dir, parent) => {
   const rel = path.relative(parent, dir);
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 };
 
-/** The output folder is wiped; refuse anything that is not clearly a build output. */
+/**
+ * The output folder is wiped; refuse anything that is not clearly a build output.
+ * @param {string} outDir
+ * @param {string} srcDir
+ */
 function guardOutDir(outDir, srcDir) {
   const tmp = fs.realpathSync(os.tmpdir());
   const out = path.resolve(outDir);
@@ -644,6 +865,8 @@ function guardOutDir(outDir, srcDir) {
  * Every page of one version of the site, authored and generated, in nav order
  * and checked: the list a build renders, and what build-site-all.js reads
  * ahead of rendering so the version menu knows which chapters exist where.
+ * @param {CollectOptions} [options]
+ * @returns {Page[]}
  */
 export function collectPages({
   srcDir = path.join(REPO_ROOT, "site"),
@@ -682,6 +905,8 @@ export function collectPages({
  * lists the root-relative paths of the other versions the menu links to.
  * Assets (CSS, JS, icons) come from `assetsDir`, which may belong to a newer
  * tree than the pages: the menu and notice need today's styles.
+ * @param {BuildOptions} [options]
+ * @returns {{ pages: number, outDir: string, version: string }}
  */
 export function buildSite({
   srcDir = path.join(REPO_ROOT, "site"),
@@ -701,17 +926,19 @@ export function buildSite({
     throw new Error(`--base must start and end with "/": got "${base}"`);
   }
   guardOutDir(outDir, srcDir);
-  if (!pages) pages = collectPages({ srcDir, contracts, arc42, evidenceDir });
+  pages ??= collectPages({ srcDir, contracts, arc42, evidenceDir });
   const nav = buildNav(pages);
   const ctx = { nav, version, base, versions, tag };
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
 
+  /** @type {Map<string, string>} */
   const files = new Map();
   for (const page of pages) files.set(page.url, renderPage(page, ctx));
   files.set("404.html", render404(ctx));
 
+  /** @type {string[]} */
   const copied = [];
   if (fs.existsSync(assetsDir)) copyDir(assetsDir, path.join(outDir, "assets"), copied);
   for (const file of copied) {
@@ -720,6 +947,7 @@ export function buildSite({
   }
   // The screenshots of the recorded walkthroughs are linked as images; the
   // text files are inlined above and copied too, so a reader can open them raw.
+  /** @type {string[]} */
   const evidenceOut = [];
   if (fs.existsSync(evidenceDir)) copyDir(evidenceDir, path.join(outDir, "evidence"), evidenceOut);
   for (const file of evidenceOut) {
@@ -746,6 +974,7 @@ export function buildSite({
 // ---------------------------------------------------------------------------
 // Preview server
 
+/** @type {Record<string, string>} */
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -759,7 +988,12 @@ const MIME = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-/** Resolves a request path to a file under root, or null when it escapes or is missing. */
+/**
+ * Resolves a request path to a file under root, or null when it escapes or is missing.
+ * @param {string} root
+ * @param {string} urlPath
+ * @returns {string | null}
+ */
 export function resolveRequest(root, urlPath) {
   let decoded;
   try {
@@ -774,10 +1008,16 @@ export function resolveRequest(root, urlPath) {
   return fs.existsSync(file) ? file : null;
 }
 
+/**
+ * @param {string} outDir
+ * @param {number} port
+ * @param {string} [host]
+ * @returns {http.Server}
+ */
 export function serve(outDir, port, host = "127.0.0.1") {
   const root = path.resolve(outDir);
   const server = http.createServer((req, res) => {
-    const urlPath = new URL(req.url, "http://localhost").pathname;
+    const urlPath = new URL(/** @type {string} */ (req.url), "http://localhost").pathname;
     let file = resolveRequest(root, urlPath);
     let status = 200;
     if (!file) {
@@ -785,13 +1025,13 @@ export function serve(outDir, port, host = "127.0.0.1") {
       status = 404;
     }
     res.writeHead(status, {
-      "content-type": MIME[path.extname(file)] || "application/octet-stream",
+      "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
     });
     fs.createReadStream(file).pipe(res);
   });
   server.listen(port, host, () => {
-    const { port: bound } = server.address();
-    console.log(`Serving ${root} at http://${host}:${bound}/ (Ctrl+C to stop)`);
+    const { port: bound } = /** @type {import("node:net").AddressInfo} */ (server.address());
+    console.log(`Serving ${root} at http://${host}:${String(bound)}/ (Ctrl+C to stop)`);
   });
   return server;
 }
@@ -799,17 +1039,22 @@ export function serve(outDir, port, host = "127.0.0.1") {
 // ---------------------------------------------------------------------------
 // CLI
 
+/**
+ * @param {string[]} argv
+ * @returns {{ serve: boolean, port: number, srcDir?: string, outDir?: string, base?: string | undefined }}
+ */
 function parseArgs(argv) {
+  /** @type {ReturnType<typeof parseArgs>} */
   const opts = { serve: false, port: 8080 };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--serve") {
       opts.serve = true;
-      if (/^\d+$/.test(argv[i + 1] || "")) opts.port = Number(argv[++i]);
-    } else if (arg === "--src") opts.srcDir = path.resolve(argv[++i]);
-    else if (arg === "--out") opts.outDir = path.resolve(argv[++i]);
+      if (/^\d+$/.test(argv[i + 1] ?? "")) opts.port = Number(argv[++i]);
+    } else if (arg === "--src") opts.srcDir = path.resolve(/** @type {string} */ (argv[++i]));
+    else if (arg === "--out") opts.outDir = path.resolve(/** @type {string} */ (argv[++i]));
     else if (arg === "--base") opts.base = argv[++i];
-    else throw new Error(`Unknown argument: ${arg}`);
+    else throw new Error(`Unknown argument: ${String(arg)}`);
   }
   return opts;
 }
@@ -819,10 +1064,10 @@ if (isMain) {
   try {
     const opts = parseArgs(process.argv.slice(2));
     const result = buildSite(opts);
-    console.log(`Built ${result.pages} pages (v${result.version}) into ${result.outDir}`);
+    console.log(`Built ${String(result.pages)} pages (v${result.version}) into ${result.outDir}`);
     if (opts.serve) serve(result.outDir, opts.port);
   } catch (err) {
-    console.error(`build-site: ${err.message}`);
+    console.error(`build-site: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
 }

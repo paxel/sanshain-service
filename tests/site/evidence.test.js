@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildIndex, buildSite, inlineEvidence } from "../../scripts/build-site.js";
 
+/** @type {string} */
 let tmp;
 
 before(() => {
@@ -18,6 +19,10 @@ after(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+/**
+ * @param {string} dir
+ * @param {Record<string, string>} files
+ */
 function writeFiles(dir, files) {
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel);
@@ -28,7 +33,7 @@ function writeFiles(dir, files) {
 
 const EXCHANGE = 'POST /provide HTTP/1.1\nContent-Type: application/json\n\n{"a":"<b>"}\n\n';
 
-test("inlineEvidence fills the block with the escaped file text and keeps the attribute", () => {
+void test("inlineEvidence fills the block with the escaped file text and keeps the attribute", () => {
   const dir = path.join(tmp, "ev1");
   writeFiles(dir, { "developer/03-provide.http": EXCHANGE });
   const out = inlineEvidence(
@@ -44,7 +49,7 @@ test("inlineEvidence fills the block with the escaped file text and keeps the at
   );
 });
 
-test("inlineEvidence fails by page and file name when the file is missing", () => {
+void test("inlineEvidence fails by page and file name when the file is missing", () => {
   const dir = path.join(tmp, "ev2");
   fs.mkdirSync(dir, { recursive: true });
   assert.throws(
@@ -54,7 +59,7 @@ test("inlineEvidence fails by page and file name when the file is missing", () =
   );
 });
 
-test("inlineEvidence fails on an empty evidence file", () => {
+void test("inlineEvidence fails on an empty evidence file", () => {
   const dir = path.join(tmp, "ev-empty");
   writeFiles(dir, { "operator/10-metrics.txt": "   \n" });
   assert.throws(
@@ -64,7 +69,7 @@ test("inlineEvidence fails on an empty evidence file", () => {
   );
 });
 
-test("inlineEvidence refuses a name that leaves the evidence folder", () => {
+void test("inlineEvidence refuses a name that leaves the evidence folder", () => {
   const dir = path.join(tmp, "ev3");
   fs.mkdirSync(dir, { recursive: true });
   assert.throws(
@@ -73,14 +78,14 @@ test("inlineEvidence refuses a name that leaves the evidence folder", () => {
   );
 });
 
-test("the search index does not carry evidence text", () => {
+void test("the search index does not carry evidence text", () => {
   const body =
     '<h2>Step</h2><pre data-evidence="d/a.http"><code>SECRET-DUMP</code></pre><p>prose</p>';
   const index = buildIndex([{ title: "S", track: "developer", url: "s.html", summary: "", body }]);
-  assert.equal(index[0].headings[0].body, "prose");
+  assert.equal(index[0]?.headings[0]?.body, "prose");
 });
 
-test("a site build inlines evidence, copies the folder, and fails on a missing file", () => {
+void test("a site build inlines evidence, copies the folder, and fails on a missing file", () => {
   const src = path.join(tmp, "site");
   writeFiles(src, {
     "index.html": '<!-- page: title="Home" -->\n<p>Home</p>',
