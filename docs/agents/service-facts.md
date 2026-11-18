@@ -328,9 +328,12 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   (prettier, eslint, tsc, site tests), SonarQube Cloud on pull requests and `summer`; the
   service's own jobs: `scripts/itest.sh` against a started service, the stylesheet drift check
   and the UI tests. Coverage floors in `coverage-floors.toml` (parts `rust`, `site`, `ui`).
-  `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
-  (weekly: the two audits, grype on the released image),
+  `codeql.yml` (rust, javascript-typescript, actions; `.github/codeql.yml` keeps vendored bundles,
+  built output, `tests` and `benches` out), `security.yml` (weekly: gates' release gate, strict,
+  which fails on open alerts, SonarQube Cloud findings, secret alerts, advisories, unmaintained
+  dependencies and licences; the service's own grype scan of the released image). Findings that
+  stay are accepted in `code-scanning-ignores.toml` with reason and date, never dismissed.
   `pages.yml` (site), `release.yml`, `scorecard.yml`
-  (OpenSSF Scorecard on `summer`, publishes the README badge), `fuzz.yml` (weekly `cargo fuzz` of the
+  (OpenSSF Scorecard on `summer`, gates' template unchanged, publishes the README badge), `fuzz.yml` (weekly `cargo fuzz` of the
   five parsers; targets, seeds and saved crashes in `fuzz/`, see `fuzz/README.md`).
 - Branches: `summer` is main; release branches `release/X.Y`.
