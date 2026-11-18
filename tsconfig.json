@@ -24,8 +24,7 @@
     "static/js/audit.js",
     "static/js/structure.js",
     "static/js/endpoint-filter.js",
-    "tests/ui",
-    "site/assets"
+    "tests/ui"
   ],
   "include": [
     "types",
