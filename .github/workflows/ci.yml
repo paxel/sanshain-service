@@ -1,23 +1,21 @@
 name: CI
 
+# The service's gates. The standard's part comes from paxel/gates: the OSV gate, the Rust gate
+# (format, lint set, clippy, tests, coverage ratchet), the TypeScript gate for the JavaScript
+# (prettier, eslint, tsc, the site tests, coverage ratchet) and SonarQube Cloud. The run
+# against a started service, the stylesheet check and the UI tests are the service's own
+# (docs/adr/0012-move-to-gates.md).
+# A branch gets its run through its pull request; a run per push as well would be the same
+# jobs twice, and SonarQube Cloud analyses only the default branch and pull requests.
 on:
-  # Pushes only to summer, which takes nothing but PR merges. Every other branch
-  # is tested by its PR run, which tests the merge of the branch into its base:
-  # with up-to-date branches required, that is the tree the merge puts on
-  # summer. Summer's run after the merge feeds the Sonar job and the badges.
   push:
     branches: [summer]
   pull_request:
-    branches: ["**"]
 
-# A newer push or PR update cancels the older run of the same branch. The
-# group names the bare branch: head_ref is bare on PR events, ref_name (not
-# ref, which is refs/heads/…) on pushes.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
-# The token only reads the code: no job writes to the repository.
 permissions:
   contents: read
 
@@ -25,52 +23,157 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  # Known vulnerabilities and licences of every dependency in Cargo.lock, fuzz/Cargo.lock and
+  # package-lock.json: osv-scanner decided by gates' osv_gate.py. What is accepted stands in
+  # the osv-scanner.toml beside each lockfile.
+  vulns:
+    uses: paxel/gates/.github/workflows/vulns.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+
+  rust:
+    uses: paxel/gates/.github/workflows/rust.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    with:
+      # The PostgreSQL tests start their database through testcontainers; the script pulls
+      # the image once before the test binaries ask for it at the same moment.
+      test-wrapper: scripts/ci-test.sh
+      # Every test target takes part: the unit tests in src/ and all of tests/, the
+      # PostgreSQL tests included. What is measured and what is left out stands in
+      # coverage-floors.toml.
+      coverage: rust --workspace
+
+  # The JavaScript is plain JavaScript, type-checked by tsc (checkJs). The part is named
+  # site: the gate's tests are the site tests, which measure the site build in scripts/.
+  ts:
+    uses: paxel/gates/.github/workflows/ts.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    with:
+      packages: site .
+
+  # scripts/itest.sh speaks to a started service over HTTP, as a Producer's and a Consumer's
+  # build would: the one check of the binary as it runs, with its migrations and its router.
+  integration:
+    name: Integration tests against a started service
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # Keep in sync with rust-toolchain.toml; toolchain bumps are deliberate, separate PRs.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@9522411a9bce8484da960823fc2f46e52f981f71 # 1.100.0 branch
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-
-      - name: Build
-        run: cargo build --locked --verbose
-
-      # Testcontainers tests pull this image on demand; concurrent in-test pulls
-      # are flaky ("bytes remaining on stream"), so fetch it once up front.
-      # Tag must match POSTGRES_IMAGE in tests/common/mod.rs.
-      - name: Pre-pull testcontainers images
-        run: for i in 1 2 3; do docker pull postgres:11-alpine && break || sleep 5; done
-
-      - name: Run tests
-        run: cargo test --verbose
-
-  # The same audits as the weekly Security workflow, with the same job names, so
-  # a pull request that brings in a vulnerable dependency is stopped before the
-  # merge. Ignores live in .cargo/audit.toml. The image scan stays weekly only:
-  # it scans the released image, which a pull request does not change.
-  cargo-audit:
-    name: Vulnerable crates (cargo audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
         with:
-          tool: cargo-audit
-      - name: cargo audit
-        run: cargo audit
+          persist-credentials: false
+      # rust-toolchain.toml is the only source of the version; rustup installs it.
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build the service
+        run: cargo build --locked
+      - name: Integration tests
+        env:
+          INITIAL_ADMIN_PASSWORD: root_password
+          INITIAL_AUTH_MODE: local
+        run: |
+          cargo run --locked &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          READY=0
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/health | grep -q "OK"; then
+              echo "Service is up!"
+              READY=1
+              break
+            fi
+            echo "Waiting for service... ($i)"
+            sleep 2
+          done
+          if [ "$READY" -eq 0 ]; then
+            echo "Service failed to start"
+            exit 1
+          fi
+          ./scripts/itest.sh http://localhost:3000 root_password
 
-  npm-audit:
-    name: Vulnerable npm packages (npm audit)
-    runs-on: ubuntu-latest
+  # The Tailwind CSS is a committed artifact (the service serves static/ as it is); the build
+  # must not differ from what is committed.
+  stylesheet:
+    name: Committed stylesheet is the built one
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
-      - name: npm audit
-        run: npm audit
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build:css && git diff --exit-code static/css/app.css
+
+  # The Playwright tests drive the pages of a started service in Chromium. They also measure
+  # the page scripts in static/js/ (UI_COVERAGE, tests/ui/coverage.js writes coverage/ui.lcov):
+  # the ui part of coverage-floors.toml, which no shared gate can measure, so the ratchet
+  # runs here.
+  ui:
+    name: UI tests and the ui coverage floor
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Without --with-deps: the runner image has Chrome's system libraries already,
+      # and the apt install of them failed the job whenever the Ubuntu mirrors
+      # could not be reached.
+      - name: Install Playwright browser
+        run: ./node_modules/.bin/playwright install chromium
+      - name: Build the service
+        run: cargo build --locked
+      - name: UI tests
+        env:
+          INITIAL_ADMIN_PASSWORD: root_password
+          INITIAL_AUTH_MODE: local
+          UI_COVERAGE: "1"
+        run: |
+          cargo run --locked &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          READY=0
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/health | grep -q "OK"; then
+              echo "Service is up!"
+              READY=1
+              break
+            fi
+            echo "Waiting for service... ($i)"
+            sleep 2
+          done
+          if [ "$READY" -eq 0 ]; then
+            echo "Service failed to start"
+            exit 1
+          fi
+          ./node_modules/.bin/playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js tests/ui/service_account.test.js tests/ui/graph_layout.test.js tests/ui/graph_timeline.test.js tests/ui/site_chrome.test.js tests/ui/observability_logs.test.js
+      - name: The ui part holds its floor
+        uses: paxel/gates/actions/ratchet@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+        with:
+          parts: ui
+      - name: Keep the coverage for SonarQube Cloud
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-ui
+          path: coverage/ui.lcov
+          if-no-files-found: error
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # After the three jobs that measure: it reads coverage/rust.lcov, coverage/site.lcov and
+  # coverage/ui.lcov from their artifacts (sonar-project.properties).
+  sonar:
+    needs: [rust, ts, ui]
+    uses: paxel/gates/.github/workflows/sonar.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    secrets:
+      sonar-token: ${{ secrets.SQ_TOKEN }}

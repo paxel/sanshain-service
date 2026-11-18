@@ -319,12 +319,17 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   JS); header/nav/footer from `static/js/site-chrome.js`; Tailwind built to `static/css/app.css`
   (committed). Askama templates `templates/` (landing, dashboard).
 - Tests: Rust in `tests/*.rs` (Postgres via testcontainers), UI Playwright in `tests/ui/` (import
-  `test` from `tests/ui/fixtures.js`; CI runs the files listed in `.github/workflows/quality.yml`),
+  `test` from `tests/ui/fixtures.js`; CI runs the files listed in the `ui` job of `.github/workflows/ci.yml`),
   site in `tests/site/`. `scripts/itest.sh` against a running service.
-- CI: `ci.yml` (build, tests, cargo audit, npm audit), `quality.yml` (fmt, clippy, tests,
-  tarpaulin floor, UI; its `sonar` job runs SonarQube Cloud on pushes to `summer`), `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
-  (weekly: the two audits, grype on the released image; accepted advisories and licence
-  exceptions in `osv-scanner.toml` and `fuzz/osv-scanner.toml`, one beside each lockfile),
+- CI: the workflows call the shared workflows of paxel/gates, pinned by commit. `ci.yml`: the
+  OSV gate (accepted advisories and licence exceptions in `osv-scanner.toml` and
+  `fuzz/osv-scanner.toml`, one beside each lockfile), the Rust gate (fmt, lint set, both clippy
+  runs, tests and tarpaulin under `scripts/ci-test.sh`), the TypeScript gate for the JavaScript
+  (prettier, eslint, tsc, site tests), SonarQube Cloud on pull requests and `summer`; the
+  service's own jobs: `scripts/itest.sh` against a started service, the stylesheet drift check
+  and the UI tests. Coverage floors in `coverage-floors.toml` (parts `rust`, `site`, `ui`).
+  `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
+  (weekly: the two audits, grype on the released image),
   `pages.yml` (site), `release.yml`, `scorecard.yml`
   (OpenSSF Scorecard on `summer`, publishes the README badge), `fuzz.yml` (weekly `cargo fuzz` of the
   five parsers; targets, seeds and saved crashes in `fuzz/`, see `fuzz/README.md`).
