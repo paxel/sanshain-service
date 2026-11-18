@@ -3,6 +3,52 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What common.js calls when the session ended, and what the controls of the page name in their
+// data-click attributes.
+/* exported onSessionExpired, toggleDebug, copyLogs, downloadLogs, exportAuditLogs */
+
+/**
+ * `SystemStats` in `src/domain/models.rs`: `GET /admin/observability/stats`.
+ * @typedef {object} ObservabilityStats
+ * @property {number} [cpu_usage]
+ * @property {number} [memory_used]
+ * @property {number} [memory_total]
+ * @property {number} [process_uptime]
+ * @property {number} [requests_total]
+ * @property {number} [failures_total]
+ */
+
+/**
+ * `DebugConfig` in `src/domain/models.rs`.
+ * @typedef {object} ObservabilityDebugConfig
+ * @property {boolean} business_logic_debug
+ * @property {boolean} admin_user_debug
+ */
+
+/**
+ * `LogEntry` in `src/domain/models.rs`.
+ * @typedef {object} ObservabilityLogEntry
+ * @property {string} timestamp
+ * @property {string} level
+ * @property {string} target
+ * @property {string} message
+ * @property {string | null} [service]
+ * @property {string | null} [version]
+ */
+
+/** @typedef {"errors" | "warnings" | "infos" | "debugs"} ObservabilityLogLevel */
+
+/**
+ * `AuditLogEntry` in `src/domain/models.rs`, as far as the panel reads it.
+ * @typedef {object} ObservabilityAuditEntry
+ * @property {number} id
+ * @property {string} timestamp
+ * @property {string} username
+ * @property {string} action
+ * @property {string} details
+ * @property {string | null} [action_type]
+ */
+
 let isAdmin = false;
 
 function onSessionExpired() {
@@ -17,30 +63,30 @@ async function checkSession() {
   try {
     const res = await apiCall("/auth/me");
     if (res.ok) {
-      const data = await res.json();
+      const data = /** @type {SanshainUser} */ (await res.json());
       // Reading logs and stats needs only `view_observability`;
       // changing the debug configuration is a settings change.
       isAdmin = hasPermission(data, "manage_settings");
-      canAudit = data.is_root || hasPermission(data, "view_audit");
+      canAudit = (data.is_root ?? false) || hasPermission(data, "view_audit");
       await renderBanner(data);
       applyAdminState();
       hideLoader();
-      void loadObservability();
+      loadObservability();
       void loadBranchCount();
     } else {
       window.location.href = "/account.html";
     }
-  } catch (_) {
+  } catch {
     window.location.href = "/account.html";
   }
 }
 
 function applyAdminState() {
-  const hint = document.getElementById("debug-admin-hint");
-  const logicBtn = document.getElementById("toggle-debug-logic");
-  const adminBtn = document.getElementById("toggle-debug-admin");
-  const logicCard = document.getElementById("debug-logic-card");
-  const adminCard = document.getElementById("debug-admin-card");
+  const hint = /** @type {HTMLElement} */ (document.getElementById("debug-admin-hint"));
+  const logicBtn = /** @type {HTMLButtonElement} */ (document.getElementById("toggle-debug-logic"));
+  const adminBtn = /** @type {HTMLButtonElement} */ (document.getElementById("toggle-debug-admin"));
+  const logicCard = /** @type {HTMLElement} */ (document.getElementById("debug-logic-card"));
+  const adminCard = /** @type {HTMLElement} */ (document.getElementById("debug-admin-card"));
 
   if (!isAdmin) {
     hint.classList.remove("hidden");
@@ -54,7 +100,7 @@ function applyAdminState() {
 }
 
 // --- Observability ---
-async function loadObservability() {
+function loadObservability() {
   void loadStats();
   void loadDebugConfig();
   void loadLogs();
@@ -71,11 +117,11 @@ async function loadBranchCount() {
   try {
     const res = await apiCall("/admin/branches");
     if (res.ok) {
-      const branches = await res.json();
-      document.getElementById("branch-count-stat").textContent =
-        `${branches.length} sanshain-branch${branches.length === 1 ? "" : "es"}`;
+      const branches = /** @type {CatalogBranch[]} */ (await res.json());
+      /** @type {HTMLElement} */ (document.getElementById("branch-count-stat")).textContent =
+        `${String(branches.length)} sanshain-branch${branches.length === 1 ? "" : "es"}`;
     }
-  } catch (_) {
+  } catch {
     /* decorative */
   }
 }
@@ -84,43 +130,58 @@ async function loadStats() {
   try {
     const res = await apiCall("/admin/observability/stats");
     if (res.ok) {
-      const data = await res.json();
-      document.getElementById("stat-cpu").textContent = `${(data.cpu_usage || 0).toFixed(1)}%`;
-      document.getElementById("stat-mem").textContent =
-        `${((data.memory_used || 0) / 1024 / 1024).toFixed(0)} / ${((data.memory_total || 0) / 1024 / 1024).toFixed(0)} MB`;
-      document.getElementById("stat-requests").textContent = data.requests_total || 0;
-      document.getElementById("stat-failures").textContent = data.failures_total || 0;
-      document.getElementById("stat-uptime").textContent = formatUptime(data.process_uptime || 0);
+      const data = /** @type {ObservabilityStats} */ (await res.json());
+      /** @type {HTMLElement} */ (document.getElementById("stat-cpu")).textContent =
+        `${(data.cpu_usage ?? 0).toFixed(1)}%`;
+      /** @type {HTMLElement} */ (document.getElementById("stat-mem")).textContent =
+        `${((data.memory_used ?? 0) / 1024 / 1024).toFixed(0)} / ${((data.memory_total ?? 0) / 1024 / 1024).toFixed(0)} MB`;
+      /** @type {HTMLElement} */ (document.getElementById("stat-requests")).textContent = String(
+        data.requests_total ?? 0,
+      );
+      /** @type {HTMLElement} */ (document.getElementById("stat-failures")).textContent = String(
+        data.failures_total ?? 0,
+      );
+      /** @type {HTMLElement} */ (document.getElementById("stat-uptime")).textContent =
+        formatUptime(data.process_uptime ?? 0);
     }
-  } catch (_) {}
+  } catch {
+    // The numbers stay as they were until the next refresh.
+  }
 }
 
+/**
+ * @param {number} seconds
+ * @returns {string}
+ */
 function formatUptime(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  if (h > 0) return `${String(h)}h ${String(m)}m ${String(s)}s`;
+  if (m > 0) return `${String(m)}m ${String(s)}s`;
+  return `${String(s)}s`;
 }
 
+/** @type {ObservabilityDebugConfig} */
 let debugConfig = { business_logic_debug: false, admin_user_debug: false };
 
 async function loadDebugConfig() {
   try {
     const res = await apiCall("/admin/observability/debug-config");
     if (res.ok) {
-      debugConfig = await res.json();
+      debugConfig = /** @type {ObservabilityDebugConfig} */ (await res.json());
       updateDebugUI();
     }
-  } catch (_) {}
+  } catch {
+    // The switches stay as they were.
+  }
 }
 
 function updateDebugUI() {
-  const logicToggle = document.getElementById("toggle-debug-logic");
-  const logicDot = document.getElementById("dot-debug-logic");
-  const adminToggle = document.getElementById("toggle-debug-admin");
-  const adminDot = document.getElementById("dot-debug-admin");
+  const logicToggle = /** @type {HTMLElement} */ (document.getElementById("toggle-debug-logic"));
+  const logicDot = /** @type {HTMLElement} */ (document.getElementById("dot-debug-logic"));
+  const adminToggle = /** @type {HTMLElement} */ (document.getElementById("toggle-debug-admin"));
+  const adminDot = /** @type {HTMLElement} */ (document.getElementById("dot-debug-admin"));
 
   if (debugConfig.business_logic_debug) {
     logicToggle.classList.remove("bg-slate-200");
@@ -147,6 +208,7 @@ function updateDebugUI() {
   }
 }
 
+/** @param {string} type `logic` or `admin`. */
 async function toggleDebug(type) {
   if (!isAdmin) return;
   if (type === "logic") {
@@ -160,42 +222,57 @@ async function toggleDebug(type) {
       body: debugConfig,
     });
     updateDebugUI();
-  } catch (_) {}
+  } catch {
+    // The switch keeps its old look; the next load shows what the server holds.
+  }
 }
 
+/** @type {Record<ObservabilityLogLevel, ObservabilityLogEntry[]>} */
 let currentLogs = { errors: [], warnings: [], infos: [], debugs: [] };
 
 async function loadLogs() {
   try {
     const res = await apiCall("/admin/observability/logs");
     if (res.ok) {
-      const data = await res.json();
-      currentLogs.errors = data.errors || [];
-      currentLogs.warnings = data.warnings || [];
-      currentLogs.infos = data.infos || [];
-      currentLogs.debugs = data.debugs || [];
+      const data = /** @type {Partial<Record<ObservabilityLogLevel, ObservabilityLogEntry[]>>} */ (
+        await res.json()
+      );
+      currentLogs.errors = data.errors ?? [];
+      currentLogs.warnings = data.warnings ?? [];
+      currentLogs.infos = data.infos ?? [];
+      currentLogs.debugs = data.debugs ?? [];
       renderLogs();
     }
-  } catch (_) {}
+  } catch {
+    // The logs stay as they were until the next refresh.
+  }
 }
 
 // The logs at the chosen level and above, oldest first: what the view shows
 // and what Copy exports.
+/**
+ * @param {string} filter
+ * @returns {ObservabilityLogEntry[]}
+ */
 function filteredLogs(filter) {
+  /** @type {Record<"ALL" | "INFO" | "WARN" | "ERROR", ObservabilityLogLevel[]>} */
   const levels = {
     ALL: ["errors", "warnings", "infos", "debugs"],
     INFO: ["errors", "warnings", "infos"],
     WARN: ["errors", "warnings"],
     ERROR: ["errors"],
   };
-  return (levels[filter] || levels.ALL)
+  const chosen = /** @type {Record<string, ObservabilityLogLevel[] | undefined>} */ (levels)[
+    filter
+  ];
+  return (chosen ?? levels.ALL)
     .flatMap((level) => currentLogs[level])
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 function renderLogs() {
-  const container = document.getElementById("log-container");
-  const filter = document.getElementById("log-filter").value;
+  const container = /** @type {HTMLElement} */ (document.getElementById("log-container"));
+  const filter = /** @type {HTMLSelectElement} */ (document.getElementById("log-filter")).value;
 
   const allLogs = filteredLogs(filter);
 
@@ -207,13 +284,13 @@ function renderLogs() {
   container.innerHTML = allLogs
     .map((l) => {
       const color =
-        {
+        /** @type {Record<string, string>} */ ({
           ERROR: "text-red-400",
           WARN: "text-amber-400",
           INFO: "text-indigo-300",
           DEBUG: "text-slate-500",
           TRACE: "text-slate-600",
-        }[l.level] || "text-slate-300";
+        })[l.level] ?? "text-slate-300";
 
       // Some events (provide/require) carry service/version context; show it as
       // a compact chip when present. Most lines (auth, startup, migrations)
@@ -227,23 +304,31 @@ function renderLogs() {
     })
     .join("");
 
-  const autoScroll = document.getElementById("log-autoscroll");
-  if (autoScroll && autoScroll.checked) {
+  const autoScroll = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("log-autoscroll")
+  );
+  if (autoScroll?.checked) {
     container.scrollTop = container.scrollHeight;
   }
 }
 
 // A log instant (RFC 3339, UTC) as the reader's local `YYYY-MM-DD HH:MM:SS`.
 // An unparsable value is shown as it came.
+/**
+ * @param {string} timestamp
+ * @returns {string}
+ */
 function logLocalTime(timestamp) {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return timestamp;
+  /** @param {number} n */
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/** @returns {string} */
 function getLogsAsText() {
-  const filter = document.getElementById("log-filter").value;
+  const filter = /** @type {HTMLSelectElement} */ (document.getElementById("log-filter")).value;
   const allLogs = filteredLogs(filter);
   // Same [service@version] context as the on-screen view: without it,
   // exported provide/require lines name no producer at all.
@@ -262,7 +347,11 @@ function copyLogs() {
   if (!text) {
     return;
   }
-  const btn = event.target.closest("button");
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- The dispatcher hands this handler no event, so the button is read from the event in progress.
+  const clicked = /** @type {Event} */ (event);
+  const btn = /** @type {HTMLButtonElement} */ (
+    /** @type {Element} */ (clicked.target).closest("button")
+  );
   const orig = btn.textContent;
   function onSuccess() {
     btn.textContent = "✓ Copied";
@@ -270,6 +359,7 @@ function copyLogs() {
       btn.textContent = orig;
     }, 1500);
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- A page served without TLS has no navigator.clipboard, which the DOM types do not say.
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard
       .writeText(text)
@@ -282,6 +372,10 @@ function copyLogs() {
   }
 }
 
+/**
+ * @param {string} text
+ * @param {() => void} onSuccess
+ */
 function fallbackCopy(text, onSuccess) {
   const ta = document.createElement("textarea");
   ta.value = text;
@@ -290,9 +384,10 @@ function fallbackCopy(text, onSuccess) {
   document.body.appendChild(ta);
   ta.select();
   try {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- This is the fallback for pages without the async clipboard, which only have execCommand.
     document.execCommand("copy");
     onSuccess();
-  } catch (_) {
+  } catch {
     alert("Failed to copy logs to clipboard.");
   } finally {
     ta.remove();
@@ -338,22 +433,27 @@ async function loadAuditLogs() {
     return;
   }
   try {
-    const res = await apiCall(`/admin/observability/audit-logs?limit=${AUDIT_PANEL_FETCH}`);
+    const res = await apiCall(`/admin/observability/audit-logs?limit=${String(AUDIT_PANEL_FETCH)}`);
     if (res.ok) {
-      const logs = await res.json();
+      const logs = /** @type {ObservabilityAuditEntry[] | null} */ (await res.json());
       renderAuditLogs(logs);
     } else if (res.status === 403) {
-      const body = document.getElementById("audit-log-body");
+      const body = /** @type {HTMLElement} */ (document.getElementById("audit-log-body"));
       body.innerHTML =
         '<tr><td colspan="5" class="p-4 text-center text-slate-400 italic">Admin access required to view the audit log.</td></tr>';
     }
-  } catch (_) {}
+  } catch {
+    // The panel stays as it was until the next refresh.
+  }
 }
 
+/** @param {ObservabilityAuditEntry[] | null} logs */
 function renderAuditLogs(logs) {
-  const body = document.getElementById("audit-log-body");
-  const hideRejections = document.getElementById("audit-hide-rejections")?.checked;
-  const all = logs || [];
+  const body = /** @type {HTMLElement} */ (document.getElementById("audit-log-body"));
+  const hideRejections = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("audit-hide-rejections")
+  )?.checked;
+  const all = logs ?? [];
   const rejections = all.filter((l) => l.action_type === "REJECT").length;
   const shown = (hideRejections ? all.filter((l) => l.action_type !== "REJECT") : all).slice(
     0,
@@ -362,7 +462,7 @@ function renderAuditLogs(logs) {
   const note = document.getElementById("audit-rejection-note");
   if (note) {
     note.textContent = rejections
-      ? `${rejections} rejection${rejections === 1 ? "" : "s"} in the last ${AUDIT_PANEL_FETCH} entries`
+      ? `${String(rejections)} rejection${rejections === 1 ? "" : "s"} in the last ${String(AUDIT_PANEL_FETCH)} entries`
       : "";
   }
   if (shown.length === 0) {
@@ -401,7 +501,7 @@ function renderAuditLogs(logs) {
 
       return `
                 <tr class="hover:bg-slate-50 transition-colors">
-                    <td class="p-3 text-slate-400 font-mono">${log.id}</td>
+                    <td class="p-3 text-slate-400 font-mono">${String(log.id)}</td>
                     <td class="p-3 text-slate-500 font-mono whitespace-nowrap">${log.timestamp.substring(0, 19).replace("T", " ")}</td>
                     <td class="p-3 font-semibold text-slate-700">${escapeHtml(log.username)}</td>
                     <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${actionBadgeColor}">${escapeHtml(log.action)}</span></td>
@@ -429,7 +529,7 @@ async function exportAuditLogs() {
       alert("Failed to export audit logs. Unauthorized or server error.");
     }
   } catch (e) {
-    alert("Error exporting audit logs: " + e);
+    alert("Error exporting audit logs: " + String(e));
   }
 }
 

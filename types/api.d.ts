@@ -102,8 +102,8 @@ interface ProducerSummary {
 
 /** `UserFavoritesResponse` in `src/domain/models.rs`. */
 interface UserFavorites {
-  services: string[];
-  clients: string[];
+  services?: string[];
+  clients?: string[];
 }
 
 /** `DiffLine` in `src/application/text_diff.rs`. */

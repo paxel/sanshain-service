@@ -143,7 +143,9 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
     if (!res.ok) throw new Error(`Failed to toggle favorite: ${String(res.status)}`);
 
     // Update local cache
-    const list = itemType === "service" ? userFavorites.services : userFavorites.clients;
+    const list = /** @type {string[]} */ (
+      itemType === "service" ? userFavorites.services : userFavorites.clients
+    );
     if (currentIsFavorite) {
       const idx = list.indexOf(itemName);
       if (idx !== -1) list.splice(idx, 1);

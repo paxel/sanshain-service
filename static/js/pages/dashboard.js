@@ -3,6 +3,19 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What the token rows name in their data-click attributes.
+/* exported revokeToken */
+
+/**
+ * `ApiToken` in `src/domain/models.rs`, as `GET /auth/tokens` lists it.
+ * @typedef {object} DashboardToken
+ * @property {string} id
+ * @property {string} name
+ * @property {string} created_at
+ * @property {string} expires_at
+ * @property {string | null} [last_used_at]
+ */
+
 if (!sanshainToken) {
   window.location.href = "/";
 }
@@ -10,15 +23,15 @@ if (!sanshainToken) {
 async function loadTokens() {
   try {
     const res = await fetch("/auth/tokens", {
-      headers: { Authorization: "Bearer " + sanshainToken },
+      headers: { Authorization: "Bearer " + String(sanshainToken) },
     });
     if (res.status === 401) {
       localStorage.removeItem("sanshain_token");
       window.location.href = "/index.html";
       return;
     }
-    const tokens = await res.json();
-    const tbody = document.getElementById("tokenTableBody");
+    const tokens = /** @type {DashboardToken[]} */ (await res.json());
+    const tbody = /** @type {HTMLElement} */ (document.getElementById("tokenTableBody"));
     if (tokens.length === 0) {
       tbody.innerHTML =
         '<tr><td colspan="5" class="py-4 text-slate-400 text-center">No tokens yet. Create one above.</td></tr>';
@@ -41,62 +54,80 @@ async function loadTokens() {
     }
     // Reveal dashboard after tokens loaded
     hideLoader();
-    document.getElementById("dashboard-main").classList.remove("hidden");
-  } catch (_) {
+    /** @type {HTMLElement} */ (document.getElementById("dashboard-main")).classList.remove(
+      "hidden",
+    );
+  } catch {
     hideLoader();
   }
 }
 
-document.getElementById("createTokenForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!csrfToken) await fetchCsrfToken();
-  const name = document.getElementById("tokenName").value;
-  const expires_in_days = Number.parseInt(document.getElementById("tokenExpiry").value);
-  const res = await fetch("/auth/tokens", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + sanshainToken,
-      "X-CSRF-Token": csrfToken,
-    },
-    body: JSON.stringify({ name, expires_in_days }),
-  });
-  csrfToken = null;
-  if (!res.ok) {
-    const text = await res.text();
-    alert("Failed to create token: " + (text || res.statusText));
-    return;
-  }
-  const data = await res.json();
-  document.getElementById("tokenValue").textContent = data.token;
-  document.getElementById("tokenValueUsage").textContent = data.token;
-  document.getElementById("tokenModal").classList.remove("hidden");
-  document.getElementById("tokenName").value = "";
-  void loadTokens();
+/** @type {HTMLElement} */ (document.getElementById("createTokenForm")).addEventListener(
+  "submit",
+  (e) => {
+    void (async () => {
+      e.preventDefault();
+      if (!csrfToken) await fetchCsrfToken();
+      const name = /** @type {HTMLInputElement} */ (document.getElementById("tokenName")).value;
+      const expires_in_days = Number.parseInt(
+        /** @type {HTMLSelectElement} */ (document.getElementById("tokenExpiry")).value,
+      );
+      const res = await fetch("/auth/tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + String(sanshainToken),
+          // Without a token the header says "null", and the server refuses the call.
+          "X-CSRF-Token": /** @type {string} */ (csrfToken),
+        },
+        body: JSON.stringify({ name, expires_in_days }),
+      });
+      csrfToken = null;
+      if (!res.ok) {
+        const text = await res.text();
+        alert("Failed to create token: " + (text || res.statusText));
+        return;
+      }
+      const data = /** @type {{ token: string }} */ (await res.json());
+      /** @type {HTMLElement} */ (document.getElementById("tokenValue")).textContent = data.token;
+      /** @type {HTMLElement} */ (document.getElementById("tokenValueUsage")).textContent =
+        data.token;
+      /** @type {HTMLElement} */ (document.getElementById("tokenModal")).classList.remove("hidden");
+      /** @type {HTMLInputElement} */ (document.getElementById("tokenName")).value = "";
+      void loadTokens();
+    })();
+  },
+);
+
+/** @type {HTMLElement} */ (document.getElementById("copyTokenBtn")).addEventListener(
+  "click",
+  () => {
+    const token = /** @type {HTMLElement} */ (document.getElementById("tokenValue")).textContent;
+    void navigator.clipboard.writeText(/** @type {string} */ (token)).then(() => {
+      /** @type {HTMLElement} */ (document.getElementById("copyTokenBtn")).textContent =
+        "✅ Copied!";
+      setTimeout(() => {
+        /** @type {HTMLElement} */ (document.getElementById("copyTokenBtn")).textContent =
+          "📋 Copy to Clipboard";
+      }, 2000);
+    });
+  },
+);
+
+/** @type {HTMLElement} */ (document.getElementById("closeModal")).addEventListener("click", () => {
+  /** @type {HTMLElement} */ (document.getElementById("tokenModal")).classList.add("hidden");
 });
 
-document.getElementById("copyTokenBtn").addEventListener("click", () => {
-  const token = document.getElementById("tokenValue").textContent;
-  void navigator.clipboard.writeText(token).then(() => {
-    document.getElementById("copyTokenBtn").textContent = "✅ Copied!";
-    setTimeout(() => {
-      document.getElementById("copyTokenBtn").textContent = "📋 Copy to Clipboard";
-    }, 2000);
-  });
-});
-
-document.getElementById("closeModal").addEventListener("click", () => {
-  document.getElementById("tokenModal").classList.add("hidden");
-});
-
+/** @param {string} id */
 async function revokeToken(id) {
   if (!confirm("Revoke this token? This cannot be undone.")) return;
   if (!csrfToken) await fetchCsrfToken();
   await fetch("/auth/tokens/" + id, {
     method: "DELETE",
     headers: {
-      Authorization: "Bearer " + sanshainToken,
-      "X-CSRF-Token": csrfToken,
+      Authorization: "Bearer " + String(sanshainToken),
+      // Without a token the header says "null", and the server refuses the call.
+      "X-CSRF-Token": /** @type {string} */ (csrfToken),
     },
   });
   csrfToken = null;

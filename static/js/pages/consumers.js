@@ -3,23 +3,53 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What the breadcrumb names in its data-click attribute.
+/* exported goBackToClients */
+
+/**
+ * `ListedConsumerEndpoint` in `src/application/admin_service.rs`: one endpoint a Consumer
+ * requires, as `GET /admin/consumers/{name}/endpoints` lists it.
+ * @typedef {object} ConsumerRequirement
+ * @property {string | null} [api_type]
+ * @property {string} service
+ * @property {string} version
+ * @property {string} stability
+ * @property {string} path
+ * @property {string} method
+ * @property {string | null} [yaml_content] Missing when the pinned version no longer serves it.
+ * @property {boolean} [deprecated]
+ * @property {boolean} [external]
+ * @property {string | null} [summary]
+ */
+
+/**
+ * The requirements of one Pin: a Producer's line at one version.
+ * @typedef {object} ConsumerPinGroup
+ * @property {string} service
+ * @property {string | null | undefined} api_type
+ * @property {string} version
+ * @property {string} stability
+ * @property {ConsumerRequirement[]} endpoints
+ */
+
+/** @type {string[]} */
 let allClients = [];
 
 async function showClients() {
   showLoader();
-  const list = document.getElementById("clients-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("clients-list"));
   list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading consumers...</div>';
 
   try {
     await loadUserFavorites();
-    const clients = await fetchJSON("/admin/consumers");
-    allClients = clients || [];
-    document.getElementById("client-search").value = "";
+    const clients = /** @type {string[] | null} */ (await fetchJSON("/admin/consumers"));
+    allClients = clients ?? [];
+    /** @type {HTMLInputElement} */ (document.getElementById("client-search")).value = "";
     renderClientList(allClients);
     hideLoader();
   } catch (err) {
     hideLoader();
-    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
 }
 
@@ -28,8 +58,9 @@ function goBackToClients() {
   void showClients();
 }
 
+/** @param {string[] | null | undefined} clients */
 function renderClientList(clients) {
-  const list = document.getElementById("clients-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("clients-list"));
   if (!clients || clients.length === 0) {
     list.innerHTML = `
           <div class="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center">
@@ -45,7 +76,7 @@ function renderClientList(clients) {
   }
   list.innerHTML = "";
   for (const name of clients) {
-    const isFav = !!(userFavorites.clients && userFavorites.clients.includes(name));
+    const isFav = !!userFavorites.clients?.includes(name);
     const card = document.createElement("div");
     card.className =
       "bg-white p-5 rounded-xl border border-slate-200 shadow-xs endpoint-card cursor-pointer";
@@ -82,24 +113,28 @@ function renderClientList(clients) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
               </svg>
           </div>`;
-    card.querySelector("[data-client-name]").textContent = name;
-    card
-      .querySelector("[data-toggle-favorite]")
-      .addEventListener("click", (event) => toggleFavorite(event, "client", name, isFav));
+    /** @type {HTMLElement} */ (card.querySelector("[data-client-name]")).textContent = name;
+    /** @type {HTMLElement} */ (card.querySelector("[data-toggle-favorite]")).addEventListener(
+      "click",
+      (event) => {
+        void toggleFavorite(event, "client", name, isFav);
+      },
+    );
     list.appendChild(card);
   }
 }
 
 // A Consumer's dependencies, grouped by the Producer they pin. Each group
 // header names the Pin (version + stability); each row is one endpoint.
+/** @param {string} clientName */
 async function showClientDependencies(clientName) {
   showLoader();
-  const list = document.getElementById("clients-list");
+  const list = /** @type {HTMLElement} */ (document.getElementById("clients-list"));
   list.innerHTML = '<div class="text-center py-10 text-slate-500">Loading dependencies...</div>';
 
   try {
-    const endpoints = await fetchJSON(
-      `/admin/consumers/${encodeURIComponent(clientName)}/endpoints`,
+    const endpoints = /** @type {ConsumerRequirement[] | null} */ (
+      await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/endpoints`)
     );
     list.innerHTML = "";
 
@@ -109,14 +144,15 @@ async function showClientDependencies(clientName) {
           <button data-click="goBackToClients" class="hover:text-teal-600 font-medium">Consumers</button>
           <svg class="w-4 h-4 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
           <span class="text-slate-800 font-semibold" data-crumb-client></span>`;
-    breadcrumb.querySelector("[data-crumb-client]").textContent = clientName;
+    /** @type {HTMLElement} */ (breadcrumb.querySelector("[data-crumb-client]")).textContent =
+      clientName;
     list.appendChild(breadcrumb);
 
     // Owner, description, repository and links from the Consumer's
     // catalog-info (#48), under the title. Optional: the page reads without it.
     try {
-      const { context, annotations } = await fetchJSON(
-        `/admin/consumers/${encodeURIComponent(clientName)}`,
+      const { context, annotations } = /** @type {ParticipantContext} */ (
+        await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}`)
       );
       // The system annotations (#91) its builds sent ride the same card.
       const block = systemContextHtml(context, false) + annotationsHtml(annotations, false);
@@ -124,10 +160,12 @@ async function showClientDependencies(clientName) {
         const card = document.createElement("div");
         card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
         card.innerHTML = block;
-        appendClearSystemInfo(card, clientName, () => card.remove());
+        appendClearSystemInfo(card, clientName, () => {
+          card.remove();
+        });
         list.appendChild(card);
       }
-    } catch (_) {
+    } catch {
       /* the context is optional */
     }
 
@@ -159,13 +197,16 @@ async function showClientDependencies(clientName) {
     const filterCard = document.createElement("div");
     filterCard.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
     list.appendChild(filterCard);
+    /** @type {{ ep: ConsumerRequirement, row: HTMLElement, section: HTMLElement }[]} */
     const filterRows = [];
+    /** @type {HTMLElement[]} */
     const filterSections = [];
 
     // Group by (producer, api_type, pinned version) — one Pin per group.
+    /** @type {Map<string, ConsumerPinGroup>} */
     const groups = new Map();
     for (const ep of endpoints) {
-      const key = `${ep.service} ${ep.api_type} ${ep.version}`;
+      const key = `${ep.service} ${String(ep.api_type)} ${ep.version}`;
       if (!groups.has(key))
         groups.set(key, {
           service: ep.service,
@@ -174,7 +215,7 @@ async function showClientDependencies(clientName) {
           stability: ep.stability,
           endpoints: [],
         });
-      groups.get(key).endpoints.push(ep);
+      /** @type {ConsumerPinGroup} */ (groups.get(key)).endpoints.push(ep);
     }
     const sortedGroups = [...groups.values()].sort(
       (a, b) =>
@@ -197,16 +238,20 @@ async function showClientDependencies(clientName) {
                       </svg>
                   </span>
                   <h3 class="font-semibold text-slate-800" data-group-service></h3>
-                  <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">${escapeHtml(group.api_type || "REST")}</span>
+                  <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">${escapeHtml((group.api_type ?? "") || "REST")}</span>
                   <span class="text-xs text-slate-500">pinned to</span>
                   <span class="font-mono text-sm text-slate-700">${escapeHtml(group.version)}</span>
                   ${stabilityBadge(group.stability)}
               </div>
               <button type="button" data-view-producer class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">View version →</button>`;
-      header.querySelector("[data-group-service]").textContent = group.service;
-      header.querySelector("[data-view-producer]").addEventListener("click", () => {
-        window.location.href = `/producers.html?service=${encodeURIComponent(group.service)}&api_type=${encodeURIComponent(group.api_type)}&version=${encodeURIComponent(group.version)}`;
-      });
+      /** @type {HTMLElement} */ (header.querySelector("[data-group-service]")).textContent =
+        group.service;
+      /** @type {HTMLElement} */ (header.querySelector("[data-view-producer]")).addEventListener(
+        "click",
+        () => {
+          window.location.href = `/producers.html?service=${encodeURIComponent(group.service)}&api_type=${encodeURIComponent(/** @type {string} */ (group.api_type))}&version=${encodeURIComponent(group.version)}`;
+        },
+      );
       section.appendChild(header);
 
       const rows = document.createElement("div");
@@ -219,7 +264,7 @@ async function showClientDependencies(clientName) {
           (resolved ? " cursor-pointer" : "");
         if (resolved) {
           row.onclick = () => {
-            window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&api_type=${encodeURIComponent(ep.api_type || "openapi")}&version=${encodeURIComponent(ep.version)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`;
+            window.location.href = `/yaml.html?service=${encodeURIComponent(ep.service)}&api_type=${encodeURIComponent((ep.api_type ?? "") || "openapi")}&version=${encodeURIComponent(ep.version)}&path=${encodeURIComponent(ep.path)}&method=${encodeURIComponent(ep.method)}`;
           };
         }
         row.innerHTML = `
@@ -255,6 +300,7 @@ async function showClientDependencies(clientName) {
     list.appendChild(empty);
     const filter = endpointFilterFromUrl();
     const apply = () => {
+      /** @type {Set<HTMLElement>} */
       const visible = new Set();
       for (const { ep, row, section } of filterRows) {
         const match = endpointFilterMatches(ep, filter);
@@ -266,25 +312,30 @@ async function showClientDependencies(clientName) {
       empty.classList.toggle("hidden", visible.size > 0);
     };
     const control = renderEndpointFilter(filterCard, filter, ["deprecated"], apply);
-    empty
-      .querySelector("[data-endpoint-filter-clear]")
-      .addEventListener("click", () => control.clear());
+    /** @type {HTMLElement} */ (
+      empty.querySelector("[data-endpoint-filter-clear]")
+    ).addEventListener("click", () => {
+      control.clear();
+    });
     apply();
     hideLoader();
   } catch (err) {
     hideLoader();
-    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(err.message)}</div>`;
+    list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
 }
 
-document.getElementById("client-search").addEventListener("input", function () {
-  const q = this.value.toLowerCase();
-  if (!q) {
-    renderClientList(allClients);
-    return;
-  }
-  renderClientList(allClients.filter((name) => name.toLowerCase().includes(q)));
-});
+/** @type {HTMLInputElement} */ (document.getElementById("client-search")).addEventListener(
+  "input",
+  function () {
+    const q = this.value.toLowerCase();
+    if (!q) {
+      renderClientList(allClients);
+      return;
+    }
+    renderClientList(allClients.filter((name) => name.toLowerCase().includes(q)));
+  },
+);
 
 async function handleDeepLink() {
   const params = new URLSearchParams(window.location.search);

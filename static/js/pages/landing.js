@@ -3,6 +3,48 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
+// What the validator buttons name in their data-click attributes.
+/* exported runValidation */
+
+/**
+ * `DayCount` in `src/application/dashboard_service.rs`.
+ * @typedef {object} LandingDay
+ * @property {string} day
+ * @property {number} provides
+ */
+
+/**
+ * `DashboardStats` in `src/application/dashboard_service.rs`: `GET /api/dashboard`.
+ * @typedef {object} LandingStats
+ * @property {number} producers
+ * @property {number} consumers
+ * @property {number} versions
+ * @property {number} provides_last_7_days
+ * @property {LandingDay[]} provides_per_day
+ */
+
+/**
+ * `RecentProvide` in `src/application/dashboard_service.rs`: `GET /api/dashboard/recent`.
+ * @typedef {object} LandingProvide
+ * @property {string} timestamp
+ * @property {string | null} [producer]
+ * @property {boolean} [external]
+ * @property {string | null} [version]
+ * @property {string} username
+ * @property {string | null} [display_name]
+ */
+
+/**
+ * `ValidationReport` in `src/application/spec_service.rs`: the answer of `POST /validate`. The
+ * server leaves out what is empty.
+ * @typedef {object} LandingVerdict
+ * @property {boolean} valid
+ * @property {string} [version]
+ * @property {number} endpoint_count Read without a guard; present whenever the document is valid.
+ * @property {string[]} [endpoints]
+ * @property {string} [error]
+ */
+
 hideLoader();
 void renderBanner();
 void loadDashboard();
@@ -13,27 +55,38 @@ async function loadDashboard() {
   try {
     const res = await fetch("/api/dashboard");
     if (!res.ok) return;
-    const stats = await res.json();
-    document.getElementById("stat-producers").textContent = stats.producers;
-    document.getElementById("stat-consumers").textContent = stats.consumers;
-    document.getElementById("stat-versions").textContent = stats.versions;
-    document.getElementById("stat-provides-week").textContent = stats.provides_last_7_days;
+    const stats = /** @type {LandingStats} */ (await res.json());
+    /** @type {HTMLElement} */ (document.getElementById("stat-producers")).textContent = String(
+      stats.producers,
+    );
+    /** @type {HTMLElement} */ (document.getElementById("stat-consumers")).textContent = String(
+      stats.consumers,
+    );
+    /** @type {HTMLElement} */ (document.getElementById("stat-versions")).textContent = String(
+      stats.versions,
+    );
+    /** @type {HTMLElement} */ (document.getElementById("stat-provides-week")).textContent = String(
+      stats.provides_last_7_days,
+    );
     renderActivityChart(stats.provides_per_day);
-  } catch (_) {
+  } catch {
     // The landing page works without its numbers.
   }
   if (!getSanshainToken()) return;
   try {
     const res = await apiCall("/api/dashboard/recent");
     if (!res.ok) return;
-    renderRecentProvides(await res.json());
-  } catch (_) {}
+    renderRecentProvides(/** @type {LandingProvide[]} */ (await res.json()));
+  } catch {
+    // The landing page works without the latest provides.
+  }
 }
 
 // One bar per day in a 120 x 100 drawing the SVG stretches to the card: the
 // heights are attributes of the drawing, not styles of the page.
+/** @param {LandingDay[]} days */
 function renderActivityChart(days) {
-  const chart = document.getElementById("activity-chart");
+  const chart = /** @type {Element} */ (document.getElementById("activity-chart"));
   const max = Math.max(1, ...days.map((d) => d.provides));
   const slot = 120 / days.length;
   const svg = "http://www.w3.org/2000/svg";
@@ -47,37 +100,46 @@ function renderActivityChart(days) {
       bar.setAttribute("height", String(height));
       bar.setAttribute("class", d.provides ? "fill-indigo-400" : "fill-slate-100");
       bar.dataset.day = d.day;
-      bar.dataset.provides = d.provides;
+      bar.dataset.provides = String(d.provides);
       const title = document.createElementNS(svg, "title");
-      title.textContent = `${d.day}: ${d.provides} provide${d.provides === 1 ? "" : "s"}`;
+      title.textContent = `${d.day}: ${String(d.provides)} provide${d.provides === 1 ? "" : "s"}`;
       bar.appendChild(title);
       return bar;
     }),
   );
 }
 
+/** @param {LandingProvide[]} provides */
 function renderRecentProvides(provides) {
-  const list = document.getElementById("recent-provides");
+  const list = /** @type {HTMLElement} */ (document.getElementById("recent-provides"));
   if (provides.length === 0) {
     list.innerHTML = '<li class="py-2 text-slate-400 italic">Nothing provided yet.</li>';
   } else {
     list.innerHTML = provides
       .map(
         (p) => `<li class="py-2 flex justify-between gap-3">
-          <span><a class="text-indigo-700 hover:underline" href="/producers.html?service=${encodeURIComponent(p.producer || "")}">${escapeHtml(p.producer || "")}</a>
-            <span class="font-mono text-slate-600">${escapeHtml(p.version || "")}</span>
+          <span><a class="text-indigo-700 hover:underline" href="/producers.html?service=${encodeURIComponent(p.producer ?? "")}">${escapeHtml(p.producer ?? "")}</a>
+            <span class="font-mono text-slate-600">${escapeHtml(p.version ?? "")}</span>
             ${externalTag(p)}</span>
           <span class="text-xs text-slate-400">${escapeHtml(personLabel(p))} · ${escapeHtml(new Date(p.timestamp).toLocaleString())}</span>
         </li>`,
       )
       .join("");
   }
-  document.getElementById("recent-provides-card").classList.remove("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("recent-provides-card")).classList.remove(
+    "hidden",
+  );
 }
 
 // Lazy format detection: suggest the matching button as the user
 // pastes — detection preselects, the click decides.
-const validatorInput = document.getElementById("validator-input");
+const validatorInput = /** @type {HTMLTextAreaElement} */ (
+  document.getElementById("validator-input")
+);
+/**
+ * @param {string} text
+ * @returns {string | null}
+ */
 function detectFormat(text) {
   const head = text.slice(0, 2000);
   if (/^[ \t]*asyncapi\s*:/m.test(head)) return "asyncapi";
@@ -88,19 +150,26 @@ function detectFormat(text) {
 }
 function highlightSuggestion() {
   const detected = detectFormat(validatorInput.value);
-  document.querySelectorAll(".validator-btn").forEach((btn) => {
-    const isMatch = btn.dataset.validate === detected;
-    btn.classList.toggle("ring-2", isMatch);
-    btn.classList.toggle("ring-offset-1", isMatch);
-    btn.classList.toggle("ring-indigo-400", isMatch);
-  });
+  /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".validator-btn")).forEach(
+    (btn) => {
+      const isMatch = btn.dataset.validate === detected;
+      btn.classList.toggle("ring-2", isMatch);
+      btn.classList.toggle("ring-offset-1", isMatch);
+      btn.classList.toggle("ring-indigo-400", isMatch);
+    },
+  );
 }
 validatorInput.addEventListener("input", highlightSuggestion);
 validatorInput.addEventListener("paste", () => setTimeout(highlightSuggestion, 0));
 
+/** @param {string} apiType */
 async function runValidation(apiType) {
   const content = validatorInput.value;
-  const resultEl = document.getElementById("validator-result");
+  const resultEl = /** @type {HTMLElement} */ (document.getElementById("validator-result"));
+  /**
+   * @param {boolean} ok
+   * @param {string} html
+   */
   const render = (ok, html) => {
     resultEl.classList.remove("hidden");
     resultEl.className =
@@ -110,6 +179,7 @@ async function runValidation(apiType) {
         : "border-rose-200 bg-rose-50 text-rose-900");
     resultEl.innerHTML = html;
   };
+  /** @param {unknown} s */
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   if (!content.trim()) {
     render(false, "Paste a specification first.");
@@ -122,40 +192,40 @@ async function runValidation(apiType) {
       body: JSON.stringify({ api_type: apiType, content }),
     });
     if (!res.ok) {
-      render(false, `The validator answered ${res.status}.`);
+      render(false, `The validator answered ${String(res.status)}.`);
       return;
     }
-    const verdict = await res.json();
+    const verdict = /** @type {LandingVerdict} */ (await res.json());
     if (verdict.valid) {
-      const preview = (verdict.endpoints || [])
+      const preview = (verdict.endpoints ?? [])
         .map((e) => `<li class="font-mono text-xs">${esc(e)}</li>`)
         .join("");
       const more =
-        verdict.endpoint_count > (verdict.endpoints || []).length
-          ? `<p class="text-xs mt-1 opacity-70">… and ${verdict.endpoint_count - verdict.endpoints.length} more</p>`
+        verdict.endpoint_count > (verdict.endpoints ?? []).length
+          ? `<p class="text-xs mt-1 opacity-70">… and ${String(verdict.endpoint_count - /** @type {string[]} */ (verdict.endpoints).length)} more</p>`
           : "";
       render(
         true,
         `<p class="font-semibold">✓ Valid ${esc(apiType)} — version ${esc(verdict.version)}, ` +
-          `${verdict.endpoint_count} endpoint${verdict.endpoint_count === 1 ? "" : "s"}</p>` +
+          `${String(verdict.endpoint_count)} endpoint${verdict.endpoint_count === 1 ? "" : "s"}</p>` +
           (preview
             ? `<p class="mt-2 text-xs font-semibold opacity-70">Sanshain would store:</p><ul class="mt-1 space-y-0.5">${preview}</ul>${more}`
             : ""),
       );
     } else {
-      const preview = (verdict.endpoints || [])
+      const preview = (verdict.endpoints ?? [])
         .map((e) => `<li class="font-mono text-xs">${esc(e)}</li>`)
         .join("");
       render(
         false,
         `<p class="font-semibold">✗ Not valid as ${esc(apiType)}</p>` +
-          `<p class="mt-1">${esc(verdict.error || "Unknown error")}</p>` +
+          `<p class="mt-1">${esc((verdict.error ?? "") || "Unknown error")}</p>` +
           (preview
             ? `<p class="mt-2 text-xs font-semibold opacity-70">The document itself splits into:</p><ul class="mt-1 space-y-0.5">${preview}</ul>`
             : ""),
       );
     }
   } catch (e) {
-    render(false, "Error: " + esc(e.message));
+    render(false, "Error: " + esc(/** @type {Error} */ (e).message));
   }
 }
