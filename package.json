@@ -18,14 +18,17 @@
     "site:test": "node --test tests/site/*.test.js"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/cli": "^4.3.3",
+    "@types/node": "^26.6.6",
     "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.0.0",
-    "globals": "^17.13.0",
     "monocart-coverage-reports": "^3.1.0",
     "prettier": "^3.0.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0"
   },
   "overrides": {
     "@parcel/watcher": "^2.5.6",

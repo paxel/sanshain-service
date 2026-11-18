@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "exclude": ["static/js", "site/assets", "scripts", "tests/site", "tests/ui"],
+  "include": [
+    "static/js",
+    "site/assets",
+    "scripts",
+    "tests/site",
+    "tests/ui",
+    "eslint.config.js",
+    "playwright.config.js"
+  ]
+}

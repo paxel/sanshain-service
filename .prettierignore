@@ -1,0 +1,23 @@
+# Prettier checks the JavaScript, the JSON and the configuration files. It also skips what
+# .gitignore names.
+
+# Third-party bundles and generated files.
+static/vendor/
+package-lock.json
+# Written by the coverage ratchet of paxel/gates.
+.github/badges/
+
+# The style sheets: app.css is built by Tailwind, and app.input.css is its source, whose
+# layout the Tailwind directives rely on.
+*.css
+
+# Markdown, YAML and AsciiDoc keep the layout they are written in: the tables with aligned
+# pipes and the aligned comments, which prettier would rewrite.
+*.md
+*.yml
+*.yaml
+*.adoc
+
+# The pages in static/ and the Askama templates in templates/: prettier does not know the
+# template syntax, and reformatting the pages would change every line of them.
+*.html
