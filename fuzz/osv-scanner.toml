@@ -1,0 +1,44 @@
+# osv-scanner's exceptions for fuzz/Cargo.lock: osv-scanner reads the file beside the
+# lockfile, so the fuzz crate cannot share the one at the repository root. The rules are the
+# same: a reason, a date, and the gate fails again when the date passes.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0459"
+ignoreUntil = 2027-02-18
+reason = """The same package and the same reason as in the osv-scanner.toml at the repository \
+root: the SQLite bundled by libsqlite3-sys 0.37, which no released sqlx can replace. The fuzz \
+targets open no database at all."""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-18
+reason = """The same package and the same reason as in the osv-scanner.toml at the repository \
+root: chrono is unmaintained, no vulnerability is described and no fixed release exists."""
+
+[[PackageOverrides]]
+name = "libfuzzer-sys"
+ecosystem = "crates.io"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """libfuzzer-sys carries LLVM's libFuzzer, which is under the University of \
+Illinois/NCSA Open Source License, a permissive licence of the MIT and BSD kind. It is linked \
+only into the fuzz targets, which run in CI and are never published; cargo-fuzz has no other \
+engine, and no release of libfuzzer-sys carries another licence."""
+
+[[PackageOverrides]]
+name = "webpki-roots"
+ecosystem = "crates.io"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """The same package and the same reason as in the osv-scanner.toml at the repository \
+root: Mozilla's list of root certificates under CDLA-Permissive-2.0, a permissive licence for \
+data, which sqlx's rustls setup brings in."""
+
+[[PackageOverrides]]
+name = "webpki-root-certs"
+ecosystem = "crates.io"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """The same package and the same reason as in the osv-scanner.toml at the repository \
+root: the same list under the same licence, named by the lockfile for WebAssembly targets \
+only and never compiled."""

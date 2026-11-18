@@ -1,0 +1,89 @@
+# osv-scanner's exceptions, read by the OSV gate (paxel/gates vulns.yml). Each one says why
+# the repository is not exposed and why no update removes it, and carries a date; when the
+# date passes, the gate fails again: that is the review.
+#
+# An advisory:
+# [[IgnoredVulns]]
+# id = "RUSTSEC-2026-0000"
+# ignoreUntil = 2027-05-14
+# reason = "..."
+#
+# A licence outside the standard's allowlist (one package):
+# [[PackageOverrides]]
+# name = "some-crate"
+# ecosystem = "crates.io"
+# license.ignore = true
+# effectiveUntil = 2027-05-14
+# reason = "..."
+#
+# CI and the release list a notice that a crate is unmaintained without failing; the weekly
+# Security run fails on it.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0459"
+ignoreUntil = 2027-02-18
+reason = """The SQLite that libsqlite3-sys bundles before 3.54.0 can return uninitialized \
+page-cache memory when it opens a database together with a crafted -wal file of a different \
+page size (CVE-2026-119375). Fixed in libsqlite3-sys 0.39.0, but sqlx-sqlite 0.9.0, the newest \
+sqlx release, accepts only libsqlite3-sys below 0.38, so no released sqlx can take the fix. \
+The attack is local and needs the process to open files a less trusted party wrote; Sanshain \
+opens only its own database under its data directory and has no route that accepts a database \
+file. Remove the entry with the first sqlx release past 0.9.0 that allows libsqlite3-sys 0.39 \
+(sqlx main already does)."""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0440"
+ignoreUntil = 2027-02-18
+reason = """astral-tokio-tar is unmaintained; no vulnerability is described. It comes only \
+through testcontainers 0.28.0, the newest release, which packs files for the containers of the \
+PostgreSQL tests with it. It is a dependency of the tests alone and is not part of the \
+released binary or image."""
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-18
+reason = """chrono is unmaintained; no vulnerability is described and no fixed release exists. \
+Sanshain writes every stored instant with it, and openid, rmcp and schemars depend on it \
+themselves, so it cannot go with an update: replacing it is a change of its own across the \
+repositories and the stored timestamps."""
+
+[[PackageOverrides]]
+name = "webpki-roots"
+ecosystem = "crates.io"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """webpki-roots is Mozilla's list of root certificates, published under \
+CDLA-Permissive-2.0, a permissive licence for data that asks only for the licence text to \
+travel with the data. It comes through sqlx's rustls setup (feature tls-rustls), which checks \
+a PostgreSQL server's certificate against that list. No release of webpki-roots carries \
+another licence."""
+
+[[PackageOverrides]]
+name = "webpki-root-certs"
+ecosystem = "crates.io"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """webpki-root-certs is the same list of Mozilla's root certificates as webpki-roots, \
+under the same CDLA-Permissive-2.0. Cargo.lock names it because rustls-platform-verifier \
+(through reqwest) depends on it for WebAssembly targets only; it is never compiled into the \
+service, which is built for Linux."""
+
+# What follows comes with the tools that lint the JavaScript (eslint, typescript-eslint). None
+# of it is served by the service or part of the image.
+[[PackageOverrides]]
+name = "minimatch"
+ecosystem = "npm"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """minimatch is under the Blue Oak Model License 1.0.0, a permissive licence that \
+asks only for the licence text or a link to it to travel with copies. It comes through eslint \
+and typescript-eslint and is installed for linting only. The releases those tools ask for \
+carry this licence."""
+
+[[PackageOverrides]]
+name = "@isaacs/nonrecursive-glob-match"
+ecosystem = "npm"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """A dependency of minimatch under the same Blue Oak Model License 1.0.0, installed \
+with eslint for linting only."""
