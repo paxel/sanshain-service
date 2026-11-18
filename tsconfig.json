@@ -16,13 +16,7 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "exclude": [
-    "static/js/graph.js",
-    "static/js/graph-domains.js",
-    "static/js/pages/graph-0.js",
-    "static/js/pages/graph-1.js",
-    "tests/ui"
-  ],
+  "exclude": ["tests/ui"],
   "include": [
     "types",
     "static/js",
