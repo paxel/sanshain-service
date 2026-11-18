@@ -31,7 +31,9 @@ const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const SCRIPT_FAULT =
   /refused to (execute|apply|load)|content security policy|is not defined|referenceerror|typeerror|syntaxerror|is not a function/i;
 
+/** @param {import("@playwright/test").Page} page */
 function watchForErrors(page) {
+  /** @type {string[]} */
   const errors = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (msg) => {
@@ -42,11 +44,12 @@ function watchForErrors(page) {
   return errors;
 }
 
+/** @param {import("@playwright/test").Page} page */
 async function login(page) {
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
@@ -79,7 +82,9 @@ for (const path of AUTHED_PAGES) {
     await login(page);
     await page.goto(path);
     // Let deferred init (fetches, renders) run and settle.
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // The page may never go idle: the fixed wait below covers that.
+    });
     await page.waitForTimeout(1500);
     expect(errors, `${path} produced JS errors:\n${errors.join("\n")}`).toEqual([]);
   });
@@ -88,7 +93,9 @@ for (const path of AUTHED_PAGES) {
 test("the public landing page loads without a JavaScript error", async ({ page }) => {
   const errors = watchForErrors(page);
   await page.goto("/");
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+    // The page may never go idle: the fixed wait below covers that.
+  });
   await page.waitForTimeout(1000);
   expect(errors, `landing produced JS errors:\n${errors.join("\n")}`).toEqual([]);
 });

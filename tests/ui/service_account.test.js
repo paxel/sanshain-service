@@ -6,22 +6,29 @@ import { test, expect } from "./fixtures.js";
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const ACCOUNT = `ci-${Date.now().toString(36)}`;
 
+/**
+ * This is the page with the answers the test queued for its prompts.
+ * @typedef {import("@playwright/test").Page & { dialogAnswers: string[] }} PageWithAnswers
+ */
+
 test.beforeEach(async ({ page }) => {
   if (!adminPassword) throw new Error("INITIAL_ADMIN_PASSWORD is required for the UI tests");
   await page.route("**/api/sse/updates", (route) =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
   // Prompts answer what the test queued (an empty queue dismisses them).
-  page.dialogAnswers = [];
+  /** @type {PageWithAnswers} */ (page).dialogAnswers = [];
   page.on("dialog", (dialog) => {
-    const answer = page.dialogAnswers.shift();
+    const answer = /** @type {PageWithAnswers} */ (page).dialogAnswers.shift();
     return answer === undefined ? dialog.dismiss() : dialog.accept(answer);
   });
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.reload();
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 });
@@ -33,7 +40,7 @@ test("an admin creates a service account and issues its token", async ({ page })
   const row = page.locator("#users-list > div", { hasText: ACCOUNT });
   await expect(row.locator("[data-service-account]")).toHaveText("service account");
   // A service account gets a readable name from whoever manages users.
-  page.dialogAnswers.push("Penguin CI build");
+  /** @type {PageWithAnswers} */ (page).dialogAnswers.push("Penguin CI build");
   await row.locator('button:has-text("Name")').click();
   await expect(row.locator("[data-display-name]")).toHaveText("Penguin CI build");
   await expect(row.locator("[data-username]")).toHaveText(ACCOUNT);

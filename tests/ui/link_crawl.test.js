@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 // The live-update stream stays open by design, so "networkidle" would never
 // arrive: these tests get an empty stream, which the page retries quietly.
@@ -76,6 +76,10 @@ const FAULT =
 // only bounds runtime against a page that generates unbounded links.
 const MAX_PAGES = 80;
 
+/**
+ * @param {string} href
+ * @param {string} base
+ */
 function normalize(href, base) {
   const url = new URL(href, base);
   if (url.origin !== new URL(base).origin) return null;
@@ -94,7 +98,7 @@ test.describe("Link crawl", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const auth = { Authorization: `Bearer ${token}` };
     await request.post("/provide", {
       headers: auth,
@@ -114,15 +118,18 @@ test.describe("Link crawl", () => {
 
   test("every reachable link leads to a working page", async ({ page }) => {
     test.setTimeout(300000);
-    page.on("dialog", async (d) => await d.dismiss());
+    page.on("dialog", async (d) => {
+      await d.dismiss();
+    });
 
     await page.goto("/account.html");
     await page.waitForSelector("#login-username", { state: "visible" });
     await page.fill("#login-username", "root");
-    await page.fill("#login-password", adminPassword);
+    await page.fill("#login-password", /** @type {string} */ (adminPassword));
     await page.click('#login-panel button[type="submit"]');
     await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 
+    /** @type {string[]} */
     const faults = [];
     page.on("pageerror", (e) => faults.push(`${page.url()} pageerror: ${e.message}`));
     page.on("console", (msg) => {
@@ -135,12 +142,15 @@ test.describe("Link crawl", () => {
     const visited = new Set();
 
     while (queue.length > 0 && visited.size < MAX_PAGES) {
-      const target = queue.shift();
+      // The loop condition says the queue is not empty.
+      const target = /** @type {string} */ (queue.shift());
       if (visited.has(target)) continue;
       visited.add(target);
 
       await page.goto(target);
-      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+        // The page may never go idle: the fixed wait below covers that.
+      });
       await page.waitForTimeout(500);
 
       // An interpolation that lost its variable produces a literal
@@ -162,6 +172,7 @@ test.describe("Link crawl", () => {
       // Every action-args attribute in the final DOM must parse — this is the
       // page-load audit repeated where it matters: after dynamic rendering.
       const badArgs = await page.evaluate(() => {
+        /** @type {string[]} */
         const bad = [];
         for (const el of document.querySelectorAll("*")) {
           for (const attr of el.attributes) {
@@ -189,7 +200,9 @@ test.describe("Link crawl", () => {
         await nodes
           .nth(i)
           .hover({ timeout: 2000 })
-          .catch(() => {});
+          .catch(() => {
+            // A node that cannot be hovered in time adds no link: the crawl goes on.
+          });
         await page.waitForTimeout(150);
         for (const href of await page
           .locator("a[href]")

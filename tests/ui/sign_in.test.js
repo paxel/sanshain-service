@@ -2,14 +2,26 @@
 // while registration is open, a text that does not promise a wait when
 // accounts are acknowledged automatically, the SSO button only while OIDC
 // is the source, and a maintenance notice while only administrators get in.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 import { createHash } from "node:crypto";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const USER = `signin-${Date.now().toString(36)}`;
 
+/** @typedef {import("@playwright/test").APIRequestContext} APIRequestContext */
+
+/** @type {{ Authorization: string }} */
 let headers;
+/**
+ * @param {APIRequestContext} request
+ * @param {string} url
+ * @param {object} data
+ */
 const post = (request, url, data) => request.post(url, { headers, data });
+/**
+ * @param {APIRequestContext} request
+ * @param {string} mode
+ */
 const authMode = (request, mode) =>
   request.put("/admin/auth-config", { headers, data: { auth_mode: mode } });
 
@@ -18,7 +30,9 @@ test.beforeAll(async ({ request }) => {
   const login = await request.post("/auth/login", {
     data: { username: "root", password: adminPassword },
   });
-  headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  headers = {
+    Authorization: `Bearer ${/** @type {{ token: string }} */ (await json(login)).token}`,
+  };
 });
 
 // Leave the instance as the other suites expect it: Local, registration closed.
@@ -34,9 +48,12 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+/** @param {import("@playwright/test").Page} page */
 const openSignIn = async (page) => {
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.reload();
   await expect(page.locator("#login-username")).toBeVisible();
 };
@@ -90,7 +107,7 @@ test("in maintenance the card says so and refuses everyone but administrators", 
   await expect(page.locator("#login-error")).toContainText("maintenance");
 
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   expect((await authMode(request, "local")).ok()).toBeTruthy();
@@ -101,7 +118,9 @@ test("signing in lands on the dashboard, whose names only a signed-in user sees"
 }) => {
   expect((await authMode(page.request, "local")).ok()).toBeTruthy();
   await page.goto("/");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.reload();
   await expect(page.locator("#stat-producers")).toHaveText(/^\d+$/);
   await expect(page.locator("#activity-chart > rect")).toHaveCount(30);
@@ -120,7 +139,7 @@ test("signing in lands on the dashboard, whose names only a signed-in user sees"
 
   await openSignIn(page);
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await page.waitForURL((url) => url.pathname === "/");
   await expect(page.locator("#stat-versions")).toHaveText(/^\d+$/);
@@ -133,7 +152,7 @@ test("a local user names themselves on the account page and the banner shows it"
   expect((await authMode(page.request, "local")).ok()).toBeTruthy();
   await openSignIn(page);
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await page.waitForURL((url) => url.pathname === "/");
   await page.goto("/account.html");
@@ -156,7 +175,7 @@ test("a person picks their own Gravatar address, and only its key is kept", asyn
   expect((await authMode(request, "local")).ok()).toBeTruthy();
   await openSignIn(page);
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await page.waitForURL((url) => url.pathname === "/");
 
@@ -200,12 +219,13 @@ test("the auto-acknowledge switch turns off and on again and keeps its state", a
   expect((await authMode(request, "local")).ok()).toBeTruthy();
   await post(request, "/admin/settings/auto-approve", { enabled: true });
   const stored = async () =>
-    (await (await request.get("/admin/settings/auto-approve", { headers })).json())
-      .auto_approve_users;
+    /** @type {{ auto_approve_users: boolean }} */ (
+      await json(await request.get("/admin/settings/auto-approve", { headers }))
+    ).auto_approve_users;
 
   await openSignIn(page);
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   const openAdmin = async () => {

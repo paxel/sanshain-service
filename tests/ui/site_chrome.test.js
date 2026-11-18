@@ -4,6 +4,7 @@
 import { test, expect } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+/** @type {[string, boolean][]} */
 const PAGES = [
   ["/producers.html", true],
   ["/consumers.html", true],
@@ -17,11 +18,12 @@ const PAGES = [
 ];
 const OPEN_LINKS = ["Producers", "Consumers", "Products", "Graph", "Reports", "Observability"];
 
+/** @param {import("@playwright/test").Page} page */
 async function signIn(page) {
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }

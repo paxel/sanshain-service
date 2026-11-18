@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
@@ -16,10 +16,11 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     await expect(page.locator("#dashboard")).toBeVisible();
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const ensureLoaderHidden = async (page) => {
     try {
       await page.waitForSelector("#app-loader", { state: "hidden", timeout: 2000 });
-    } catch (e) {
+    } catch {
       await page.evaluate(() => {
         const loader = document.getElementById("app-loader");
         if (loader) loader.style.display = "none";
@@ -56,7 +57,7 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     await expect(page.locator("#tokens-list")).toBeVisible();
 
     // Create a new token
-    const tokenName = `test-token-${Date.now()}`;
+    const tokenName = `test-token-${String(Date.now())}`;
     await page.fill("#token-name", tokenName);
     await page.click('button:has-text("Create")');
 
@@ -87,7 +88,7 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     await ensureLoaderHidden(page);
     await expect(page.locator("#tokens-list")).toBeVisible();
 
-    const tokenName = `ai-token-${Date.now()}`;
+    const tokenName = `ai-token-${String(Date.now())}`;
     await page.fill("#token-name", tokenName);
     await page.check("#token-read-only");
     await page.click('button:has-text("Create")');
@@ -116,8 +117,8 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
-    const name = `ctx-producer-${Date.now()}`;
+    const { token } = /** @type {{ token: string }} */ (await json(login));
+    const name = `ctx-producer-${String(Date.now())}`;
     const spec = [
       "openapi: 3.0.3",
       "info:",
@@ -186,7 +187,7 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     const panel = page.locator("#webhooks-panel [data-webhook-form]");
     await expect(panel).toBeVisible();
 
-    const url = `https://hooks.example/${Date.now()}`;
+    const url = `https://hooks.example/${String(Date.now())}`;
     await panel.locator("[data-webhook-url]").fill(url);
     await panel.locator("[data-webhook-format]").selectOption("slack");
     await panel.locator("[data-webhook-create]").click();
@@ -214,10 +215,12 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     const id = await row.getAttribute("data-webhook-row");
-    const csrf = await (await request.get("/csrf-token")).json();
-    const deleted = await request.delete(`/admin/webhooks/${id}`, {
+    const csrf = /** @type {{ csrf_token: string }} */ (
+      await json(await request.get("/csrf-token"))
+    );
+    const deleted = await request.delete(`/admin/webhooks/${String(id)}`, {
       headers: { Authorization: `Bearer ${token}`, "X-CSRF-Token": csrf.csrf_token },
     });
     expect(deleted.ok()).toBeTruthy();
@@ -227,8 +230,8 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
-    const name = `hook-producer-${Date.now()}`;
+    const { token } = /** @type {{ token: string }} */ (await json(login));
+    const name = `hook-producer-${String(Date.now())}`;
     const spec = [
       "openapi: 3.0.3",
       "info:",

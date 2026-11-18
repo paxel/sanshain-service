@@ -24,10 +24,6 @@ export default defineConfig(
       "deploy/",
     ],
   },
-  {
-    // Temporary: the groups san-1003 has not cleaned yet. Its last commit removes this block.
-    ignores: ["tests/ui/"],
-  },
   eslint.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,

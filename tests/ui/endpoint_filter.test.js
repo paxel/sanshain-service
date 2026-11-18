@@ -2,7 +2,7 @@
 // then method; a search box over path, method and summary; Used / Unused /
 // Deprecated chips; the filter kept in the URL, so Back from an endpoint
 // returns to the filtered list.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const stamp = Date.now().toString(36);
@@ -44,17 +44,17 @@ test.beforeAll(async ({ request }) => {
   const login = await request.post("/auth/login", {
     data: { username: "root", password: adminPassword },
   });
-  const { token } = await login.json();
+  const { token } = /** @type {{ token: string }} */ (await json(login));
   const headers = { Authorization: `Bearer ${token}` };
   const res = await request.post("/provide", {
     headers,
     data: { producername: PRODUCER, stability: "ga", openapi_yaml: SPEC },
   });
   expect(res.ok(), `provide: ${await res.text()}`).toBeTruthy();
-  for (const [path, method] of [
+  for (const [path, method] of /** @type {[string, string][]} */ ([
     ["/carts", "GET"],
     ["/carts/{id}", "DELETE"],
-  ]) {
+  ])) {
     const req = await request.get("/require", {
       headers,
       params: { consumername: CONSUMER, producername: PRODUCER, version: "1.0.0", path, method },
@@ -70,21 +70,27 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 });
 
 // "METHOD /path" of every visible endpoint card, in page order.
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} list
+ */
 const visibleEndpoints = (page, list) =>
   page.locator(`${list} .endpoint-card:visible`).evaluateAll((cards) =>
     cards.map((card) => {
       const spans = card.querySelectorAll("span.font-mono, span.uppercase");
       const method = [...spans].find(
-        (s) => /^[A-Z]+$/.test(s.textContent.trim()) && s.textContent.trim() !== "OPENAPI",
+        (s) =>
+          /^[A-Z]+$/.test(/** @type {string} */ (s.textContent).trim()) &&
+          /** @type {string} */ (s.textContent).trim() !== "OPENAPI",
       );
-      const path = card.querySelector("span.font-mono");
-      return `${method ? method.textContent.trim() : "?"} ${path.textContent.trim()}`;
+      const path = /** @type {Element} */ (card.querySelector("span.font-mono"));
+      return `${method ? /** @type {string} */ (method.textContent).trim() : "?"} ${/** @type {string} */ (path.textContent).trim()}`;
     }),
   );
 
