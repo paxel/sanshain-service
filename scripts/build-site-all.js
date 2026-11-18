@@ -24,6 +24,18 @@ import {
   readVersion,
 } from "./build-site.js";
 
+/** @typedef {import("./build-site.js").Page} Page */
+
+/**
+ * One version to build: where its sources come from and whether it is the latest.
+ * @typedef {{ version: string, tag: string | null, source: "tag" | "worktree", latest: boolean }} PlanEntry
+ */
+
+/**
+ * A plan entry with what `buildAll` adds to it: its tree, its pages folder and its pages.
+ * @typedef {PlanEntry & { root: string, srcDir: string, pages: Page[] }} BuildEntry
+ */
+
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 
@@ -39,19 +51,36 @@ export const RELEASE_PATHS = [
 
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 
+/**
+ * @param {string} repoRoot
+ * @param {string[]} args
+ * @param {{ stdio?: import("node:child_process").StdioOptions }} [options]
+ * @returns {string}
+ */
 function git(repoRoot, args, options = {}) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", ...options });
 }
 
-/** Newest first: 2.10.0 after 2.9.0, numerically per part. */
+/**
+ * Newest first: 2.10.0 after 2.9.0, numerically per part.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
 export function compareVersions(a, b) {
   const pa = a.split(".").map(Number);
   const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return /** @type {number} */ (pb[i]) - /** @type {number} */ (pa[i]);
+  }
   return 0;
 }
 
-/** The release tags that carry the site, newest first. */
+/**
+ * The release tags that carry the site, newest first.
+ * @param {string} [repoRoot]
+ * @returns {string[]}
+ */
 export function listReleaseTags(repoRoot = REPO_ROOT) {
   const tags = git(repoRoot, ["tag", "--list", "v*"])
     .split("\n")
@@ -67,7 +96,12 @@ export function listReleaseTags(repoRoot = REPO_ROOT) {
   return withSite.sort((a, b) => compareVersions(a.slice(1), b.slice(1)));
 }
 
-/** Extracts the release paths of a tag into destDir; a path the tag lacks fails loudly. */
+/**
+ * Extracts the release paths of a tag into destDir; a path the tag lacks fails loudly.
+ * @param {string} repoRoot
+ * @param {string} tag
+ * @param {string} destDir
+ */
 export function extractTag(repoRoot, tag, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   const archive = execFileSync("git", ["archive", "--format=tar", tag, "--", ...RELEASE_PATHS], {
@@ -81,8 +115,11 @@ export function extractTag(repoRoot, tag, destDir) {
  * Which versions to build and from where: every release tag plus the working
  * tree, the latter replacing the tag of the same version. Newest first; the
  * first entry is the latest.
+ * @param {{ tags: string[], workingVersion: string }} options
+ * @returns {PlanEntry[]}
  */
 export function planVersions({ tags, workingVersion }) {
+  /** @type {Omit<PlanEntry, "latest">[]} */
   const entries = tags
     .filter((tag) => tag.slice(1) !== workingVersion)
     .map((tag) => ({ version: tag.slice(1), tag, source: "tag" }));
@@ -98,6 +135,13 @@ export function planVersions({ tags, workingVersion }) {
 /**
  * Builds all versions into outDir. `contractsFor(root)` and `arc42For(root)`
  * give the generated pages of the tree at `root`; tests pass simpler ones.
+ * @param {object} [options]
+ * @param {string} [options.repoRoot]
+ * @param {string} [options.outDir]
+ * @param {string | undefined} [options.base]
+ * @param {(root: string) => import("./build-site.js").ContractSpec[]} [options.contractsFor]
+ * @param {(root: string) => import("./build-site.js").Arc42Spec | null} [options.arc42For]
+ * @returns {{ outDir: string, builds: { version: string, path: string }[], versions: string[] }}
  */
 export function buildAll({
   repoRoot = REPO_ROOT,
@@ -110,12 +154,16 @@ export function buildAll({
     throw new Error(`--base must start and end with "/": got "${base}"`);
   }
   const workingVersion = readVersion(fs.readFileSync(path.join(repoRoot, "Cargo.toml"), "utf8"));
-  const plan = planVersions({ tags: listReleaseTags(repoRoot), workingVersion });
+  // The first loop below gives every entry its root, srcDir and pages.
+  const plan = /** @type {BuildEntry[]} */ (
+    planVersions({ tags: listReleaseTags(repoRoot), workingVersion })
+  );
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "sanshain-site-releases-"));
   try {
     for (const entry of plan) {
-      entry.root = entry.source === "tag" ? path.join(scratch, entry.tag) : repoRoot;
-      if (entry.source === "tag") extractTag(repoRoot, entry.tag, entry.root);
+      const tag = /** @type {string} */ (entry.tag);
+      entry.root = entry.source === "tag" ? path.join(scratch, tag) : repoRoot;
+      if (entry.source === "tag") extractTag(repoRoot, tag, entry.root);
       entry.srcDir = path.join(entry.root, "site");
       try {
         entry.pages = collectPages({
@@ -124,7 +172,8 @@ export function buildAll({
           arc42: arc42For(entry.root),
         });
       } catch (err) {
-        throw new Error(`${entry.tag ?? "working tree"}: ${err.message}`, { cause: err });
+        const why = err instanceof Error ? err.message : String(err);
+        throw new Error(`${entry.tag ?? "working tree"}: ${why}`, { cause: err });
       }
     }
     const versions = plan.map((entry) => ({
@@ -137,9 +186,11 @@ export function buildAll({
       versions.flatMap((entry) => entry.pages.map((page) => `${entry.base}${page}`)),
     );
     const assetsDir = path.join(repoRoot, "site/assets");
+    /** @type {{ version: string, path: string }[]} */
     const builds = [];
     // The root first: it wipes outDir, the version folders are written into it after.
     for (const entry of plan) {
+      /** @type {[string, string][]} */
       const targets = entry.latest ? [["", base]] : [];
       targets.push([`v${entry.version}`, `${base}v${entry.version}/`]);
       for (const [folder, versionBase] of targets) {
@@ -181,13 +232,18 @@ export function buildAll({
 // ---------------------------------------------------------------------------
 // CLI
 
+/**
+ * @param {string[]} argv
+ * @returns {{ outDir?: string, base?: string | undefined }}
+ */
 function parseArgs(argv) {
+  /** @type {ReturnType<typeof parseArgs>} */
   const opts = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--out") opts.outDir = path.resolve(argv[++i]);
+    if (arg === "--out") opts.outDir = path.resolve(/** @type {string} */ (argv[++i]));
     else if (arg === "--base") opts.base = argv[++i];
-    else throw new Error(`Unknown argument: ${arg}`);
+    else throw new Error(`Unknown argument: ${String(arg)}`);
   }
   return opts;
 }
@@ -198,7 +254,7 @@ if (isMain) {
     const result = buildAll(parseArgs(process.argv.slice(2)));
     console.log(`Built ${result.versions.map((v) => `v${v}`).join(", ")} into ${result.outDir}`);
   } catch (err) {
-    console.error(`build-site-all: ${err.message}`);
+    console.error(`build-site-all: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
 }

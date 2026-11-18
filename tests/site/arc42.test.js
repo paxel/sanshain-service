@@ -31,6 +31,9 @@ import {
   stripTags,
 } from "../../scripts/build-site.js";
 
+/** @typedef {import("../../scripts/site/arc42.js").SvgNode} SvgNode */
+/** @typedef {ReturnType<typeof import("../../scripts/build-site.js").buildIndex>} SearchIndex */
+
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const ARC42 = path.join(REPO_ROOT, "docs/arc42");
 const REPO_URL = "https://github.com/paxel/sanshain-service";
@@ -94,12 +97,15 @@ const FIXTURE_SVG_BARE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2
 <text x="170.0" y="50.0" font-size="12" text-anchor="start" fill="#222222">label</text>
 </svg>`;
 
+/** @type {(links: Record<string, string>) => (name: string) => string} */
 const resolver = (links) => (name) => {
-  if (name in links) return links[name];
+  if (name in links) return /** @type {string} */ (links[name]);
   throw new Error(`unmapped ${name}`);
 };
 
+/** @type {string} */
 let tmp;
+/** @type {string} */
 let realOut;
 
 before(() => {
@@ -115,7 +121,7 @@ after(() => {
 // ---------------------------------------------------------------------------
 // Table reader
 
-test("readExport finds the title, image, motivation and tables by structure", () => {
+void test("readExport finds the title, image, motivation and tables by structure", () => {
   const doc = readExport(FIXTURE_MD, "thing.md");
   assert.equal(doc.title, "Whitebox Thing");
   assert.equal(doc.image, "context - Thing.svg");
@@ -129,20 +135,20 @@ test("readExport finds the title, image, motivation and tables by structure", ()
       ["Beta", "Nothing – yet."],
     ],
   });
-  assert.equal(doc.tables[1].title, "External interfaces");
+  assert.equal(doc.tables[1]?.title, "External interfaces");
   assert.deepEqual(doc.tables[1].header, ["Partner outside", "Attached to", "Direction", "Text"]);
   assert.deepEqual(doc.tables[1].rows, [["Outer › Alpha, Beta", "Alpha", "in", "calls"]]);
 });
 
-test("the context export's paragraph follows the image directly, without a Motivation heading", () => {
+void test("the context export's paragraph follows the image directly, without a Motivation heading", () => {
   const doc = readExport(
     "### Context\n\n![Context view](<context.svg>)\n\nThe paragraph.\n\n#### Partners\n\n| A | B |\n|---|---|\n| 1 | 2 |\n",
   );
   assert.equal(doc.motivation, "The paragraph.");
-  assert.deepEqual(doc.tables[0].rows, [["1", "2"]]);
+  assert.deepEqual(doc.tables[0]?.rows, [["1", "2"]]);
 });
 
-test("a table that does not parse fails naming the file and line", () => {
+void test("a table that does not parse fails naming the file and line", () => {
   const head = "### T\n\n![T](<t.svg>)\n\nText.\n\n#### Blocks\n\n";
   assert.throws(
     () => readExport(`${head}| A | B |\n|---|---|\n| only one |\n`, "t.md"),
@@ -164,22 +170,24 @@ test("a table that does not parse fails naming the file and line", () => {
   assert.throws(() => readExport("![T](<t.svg>)\n", "t.md"), /t\.md:1: no ### title/);
 });
 
-test("splitRow keeps pipes inside backticks and unescapes \\|; empty and dash cells survive", () => {
+void test("splitRow keeps pipes inside backticks and unescapes \\|; empty and dash cells survive", () => {
   assert.deepEqual(splitRow("| a | `x|y` | c \\| d |  | – |"), ["a", "`x|y`", "c | d", "", "–"]);
   assert.deepEqual(splitRow("a|b"), ["a", "b"]);
   const doc = readExport(
     "### T\n\n![T](<t.svg>)\n\nText.\n\n#### Blocks\n\n| A | B | C |\n|---|---|---|\n| `p|q` | | – |\n",
   );
-  assert.deepEqual(doc.tables[0].rows, [["`p|q`", "", "–"]]);
+  assert.deepEqual(doc.tables[0]?.rows, [["`p|q`", "", "–"]]);
 });
 
-test("cellHtml turns backticks into code and escapes the rest", () => {
+void test("cellHtml turns backticks into code and escapes the rest", () => {
   assert.equal(cellHtml("Does `a<b` & `c`"), "Does <code>a&lt;b</code> &amp; <code>c</code>");
   assert.equal(cellHtml("–"), "–");
 });
 
-test("the real export files read with the expected table and row counts", () => {
+void test("the real export files read with the expected table and row counts", () => {
+  /** @type {Record<string, string[]>} */
   const counts = {};
+  /** @type {Record<string, string>} */
   const firstWords = {
     Context: "Sanshain sits between the build pipelines",
     "Sanshain Service": "Hexagonal layering: the HTTP API and the MCP Server",
@@ -190,9 +198,12 @@ test("the real export files read with the expected table and row counts", () => 
   for (const d of DIAGRAMS) {
     const file = path.join(ARC42, `${d.stem}.md`);
     const doc = readExport(fs.readFileSync(file, "utf8"), `${d.stem}.md`);
-    assert.ok(doc.motivation.startsWith(firstWords[d.name]), `${d.stem}: ${doc.motivation}`);
+    assert.ok(
+      doc.motivation.startsWith(/** @type {string} */ (firstWords[d.name])),
+      `${d.stem}: ${doc.motivation}`,
+    );
     assert.ok(fs.existsSync(path.join(ARC42, doc.image)), `${d.stem}: ${doc.image} exists`);
-    counts[d.name] = doc.tables.map((t) => `${t.title}:${t.rows.length}`);
+    counts[d.name] = doc.tables.map((t) => `${t.title}:${String(t.rows.length)}`);
   }
   assert.deepEqual(counts, {
     Context: ["Communication partners:8", "Building blocks:2"],
@@ -214,7 +225,7 @@ test("the real export files read with the expected table and row counts", () => 
 // ---------------------------------------------------------------------------
 // Link map and ADR links
 
-test("readLinkMap accepts URL and { doc, whitebox } entries and rejects the rest", () => {
+void test("readLinkMap accepts URL and { doc, whitebox } entries and rejects the rest", () => {
   const map = readLinkMap(
     '{"links":{"A":"a.html","B":{"doc":"b.html","whitebox":"#b"}},"unlinked":["C"]}',
   );
@@ -233,7 +244,7 @@ test("readLinkMap accepts URL and { doc, whitebox } entries and rejects the rest
   assert.throws(() => readLinkMap('{"links":{},"unlinked":"A"}'), /"unlinked" must be an array/);
 });
 
-test("ADR references become links to the files in docs/adr; an unknown number fails", () => {
+void test("ADR references become links to the files in docs/adr; an unknown number fails", () => {
   const adrs = adrIndex(path.join(REPO_ROOT, "docs/adr"));
   assert.equal(adrs["0003"], "0003-versions-replace-branches.md");
   assert.equal(adrs["0009"], "0009-webhooks-outbox-and-egress-allowlist.md");
@@ -257,7 +268,7 @@ test("ADR references become links to the files in docs/adr; an unknown number fa
 // ---------------------------------------------------------------------------
 // SVG
 
-test("prepareSvg drops the prolog, width, height and background rect and keeps the viewBox", () => {
+void test("prepareSvg drops the prolog, width, height and background rect and keeps the viewBox", () => {
   const { open, inner, viewBox, width } = prepareSvg(FIXTURE_SVG, "f.svg");
   assert.equal(viewBox, "-12.0 -12.0 400.0 300.0");
   assert.equal(width, 400);
@@ -271,7 +282,7 @@ test("prepareSvg drops the prolog, width, height and background rect and keeps t
   assert.throws(() => prepareSvg("<svg></svg>", "f.svg"), /f\.svg: the root <svg> has no viewBox/);
 });
 
-test("topLevelNodes and bbox read the export's element runs", () => {
+void test("topLevelNodes and bbox read the export's element runs", () => {
   const { inner } = prepareSvg(FIXTURE_SVG);
   const nodes = topLevelNodes(inner);
   assert.deepEqual(
@@ -280,15 +291,15 @@ test("topLevelNodes and bbox read the export's element runs", () => {
       " ",
     ),
   );
-  assert.equal(nodes[4].text, "Alpha &amp; Co");
-  assert.deepEqual(bbox(nodes[2]), [20, 50, 170, 130]);
-  assert.deepEqual(bbox(nodes[8]), [200, 60, 360, 130]);
-  assert.deepEqual(bbox(nodes[4]), [95, 88.2, 95, 88.2]);
+  assert.equal(nodes[4]?.text, "Alpha &amp; Co");
+  assert.deepEqual(bbox(/** @type {SvgNode} */ (nodes[2])), [20, 50, 170, 130]);
+  assert.deepEqual(bbox(/** @type {SvgNode} */ (nodes[8])), [200, 60, 360, 130]);
+  assert.deepEqual(bbox(/** @type {SvgNode} */ (nodes[4])), [95, 88.2, 95, 88.2]);
   assert.equal(bbox({ tag: "path", open: '<path d="M0 0"/>' }), null);
   assert.throws(() => topLevelNodes("<g><rect/>"), /unbalanced/);
 });
 
-test("linkBoxes wraps each box run, shape to glyph, in an SVG <a> with the resolved href", () => {
+void test("linkBoxes wraps each box run, shape to glyph, in an SVG <a> with the resolved href", () => {
   const { inner } = prepareSvg(FIXTURE_SVG);
   const { svg, boxes } = linkBoxes(inner, resolver({ "Alpha & Co": "#alpha", Beta: "../b.html" }));
   assert.deepEqual(boxes, [
@@ -306,19 +317,19 @@ test("linkBoxes wraps each box run, shape to glyph, in an SVG <a> with the resol
     /<a href="\.\.\/b\.html" class="arc42-box" aria-label="Beta"><polygon points="200\.0[\s\S]*?«database»<\/text><\/a>\n<polygon points="170\.0/,
   );
   // Container, title and edge labels are untouched.
-  assert.equal(svg.match(/<a /g).length, 2);
+  assert.equal(svg.match(/<a /g)?.length, 2);
   assert.ok(svg.includes('fill="#8a939e">Thing (whitebox)</text>'));
   assert.ok(svg.endsWith('fill="#666666">Legend</text>'));
 });
 
-test("an unlinked box stays plain; a linked box without a containing shape fails", () => {
+void test("an unlinked box stays plain; a linked box without a containing shape fails", () => {
   const { inner } = prepareSvg(FIXTURE_SVG);
   const { svg, boxes } = linkBoxes(inner, (name) => (name === "Beta" ? "#beta" : null));
   assert.deepEqual(boxes, [
     { name: "Alpha & Co", href: null },
     { name: "Beta", href: "#beta" },
   ]);
-  assert.equal(svg.match(/<a /g).length, 1);
+  assert.equal(svg.match(/<a /g)?.length, 1);
   assert.throws(
     () =>
       linkBoxes(
@@ -330,7 +341,7 @@ test("an unlinked box stays plain; a linked box without a containing shape fails
   );
 });
 
-test("without a frame title the search still finds the box shape, widened to a nested rect", () => {
+void test("without a frame title the search still finds the box shape, widened to a nested rect", () => {
   const { inner } = prepareSvg(FIXTURE_SVG_BARE);
   const { svg, boxes } = linkBoxes(inner, resolver({ Cache: "c.html" }));
   assert.deepEqual(boxes, [{ name: "Cache", href: "c.html" }]);
@@ -344,7 +355,7 @@ test("without a frame title the search still finds the box shape, widened to a n
   );
 });
 
-test("an unmapped box fails with its name and file", () => {
+void test("an unmapped box fails with its name and file", () => {
   const { inner } = prepareSvg(FIXTURE_SVG);
   assert.throws(() => linkBoxes(inner, resolver({ Beta: "#b" })), /unmapped Alpha & Co/);
   const dir = path.join(tmp, "unmapped");
@@ -354,10 +365,13 @@ test("an unmapped box fails with its name and file", () => {
       fs.copyFileSync(path.join(ARC42, d.stem + ext), path.join(dir, d.stem + ext));
   }
   const links = path.join(dir, "links.json");
-  const real = JSON.parse(fs.readFileSync(DEFAULT_ARC42.linksFile, "utf8"));
+  const real = /** @type {{ links: Record<string, unknown>, unlinked: string[] }} */ (
+    JSON.parse(fs.readFileSync(DEFAULT_ARC42.linksFile, "utf8"))
+  );
   delete real.links["Spec Parsers"];
   fs.writeFileSync(links, JSON.stringify(real));
-  const page = (linksFile) => arc42Page({ ...DEFAULT_ARC42, dir, linksFile, repoUrl: REPO_URL });
+  const page = (/** @type {string} */ linksFile) =>
+    arc42Page({ ...DEFAULT_ARC42, dir, linksFile, repoUrl: REPO_URL });
   assert.throws(
     () => page(links),
     /context - Sanshain Service\.svg: box "Spec Parsers" has no entry in the link map; add it to "links" or "unlinked"/,
@@ -378,7 +392,7 @@ test("an unmapped box fails with its name and file", () => {
   assert.throws(() => page(links), /arc42 export context\.md: cannot read/);
 });
 
-test("sectionId matches the ids the headings get", () => {
+void test("sectionId matches the ids the headings get", () => {
   assert.equal(sectionId("HTTP API"), "http-api");
   assert.equal(sectionId("Branches & Reports"), "branches-reports");
 });
@@ -386,7 +400,7 @@ test("sectionId matches the ids the headings get", () => {
 // ---------------------------------------------------------------------------
 // The real page and build
 
-test("the real site build renders the Architecture page with all five diagrams inline", () => {
+void test("the real site build renders the Architecture page with all five diagrams inline", () => {
   assert.ok(
     !fs.existsSync(path.join(REPO_ROOT, "site/reference/architecture.html")),
     "generated only into the output",
@@ -397,7 +411,7 @@ test("the real site build renders the Architecture page with all five diagrams i
   assert.equal(
     html.match(
       /<figure class="arc42-diagram" style="--diagram-min-width: \d+px"><svg class="arc42-svg" xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="/g,
-    ).length,
+    )?.length,
     5,
   );
   assert.ok(!html.includes("<?xml"));
@@ -408,11 +422,11 @@ test("the real site build renders the Architecture page with all five diagrams i
   for (const d of DIAGRAMS) {
     const id = d.name.toLowerCase().replace(/ /g, "-");
     const source = fs.readFileSync(path.join(ARC42, `${d.stem}.svg`), "utf8");
-    const width = Number(/viewBox="[^ ]+ [^ ]+ ([^ ]+) /.exec(source)[1]);
+    const width = Number(/viewBox="[^ ]+ [^ ]+ ([^ ]+) /.exec(source)?.[1]);
     const title = d.name === "Context" ? "Context" : `Whitebox ${d.name}`;
     assert.ok(
       html.includes(
-        `<figure class="arc42-diagram" style="--diagram-min-width: ${Math.round(width * DIAGRAM_SCALE)}px"><svg class="arc42-svg" xmlns="http://www.w3.org/2000/svg" viewBox="-12.0 -12.0 ${width.toFixed(1)} `,
+        `<figure class="arc42-diagram" style="--diagram-min-width: ${String(Math.round(width * DIAGRAM_SCALE))}px"><svg class="arc42-svg" xmlns="http://www.w3.org/2000/svg" viewBox="-12.0 -12.0 ${width.toFixed(1)} `,
       ),
       `${d.stem}: figure min-width`,
     );
@@ -427,12 +441,14 @@ test("the real site build renders the Architecture page with all five diagrams i
     ...html.matchAll(/<a href="[^"]*" class="arc42-box" aria-label="([^"]*)">([\s\S]*?)<\/a>/g),
   ];
   assert.equal(runs.length, 36);
-  for (const [, label, run] of runs) {
+  for (const match of runs) {
+    const label = /** @type {string} */ (match[1]);
+    const run = /** @type {string} */ (match[2]);
     const nodes = topLevelNodes(run);
     const texts = nodes.filter((n) => n.tag === "text").map((n) => n.text);
     assert.equal(texts.length, 2, `${label}: two texts`);
     assert.equal(texts[0], label, `${label}: the label is the name`);
-    assert.match(texts[1], /^«[^»]+»$/);
+    assert.match(/** @type {string} */ (texts[1]), /^«[^»]+»$/);
     for (const n of nodes) {
       assert.ok(
         ["rect", "polygon", "polyline", "circle", "svg", "text"].includes(n.tag),
@@ -474,7 +490,10 @@ test("the real site build renders the Architecture page with all five diagrams i
     /<a href="[^"]*\/docs\/adr\/0009-webhooks-outbox-and-egress-allowlist\.md">ADR-0009<\/a>/,
   );
   // The nav lists it after the API pages; the TOC is the six h2s.
-  const nav = /<section class="nav-track" aria-label="Reference">[\s\S]*?<\/section>/.exec(html)[0];
+  const navMatch = /<section class="nav-track" aria-label="Reference">[\s\S]*?<\/section>/.exec(
+    html,
+  );
+  const nav = /** @type {RegExpExecArray} */ (navMatch)[0];
   assert.match(nav, /Using the API.*REST API.*Maintenance API.*Architecture/);
   assert.match(
     html,
@@ -482,7 +501,7 @@ test("the real site build renders the Architecture page with all five diagrams i
   );
 });
 
-test("every box in the real diagrams links and every map entry resolves in the output", () => {
+void test("every box in the real diagrams links and every map entry resolves in the output", () => {
   const map = readLinkMap(fs.readFileSync(DEFAULT_ARC42.linksFile, "utf8"));
   const seen = new Set();
   for (const d of DIAGRAMS) {
@@ -492,7 +511,11 @@ test("every box in the real diagrams links and every map entry resolves in the o
       inner,
       (name) => {
         seen.add(name);
-        return map.unlinked.includes(name) ? null : map.links[name].whitebox || map.links[name].doc;
+        if (map.unlinked.includes(name)) return null;
+        const entry = /** @type {import("../../scripts/site/arc42.js").LinkEntry} */ (
+          map.links[name]
+        );
+        return (entry.whitebox ?? "") || entry.doc;
       },
       `${d.stem}.svg`,
     );
@@ -502,8 +525,9 @@ test("every box in the real diagrams links and every map entry resolves in the o
     assert.ok(seen.has(name), `"${name}" in the link map is a box in some diagram`);
   }
   // Every doc and whitebox URL of the map resolves against the built site.
+  /** @type {Map<string, string>} */
   const files = new Map();
-  const walk = (dir) => {
+  const walk = (/** @type {string} */ dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
@@ -516,16 +540,18 @@ test("every box in the real diagrams links and every map entry resolves in the o
   };
   walk(realOut);
   const urls = Object.values(map.links).flatMap((e) =>
-    [e.doc, e.whitebox && `architecture.html${e.whitebox}`].filter(Boolean),
+    [e.doc, ...(e.whitebox ? [`architecture.html${e.whitebox}`] : [])].filter(Boolean),
   );
   files.set("reference/links-probe.html", urls.map((u) => `<a href="${u}">x</a>`).join(""));
   checkLinks(files);
   const unlinkedTarget = { ...map, links: { ...map.links, Probe: "nowhere.html" } };
   files.set("reference/links-probe.html", `<a href="${unlinkedTarget.links.Probe}">x</a>`);
-  assert.throws(() => checkLinks(files), /nowhere\.html/);
+  assert.throws(() => {
+    checkLinks(files);
+  }, /nowhere\.html/);
 });
 
-test("the link check reads href and xlink:href inside inline SVG", () => {
+void test("the link check reads href and xlink:href inside inline SVG", () => {
   assert.deepEqual(
     extractLinks(
       "p.html",
@@ -535,9 +561,13 @@ test("the link check reads href and xlink:href inside inline SVG", () => {
   );
 });
 
-test("the search index carries the page's tables but not the diagram labels", () => {
-  const index = JSON.parse(fs.readFileSync(path.join(realOut, "search-index.json"), "utf8"));
-  const page = index.find((p) => p.url === "reference/architecture.html");
+void test("the search index carries the page's tables but not the diagram labels", () => {
+  const index = /** @type {SearchIndex} */ (
+    JSON.parse(fs.readFileSync(path.join(realOut, "search-index.json"), "utf8"))
+  );
+  const page = /** @type {SearchIndex[number]} */ (
+    index.find((p) => p.url === "reference/architecture.html")
+  );
   assert.equal(page.title, "Architecture");
   const text = page.headings.map((h) => h.body).join(" ");
   assert.ok(text.includes("Moka-based caching decorator"), "table text is indexed");

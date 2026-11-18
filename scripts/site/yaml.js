@@ -15,9 +15,32 @@
 // flow collections, and a plain multi-line value that starts on the line
 // after its key (`key:` followed by indented text; use `|` or `>`).
 
+/** @typedef {{ [key: string]: YamlValue }} YamlMap */
+
+/**
+ * A sequence of values. It is written as the array of a mapping's value type, which is
+ * YamlValue[]: a JSDoc typedef that names itself in an array is refused as circular.
+ * @typedef {YamlMap[string][]} YamlSeq
+ */
+
+/**
+ * What the reader returns: a scalar, a sequence or a mapping of these.
+ * @typedef {null | boolean | number | string | YamlSeq | YamlMap} YamlValue
+ */
+
+/**
+ * A source line with its number, its indent and whether the structural walk skips it.
+ * @typedef {{ no: number, text: string, indent: number, blank: boolean }} Line
+ */
+
 class YamlError extends Error {
+  /**
+   * @param {string} file
+   * @param {number} line
+   * @param {string} message
+   */
   constructor(file, line, message) {
-    super(`${file}:${line}: ${message}`);
+    super(`${file}:${String(line)}: ${message}`);
     this.name = "YamlError";
   }
 }
@@ -25,6 +48,10 @@ class YamlError extends Error {
 const KEY =
   /^(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^\s"'#&*!|>%@`{}[\],](?:[^\s#:]|:(?=\S)|\s+(?=[^\s#:]|:\S))*))\s*:(?:\s+|$)/;
 
+/**
+ * @param {string} text
+ * @returns {null | boolean | number | string}
+ */
 function plainScalar(text) {
   if (text === "" || text === "~" || /^(null|Null|NULL)$/.test(text)) return null;
   if (/^(true|True|TRUE)$/.test(text)) return true;
@@ -33,24 +60,46 @@ function plainScalar(text) {
   return text;
 }
 
+/** @type {Record<string, string>} */
 const ESCAPES = { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "/": "/", 0: "\0" };
 
+/**
+ * @param {string} inner
+ * @param {(message: string) => never} fail
+ * @returns {string}
+ */
 function unescapeDouble(inner, fail) {
-  return inner.replace(/\\(u([0-9a-fA-F]{4})|.)/g, (whole, ch, hex) => {
+  /**
+   * @param {string} whole
+   * @param {string} ch
+   * @param {string | undefined} hex
+   * @returns {string}
+   */
+  const unescape = (whole, ch, hex) => {
     if (hex) return String.fromCharCode(Number.parseInt(hex, 16));
-    if (ch in ESCAPES) return ESCAPES[ch];
+    if (ch in ESCAPES) return /** @type {string} */ (ESCAPES[ch]);
     return fail(`unknown escape ${whole} in double-quoted string`);
-  });
+  };
+  return inner.replace(/\\(u([0-9a-fA-F]{4})|.)/g, unescape);
 }
 
 /** A plain scalar ends at the first ` #`; a quote inside it is just a character. */
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function stripComment(text) {
   const at = text.search(/\s#/);
   return (at >= 0 ? text.slice(0, at) : text).trimEnd();
 }
 
 /** A flow collection ends at the first ` #` outside its quoted strings. */
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function stripFlowComment(text) {
+  /** @type {string | null} */
   let quote = null;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -58,11 +107,17 @@ function stripFlowComment(text) {
       if (c === "\\" && quote === '"') i++;
       else if (c === quote) quote = null;
     } else if (c === '"' || c === "'") quote = c;
-    else if (c === "#" && i > 0 && /\s/.test(text[i - 1])) return text.slice(0, i).trimEnd();
+    else if (c === "#" && i > 0 && /\s/.test(/** @type {string} */ (text[i - 1])))
+      return text.slice(0, i).trimEnd();
   }
   return text.trimEnd();
 }
 
+/**
+ * @param {string} source
+ * @param {string} [file]
+ * @returns {YamlValue}
+ */
 export function parseYaml(source, file = "yaml") {
   const raw = source.split(/\r?\n/);
   // Pre-pass: every line with its indent; blank and comment lines are kept
@@ -72,6 +127,7 @@ export function parseYaml(source, file = "yaml") {
     const trimmed = text.trim();
     return { no: i + 1, text, indent, blank: trimmed === "" || trimmed.startsWith("#") };
   });
+  /** @type {(line: Line, message: string) => never} */
   const fail = (line, message) => {
     throw new YamlError(file, line.no, message);
   };
@@ -82,17 +138,23 @@ export function parseYaml(source, file = "yaml") {
   }
 
   let pos = 0;
+  /** @returns {Line | null} */
   const next = () => {
-    while (pos < lines.length && lines[pos].blank) pos++;
-    return pos < lines.length ? lines[pos] : null;
+    while (pos < lines.length && /** @type {Line} */ (lines[pos]).blank) pos++;
+    return pos < lines.length ? /** @type {Line} */ (lines[pos]) : null;
   };
 
   // Scalar parsing, shared by mapping values and sequence items.
 
+  /**
+   * @param {string} text
+   * @param {Line} line
+   * @returns {YamlValue}
+   */
   function flowValue(text, line) {
     let i = 0;
     const ws = () => {
-      while (i < text.length && /\s/.test(text[i])) i++;
+      while (i < text.length && /\s/.test(/** @type {string} */ (text[i]))) i++;
     };
     const scalar = () => {
       ws();
@@ -100,24 +162,26 @@ export function parseYaml(source, file = "yaml") {
         const m = /^"((?:[^"\\]|\\.)*)"/.exec(text.slice(i));
         if (!m) fail(line, "unterminated double-quoted string");
         i += m[0].length;
-        return unescapeDouble(m[1], (msg) => fail(line, msg));
+        return unescapeDouble(/** @type {string} */ (m[1]), (msg) => fail(line, msg));
       }
       if (text[i] === "'") {
         const m = /^'((?:[^']|'')*)'/.exec(text.slice(i));
         if (!m) fail(line, "unterminated single-quoted string");
         i += m[0].length;
-        return m[1].replace(/''/g, "'");
+        return /** @type {string} */ (m[1]).replace(/''/g, "'");
       }
       const start = i;
-      while (i < text.length && !/[,\]}]/.test(text[i])) i++;
+      while (i < text.length && !/[,\]}]/.test(/** @type {string} */ (text[i]))) i++;
       const word = text.slice(start, i).trim();
       if (word.includes(": ")) fail(line, "flow mappings inside flow values must be {…}");
       return plainScalar(word);
     };
+    /** @returns {YamlValue} */
     const value = () => {
       ws();
       if (text[i] === "[") {
         i++;
+        /** @type {YamlValue[]} */
         const out = [];
         ws();
         if (text[i] === "]") {
@@ -145,6 +209,7 @@ export function parseYaml(source, file = "yaml") {
       }
       if (text[i] === "{") {
         i++;
+        /** @type {YamlMap} */
         const out = {};
         ws();
         if (text[i] === "}") {
@@ -188,17 +253,24 @@ export function parseYaml(source, file = "yaml") {
   }
 
   /** Block scalar: `|` or `>` with optional chomping; content lines deeper than parentIndent. */
+  /**
+   * @param {string} indicator
+   * @param {Line} line
+   * @param {number} parentIndent
+   * @returns {string}
+   */
   function blockScalar(indicator, line, parentIndent) {
     const m = /^([|>])([+-]?)(\d*)$|^([|>])(\d*)([+-]?)$/.exec(indicator);
     if (!m) fail(line, `unsupported block scalar header "${indicator}"`);
-    const folded = (m[1] || m[4]) === ">";
-    const chomp = m[2] || m[6] || "";
+    const folded = (m[1] ?? m[4]) === ">";
+    const chomp = m[2] ?? m[6] ?? "";
     if (m[3] || m[5]) fail(line, "explicit block indentation indicators are not supported");
     pos++;
+    /** @type {string[]} */
     const content = [];
     let contentIndent = -1;
     while (pos < lines.length) {
-      const l = lines[pos];
+      const l = /** @type {Line} */ (lines[pos]);
       if (l.text.trim() === "") {
         content.push("");
         pos++;
@@ -222,10 +294,14 @@ export function parseYaml(source, file = "yaml") {
     if (folded) {
       body = "";
       for (let i = 0; i < content.length; i++) {
-        const cur = content[i];
+        const cur = /** @type {string} */ (content[i]);
         if (i === 0) body = cur;
         else if (cur === "") body += "\n";
-        else if (content[i - 1] === "" || /^\s/.test(cur) || /^\s/.test(content[i - 1]))
+        else if (
+          content[i - 1] === "" ||
+          /^\s/.test(cur) ||
+          /^\s/.test(/** @type {string} */ (content[i - 1]))
+        )
           body += (content[i - 1] === "" ? "" : "\n") + cur;
         else body += " " + cur;
       }
@@ -237,37 +313,43 @@ export function parseYaml(source, file = "yaml") {
   }
 
   /** A scalar on one line, possibly continued on deeper plain lines. */
+  /**
+   * @param {string} text
+   * @param {Line} line
+   * @param {number} parentIndent
+   * @returns {YamlValue}
+   */
   function inlineScalar(text, line, parentIndent) {
     const t = text.trim();
     if (t === "") {
       pos++;
       return null;
     }
-    if (t[0] === "|" || t[0] === ">") return blockScalar(t, line, parentIndent);
-    if (t[0] === "[" || t[0] === "{") {
+    if (t.startsWith("|") || t.startsWith(">")) return blockScalar(t, line, parentIndent);
+    if (t.startsWith("[") || t.startsWith("{")) {
       pos++;
       return flowValue(stripFlowComment(t), line);
     }
-    if (t[0] === '"') {
+    if (t.startsWith('"')) {
       const m = /^"((?:[^"\\]|\\.)*)"\s*(#.*)?$/.exec(t);
       if (!m) fail(line, "unterminated or trailing text after double-quoted string");
       pos++;
-      return unescapeDouble(m[1], (msg) => fail(line, msg));
+      return unescapeDouble(/** @type {string} */ (m[1]), (msg) => fail(line, msg));
     }
-    if (t[0] === "'") {
+    if (t.startsWith("'")) {
       const m = /^'((?:[^']|'')*)'\s*(#.*)?$/.exec(t);
       if (!m) fail(line, "unterminated or trailing text after single-quoted string");
       pos++;
-      return m[1].replace(/''/g, "'");
+      return /** @type {string} */ (m[1]).replace(/''/g, "'");
     }
     if (/^[&*!%@`]/.test(t))
-      fail(line, `unsupported YAML construct "${t[0]}" (anchor, alias or tag)`);
+      fail(line, `unsupported YAML construct "${t.charAt(0)}" (anchor, alias or tag)`);
     let value = stripComment(t);
     pos++;
     // Plain multi-line scalar: following non-blank lines deeper than the
     // parent that are not themselves a key or a sequence item.
     while (pos < lines.length) {
-      const l = lines[pos];
+      const l = /** @type {Line} */ (lines[pos]);
       if (l.blank) {
         if (l.text.trim() === "") {
           const after = next();
@@ -294,15 +376,25 @@ export function parseYaml(source, file = "yaml") {
 
   // Block collections.
 
+  /**
+   * @param {number} indent
+   * @returns {YamlValue}
+   */
   function block(indent) {
     const line = next();
     if (!line) return null;
     const text = line.text.slice(line.indent);
     if (/^-(\s|$)/.test(text)) return sequence(line.indent);
     if (KEY.test(text)) return mapping(line.indent);
-    return fail(line, `expected a key or a sequence item at indent ${indent}`);
+    return fail(line, `expected a key or a sequence item at indent ${String(indent)}`);
   }
 
+  /**
+   * @param {string} afterKey
+   * @param {Line} line
+   * @param {number} keyIndent
+   * @returns {YamlValue}
+   */
   function value(afterKey, line, keyIndent) {
     if (afterKey.trim() !== "" && !afterKey.trim().startsWith("#")) {
       return inlineScalar(afterKey, line, keyIndent);
@@ -316,7 +408,12 @@ export function parseYaml(source, file = "yaml") {
     return null;
   }
 
+  /**
+   * @param {number} indent
+   * @returns {YamlMap}
+   */
   function mapping(indent) {
+    /** @type {YamlMap} */
     const out = {};
     for (;;) {
       const line = next();
@@ -331,14 +428,19 @@ export function parseYaml(source, file = "yaml") {
           ? unescapeDouble(m[1], (msg) => fail(line, msg))
           : m[2] !== undefined
             ? m[2].replace(/''/g, "'")
-            : m[3].trim();
+            : /** @type {string} */ (m[3]).trim();
       if (key in out) fail(line, `duplicate key "${key}"`);
       out[key] = value(text.slice(m[0].length), line, indent);
     }
     return out;
   }
 
+  /**
+   * @param {number} indent
+   * @returns {YamlValue[]}
+   */
   function sequence(indent) {
+    /** @type {YamlValue[]} */
     const out = [];
     for (;;) {
       const line = next();
@@ -371,7 +473,7 @@ export function parseYaml(source, file = "yaml") {
   const first = next();
   if (!first) return null;
   if (first.text.trim() === "---") pos++;
-  const doc = block(next() ? next().indent : 0);
+  const doc = block(next() ? /** @type {Line} */ (next()).indent : 0);
   const rest = next();
   if (rest) fail(rest, `unexpected content after the document: "${rest.text.trim().slice(0, 40)}"`);
   return doc;

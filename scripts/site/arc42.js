@@ -10,7 +10,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { escapeHtml } from "./html.js";
 
-/** The diagrams in reading order: file stem, box name and the level path above it. */
+/** @typedef {import("../build-site.js").Page} Page */
+
+/** @typedef {{ stem: string, name: string, path: string[] }} Diagram */
+/** @typedef {{ title: string, header: string[], rows: string[][] }} Table */
+/** @typedef {{ doc: string, whitebox?: string | undefined }} LinkEntry */
+/** @typedef {{ links: Record<string, LinkEntry>, unlinked: string[] }} LinkMap */
+/** @typedef {{ tag: string, open: string, start: number, end: number, text: string }} SvgNode */
+/** @typedef {[number, number, number, number]} Box */
+
+/**
+ * The diagrams in reading order: file stem, box name and the level path above it.
+ * @type {Diagram[]}
+ */
 export const DIAGRAMS = [
   { stem: "context", name: "Context", path: [] },
   { stem: "context - Sanshain Service", name: "Sanshain Service", path: ["Context"] },
@@ -31,6 +43,10 @@ export const DIAGRAMS = [
   },
 ];
 
+/**
+ * @param {string} name
+ * @returns {string}
+ */
 export function sectionId(name) {
   return name
     .toLowerCase()
@@ -42,14 +58,19 @@ export function sectionId(name) {
 // ---------------------------------------------------------------------------
 // Markdown export: title, image, motivation, pipe tables
 
-/** Splits a table row on the pipes outside backticks; `\|` is a literal pipe. */
+/**
+ * Splits a table row on the pipes outside backticks; `\|` is a literal pipe.
+ * @param {string} line
+ * @returns {string[]}
+ */
 export function splitRow(line) {
+  /** @type {string[]} */
   const cells = [];
   let cell = "";
   let inCode = false;
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i];
+    const ch = /** @type {string} */ (trimmed[i]);
     if (ch === "\\" && trimmed[i + 1] === "|") {
       cell += "|";
       i++;
@@ -73,30 +94,36 @@ const SEPARATOR = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
  * motivation is the first paragraph after the image line; a `####` heading
  * other than Motivation introduces the table that follows it. Throws, naming
  * the file and line, when a table does not parse.
+ * @param {string} source
+ * @param {string} [file]
+ * @returns {{ title: string, image: string, motivation: string, tables: Table[] }}
  */
 export function readExport(source, file = "export") {
   const lines = source.split(/\r?\n/);
+  /** @type {(lineNo: number, why: string) => never} */
   const fail = (lineNo, why) => {
-    throw new Error(`${file}:${lineNo + 1}: ${why}`);
+    throw new Error(`${file}:${String(lineNo + 1)}: ${why}`);
   };
   let title = "";
   let image = "";
   let imageAt = -1;
   for (let i = 0; i < lines.length; i++) {
-    const heading = /^###\s+(\S.*)$/.exec(lines[i].trimEnd());
-    if (heading && !title) title = heading[1];
-    const img = /^!\[[^\]]*\]\(<?([^>)]+?)>?\)\s*$/.exec(lines[i]);
+    const line = /** @type {string} */ (lines[i]);
+    const heading = /^###\s+(\S.*)$/.exec(line.trimEnd());
+    if (heading && !title) title = /** @type {string} */ (heading[1]);
+    const img = /^!\[[^\]]*\]\(<?([^>)]+?)>?\)\s*$/.exec(line);
     if (img && !image) {
-      image = img[1];
+      image = /** @type {string} */ (img[1]);
       imageAt = i;
     }
   }
   if (!title) fail(0, "no ### title");
   if (!image) fail(0, "no image line (![…](<file.svg>))");
 
+  /** @type {string[]} */
   const paragraph = [];
   for (let i = imageAt + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const line = /** @type {string} */ (lines[i]).trim();
     if (!line || line.startsWith("#")) {
       if (paragraph.length) break;
       continue;
@@ -106,43 +133,54 @@ export function readExport(source, file = "export") {
   }
   const motivation = paragraph.join(" ");
 
+  /** @type {Table[]} */
   const tables = [];
   // The first line after the last table read; the lines before it are that table's.
   let next = 0;
   for (let i = imageAt + 1; i < lines.length; i++) {
     if (i < next) continue;
-    const heading = /^####\s+(\S.*)$/.exec(lines[i].trimEnd());
+    const heading = /^####\s+(\S.*)$/.exec(/** @type {string} */ (lines[i]).trimEnd());
     if (!heading || heading[1] === "Motivation") continue;
+    const tableTitle = /** @type {string} */ (heading[1]);
     let at = i + 1;
-    while (at < lines.length && lines[at].trim() === "") at++;
-    if (at >= lines.length || !lines[at].trim().startsWith("|")) {
-      fail(i, `"${heading[1]}" is not followed by a table`);
+    while (at < lines.length && /** @type {string} */ (lines[at]).trim() === "") at++;
+    if (at >= lines.length || !(/** @type {string} */ (lines[at]).trim().startsWith("|"))) {
+      fail(i, `"${tableTitle}" is not followed by a table`);
     }
-    const header = splitRow(lines[at]);
-    if (at + 1 >= lines.length || !SEPARATOR.test(lines[at + 1].trim())) {
-      fail(at + 1, `table "${heading[1]}": the header is not followed by a |---| separator`);
+    const header = splitRow(/** @type {string} */ (lines[at]));
+    if (at + 1 >= lines.length || !SEPARATOR.test(/** @type {string} */ (lines[at + 1]).trim())) {
+      fail(at + 1, `table "${tableTitle}": the header is not followed by a |---| separator`);
     }
-    if (splitRow(lines[at + 1]).length !== header.length) {
-      fail(at + 1, `table "${heading[1]}": separator and header column counts differ`);
+    if (splitRow(/** @type {string} */ (lines[at + 1])).length !== header.length) {
+      fail(at + 1, `table "${tableTitle}": separator and header column counts differ`);
     }
+    /** @type {string[][]} */
     const rows = [];
-    for (at += 2; at < lines.length && lines[at].trim().startsWith("|"); at++) {
-      const cells = splitRow(lines[at]);
+    for (
+      at += 2;
+      at < lines.length && /** @type {string} */ (lines[at]).trim().startsWith("|");
+      at++
+    ) {
+      const cells = splitRow(/** @type {string} */ (lines[at]));
       if (cells.length !== header.length) {
         fail(
           at,
-          `table "${heading[1]}": row has ${cells.length} cells, the header has ${header.length}`,
+          `table "${tableTitle}": row has ${String(cells.length)} cells, the header has ${String(header.length)}`,
         );
       }
       rows.push(cells);
     }
-    tables.push({ title: heading[1], header, rows });
+    tables.push({ title: tableTitle, header, rows });
     next = at;
   }
   return { title, image, motivation, tables };
 }
 
-/** A cell's text: backticks become <code>, everything else is escaped. */
+/**
+ * A cell's text: backticks become <code>, everything else is escaped.
+ * @param {string} text
+ * @returns {string}
+ */
 export function cellHtml(text) {
   return text
     .split(/(`[^`]*`)/)
@@ -153,24 +191,37 @@ export function cellHtml(text) {
 // ---------------------------------------------------------------------------
 // ADR references: `ADR-0003`, `ADR-0004/0005` → links to the files in docs/adr
 
-/** `{ "0003": "0003-versions-replace-branches.md", … }` from the ADR folder. */
+/**
+ * `{ "0003": "0003-versions-replace-branches.md", … }` from the ADR folder.
+ * @param {string} adrDir
+ * @returns {Record<string, string>}
+ */
 export function adrIndex(adrDir) {
+  /** @type {Record<string, string>} */
   const index = {};
   for (const name of fs.readdirSync(adrDir)) {
     const m = /^(\d{4})-.*\.md$/.exec(name);
-    if (m) index[m[1]] = name;
+    if (m) index[/** @type {string} */ (m[1])] = name;
   }
   return index;
 }
 
-/** Wraps every ADR reference in already-escaped HTML in a link; an unknown number fails. */
+/**
+ * Wraps every ADR reference in already-escaped HTML in a link; an unknown number fails.
+ * @param {string} html
+ * @param {Record<string, string>} adrs
+ * @param {string} adrBaseUrl
+ * @returns {string}
+ */
 export function linkAdrs(html, adrs, adrBaseUrl) {
+  /** @type {(number: string, label: string) => string} */
   const link = (number, label) => {
     const file = adrs[number];
     if (!file) throw new Error(`ADR-${number} is referenced but docs/adr has no such file`);
     return `<a href="${adrBaseUrl}/${file}">${label}</a>`;
   };
-  return html.replace(/ADR-(\d{4})((?:\/\d{4})*)/g, (_, first, more) =>
+  /** @type {(whole: string, first: string, more: string) => string} */
+  const linked = (_, first, more) =>
     [link(first, `ADR-${first}`)]
       .concat(
         more
@@ -180,8 +231,8 @@ export function linkAdrs(html, adrs, adrBaseUrl) {
               .map((n) => link(n, n))
           : [],
       )
-      .join("/"),
-  );
+      .join("/");
+  return html.replace(/ADR-(\d{4})((?:\/\d{4})*)/g, linked);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,13 +242,22 @@ export function linkAdrs(html, adrs, adrBaseUrl) {
  * `{ links: { name: url | { doc, whitebox } }, unlinked: [name] }`. The SVG
  * box links to `whitebox` when there is one (the section of the level below),
  * table cells always to `doc`.
+ * @param {string} source
+ * @param {string} [file]
+ * @returns {LinkMap}
  */
 export function readLinkMap(source, file = "architecture.links.json") {
+  /**
+   * The file is read as what the checks below ask of it; anything else fails them.
+   * @typedef {string | number | boolean | null | { doc?: unknown, whitebox?: unknown }} RawEntry
+   * @type {{ links?: Record<string, RawEntry> | null, unlinked?: unknown[] | string | number | boolean | null } | string | number | boolean | null}
+   */
   let data;
   try {
-    data = JSON.parse(source);
+    data = /** @type {typeof data} */ (JSON.parse(source));
   } catch (err) {
-    throw new Error(`${file}: ${err.message}`);
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`${file}: ${why}`, { cause: err });
   }
   if (!data || typeof data !== "object" || !data.links || typeof data.links !== "object") {
     throw new Error(`${file}: expected an object with a "links" object`);
@@ -206,6 +266,7 @@ export function readLinkMap(source, file = "architecture.links.json") {
   if (!Array.isArray(unlinked) || unlinked.some((n) => typeof n !== "string")) {
     throw new Error(`${file}: "unlinked" must be an array of box names`);
   }
+  /** @type {Record<string, LinkEntry>} */
   const links = {};
   for (const [name, entry] of Object.entries(data.links)) {
     if (unlinked.includes(name)) throw new Error(`${file}: "${name}" is both linked and unlinked`);
@@ -217,10 +278,16 @@ export function readLinkMap(source, file = "architecture.links.json") {
       links[name] = { doc: entry.doc, whitebox: entry.whitebox };
     } else throw new Error(`${file}: "${name}" must map to a URL or to { doc, whitebox }`);
   }
-  return { links, unlinked };
+  return { links, unlinked: /** @type {string[]} */ (unlinked) };
 }
 
-/** The target of a box in the diagram: the level below first, else its documentation. */
+/**
+ * The target of a box in the diagram: the level below first, else its documentation.
+ * @param {LinkMap} map
+ * @param {string} name
+ * @param {string} file
+ * @returns {string | null}
+ */
 function boxHref(map, name, file) {
   if (map.unlinked.includes(name)) return null;
   const entry = map.links[name];
@@ -229,10 +296,15 @@ function boxHref(map, name, file) {
       `${file}: box "${name}" has no entry in the link map; add it to "links" or "unlinked"`,
     );
   }
-  return entry.whitebox || entry.doc;
+  return (entry.whitebox ?? "") || entry.doc;
 }
 
-/** A table cell naming a box ("Webhooks", or "HTTP API › Admin Endpoints") links to its documentation. */
+/**
+ * A table cell naming a box ("Webhooks", or "HTTP API › Admin Endpoints") links to its documentation.
+ * @param {LinkMap} map
+ * @param {string} text
+ * @returns {string}
+ */
 function linkCell(map, text) {
   const sep = text.indexOf(" › ");
   const name = sep >= 0 ? text.slice(0, sep) : text;
@@ -247,30 +319,55 @@ function linkCell(map, text) {
 
 const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:\s(?:"[^"]*"|'[^']*'|[^>"'/]|\/(?!>))*)?)(\/?)>/g;
 
+/** @type {Record<string, string>} */
+const XML_ENTITIES = { lt: "<", gt: ">", quot: '"', apos: "'" };
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function decodeXml(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
-    .replace(/&(lt|gt|quot|apos);/g, (_, n) => ({ lt: "<", gt: ">", quot: '"', apos: "'" })[n])
+    .replace(/&#x([0-9a-f]+);/gi, (_, /** @type {string} */ hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, /** @type {string} */ dec) => String.fromCodePoint(Number(dec)))
+    .replace(
+      /&(lt|gt|quot|apos);/g,
+      (_, /** @type {string} */ n) => /** @type {string} */ (XML_ENTITIES[n]),
+    )
     .replace(/&amp;/g, "&");
 }
 
+/**
+ * @param {string} open
+ * @param {string} name
+ * @returns {string | undefined}
+ */
 function attr(open, name) {
   const m = new RegExp(`\\s${name}\\s*=\\s*"([^"]*)"`).exec(open);
   return m ? m[1] : undefined;
 }
 
+/** @type {(open: string, name: string) => number} */
 const num = (open, name) => Number(attr(open, name) ?? Number.NaN);
 
-/** The direct children of the root element, each `{ tag, open, start, end, text }` (text: inner content of <text>). */
+/**
+ * The direct children of the root element, each `{ tag, open, start, end, text }` (text: inner content of <text>).
+ * @param {string} inner
+ * @returns {SvgNode[]}
+ */
 export function topLevelNodes(inner) {
+  /** @type {SvgNode[]} */
   const nodes = [];
   TAG.lastIndex = 0;
   let depth = 0;
+  /** @type {SvgNode | null} */
   let current = null;
   let m;
   while ((m = TAG.exec(inner)) !== null) {
-    const [whole, closing, tag, , selfClosing] = m;
+    const [whole, closing, name, , selfClosing] = m;
+    const tag = /** @type {string} */ (name);
     if (closing) {
       depth--;
       if (depth === 0 && current) {
@@ -285,8 +382,9 @@ export function topLevelNodes(inner) {
     if (depth === 0) current = { tag, open: whole, start: m.index, end: 0, text: "" };
     if (selfClosing) {
       if (depth === 0) {
-        current.end = m.index + whole.length;
-        nodes.push(current);
+        const node = /** @type {SvgNode} */ (current);
+        node.end = m.index + whole.length;
+        nodes.push(node);
         current = null;
       }
     } else depth++;
@@ -295,26 +393,32 @@ export function topLevelNodes(inner) {
   return nodes;
 }
 
-/** `[x1, y1, x2, y2]` of a node, or null when its shape is not read (paths, groups). */
+/**
+ * `[x1, y1, x2, y2]` of a node, or null when its shape is not read (paths, groups).
+ * @param {Pick<SvgNode, "tag" | "open">} node
+ * @returns {Box | null}
+ */
 export function bbox(node) {
   const o = node.open;
   switch (node.tag) {
     case "rect":
     case "svg": {
-      const [x, y, w, h] = ["x", "y", "width", "height"].map((n) => num(o, n));
+      const [x, y, w, h] = /** @type {Box} */ (["x", "y", "width", "height"].map((n) => num(o, n)));
       return [x, y, w, h].some(Number.isNaN) ? null : [x, y, x + w, y + h];
     }
     case "circle": {
-      const [cx, cy, r] = ["cx", "cy", "r"].map((n) => num(o, n));
+      const [cx, cy, r] = /** @type {[number, number, number]} */ (
+        ["cx", "cy", "r"].map((n) => num(o, n))
+      );
       return [cx, cy, r].some(Number.isNaN) ? null : [cx - r, cy - r, cx + r, cy + r];
     }
     case "ellipse": {
-      const [cx, cy, rx, ry] = ["cx", "cy", "rx", "ry"].map((n) => num(o, n));
+      const [cx, cy, rx, ry] = /** @type {Box} */ (["cx", "cy", "rx", "ry"].map((n) => num(o, n)));
       return [cx, cy, rx, ry].some(Number.isNaN) ? null : [cx - rx, cy - ry, cx + rx, cy + ry];
     }
     case "polygon":
     case "polyline": {
-      const points = (attr(o, "points") || "")
+      const points = (attr(o, "points") ?? "")
         .trim()
         .split(/[\s,]+/)
         .map(Number);
@@ -324,7 +428,7 @@ export function bbox(node) {
       return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
     }
     case "text": {
-      const [x, y] = ["x", "y"].map((n) => num(o, n));
+      const [x, y] = /** @type {[number, number]} */ (["x", "y"].map((n) => num(o, n)));
       return [x, y].some(Number.isNaN) ? null : [x, y, x, y];
     }
     default:
@@ -334,6 +438,11 @@ export function bbox(node) {
 
 const TOLERANCE = 0.5;
 
+/**
+ * @param {Box} outer
+ * @param {Box} inner
+ * @returns {boolean}
+ */
 function within(outer, inner) {
   return (
     inner[0] >= outer[0] - TOLERANCE &&
@@ -353,47 +462,57 @@ function within(outer, inner) {
  * nested rects). A linked box without such a shape fails the build.
  * `resolve(name)` returns the href, or null for a box left unlinked.
  * Returns `{ svg, boxes: [{ name, href }] }`.
+ * @param {string} svgInner
+ * @param {(name: string) => string | null} resolve
+ * @param {string} [file]
+ * @returns {{ svg: string, boxes: { name: string, href: string | null }[] }}
  */
 export function linkBoxes(svgInner, resolve, file = "diagram.svg") {
   const nodes = topLevelNodes(svgInner);
+  /** @type {{ name: string, href: string | null }[]} */
   const boxes = [];
+  /** @type {{ from: number, to: number, href: string, name: string }[]} */
   const wraps = [];
   let lastEnd = -1;
+  /** @type {(k: number, point: Box | null) => boolean} */
   const contains = (k, point) => {
-    const b = nodes[k].tag === "text" ? null : bbox(nodes[k]);
+    const node = /** @type {SvgNode} */ (nodes[k]);
+    const b = node.tag === "text" ? null : bbox(node);
     return Boolean(b && point && within(b, point));
   };
   for (let i = 0; i + 1 < nodes.length; i++) {
     // Nodes up to lastEnd belong to the box just wrapped.
     if (i <= lastEnd) continue;
-    if (nodes[i].tag !== "text" || nodes[i + 1].tag !== "text") continue;
-    if (
-      !decodeXml(nodes[i + 1].text)
-        .trim()
-        .startsWith("«")
-    )
-      continue;
-    const name = decodeXml(nodes[i].text).trim();
+    const label = /** @type {SvgNode} */ (nodes[i]);
+    const kind = /** @type {SvgNode} */ (nodes[i + 1]);
+    if (label.tag !== "text" || kind.tag !== "text") continue;
+    if (!decodeXml(kind.text).trim().startsWith("«")) continue;
+    const name = decodeXml(label.text).trim();
     const href = resolve(name);
     if (href === null) {
       boxes.push({ name, href: null });
       continue;
     }
-    const anchor = bbox(nodes[i]);
+    const anchor = bbox(label);
     let start = i - 1;
     while (start > lastEnd && !contains(start, anchor)) start--;
     if (start <= lastEnd) {
       throw new Error(`${file}: no shape contains the name of box "${name}"; cannot link it`);
     }
     while (start - 1 > lastEnd && contains(start - 1, anchor)) start--;
-    const shape = bbox(nodes[start]);
+    const shape = /** @type {Box} */ (bbox(/** @type {SvgNode} */ (nodes[start])));
     let end = i + 1;
     while (end + 1 < nodes.length) {
-      const b = bbox(nodes[end + 1]);
+      const b = bbox(/** @type {SvgNode} */ (nodes[end + 1]));
       if (!b || !within(shape, b)) break;
       end++;
     }
-    wraps.push({ from: nodes[start].start, to: nodes[end].end, href, name });
+    wraps.push({
+      from: /** @type {SvgNode} */ (nodes[start]).start,
+      to: /** @type {SvgNode} */ (nodes[end]).end,
+      href,
+      name,
+    });
     boxes.push({ name, href });
     lastEnd = end;
   }
@@ -415,6 +534,9 @@ export function linkBoxes(svgInner, resolve, file = "diagram.svg") {
  * its viewBox but loses width/height in favour of the `arc42-svg` class, and
  * the full-size white background rect goes so the page's diagram surface shows.
  * Returns `{ open, inner, viewBox, width }` (width: the viewBox width in px).
+ * @param {string} source
+ * @param {string} [file]
+ * @returns {{ open: string, inner: string, viewBox: string, width: number }}
  */
 export function prepareSvg(source, file = "diagram.svg") {
   const text = source.replace(/^\s*<\?xml[^>]*\?>\s*/, "").replace(/<!DOCTYPE[^>]*>\s*/i, "");
@@ -423,14 +545,19 @@ export function prepareSvg(source, file = "diagram.svg") {
   if (!root || close < 0) throw new Error(`${file}: not an SVG document`);
   const viewBox = attr(root[0], "viewBox");
   if (!viewBox) throw new Error(`${file}: the root <svg> has no viewBox`);
-  const attrs = (root[1] || "").replace(/\s(?:width|height|class)\s*=\s*"[^"]*"/g, "").trimEnd();
+  const attrs = (root[1] ?? "").replace(/\s(?:width|height|class)\s*=\s*"[^"]*"/g, "").trimEnd();
   let inner = text.slice(root[0].length, close);
-  const [vx, vy, vw, vh] = viewBox
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number);
+  const [vx, vy, vw, vh] = /** @type {Box} */ (
+    viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number)
+  );
   inner = inner.replace(/^\s*<rect\s[^>]*\/>/, (rect) => {
-    const [x, y, w, h] = ["x", "y", "width", "height"].map((n) => num(rect, n));
+    const [x, y, w, h] = /** @type {Box} */ (
+      ["x", "y", "width", "height"].map((n) => num(rect, n))
+    );
+    /** @type {(a: number, b: number) => boolean} */
     const same = (a, b) => Math.abs(a - b) < 0.05;
     return same(x, vx) && same(y, vy) && same(w, vw) && same(h, vh) ? "" : rect;
   });
@@ -443,6 +570,7 @@ export function prepareSvg(source, file = "diagram.svg") {
 /** Minimum rendered width of a diagram as a fraction of its export width. */
 export const DIAGRAM_SCALE = 0.8;
 
+/** @type {[string, string][]} */
 const LINE_KINDS = [
   [
     "business",
@@ -462,12 +590,23 @@ const LINE_KINDS = [
   ],
 ];
 
+/**
+ * @param {Diagram} diagram
+ * @returns {string}
+ */
 function breadcrumb(diagram) {
   const parts = diagram.path.map((name) => `<a href="#${sectionId(name)}">${escapeHtml(name)}</a>`);
   parts.push(`<span aria-current="true">${escapeHtml(diagram.name)}</span>`);
   return `<nav class="breadcrumb" aria-label="Level">${parts.join(" › ")}</nav>`;
 }
 
+/**
+ * @param {Table} table
+ * @param {string} id
+ * @param {LinkMap} map
+ * @param {(html: string) => string} prose
+ * @returns {string}
+ */
 function renderTable(table, id, map, prose) {
   const head = table.header.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
   const rows = table.rows
@@ -490,11 +629,17 @@ function renderToc() {
   return `<aside class="toc" aria-label="Table of contents">\n<p class="eyebrow">On this page</p><ol>${items}</ol>\n</aside>\n`;
 }
 
+/**
+ * @param {string} file
+ * @param {string} what
+ * @returns {string}
+ */
 function readFile(file, what) {
   try {
     return fs.readFileSync(file, "utf8");
   } catch (err) {
-    throw new Error(`${what} ${path.basename(file)}: cannot read: ${err.message}`);
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`${what} ${path.basename(file)}: cannot read: ${why}`, { cause: err });
   }
 }
 
@@ -502,12 +647,14 @@ function readFile(file, what) {
  * Builds the Architecture page from `dir` (the whiteboxed export), the link
  * map and the ADR folder. Returns a page object ({ title, track, order,
  * summary, url, body, toc }) the site build treats like an authored page.
+ * @param {{ dir: string, linksFile: string, adrDir: string, repoUrl: string, url: string, order: number, title?: string }} options
+ * @returns {Page}
  */
 export function arc42Page({ dir, linksFile, adrDir, repoUrl, url, order, title = "Architecture" }) {
   const map = readLinkMap(readFile(linksFile, "link map"), path.basename(linksFile));
   const adrs = adrIndex(adrDir);
   const adrBase = `${repoUrl}/blob/summer/docs/adr`;
-  const prose = (html) => linkAdrs(html, adrs, adrBase);
+  const prose = (/** @type {string} */ html) => linkAdrs(html, adrs, adrBase);
   const sections = DIAGRAMS.map((diagram) => {
     const mdFile = path.join(dir, `${diagram.stem}.md`);
     const doc = readExport(readFile(mdFile, "arc42 export"), path.basename(mdFile));
@@ -523,7 +670,7 @@ export function arc42Page({ dir, linksFile, adrDir, repoUrl, url, order, title =
     return [
       `<h2 id="${id}">${escapeHtml(doc.title)}</h2>`,
       breadcrumb(diagram),
-      `<figure class="arc42-diagram" style="--diagram-min-width: ${minWidth}px">${labelled}<title>${escapeHtml(doc.title)}</title>${svg}</svg></figure>`,
+      `<figure class="arc42-diagram" style="--diagram-min-width: ${String(minWidth)}px">${labelled}<title>${escapeHtml(doc.title)}</title>${svg}</svg></figure>`,
       `<p>${prose(cellHtml(doc.motivation))}</p>`,
       ...tables,
     ].join("\n");
