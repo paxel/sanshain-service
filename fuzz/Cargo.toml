@@ -1,6 +1,6 @@
 # Fuzz targets for the parsers that read what Producers and catalog pushes
 # send (see README.md). A crate of its own, outside the service's build:
-# `cargo +nightly fuzz run <target>` from this directory.
+# `RUSTC_BOOTSTRAP=1 cargo fuzz run --dev <target>` from the repository root.
 [package]
 name = "sanshain_service-fuzz"
 version = "0.0.0"
