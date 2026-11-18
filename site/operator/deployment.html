@@ -476,7 +476,7 @@ extraEnv:
 
 <h2>Verifying a release</h2>
 <p>
-  The release workflow (<code>.github/workflows/release.yml</code>) produces three supply-chain
+  The release workflow (<code>.github/workflows/release.yml</code>) produces four supply-chain
   artifacts for every tag:
 </p>
 <ul>
@@ -494,6 +494,13 @@ extraEnv:
     <code>Cargo.lock</code> and <code>package-lock.json</code>), on the release as
     <code>sanshain-service-&lt;tag&gt;-source.cdx.json</code>.
   </li>
+  <li>
+    From 2.14.0 on, a signed build provenance attestation for every file the workflow builds for
+    the release: the binaries <code>sanshain-linux-x86_64</code> and
+    <code>sanshain-linux-aarch64</code>, which are the ones inside the image, and the source SBOM.
+    Its Sigstore bundle is on the release as
+    <code>sanshain-service-&lt;tag&gt;-provenance.sigstore.json</code>.
+  </li>
 </ul>
 <p>Verify the signature (the tag or the <code>@sha256:…</code> digest you deploy):</p>
 <pre><code>cosign verify ghcr.io/paxel/sanshain-service:v2.6.0 \
@@ -507,6 +514,11 @@ extraEnv:
   --certificate-identity-regexp '^https://github.com/paxel/sanshain-service/.github/workflows/release.yml@refs/tags/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   | jq -r .payload | base64 -d | jq .predicate &gt; sanshain-service.cdx.json</code></pre>
+<p>
+  Verify a downloaded binary with the GitHub CLI; <code>--bundle</code> with the Sigstore bundle
+  from the release checks it without asking GitHub for the attestation:
+</p>
+<pre><code>gh attestation verify sanshain-linux-x86_64 -R paxel/sanshain-service</code></pre>
 <p>
   From 2.12.0 on the signature and the attestation are written by cosign 3 in the Sigstore bundle
   format. Verify them with cosign 3, which also verifies older releases; cosign 2.6 needs

@@ -333,7 +333,9 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   which fails on open alerts, SonarQube Cloud findings, secret alerts, advisories, unmaintained
   dependencies and licences; the service's own grype scan of the released image). Findings that
   stay are accepted in `code-scanning-ignores.toml` with reason and date, never dismissed.
-  `pages.yml` (site), `release.yml`, `scorecard.yml`
+  `pages.yml` (site), `release.yml` (tag against `Cargo.toml`, gates' release gate, the two musl
+  binaries, gates' provenance, GitHub release, then the image around the attested binaries with
+  its SBOM attestation and cosign signature), `scorecard.yml`
   (OpenSSF Scorecard on `summer`, gates' template unchanged, publishes the README badge), `fuzz.yml` (weekly `cargo fuzz` of the
   five parsers; targets, seeds and saved crashes in `fuzz/`, see `fuzz/README.md`).
 - Branches: `summer` is main; release branches `release/X.Y`.
