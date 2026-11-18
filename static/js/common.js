@@ -1,16 +1,31 @@
 // Sanshain — shared JS utilities
 // Used by admin, account, service, and dashboard pages.
+
+// What the other page scripts, and the controls through the dispatcher below, use by name.
+/* exported personLabel, externalTag, byCodeUnit, renderBanner, sanshainLogout, friendlyError */
+/* exported escapeAttr, attrJson, setActionArgs, confirmDelete, promoteVersion */
+/* exported reloadClearingInstance, dismissReloadBanner, togglePasswordVisibility */
+/* exported systemContextHtml, loadTicketUrlTemplate, originHtml, annotationsHtml */
+/* exported appendClearSystemInfo */
+
+/**
+ * @param {string} name
+ * @returns {string | null}
+ */
 function getCookie(name) {
-  const m = document.cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
-  return m ? m[1] : null;
+  const m = new RegExp("(?:^|;\\s*)" + name + "=([^;]*)").exec(document.cookie);
+  return m ? /** @type {string} */ (m[1]) : null;
 }
 
+/** @returns {string | null} */
 function getSanshainToken() {
-  return localStorage.getItem("sanshain_token") || getCookie("sanshain_token");
+  const stored = localStorage.getItem("sanshain_token");
+  return stored === null || stored === "" ? getCookie("sanshain_token") : stored;
 }
 
 let sanshainToken = getSanshainToken();
 
+/** @param {string | null | undefined} version */
 function setBannerVersion(version) {
   const text = version ? `v${version}` : "";
   const mobile = document.getElementById("version-badge");
@@ -30,11 +45,21 @@ function setBannerVersion(version) {
 // Hiding a control is a usability affordance, not a security boundary: the route
 // guard on the server is the boundary. Never let a hidden button stand in for
 // one.
+/**
+ * @param {SanshainUser | null | undefined} user
+ * @param {string} permission
+ * @returns {boolean}
+ */
 function hasPermission(user, permission) {
   return Array.isArray(user?.permissions) && user.permissions.includes(permission);
 }
 
 // True when the caller holds any of the listed permissions.
+/**
+ * @param {SanshainUser | null | undefined} user
+ * @param {string[]} permissions
+ * @returns {boolean}
+ */
 function hasAnyPermission(user, permissions) {
   return permissions.some((permission) => hasPermission(user, permission));
 }
@@ -49,9 +74,18 @@ function hasAnyPermission(user, permissions) {
 // the named Producer counts like the global permission, as the server's
 // Producer-scoped guard does. Applied to everything already on the page and,
 // through an observer, to every row rendered later.
+/** @type {SanshainUser | null} */
 let gateUser = null;
+/** @type {MutationObserver | null} */
 let gateObserver = null;
 
+/**
+ * @param {SanshainUser | null | undefined} user
+ * @param {string} permission
+ * @param {string} [producer]
+ * @param {string} [product]
+ * @returns {boolean}
+ */
 function gateAllows(user, permission, producer, product) {
   if (!user) return false;
   if (user.is_root || hasPermission(user, permission)) return true;
@@ -59,9 +93,14 @@ function gateAllows(user, permission, producer, product) {
   if (product) {
     return Array.isArray(user.maintains_products) && user.maintains_products.includes(product);
   }
-  return Boolean(producer) && Array.isArray(user.maintains) && user.maintains.includes(producer);
+  return (
+    Boolean(producer) &&
+    Array.isArray(user.maintains) &&
+    user.maintains.includes(/** @type {string} */ (producer))
+  );
 }
 
+/** @param {HTMLElement & { disabled?: boolean }} el */
 function gateElement(el) {
   const permission = el.dataset.needs;
   if (!permission || !gateUser) return;
@@ -87,19 +126,29 @@ function gateElement(el) {
   el.title = `Needs the ${permission} permission${scoped} — ask an administrator`;
 }
 
+/** @param {ParentNode & { matches?: Element["matches"] }} [root] The document or an element. */
 function applyGates(root = document) {
   if (root.nodeType !== 1 && root !== document) return;
-  if (root.matches && root.matches("[data-needs]")) gateElement(root);
-  root.querySelectorAll("[data-needs]").forEach(gateElement);
+  if (root.matches?.("[data-needs]")) gateElement(/** @type {HTMLElement} */ (root));
+  /** @type {NodeListOf<HTMLElement>} */ (root.querySelectorAll("[data-needs]")).forEach(
+    gateElement,
+  );
 }
 
 // Remember who is signed in and gate the page for them, now and from then on.
+/** @param {SanshainUser} user */
 function setGateUser(user) {
   gateUser = user;
   applyGates(document);
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- document.body is null while a script in the head runs, which the DOM types do not say.
   if (!gateObserver && typeof MutationObserver !== "undefined" && document.body) {
     gateObserver = new MutationObserver((mutations) => {
-      for (const m of mutations) m.addedNodes.forEach((node) => applyGates(node));
+      for (const m of mutations) {
+        // applyGates returns at once for a node that is not an element.
+        m.addedNodes.forEach((node) => {
+          applyGates(/** @type {Element} */ (node));
+        });
+      }
     });
     gateObserver.observe(document.body, { childList: true, subtree: true });
   }
@@ -120,24 +169,36 @@ const ADMIN_DASHBOARD_PERMISSIONS = [
   "run_destructive_operations",
 ];
 
+/**
+ * @param {SanshainUser | null | undefined} user
+ * @returns {boolean}
+ */
 function canSeeAdminDashboard(user) {
   // A maintainer's permissions are scoped to their Producers rather than
   // granted globally, so `permissions` alone would hide the dashboard from
   // exactly the people expected to manage something there.
-  const maintainsSomething = user && Array.isArray(user.maintains) && user.maintains.length > 0;
+  const maintainsSomething = Array.isArray(user?.maintains) && user.maintains.length > 0;
   return maintainsSomething || hasAnyPermission(user, ADMIN_DASHBOARD_PERMISSIONS);
 }
 
 // How a person is named in lists: their display name with the username in
 // brackets, or the username alone when they have none.
+/**
+ * @param {{ username: string, display_name?: string | null } | null | undefined} user
+ * @returns {string}
+ */
 function personLabel(user) {
   if (!user) return "";
   return user.display_name ? `${user.display_name} (${user.username})` : user.username;
 }
 
 // The tag of a Producer the company does not maintain.
+/**
+ * @param {{ external?: boolean | null } | null | undefined} producer
+ * @returns {string}
+ */
 function externalTag(producer) {
-  return producer && producer.external
+  return producer?.external
     ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase" data-external title="Not maintained by us: an outside API whose spec was provided here">external</span>'
     : "";
 }
@@ -145,12 +206,25 @@ function externalTag(producer) {
 // A person's avatar: a circle with their initials, and over it their Gravatar
 // picture when the instance shows them. Gravatar answers a transparent image
 // for an address it does not know, so the initials show through.
+/**
+ * @param {PersonLike} user
+ * @returns {string}
+ */
 function avatarInitials(user) {
-  const name = (user.display_name || user.username || "?").trim();
+  const name = ((user.display_name ?? "") || (user.username ?? "") || "?").trim();
   const words = name.split(/[\s._@-]+/).filter(Boolean);
-  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?")[0];
+  // The words are not empty, so charAt(0) is what [0] was.
+  const letters =
+    words.length > 1
+      ? /** @type {string} */ (words[0]).charAt(0) + /** @type {string} */ (words[1]).charAt(0)
+      : ((words[0] ?? "") || "?").charAt(0);
   return letters.toUpperCase();
 }
+/**
+ * @param {PersonLike} user
+ * @param {string} [size]
+ * @returns {string}
+ */
 function avatarHtml(user, size = "h-7 w-7 text-xs") {
   const picture = user.gravatar_hash
     ? `<img src="https://www.gravatar.com/avatar/${encodeURIComponent(user.gravatar_hash)}?s=64&d=blank" alt="" class="absolute inset-0 h-full w-full rounded-full" loading="lazy" />`
@@ -158,6 +232,7 @@ function avatarHtml(user, size = "h-7 w-7 text-xs") {
   return `<span class="relative inline-flex ${size} shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700" data-avatar>${escapeHtml(avatarInitials(user))}${picture}</span>`;
 }
 
+/** @param {SanshainUser | null | undefined} user */
 function updateBannerAuth(user) {
   if (user) setGateUser(user);
   const usernameEl = document.getElementById("banner-username");
@@ -168,14 +243,15 @@ function updateBannerAuth(user) {
   // so a user manager sees the dashboard without being offered the audit
   // timeline they would be refused.
   const auditLink = document.getElementById("nav-audit-link");
+  /** @type {[HTMLElement | null, () => boolean][]} */
   const gatedLinks = [
     [adminLink, () => canSeeAdminDashboard(user)],
     [auditLink, () => hasPermission(user, "view_audit")],
   ];
   if (!usernameEl || !logoutEl || !signinEl) return;
 
-  if (user && user.username) {
-    usernameEl.innerHTML = `<span class="inline-flex items-center gap-2">${avatarHtml(user, "h-6 w-6 text-[10px]")}<span>${escapeHtml(user.display_name || user.username)}</span></span>`;
+  if (user?.username) {
+    usernameEl.innerHTML = `<span class="inline-flex items-center gap-2">${avatarHtml(user, "h-6 w-6 text-[10px]")}<span>${escapeHtml((user.display_name ?? "") || user.username)}</span></span>`;
     usernameEl.title = user.username;
     usernameEl.classList.remove("hidden");
     logoutEl.classList.remove("hidden");
@@ -198,13 +274,22 @@ function updateBannerAuth(user) {
   }
 }
 
-/** Sort compare in UTF-16 code-unit order: the order of a bare `.sort()`, stated. */
+/**
+ * Sort compare in UTF-16 code-unit order: the order of a bare `.sort()`, stated.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
 function byCodeUnit(a, b) {
   if (a < b) return -1;
   return a > b ? 1 : 0;
 }
 
-/** The path without its trailing slashes, in linear time (a /\/+$/ regex backtracks). */
+/**
+ * The path without its trailing slashes, in linear time (a /\/+$/ regex backtracks).
+ * @param {string} path
+ * @returns {string}
+ */
 function withoutTrailingSlashes(path) {
   let end = path.length;
   while (end > 0 && path[end - 1] === "/") end--;
@@ -219,7 +304,7 @@ function highlightCurrentBannerLink() {
     window.location.pathname === "/" ? "/" : withoutTrailingSlashes(window.location.pathname);
   nav.querySelectorAll("a[href]").forEach((link) => {
     const href = link.getAttribute("href");
-    if (!href || !href.startsWith("/")) return;
+    if (!href?.startsWith("/")) return;
 
     const normalizedHref = href === "/" ? "/" : withoutTrailingSlashes(href);
     const isActive = normalizedHref === currentPath;
@@ -230,10 +315,14 @@ function highlightCurrentBannerLink() {
   });
 }
 
+/**
+ * @param {SanshainUser | null} [user]
+ * @returns {Promise<SanshainUser | null>}
+ */
 async function renderBanner(user = null) {
   try {
     highlightCurrentBannerLink();
-    if (user && user.username) {
+    if (user?.username) {
       updateBannerAuth(user);
       return user;
     }
@@ -250,11 +339,11 @@ async function renderBanner(user = null) {
       return null;
     }
 
-    const data = await res.json();
+    const data = /** @type {SanshainUser} */ (await res.json());
     updateBannerAuth(data);
     void initSSEUpdates();
     return data;
-  } catch (_) {
+  } catch {
     updateBannerAuth(null);
     return null;
   }
@@ -290,14 +379,19 @@ async function initSSEUpdates() {
         if (updated) window.dispatchEvent(new CustomEvent("sanshain-update"));
       }
     }
-  } catch (_) {
+  } catch {
     // A dropped connection; reconnect below.
   } finally {
     window._sseInitialized = false;
-    if (retry) setTimeout(initSSEUpdates, 10000);
+    if (retry) {
+      setTimeout(() => {
+        void initSSEUpdates();
+      }, 10000);
+    }
   }
 }
 
+/** @param {{ redirectTo?: string | null | false }} [options] */
 async function sanshainLogout(options = {}) {
   const redirectTo = Object.prototype.hasOwnProperty.call(options, "redirectTo")
     ? options.redirectTo
@@ -307,7 +401,7 @@ async function sanshainLogout(options = {}) {
       await fetchCsrfToken();
     }
     await apiCall("/auth/logout", { method: "POST" });
-  } catch (_) {
+  } catch {
     // Best effort logout; still clear local session state.
   }
 
@@ -323,13 +417,16 @@ async function sanshainLogout(options = {}) {
 // --- Dark / Light theme ---
 (function () {
   // Read preference from cookie, default to 'light'
+  /** @returns {string | null} */
   function getThemeCookie() {
-    const m = document.cookie.match(/(?:^|;\s*)sanshain_theme=(\w+)/);
-    return m ? m[1] : null;
+    const m = /(?:^|;\s*)sanshain_theme=(\w+)/.exec(document.cookie);
+    return m ? /** @type {string} */ (m[1]) : null;
   }
+  /** @param {string} theme */
   function setThemeCookie(theme) {
-    document.cookie = `sanshain_theme=${theme};path=/;max-age=${365 * 24 * 3600};SameSite=Lax`;
+    document.cookie = `sanshain_theme=${theme};path=/;max-age=${String(365 * 24 * 3600)};SameSite=Lax`;
   }
+  /** @param {string} theme */
   function applyTheme(theme) {
     const html = document.documentElement;
     if (theme === "dark") {
@@ -338,12 +435,15 @@ async function sanshainLogout(options = {}) {
       html.classList.remove("dark");
     }
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => applySockeGimmick(theme));
+      document.addEventListener("DOMContentLoaded", () => {
+        applySockeGimmick(theme);
+      });
     } else {
       applySockeGimmick(theme);
     }
   }
 
+  /** @param {string} theme */
   function applySockeGimmick(theme) {
     const isDark = theme === "dark";
     const fromText = isDark ? /Sanshain/g : /SOKA/g;
@@ -353,6 +453,7 @@ async function sanshainLogout(options = {}) {
     const fromImg = isDark ? "sonne.png" : "socke.png";
     const toImg = isDark ? "socke.png" : "sonne.png";
 
+    /** @param {string} txt */
     const updateText = (txt) => {
       return txt.replace(fromText, toText).replace(fromJa, toJa);
     };
@@ -368,17 +469,19 @@ async function sanshainLogout(options = {}) {
     // 2. Update all text nodes (best effort, limited to headers/nav/footer)
     const selectors = "h1, h2, h3, a, span, div, footer, button, label, p, td, th, li";
     document.querySelectorAll(selectors).forEach((el) => {
+      // An element's textContent is never null; the DOM types say so only for a Node.
+      const elText = /** @type {string} */ (el.textContent);
       const hasMatch =
-        el.textContent.includes(isDark ? "Sanshain" : "SOKA") ||
-        el.textContent.includes(isDark ? "サンシャイン" : "そうか");
+        elText.includes(isDark ? "Sanshain" : "SOKA") ||
+        elText.includes(isDark ? "サンシャイン" : "そうか");
       if (hasMatch) {
         if (el.children.length === 0) {
-          el.textContent = updateText(el.textContent);
+          el.textContent = updateText(elText);
         } else if (el.childNodes.length > 0) {
           // Check immediate text nodes
           for (const node of el.childNodes) {
             if (node.nodeType === Node.TEXT_NODE) {
-              node.textContent = updateText(node.textContent);
+              node.textContent = updateText(/** @type {string} */ (node.textContent));
             }
           }
         }
@@ -398,7 +501,7 @@ async function sanshainLogout(options = {}) {
       }
     });
   }
-  const saved = getThemeCookie() || "light";
+  const saved = getThemeCookie() ?? "light";
   applyTheme(saved);
 
   // Inject global dark-mode CSS overrides
@@ -448,7 +551,7 @@ async function sanshainLogout(options = {}) {
         html.dark #graph-toolbar-row { background: rgba(51,65,85,0.5) !important; }
         html.dark .bg-indigo-100 { background: #312e81 !important; }
         html.dark .text-indigo-400 { color: #818cf8 !important; }
-        html.dark .hover\:bg-slate-50:hover { background: #334155 !important; }
+        html.dark .hover:bg-slate-50:hover { background: #334155 !important; }
         html.dark .bg-red-50 { background: #450a0a !important; }
 
         /* Cat Loader */
@@ -484,7 +587,7 @@ async function sanshainLogout(options = {}) {
 
   // Expose toggle function globally
   window.sanshainToggleTheme = function () {
-    const current = getThemeCookie() || "light";
+    const current = getThemeCookie() ?? "light";
     const next = current === "dark" ? "light" : "dark";
     setThemeCookie(next);
     applyTheme(next);
@@ -496,20 +599,20 @@ async function sanshainLogout(options = {}) {
   // After DOM ready, inject toggle button into nav
   document.addEventListener("DOMContentLoaded", () => {
     const nav =
-      document.querySelector("#site-banner > .container") ||
+      document.querySelector("#site-banner > .container") ??
       document.querySelector("nav .container");
     if (!nav) return;
     const btn = document.createElement("button");
     btn.className =
       "theme-toggle-btn ml-3 px-2 py-1 rounded-lg text-lg hover:bg-indigo-600 transition-colors";
     btn.title = "Toggle dark/light mode";
-    btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() || "light") === "dark" ? "☀️" : "🌙"}</span>`;
+    btn.innerHTML = `<span class="theme-toggle-icon">${(getThemeCookie() ?? "light") === "dark" ? "☀️" : "🌙"}</span>`;
     btn.onclick = window.sanshainToggleTheme;
     // Find the right-side flex container in nav
     const rightSide =
-      document.querySelector("#site-banner .justify-end") ||
-      nav.querySelector(".flex.items-center.space-x-4:last-child") ||
-      nav.querySelector(".flex.items-center:last-child") ||
+      document.querySelector("#site-banner .justify-end") ??
+      nav.querySelector(".flex.items-center.space-x-4:last-child") ??
+      nav.querySelector(".flex.items-center:last-child") ??
       nav.lastElementChild;
     if (rightSide && rightSide !== nav.firstElementChild) {
       rightSide.prepend(btn);
@@ -518,9 +621,14 @@ async function sanshainLogout(options = {}) {
     }
   });
 })();
+/** @type {string | null} */
 let csrfToken = null;
 
 // --- Network error helper ---
+/**
+ * @param {unknown} err
+ * @returns {string}
+ */
 function friendlyError(err) {
   if (
     err instanceof TypeError &&
@@ -530,7 +638,8 @@ function friendlyError(err) {
   ) {
     return "Server is not reachable. Please check that the service is running.";
   }
-  return err.message || String(err);
+  const message = /** @type {{ message?: string }} */ (err).message;
+  return (message ?? "") || String(err);
 }
 
 // Reads the message out of a failed response.
@@ -539,46 +648,60 @@ function friendlyError(err) {
 // raw body is not fit to show a user. Falls back to the raw text for anything
 // that is not the expected shape, such as a proxy or gateway error that never
 // reached the service.
+/**
+ * @param {Response} res
+ * @returns {Promise<string>}
+ */
 async function errorMessage(res) {
   const raw = await res.text();
-  if (!raw) return `Request failed (${res.status})`;
+  if (!raw) return `Request failed (${String(res.status)})`;
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = /** @type {{ error?: unknown } | null} */ (JSON.parse(raw));
     if (parsed && typeof parsed.error === "string") return parsed.error;
-  } catch (_) {}
+  } catch {
+    // Not JSON: the raw text is the message.
+  }
   return raw;
 }
 
 // --- CSRF ---
+/** @returns {Promise<void>} */
 async function fetchCsrfToken() {
   try {
     const res = await fetch("/csrf-token");
     if (res.ok) {
-      const data = await res.json();
+      const data = /** @type {{ csrf_token: string }} */ (await res.json());
       csrfToken = data.csrf_token;
     }
-  } catch (_) {}
+  } catch {
+    // Without a token the next state-changing call is refused, and says so.
+  }
 }
 
 // --- Authenticated API helper ---
 // Automatically attaches Bearer token and CSRF token.
 // If body is an object, serialises as JSON.
 // On 401, clears session and calls onSessionExpired() if defined.
+/**
+ * @param {string} url
+ * @param {ApiCallOptions} [options]
+ * @returns {Promise<Response>}
+ */
 async function apiCall(url, options = {}) {
   // Refresh token from localStorage/cookie in case it was updated by another script/context
   sanshainToken = getSanshainToken();
 
   const headers = { ...options.headers };
-  if (sanshainToken) headers["Authorization"] = `Bearer ${sanshainToken}`;
+  if (sanshainToken) headers.Authorization = `Bearer ${sanshainToken}`;
   if (options.body && typeof options.body === "object") {
     headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(options.body);
   }
-  const method = (options.method || "GET").toUpperCase();
+  const method = ((options.method ?? "") || "GET").toUpperCase();
   if (["POST", "PUT", "DELETE", "PATCH"].includes(method) && csrfToken) {
     headers["X-CSRF-Token"] = csrfToken;
   }
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, /** @type {RequestInit} */ ({ ...options, headers }));
   if (res.status === 401) {
     sanshainToken = null;
     localStorage.removeItem("sanshain_token");
@@ -593,9 +716,14 @@ async function apiCall(url, options = {}) {
 // attribute (title="…", value="…"), and textContent→innerHTML alone leaves `"`
 // intact, which lets a crafted name close the attribute and add its own.
 // Harmless in text position — a browser renders &quot; as ".
+/**
+ * @param {string | number | boolean | null | undefined} str
+ * @returns {string}
+ */
 function escapeHtml(str) {
   const div = document.createElement("div");
-  div.textContent = str;
+  // The DOM turns a number or a boolean into its text.
+  div.textContent = /** @type {string | null} */ (str);
   return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
@@ -607,6 +735,10 @@ function escapeHtml(str) {
 // unrestricted, so they reach here hostile. For a plain attribute value with
 // no JS around it, use escapeHtml — it leaves no backslashes behind. For the
 // dispatcher's data-<event>-args, use attrJson.
+/**
+ * @param {unknown} str
+ * @returns {string}
+ */
 function escapeAttr(str) {
   return String(str)
     .replace(/\\/g, "\\\\")
@@ -622,6 +754,10 @@ function escapeAttr(str) {
 // *only* HTML-entity escaping (no backslash/quote JS-escaping), so the string
 // getAttribute hands back is byte-for-byte the JSON.stringify output and
 // JSON.parse round-trips it — backslash escapes such as \n survive intact.
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
 function attrJson(value) {
   return JSON.stringify(value)
     .replace(/&/g, "&amp;")
@@ -636,13 +772,20 @@ function attrJson(value) {
 // reject them, leaving the handler to run with no arguments at all. Use this
 // whenever the element is created with createElement; use attrJson only inside
 // a template literal the browser will parse.
+/**
+ * @param {Element} el
+ * @param {string} type The event the action answers: `click`, `change` and so on.
+ * @param {unknown[]} values
+ */
 function setActionArgs(el, type, values) {
   el.setAttribute(`data-${type}-args`, JSON.stringify(values));
 }
 
 // --- Confirm modal ---
 // Markup for the confirm modal, built only through the safeHtml tag below.
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class -- The class is the mark, checked with instanceof, that markup was built by safeHtml.
 class SafeHtml {
+  /** @param {string} html */
   constructor(html) {
     this.html = html;
   }
@@ -651,16 +794,27 @@ class SafeHtml {
 // A tagged template for a confirm message with markup (bold names, line
 // breaks): every interpolated value is escaped unless it is itself safeHtml,
 // so a Producer, user or branch name can never inject HTML.
+/**
+ * @param {TemplateStringsArray} strings
+ * @param {...(string | number | boolean | null | undefined | SafeHtml)} values
+ * @returns {SafeHtml}
+ */
 function safeHtml(strings, ...values) {
-  let html = strings[0];
+  let html = /** @type {string} */ (strings[0]);
   values.forEach((value, i) => {
-    html += (value instanceof SafeHtml ? value.html : escapeHtml(value)) + strings[i + 1];
+    html += (value instanceof SafeHtml ? value.html : escapeHtml(value)) + String(strings[i + 1]);
   });
   return new SafeHtml(html);
 }
 
 // Requires a #confirm-modal, #confirm-message, #confirm-yes in the page.
 // `message` is plain text, or markup built with safeHtml.
+/**
+ * @param {string | SafeHtml} message
+ * @param {() => unknown} onConfirm
+ * @param {string} [title]
+ * @param {string} [buttonText]
+ */
 function confirmAction(message, onConfirm, title = "Confirm Action", buttonText = "Confirm") {
   const modal = document.getElementById("confirm-modal");
   if (!modal) return;
@@ -674,7 +828,7 @@ function confirmAction(message, onConfirm, title = "Confirm Action", buttonText 
       onConfirm();
     };
   }
-  const messageEl = document.getElementById("confirm-message");
+  const messageEl = /** @type {HTMLElement} */ (document.getElementById("confirm-message"));
   if (message instanceof SafeHtml) {
     messageEl.innerHTML = message.html;
   } else {
@@ -683,17 +837,28 @@ function confirmAction(message, onConfirm, title = "Confirm Action", buttonText 
   modal.classList.remove("hidden");
 }
 // Alias used by admin page
-const confirmDelete = (message, onConfirm) =>
+/**
+ * @param {string | SafeHtml} message
+ * @param {() => unknown} onConfirm
+ */
+const confirmDelete = (message, onConfirm) => {
   confirmAction(message, onConfirm, "Confirm Deletion", "Delete");
+};
 
 function closeConfirmModal() {
-  document.getElementById("confirm-modal").classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("confirm-modal")).classList.add("hidden");
 }
 
 // --- One-click promote (#28) ---
 // Releases a stored snapshot in place through the same GA gate as any release.
 // Shared by the producers page and the admin dashboard; `onSuccess` is the
 // page's own refresh hook.
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} version
+ * @param {(() => unknown) | null} [onSuccess]
+ */
 function promoteVersion(serviceName, apiType, version, onSuccess) {
   confirmAction(
     safeHtml`Release ${apiType} version <strong>${version}</strong> of <strong>${serviceName}</strong> as GA?<br><br>The number is permanently claimed and its content becomes immutable.`,
@@ -709,7 +874,7 @@ function promoteVersion(serviceName, apiType, version, onSuccess) {
         }
         if (onSuccess) await onSuccess();
       } catch (e) {
-        alert("Failed to promote: " + e.message);
+        alert("Failed to promote: " + /** @type {Error} */ (e).message);
       }
     },
     "Promote to GA",
@@ -718,15 +883,18 @@ function promoteVersion(serviceName, apiType, version, onSuccess) {
 }
 
 // --- Version badge ---
+/** @param {string} elementId */
 function loadVersionBadge(elementId) {
   fetch("/version")
-    .then((r) => r.json())
+    .then((r) => /** @type {Promise<VersionInfo>} */ (r.json()))
     .then((data) => {
       const el = document.getElementById(elementId);
       if (el) el.textContent = `v${data.version}`;
       setBannerVersion(data.version);
     })
-    .catch(() => {});
+    .catch(() => {
+      // The badge stays empty when the version cannot be read.
+    });
 }
 
 // --- Staleness detection ---
@@ -734,7 +902,7 @@ function loadVersionBadge(elementId) {
 // If they differ (server restarted or updated), shows a reload banner at the top of the page.
 function checkStaleness() {
   fetch("/version")
-    .then((r) => r.json())
+    .then((r) => /** @type {Promise<VersionInfo>} */ (r.json()))
     .then((data) => {
       const key = `${data.version}::${data.instance_id}`;
       const stored = sessionStorage.getItem("sanshain_instance");
@@ -747,7 +915,9 @@ function checkStaleness() {
         showReloadBanner();
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      // An unreachable server cannot be stale.
+    });
 }
 
 function showReloadBanner() {
@@ -770,10 +940,12 @@ function showReloadBanner() {
 // Reload / dismiss actions for the staleness banner (were inline handlers).
 function reloadClearingInstance() {
   sessionStorage.removeItem("sanshain_instance");
-  location.reload(true);
+  // Firefox takes the argument as "bypass the cache"; the DOM types do not know it.
+  /** @type {{ reload(force?: boolean): void }} */ (location).reload(true);
 }
+/** @param {HTMLElement} el */
 function dismissReloadBanner(el) {
-  el.parentElement.remove();
+  /** @type {HTMLElement} */ (el.parentElement).remove();
   sessionStorage.removeItem("sanshain_instance");
 }
 
@@ -816,7 +988,7 @@ function injectLoader() {
 
 window.showLoader = function () {
   injectLoader();
-  const l = document.getElementById("app-loader");
+  const l = /** @type {HTMLElement} */ (document.getElementById("app-loader"));
   l.classList.remove("hidden");
   l.style.opacity = "1";
 };
@@ -833,8 +1005,12 @@ window.hideLoader = function () {
 };
 
 // --- Password visibility toggle ---
+/**
+ * @param {string} inputId
+ * @param {HTMLElement} btn
+ */
 function togglePasswordVisibility(inputId, btn) {
-  const input = document.getElementById(inputId);
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById(inputId));
   if (!input) return;
   if (input.type === "password") {
     input.type = "text";
@@ -861,11 +1037,18 @@ function togglePasswordVisibility(inputId, btn) {
 (function () {
   const EVENTS = ["click", "change", "input", "submit", "keydown"];
 
+  /**
+   * @param {HTMLElement & { value?: unknown }} el
+   * @param {Event} event
+   * @param {string | null} raw
+   * @returns {unknown[]}
+   */
   function decodeArgs(el, event, raw) {
     if (!raw) return [];
+    /** @type {unknown[]} */
     let parsed;
     try {
-      parsed = JSON.parse(raw);
+      parsed = /** @type {unknown[]} */ (JSON.parse(raw));
     } catch (e) {
       console.error("data-action args are not valid JSON:", raw, e);
       return [];
@@ -878,26 +1061,34 @@ function togglePasswordVisibility(inputId, btn) {
     });
   }
 
+  /**
+   * @param {string} type
+   * @param {Event} event
+   */
   function dispatch(type, event) {
-    const el = event.target.closest(`[data-${type}]`);
+    const el = /** @type {HTMLElement | null} */ (
+      /** @type {Element} */ (event.target).closest(`[data-${type}]`)
+    );
     if (!el) return;
     // A data-submit control is always an in-page handler; keep the browser
     // from navigating away on native form submission (the old handlers all
     // ended in `return false`).
     if (type === "submit") event.preventDefault();
-    const name = el.dataset[type];
-    const fn = window[name];
+    const name = /** @type {string} */ (el.dataset[type]);
+    const fn = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window))[name];
     if (typeof fn !== "function") {
       // A dead action is a real bug once inline handlers are gone; surface it.
       console.error(`data-${type}="${name}" resolves to no function`);
       return;
     }
     const args = decodeArgs(el, event, el.getAttribute(`data-${type}-args`));
-    fn.apply(el, args);
+    /** @type {(...args: unknown[]) => unknown} */ (fn).apply(el, args);
   }
 
   for (const type of EVENTS) {
-    document.addEventListener(type, (event) => dispatch(type, event));
+    document.addEventListener(type, (event) => {
+      dispatch(type, event);
+    });
   }
 })();
 
@@ -908,6 +1099,11 @@ function togglePasswordVisibility(inputId, btn) {
 // escaped; chips open in a new tab with rel="noopener noreferrer". `dark`
 // picks the palette of the graph's node panel. Empty for a system without a
 // context, or one whose context has nothing to show.
+/**
+ * @param {SystemContext | null | undefined} context
+ * @param {boolean} [dark]
+ * @returns {string}
+ */
 function systemContextHtml(context, dark) {
   if (!context) return "";
   const text = dark ? "text-slate-300" : "text-slate-700";
@@ -931,12 +1127,12 @@ function systemContextHtml(context, dark) {
     let host = context.source_location;
     try {
       host = new URL(context.source_location).host || host;
-    } catch (_) {
+    } catch {
       /* validated server-side as http(s); the URL itself is a fine label */
     }
     chips.push(linkChip(context.source_location, host, "repository", chip));
   }
-  for (const link of context.links || []) {
+  for (const link of context.links ?? []) {
     chips.push(linkChip(link.url, link.title, "link", chip));
   }
   if (chips.length) {
@@ -944,7 +1140,7 @@ function systemContextHtml(context, dark) {
       `<div class="flex flex-wrap items-center gap-1.5" data-context="links">${chips.join("")}</div>`,
     );
   }
-  if (context.tags && context.tags.length) {
+  if (context.tags?.length) {
     const tagChip = dark
       ? "bg-indigo-900/60 text-indigo-200 border border-indigo-700"
       : "bg-indigo-50 text-indigo-700 border border-indigo-200";
@@ -962,23 +1158,35 @@ function systemContextHtml(context, dark) {
 
 // The ticket URL template of the instance (GET /admin/settings/ticket-url-template),
 // fetched once per page; `null` renders ticket ids as plain text.
+/** @type {string | null} */
 let _ticketUrlTemplate = null;
+/** @type {Promise<void> | null} */
 let _ticketUrlTemplateLoaded = null;
+/** @returns {Promise<string | null>} */
 async function loadTicketUrlTemplate() {
-  if (!_ticketUrlTemplateLoaded) {
-    _ticketUrlTemplateLoaded = (async () => {
+  // Written without `??=`, which is newer than the syntax these scripts are served in.
+  _ticketUrlTemplateLoaded =
+    _ticketUrlTemplateLoaded ??
+    (async () => {
       try {
         const res = await apiCall("/admin/ticket-url-template");
-        if (res.ok) _ticketUrlTemplate = (await res.json()).template || null;
-      } catch (_) {
+        if (res.ok) {
+          const template = /** @type {{ template?: string | null }} */ (await res.json()).template;
+          _ticketUrlTemplate = (template ?? "") || null;
+        }
+      } catch {
         /* ids stay plain text */
       }
     })();
-  }
   await _ticketUrlTemplateLoaded;
   return _ticketUrlTemplate;
 }
 
+/**
+ * @param {string | null | undefined} template
+ * @param {string} id
+ * @returns {string | null}
+ */
 function ticketUrl(template, id) {
   return template ? template.replaceAll("{id}", encodeURIComponent(id)) : null;
 }
@@ -986,6 +1194,12 @@ function ticketUrl(template, id) {
 // A version's origin (what the providing build said about why): the note,
 // then chips for the build, the change and each ticket. Empty string when
 // the build said nothing.
+/**
+ * @param {VersionOrigin | null | undefined} origin
+ * @param {string | null | undefined} template
+ * @param {boolean} [dark]
+ * @returns {string}
+ */
 function originHtml(origin, template, dark) {
   if (!origin) return "";
   const text = dark ? "text-slate-300" : "text-slate-600";
@@ -1007,7 +1221,7 @@ function originHtml(origin, template, dark) {
     chips.push(linkChip(origin.build_url, "build", "build", chip));
   }
   if (origin.change_url) chips.push(linkChip(origin.change_url, "change", "change", chip));
-  for (const id of origin.tickets || []) {
+  for (const id of origin.tickets ?? []) {
     const url = ticketUrl(template, id);
     chips.push(
       url
@@ -1027,6 +1241,11 @@ function originHtml(origin, template, dark) {
 // starting with http:// or https:// is a link chip labelled by the name;
 // anything else is a text chip "name: value". Both are caller-supplied and
 // escaped. Empty string when there are none.
+/**
+ * @param {Annotation[] | null | undefined} annotations
+ * @param {boolean} [dark]
+ * @returns {string}
+ */
 function annotationsHtml(annotations, dark) {
   if (!annotations || annotations.length === 0) return "";
   const chip = dark
@@ -1047,6 +1266,11 @@ function annotationsHtml(annotations, dark) {
 // the catalog context, the system annotations and the current periphery; the
 // next build's push sets them again. The server decides who may (admins, and
 // maintainers of the Producer of that name); a refusal is said out loud.
+/**
+ * @param {HTMLElement} card
+ * @param {string} name
+ * @param {() => void} onCleared
+ */
 function appendClearSystemInfo(card, name, onCleared) {
   const button = document.createElement("button");
   button.type = "button";
@@ -1054,23 +1278,32 @@ function appendClearSystemInfo(card, name, onCleared) {
   button.className =
     "mt-2 px-2.5 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-rose-600";
   button.textContent = "Clear system information";
-  button.addEventListener("click", async () => {
-    const sure = confirm(
-      `Clear what the builds of '${name}' said about it — owner, description, links, tags, annotations and its current periphery? The next build sets them again.`,
-    );
-    if (!sure) return;
-    const res = await apiCall(`/admin/systems/${encodeURIComponent(name)}/information`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      alert("Could not clear the system information: " + (await errorMessage(res)));
-      return;
-    }
-    onCleared();
+  button.addEventListener("click", () => {
+    void (async () => {
+      const sure = confirm(
+        `Clear what the builds of '${name}' said about it — owner, description, links, tags, annotations and its current periphery? The next build sets them again.`,
+      );
+      if (!sure) return;
+      const res = await apiCall(`/admin/systems/${encodeURIComponent(name)}/information`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        alert("Could not clear the system information: " + (await errorMessage(res)));
+        return;
+      }
+      onCleared();
+    })();
   });
   card.appendChild(button);
 }
 
+/**
+ * @param {string} url
+ * @param {string} label
+ * @param {string} kind
+ * @param {string} chipClass
+ * @returns {string}
+ */
 function linkChip(url, label, kind, chipClass) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" data-context-link="${kind}" class="px-2 py-0.5 rounded-full text-[11px] ${chipClass}">${escapeHtml(label)}</a>`;
 }
