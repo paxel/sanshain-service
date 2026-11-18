@@ -1,10 +1,13 @@
-# Fails only when a dependency has a known vulnerability (RustSec and npm advisories) or the latest
-# released image carries a fixable high/critical CVE in its OS packages (grype). Runs weekly and
-# on demand, because new advisories appear without any change in this repo.
-# The two source audits also run in CI on every push and pull request (ci.yml, same job names).
-# Warnings such as unmaintained or yanked packages are reported but never fail it.
 name: Security
 
+# Weekly, and by hand: the release gate without a version, strict. It fails on every open
+# code-scanning or secret-scanning alert that code-scanning-ignores.toml does not accept, on a
+# known vulnerability, on an unmaintained dependency and on a licence outside the allowlist,
+# and when an accepted finding's date has passed: that is the review.
+#
+# The image scan beside it is the service's own (docs/adr/0012-move-to-gates.md): it fails
+# when the latest released image carries a fixable high or critical CVE in its OS packages,
+# which no scan of the source finds.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -14,31 +17,19 @@ permissions:
   contents: read
 
 jobs:
-  cargo-audit:
-    name: Vulnerable crates (cargo audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
-        with:
-          tool: cargo-audit
-      - name: cargo audit
-        run: cargo audit
-
-  npm-audit:
-    name: Vulnerable npm packages (npm audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24'
-      - name: npm audit
-        run: npm audit
+  gate:
+    uses: paxel/gates/.github/workflows/release-gate.yml@e5e253a7caff277f039fb31a3e6be1479682dcc4 # v1.2.0
+    permissions:
+      contents: read
+      security-events: read
+    with:
+      strict: true
+    secrets:
+      alerts-token: ${{ secrets.GATES_ALERTS_TOKEN }}
 
   image-scan:
     name: Vulnerable image packages (grype)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Resolve the latest release tag
         id: latest
@@ -48,7 +39,7 @@ jobs:
         run: echo "tag=$(gh release view --json tagName --jq .tagName)" >> "$GITHUB_OUTPUT"
 
       # Scans the image users run (pulled from the registry), not a rebuild. Fails only on
-      # high/critical findings that have a fix, consistent with the source audits above.
+      # high/critical findings that have a fix.
       - name: grype
         id: grype
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
