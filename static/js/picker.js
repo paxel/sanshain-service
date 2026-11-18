@@ -18,12 +18,59 @@
 //   onSearch(text)             optional: called as the text changes, e.g. to
 //                              look entries up on the server and refresh()
 
+/* exported createPicker */
+
+/**
+ * @template {string | number} V
+ * @typedef {object} PickerOption
+ * @property {V} value
+ * @property {string} label
+ * @property {string | null} [group]
+ */
+
+/**
+ * @template {string | number} V
+ * @typedef {object} PickerBase
+ * @property {string} [id]
+ * @property {string} [placeholder]
+ * @property {() => PickerOption<V>[]} options
+ * @property {(value: V) => boolean} isSelected
+ * @property {(text: string) => void} [onFreeText]
+ * @property {() => string} [selectedLabel]
+ * @property {(text: string) => void} [onSearch]
+ */
+
+/**
+ * @template {string | number} V
+ * @typedef {object} PickerMultiple
+ * @property {true} multiple
+ * @property {(value: V, checked: boolean) => unknown} onToggle
+ */
+
+/**
+ * @template {string | number} V
+ * @typedef {object} PickerSingle
+ * @property {false} [multiple]
+ * @property {(value: V) => unknown} onPick
+ */
+
+/**
+ * @template {string | number} V
+ * @typedef {PickerBase<V> & (PickerMultiple<V> | PickerSingle<V>)} PickerConfig
+ */
+
+/**
+ * @template {string | number} V
+ * @param {HTMLElement} root
+ * @param {PickerConfig<V>} config
+ * @returns {{ input: HTMLInputElement, refresh: () => void }}
+ */
 function createPicker(root, config) {
   const input = document.createElement("input");
   input.type = "text";
   input.autocomplete = "off";
   if (config.id) input.id = config.id;
-  input.placeholder = config.placeholder || "";
+  input.placeholder = config.placeholder ?? "";
   input.setAttribute("role", "combobox");
   input.setAttribute("aria-expanded", "false");
   input.className =
@@ -51,6 +98,7 @@ function createPicker(root, config) {
     const hits = all.filter(
       (o) => o.label.toLowerCase().includes(text) || String(o.value).toLowerCase().includes(text),
     );
+    /** @param {PickerOption<V>} o */
     const exact = (o) => o.label.toLowerCase() === text || String(o.value).toLowerCase() === text;
     return hits.filter(exact).concat(hits.filter((o) => !exact(o)));
   }
@@ -66,6 +114,7 @@ function createPicker(root, config) {
       panel.append(empty);
       return;
     }
+    /** @type {string | null} */
     let group = null;
     list.forEach((option, index) => {
       if (option.group && option.group !== group) {
@@ -79,7 +128,8 @@ function createPicker(root, config) {
       const selected = config.isSelected(option.value);
       const item = document.createElement("div");
       item.setAttribute("role", "option");
-      item.dataset.pickerOption = option.value;
+      // The DOM turns a numeric value into its text.
+      item.dataset.pickerOption = /** @type {string} */ (option.value);
       item.setAttribute("aria-selected", String(selected));
       if (config.multiple) item.setAttribute("aria-checked", String(selected));
       item.className = `flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer ${
@@ -115,6 +165,7 @@ function createPicker(root, config) {
     if (!config.multiple && config.selectedLabel) input.value = config.selectedLabel();
   }
 
+  /** @param {PickerOption<V>} option */
   async function choose(option) {
     if (config.multiple) {
       await config.onToggle(option.value, !config.isSelected(option.value));
@@ -153,7 +204,7 @@ function createPicker(root, config) {
       // Enter takes the entry and closes the list, so it covers nothing;
       // typing again reopens it. Clicks keep a multi-value list open.
       if (list.length) {
-        void choose(list[highlighted]);
+        void choose(/** @type {PickerOption<V>} */ (list[highlighted]));
         if (config.multiple) {
           input.value = "";
           hide();

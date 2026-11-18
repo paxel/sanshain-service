@@ -16,8 +16,21 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "exclude": ["static/js", "site/assets", "scripts", "tests/site", "tests/ui"],
+  "exclude": [
+    "static/js/pages",
+    "static/js/graph.js",
+    "static/js/graph-domains.js",
+    "static/js/webhooks.js",
+    "static/js/audit.js",
+    "static/js/structure.js",
+    "static/js/endpoint-filter.js",
+    "site/assets",
+    "scripts",
+    "tests/site",
+    "tests/ui"
+  ],
   "include": [
+    "types",
     "static/js",
     "site/assets",
     "scripts",

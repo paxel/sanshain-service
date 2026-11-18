@@ -14,8 +14,18 @@
   const banner = document.getElementById("site-banner");
   if (banner && !banner.childElementCount) {
     banner.className = "bg-indigo-700 text-white p-4 shadow-lg";
+    /**
+     * @param {string} href
+     * @param {string} label
+     * @param {string} [extra]
+     */
     const link = (href, label, extra = "") =>
       `<a href="${href}" ${extra} class="text-white hover:text-indigo-100 transition-colors">${label}</a>`;
+    /**
+     * @param {string} id
+     * @param {string} href
+     * @param {string} label
+     */
     const gated = (id, href, label) =>
       `<a id="${id}" href="${href}" class="hidden text-white hover:text-indigo-100 transition-colors">${label}</a>`;
     banner.innerHTML = `

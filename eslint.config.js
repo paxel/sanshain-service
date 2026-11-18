@@ -26,7 +26,19 @@ export default defineConfig(
   },
   {
     // Temporary: the groups san-1003 has not cleaned yet. Its last commit removes this block.
-    ignores: ["static/js/", "site/assets/", "scripts/", "tests/site/", "tests/ui/"],
+    ignores: [
+      "static/js/pages/",
+      "static/js/graph.js",
+      "static/js/graph-domains.js",
+      "static/js/webhooks.js",
+      "static/js/audit.js",
+      "static/js/structure.js",
+      "static/js/endpoint-filter.js",
+      "site/assets/",
+      "scripts/",
+      "tests/site/",
+      "tests/ui/",
+    ],
   },
   eslint.configs.recommended,
   tseslint.configs.strictTypeChecked,
