@@ -323,7 +323,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   site in `tests/site/`. `scripts/itest.sh` against a running service.
 - CI: `ci.yml` (build, tests, cargo audit, npm audit), `quality.yml` (fmt, clippy, tests,
   tarpaulin floor, UI; its `sonar` job runs SonarQube Cloud on pushes to `summer`), `codeql.yml` (rust, javascript-typescript, actions), `security.yml`
-  (weekly: the two audits, grype on the released image; ignores in `.cargo/audit.toml`),
+  (weekly: the two audits, grype on the released image; accepted advisories and licence
+  exceptions in `osv-scanner.toml` and `fuzz/osv-scanner.toml`, one beside each lockfile),
   `pages.yml` (site), `release.yml`, `scorecard.yml`
   (OpenSSF Scorecard on `summer`, publishes the README badge), `fuzz.yml` (weekly `cargo fuzz` of the
   five parsers; targets, seeds and saved crashes in `fuzz/`, see `fuzz/README.md`).
