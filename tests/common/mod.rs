@@ -7,8 +7,8 @@ use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 /// The running Postgres of a test; dropping it removes the container.
 pub type PostgresContainer = ContainerAsync<GenericImage>;
 
-/// The image the suites run against. CI pre-pulls the same tag
-/// (`.github/workflows/ci.yml`, `quality.yml`).
+/// The image the suites run against. `scripts/ci-test.sh` pulls the same tag
+/// before the tests start.
 const POSTGRES_IMAGE: (&str, &str) = ("postgres", "11-alpine");
 
 /// Postgres with user, password and database `postgres`, and fsync off (a test
