@@ -243,7 +243,7 @@ impl MockRepo {
     pub fn next_id(&self) -> i64 {
         let mut id = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
         let current = *id;
-        *id += 1;
+        *id = id.saturating_add(1);
         current
     }
 
@@ -1048,7 +1048,7 @@ impl SpecRepository for MockRepo {
         cutoff_iso: &str,
         now_iso: &str,
     ) -> Result<u64, RepositoryError> {
-        let mut closed = 0;
+        let mut closed = 0u64;
         for row in self
             .trunk_pins
             .lock()
@@ -1057,7 +1057,7 @@ impl SpecRepository for MockRepo {
         {
             if row.valid_to.is_none() && row.last_required_at.as_str() < cutoff_iso {
                 row.valid_to = Some(now_iso.to_string());
-                closed += 1;
+                closed = closed.saturating_add(1);
             }
         }
         for entry in self
@@ -1621,7 +1621,7 @@ impl SpecRepository for MockRepo {
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_count = users.len() as u64;
         users.retain(|u| admins.contains(&u.id) || spare_usernames.contains(&u.username));
-        Ok(initial_count - users.len() as u64)
+        Ok(initial_count.saturating_sub(users.len() as u64))
     }
 
     async fn nuke_database(&self, _keep_user_id: Option<i64>) -> Result<(), RepositoryError> {
@@ -2046,7 +2046,7 @@ impl SpecRepository for MockRepo {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let before = sessions.len();
         sessions.retain(|s| s.expires_at.as_str() >= now_iso);
-        Ok((before - sessions.len()) as u64)
+        Ok(before.saturating_sub(sessions.len()) as u64)
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), RepositoryError> {
@@ -2418,7 +2418,7 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner);
         let before = dependencies.len();
         dependencies.retain(|d| d.last_seen_at.as_str() >= cutoff_iso);
-        Ok((before - dependencies.len()) as u64)
+        Ok(before.saturating_sub(dependencies.len()) as u64)
     }
 
     // --- Roles and Groups ---
@@ -3116,7 +3116,7 @@ impl SpecRepository for MockRepo {
         for p in pins.iter_mut() {
             if p.service_id == service_id && p.api_type == api_type && p.valid_to.is_none() {
                 p.valid_to = Some(now_iso.to_string());
-                n += 1;
+                n = n.saturating_add(1);
             }
         }
         Ok(n)
@@ -3821,7 +3821,7 @@ impl SpecRepository for MockRepo {
         match outcome {
             WebhookAttemptOutcome::Delivered { code } => {
                 row.status = WebhookDeliveryStatus::Delivered;
-                row.attempts += 1;
+                row.attempts = row.attempts.saturating_add(1);
                 row.last_response_code = Some(*code);
                 row.last_error = None;
                 row.delivered_at = Some(now_iso.to_string());
@@ -3832,14 +3832,14 @@ impl SpecRepository for MockRepo {
                 next_attempt_at,
             } => {
                 row.status = WebhookDeliveryStatus::Failed;
-                row.attempts += 1;
+                row.attempts = row.attempts.saturating_add(1);
                 row.last_response_code = *code;
                 row.last_error = Some(error.clone());
                 row.next_attempt_at = next_attempt_at.clone();
             }
             WebhookAttemptOutcome::Dead { code, error } => {
                 row.status = WebhookDeliveryStatus::Dead;
-                row.attempts += 1;
+                row.attempts = row.attempts.saturating_add(1);
                 row.last_response_code = *code;
                 row.last_error = Some(error.clone());
             }
@@ -3879,7 +3879,7 @@ impl SpecRepository for MockRepo {
                 WebhookDeliveryStatus::Delivered | WebhookDeliveryStatus::Dead
             ) && d.updated_at.as_str() < cutoff_iso)
         });
-        let removed = (before - rows.len()) as u64;
+        let removed = before.saturating_sub(rows.len()) as u64;
         let referenced: Vec<String> = rows.iter().map(|d| d.event_id.clone()).collect();
         drop(rows);
         self.webhook_events
@@ -3896,10 +3896,10 @@ fn glob_contains(haystack: &str, query: &str) -> bool {
     let query = query.trim().to_lowercase();
     let mut rest = haystack;
     for part in query.split('*') {
-        let Some(at) = rest.find(part) else {
+        let Some((_, after)) = rest.split_once(part) else {
             return false;
         };
-        rest = &rest[at + part.len()..];
+        rest = after;
     }
     true
 }
