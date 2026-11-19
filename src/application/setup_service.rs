@@ -320,8 +320,8 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain-maven-plugin",
         repository: "https://github.com/paxel/sanshain-maven-plugin",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/maven.html",
-        version: "2.5.0",
-        install: "io.github.paxel.sanshain:sanshain-maven-plugin:2.5.0",
+        version: "2.5.1",
+        install: "io.github.paxel.sanshain:sanshain-maven-plugin:2.5.1",
         provide: "mvn sanshain:provide",
         provide_ga: "mvn sanshain:provide -Dsanshain.ga=true",
         provide_trunk: "mvn sanshain:provide -Dsanshain.trunk=true",
@@ -337,7 +337,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "cargo-sanshain",
         repository: "https://github.com/paxel/sanshain-rs",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/rust.html",
-        version: "4.0.0",
+        version: "4.0.1",
         install: "cargo install cargo-sanshain",
         provide: "cargo sanshain provide",
         provide_ga: "cargo sanshain provide --ga",
@@ -354,7 +354,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain-go",
         repository: "https://github.com/paxel/sanshain-go",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/go.html",
-        version: "2.6.0",
+        version: "2.6.1",
         install: "go install github.com/paxel/sanshain-go/v2/cmd/sanshain-go@latest",
         provide: "sanshain-go provide",
         provide_ga: "sanshain-go --ga provide",
@@ -371,7 +371,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain",
         repository: "https://github.com/paxel/sanshain-js",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/javascript.html",
-        version: "2.7.0",
+        version: "2.7.1",
         install: "npm install --save-dev sanshain",
         provide: "npx sanshain provide",
         provide_ga: "npx sanshain provide --ga",
@@ -388,7 +388,7 @@ pub const CLIENTS: [ClientFacts; 5] = [
         name: "sanshain-conan",
         repository: "https://github.com/paxel/sanshain-conan",
         guide: "https://paxel.github.io/sanshain-service/developer/clients/conan.html",
-        version: "2.5.0",
+        version: "2.5.1",
         install: "pip install sanshain-conan",
         provide: "sanshain-conan provide",
         provide_ga: "sanshain-conan --ga provide",
@@ -890,7 +890,7 @@ mod tests {
             assert_eq!(client(tool).build_tool, tool, "{}", tool.as_str());
         }
         assert_eq!(client(BuildTool::Cargo).name, "cargo-sanshain");
-        assert_eq!(client(BuildTool::Npm).version, "2.7.0");
+        assert_eq!(client(BuildTool::Npm).version, "2.7.1");
     }
 
     #[test]
@@ -1237,7 +1237,7 @@ mod tests {
         let pom = guide.client.integration.as_ref().unwrap();
         assert_eq!(pom.file, "pom.xml");
         assert!(
-            pom.content.contains("<version>2.5.0</version>"),
+            pom.content.contains("<version>2.5.1</version>"),
             "{}",
             pom.content
         );
