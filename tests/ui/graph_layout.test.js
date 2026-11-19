@@ -601,6 +601,19 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
   expect(result).toEqual({ attributes: ["title"], title: path, text: path });
 });
 
+test("an error while showing the graph reaches the page as text", async ({ page }) => {
+  await openGraph(page);
+  // Back and forward show the graph again; without its canvas the loader fails
+  // before it can report anything itself.
+  await page.evaluate(() => {
+    document.getElementById("custom-graph")?.remove();
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  const shown = page.locator("#mermaid-graph .text-red-500");
+  await expect(shown).toContainText("Error:", { timeout: 10000 });
+  await expect(shown.locator("*")).toHaveCount(0);
+});
+
 // Ungrouped, one block holds both roles: the Producers' rank starts right of
 // the Consumers' by their lane plus the role gap. Compact scales that shift by
 // its share of Normal's rank gap, so the edges keep their slope; Dense centres
@@ -609,6 +622,7 @@ test("the density scales how far a lower rank moves along", async ({ page }) => 
   await openGraph(page);
   // The catalog's resource sits on the Producers' rank too.
   const producers = [...DOMAINS.alpha, ...DOMAINS.beta, `resource:default/${P}-db`];
+  /** @param {string} density */
   const measure = async (density) => {
     await page.goto(`/graph.html?domains=node&density=${density}`);
     await expect(page.locator("#custom-graph")).toHaveAttribute("data-density", density, {
@@ -617,9 +631,13 @@ test("the density scales how far a lower rank moves along", async ({ page }) => 
     await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
     return page.evaluate(
       ({ consumers, producers, density }) => {
+        /** @param {string[]} names */
         const span = (names) => {
-          const rects = names.map((name) =>
-            document.querySelector(`#custom-graph g.graph-node[data-node="${name}"] > rect`),
+          const rects = names.map(
+            (name) =>
+              /** @type {Element} */ (
+                document.querySelector(`#custom-graph g.graph-node[data-node="${name}"] > rect`)
+              ),
           );
           const x0 = Math.min(...rects.map((r) => Number(r.getAttribute("x"))));
           const x1 = Math.max(
@@ -668,7 +686,9 @@ test("Periphery is greyed out where the view has none and says why", async ({ pa
     data: { username: "root", password: adminPassword },
   });
   const res = await request.put(`/catalog/${CONSUMERS[1]}`, {
-    headers: { Authorization: `Bearer ${(await login.json()).token}` },
+    headers: {
+      Authorization: `Bearer ${/** @type {{ token: string }} */ (await json(login)).token}`,
+    },
     data: {
       trunk: true,
       catalog_info_yaml: [
