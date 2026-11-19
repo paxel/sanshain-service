@@ -3,12 +3,23 @@
 # locally after a rise; it raises the floor to the measured value minus 0.1 and writes
 # .github/badges/coverage-<name>.json. Commit both with the change that earned them.
 #
+# rust: the service crate, measured by the shared Rust gate with cargo tarpaulin on its llvm
+# engine over every test target, the PostgreSQL tests included (scripts/ci-test.sh pulls their
+# image first). Everything in src/ counts, the in-memory repository of the tests
+# (src/application/mock_repo.rs) too, since --all-features compiles it. AGENTS.md has the
+# command.
+#
 # site: the documentation site build in scripts/, measured by the site tests
 # (`npm run test:coverage` writes coverage/lcov.info, which the shared TypeScript gate copies
 # to coverage/site.lcov).
 #
 # ui: the page scripts in static/js/, measured by the Playwright UI tests with UI_COVERAGE=1
 # (tests/ui/coverage.js writes coverage/ui.lcov).
+
+[[parts]]
+name = "rust"
+lcov = "coverage/rust.lcov"
+floor = 84.61
 
 [[parts]]
 name = "site"
