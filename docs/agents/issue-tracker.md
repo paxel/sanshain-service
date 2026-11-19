@@ -2,7 +2,7 @@
 
 Issues and PRDs for this repo live as GitHub issues on `paxel/sanshain-service`. Use the `gh` CLI for all operations.
 
-**Note on remotes:** this repo has two git remotes — `origin` points at sourcehut (`git.sr.ht:~taum/sanshain`), and `github` points at the GitHub mirror (`paxel/sanshain-service`), which is where issues actually live. `gh` infers the target repo from a remote by convention (typically `origin` or `upstream`), and since `origin` here is sourcehut, `gh` may not auto-detect the right repo. If `gh` commands fail to resolve or point at the wrong repo, either pass `--repo paxel/sanshain-service` explicitly or run `gh repo set-default paxel/sanshain-service` once in this checkout.
+Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone. This repo's remote `origin` is `git@github.com:paxel/sanshain-service.git`.
 
 ## Conventions
 
