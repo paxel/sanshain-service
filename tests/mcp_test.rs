@@ -1224,7 +1224,7 @@ async fn setup_guide_answers_the_client_token_and_ci_facts() {
         json!({ "url": "https://sanshain.example", "derived": true })
     );
     assert_eq!(guide["client"]["name"], "sanshain-maven-plugin");
-    assert_eq!(guide["client"]["version"], "2.5.0");
+    assert_eq!(guide["client"]["version"], "2.5.1");
     assert_eq!(guide["client"]["integration"]["file"], "pom.xml");
     assert_eq!(guide["token"]["scope"], "full");
     assert_eq!(guide["token"]["not_the_mcp_token"], true);
