@@ -515,10 +515,14 @@ extraEnv:
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   | jq -r .payload | base64 -d | jq .predicate &gt; sanshain-service.cdx.json</code></pre>
 <p>
-  Verify a downloaded binary with the GitHub CLI; <code>--bundle</code> with the Sigstore bundle
-  from the release checks it without asking GitHub for the attestation:
+  Verify a downloaded binary with the GitHub CLI. The attestation is signed by the shared
+  provenance workflow in <code>paxel/gates</code> that the release calls, which
+  <code>--signer-repo</code> names; <code>-R</code> is the repository the file was built from.
+  <code>--bundle</code> with the Sigstore bundle from the release checks it without asking GitHub
+  for the attestation:
 </p>
-<pre><code>gh attestation verify sanshain-linux-x86_64 -R paxel/sanshain-service</code></pre>
+<pre><code>gh attestation verify sanshain-linux-x86_64 \
+  -R paxel/sanshain-service --signer-repo paxel/gates</code></pre>
 <p>
   From 2.12.0 on the signature and the attestation are written by cosign 3 in the Sigstore bundle
   format. Verify them with cosign 3, which also verifies older releases; cosign 2.6 needs

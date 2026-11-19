@@ -120,5 +120,7 @@ by tag and upgrades the packages when it builds, so that a release picks up Alpi
 - A release carries, beside what it carried before, the build provenance of the binaries as
   `sanshain-service-<tag>-provenance.sigstore.json`; the source SBOM keeps its name,
   `sanshain-service-<tag>-source.cdx.json`.
+- The provenance is signed by gates' workflow, not by one of this repository, so a check
+  names it: `gh attestation verify <file> -R paxel/sanshain-service --signer-repo paxel/gates`.
 - The required checks on `summer` change their names with the workflows; setting them is
   [issue 115](https://github.com/paxel/sanshain-service/issues/115).

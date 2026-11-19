@@ -162,8 +162,9 @@ jobs:
           persist-credentials: false
 
       # Both binaries, with the source SBOM and the Sigstore bundle beside them:
-      # `gh attestation verify <file> -R paxel/sanshain-service` checks a download, with
-      # `--bundle <the sigstore file>` offline.
+      # `gh attestation verify <file> -R paxel/sanshain-service --signer-repo paxel/gates`
+      # checks a download, with `--bundle <the sigstore file>` offline. The signer is gates'
+      # provenance workflow, which gh must be told: it expects a workflow of the repository.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-files
