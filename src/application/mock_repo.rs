@@ -243,6 +243,7 @@ impl MockRepo {
     pub fn next_id(&self) -> i64 {
         let mut id = self.next_id.lock().unwrap_or_else(PoisonError::into_inner);
         let current = *id;
+        // Saturating: a test never hands out i64::MAX ids.
         *id = id.saturating_add(1);
         current
     }
@@ -1057,6 +1058,7 @@ impl SpecRepository for MockRepo {
         {
             if row.valid_to.is_none() && row.last_required_at.as_str() < cutoff_iso {
                 row.valid_to = Some(now_iso.to_string());
+                // Saturating: at most one per row in memory.
                 closed = closed.saturating_add(1);
             }
         }
@@ -1621,6 +1623,7 @@ impl SpecRepository for MockRepo {
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let initial_count = users.len() as u64;
         users.retain(|u| admins.contains(&u.id) || spare_usernames.contains(&u.username));
+        // Saturating: retain only removes, so the count never grows.
         Ok(initial_count.saturating_sub(users.len() as u64))
     }
 
@@ -2046,6 +2049,7 @@ impl SpecRepository for MockRepo {
         let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
         let before = sessions.len();
         sessions.retain(|s| s.expires_at.as_str() >= now_iso);
+        // Saturating: retain only removes, so the count never grows.
         Ok(before.saturating_sub(sessions.len()) as u64)
     }
 
@@ -2418,6 +2422,7 @@ impl SpecRepository for MockRepo {
             .unwrap_or_else(PoisonError::into_inner);
         let before = dependencies.len();
         dependencies.retain(|d| d.last_seen_at.as_str() >= cutoff_iso);
+        // Saturating: retain only removes, so the count never grows.
         Ok(before.saturating_sub(dependencies.len()) as u64)
     }
 
@@ -3116,6 +3121,7 @@ impl SpecRepository for MockRepo {
         for p in pins.iter_mut() {
             if p.service_id == service_id && p.api_type == api_type && p.valid_to.is_none() {
                 p.valid_to = Some(now_iso.to_string());
+                // Saturating: at most one per row in memory.
                 n = n.saturating_add(1);
             }
         }
@@ -3818,6 +3824,8 @@ impl SpecRepository for MockRepo {
             return Ok(false);
         }
         row.updated_at = now_iso.to_string();
+        // The attempt counters below saturate: the worker gives a delivery up long before
+        // u32::MAX attempts.
         match outcome {
             WebhookAttemptOutcome::Delivered { code } => {
                 row.status = WebhookDeliveryStatus::Delivered;
@@ -3879,6 +3887,7 @@ impl SpecRepository for MockRepo {
                 WebhookDeliveryStatus::Delivered | WebhookDeliveryStatus::Dead
             ) && d.updated_at.as_str() < cutoff_iso)
         });
+        // Saturating: retain only removes, so the count never grows.
         let removed = before.saturating_sub(rows.len()) as u64;
         let referenced: Vec<String> = rows.iter().map(|d| d.event_id.clone()).collect();
         drop(rows);
