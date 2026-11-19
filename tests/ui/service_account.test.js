@@ -72,3 +72,25 @@ test("an admin creates a service account and issues its token", async ({ page })
   const token = page.locator("#tokens-list > div", { hasText: ACCOUNT });
   await expect(token.locator("[data-token-for]")).toHaveText(`For ${ACCOUNT} · issued by root`);
 });
+
+test("an instance without accounts says so in the user list", async ({ page }) => {
+  await page.route("**/admin/users", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
+  );
+  await page.goto("/admin.html#users");
+  await expect(page.locator("#users-list")).toHaveText("No users registered.");
+});
+
+test("a session that ran out brings the account page back to the sign-in card", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    localStorage.setItem("sanshain_token", "expired-garbage");
+    document.cookie = "sanshain_token=expired-garbage;path=/";
+  });
+  await page.goto("/account.html");
+  await expect(page.locator("#auth-screen")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("#login-username")).toBeVisible();
+  // The page dropped the token the server refused.
+  expect(await page.evaluate(() => localStorage.getItem("sanshain_token"))).toBeNull();
+});

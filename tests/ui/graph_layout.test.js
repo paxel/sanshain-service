@@ -600,3 +600,16 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
   const path = `/orders" onmouseover="alert(1)' x='<b>&`;
   expect(result).toEqual({ attributes: ["title"], title: path, text: path });
 });
+
+test("an error while showing the graph reaches the page as text", async ({ page }) => {
+  await openGraph(page);
+  // Back and forward show the graph again; without its canvas the loader fails
+  // before it can report anything itself.
+  await page.evaluate(() => {
+    document.getElementById("custom-graph")?.remove();
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  const shown = page.locator("#mermaid-graph .text-red-500");
+  await expect(shown).toContainText("Error:", { timeout: 10000 });
+  await expect(shown.locator("*")).toHaveCount(0);
+});
