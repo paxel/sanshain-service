@@ -918,10 +918,21 @@ function graphVersionLinesText(versions) {
 window.graphVersionLinesText = graphVersionLinesText;
 
 // When a producer was last provided: the latest of its lines' provides.
+/**
+ * The order a bare sort() gives strings (by code unit), said out loud.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function graphByCodeUnit(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** @param {GraphScopeVersionLine[] | undefined} versions */
 function graphLastProvided(versions) {
-  const stamps = (versions ?? []).map((v) => v.last_provided_at).filter(Boolean);
-  return stamps.length ? stamps.sort().pop() : null;
+  const stamps = (versions ?? []).flatMap((v) => (v.last_provided_at ? [v.last_provided_at] : []));
+  return stamps.length ? stamps.sort(graphByCodeUnit).pop() : null;
 }
 window.graphLastProvided = graphLastProvided;
 
@@ -1354,8 +1365,10 @@ window.graphTimelineStops = graphTimelineStops;
  * @returns {GraphTimelineStop}
  */
 function graphNearestStop(stops, secs) {
-  return stops.reduce((best, s) =>
-    Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best,
+  // The timeline always has its end stop, so there is a first one to start from.
+  return stops.reduce(
+    (best, s) => (Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best),
+    /** @type {GraphTimelineStop} */ (stops[0]),
   );
 }
 window.graphNearestStop = graphNearestStop;
@@ -2002,7 +2015,7 @@ function graphIslands(nodes, deps) {
   });
   return [...groups.values()]
     .filter((grp) => grp.allPeripheral && grp.nodes.length > 1)
-    .map((grp) => grp.nodes.sort());
+    .map((grp) => grp.nodes.sort(graphByCodeUnit));
 }
 window.graphIslands = graphIslands;
 
@@ -2802,7 +2815,7 @@ function renderCustomGraph(report, svgElement, direction) {
   const unrequiredBox =
     unrequired.length > 0
       ? graphLayoutUnrequiredBox(
-          unrequired.map((p) => p.name).sort(),
+          unrequired.map((p) => p.name).sort(graphByCodeUnit),
           extentOf(g.nodes()),
           overflowSide,
         )
@@ -3313,9 +3326,8 @@ function renderCustomGraph(report, svgElement, direction) {
         const svcMeta = serviceMetaMap.get(node);
         const staleBefore = report.trunk_stale_before;
         const newestTrunkStamp = (svcMeta?.versions ?? [])
-          .filter((v) => v.trunk_provided_at)
-          .map((v) => v.trunk_provided_at)
-          .sort()
+          .flatMap((v) => (v.trunk_provided_at ? [v.trunk_provided_at] : []))
+          .sort(graphByCodeUnit)
           .pop();
         const isStale = staleBefore && newestTrunkStamp && newestTrunkStamp < staleBefore;
         const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -3500,11 +3512,11 @@ function renderCustomGraph(report, svgElement, direction) {
       const publishers = deps
         .filter((d) => d.topic_edge && d.service === name)
         .map((d) => d.client)
-        .sort();
+        .sort(graphByCodeUnit);
       const subscribers = deps
         .filter((d) => d.topic_edge && d.client === name)
         .map((d) => d.service)
-        .sort();
+        .sort(graphByCodeUnit);
       /** @param {string[]} items */
       const list = (items) =>
         items.length
@@ -3527,7 +3539,7 @@ function renderCustomGraph(report, svgElement, direction) {
       const dependents = deps
         .filter((d) => d.peripheral && d.service === name)
         .map((d) => d.client)
-        .sort();
+        .sort(graphByCodeUnit);
       tooltip.innerHTML = `
         <div class="text-[10px] text-orange-400 font-bold uppercase tracking-wider mb-0.5">Missing component</div>
         <div class="font-bold text-white break-all">${_graphEscapeHtml(graphPeripheralLabel(name))}</div>

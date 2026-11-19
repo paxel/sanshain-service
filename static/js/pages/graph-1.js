@@ -999,7 +999,7 @@ async function applyGraphViewFromUrl(pending) {
         );
         if (res.ok) pins = /** @type {GraphPin[]} */ (await res.json());
       } catch (e) {
-        console.warn(`Could not load branch '${String(pending.branch)}':`, e);
+        console.warn("Could not load branch:", pending.branch, e);
       }
     }
     if (userSwitched()) return;
