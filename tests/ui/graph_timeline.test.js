@@ -45,9 +45,20 @@ test.describe("Graph timeline and links", () => {
         stops: stops.map((s) => s.at),
         max,
         near: window.graphNearestStop(stops, 200000).at,
+        lastProvided: window.graphLastProvided(
+          ["2026-11-02", "2026-11-04", "2026-11-02", "2026-11-01"].map((day) => ({
+            api_type: "openapi",
+            version: "1.0.0",
+            stability: "stable",
+            last_provided_at: `${day}T00:00:00Z`,
+          })),
+        ),
+        neverProvided: window.graphLastProvided([]),
       };
     });
     expect(result.range).toEqual({ from: "2026-08-05", to: "2026-11-05" });
+    expect(result.lastProvided).toBe("2026-11-04T00:00:00Z");
+    expect(result.neverProvided).toBeNull();
     expect(result.days).toEqual([true, false, false, false]);
     expect(result.past).toEqual({ start: "2026-11-01T00:00:00Z", end: "2026-11-05T23:59:59Z" });
     expect(result.today).toEqual({ start: "2026-11-01T00:00:00Z", end: null });
