@@ -1,7 +1,7 @@
 # Service facts for agents
 
 The facts an agent needs before proposing, asking or coding, each with the source that is the
-authority. Loaded into every session through `CLAUDE.md`. Read the matching topic **and its
+authority. Loaded into every session through `AGENTS.md`, which imports it. Read the matching topic **and its
 source** before asking the user or proposing anything; a question the sources answer is not a
 question. When a change alters a fact here, the same commit updates it (`AGENTS.md`, Documentation
 Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-site.js`).
@@ -102,18 +102,19 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 
 ## Clients (tooling)
 
-- Ours: the same team builds the service and the five clients, from this Claude setup. Checked
-  out next to each other under `/all_dev` (the host's development folder, mounted in the
-  sandbox); `/all_dev/Sanshain` is a stale old monorepo copy, not used. Each is its own GitHub repo
-  `paxel/<name>` with its own issues, CHANGELOG/OLDER_CHANGES and releases.
+- Ours: the same team builds the service and the five clients, from this Claude setup. All six
+  are checked out next to each other under `/all_dev/Sanshain` (`/all_dev` is the host's
+  development folder, mounted in the sandbox); the service is `/all_dev/Sanshain/SanshainService`.
+  Each is its own GitHub repo `paxel/<name>` with its own issues, CHANGELOG/OLDER_CHANGES and
+  releases, and each has its own `AGENTS.md` with the commands of its gate (paxel/gates).
 
-  | Repo (`/all_dev/…`)     | Version | Language, layout                                      | Checks                                  |
-  |-------------------------|---------|-------------------------------------------------------|-----------------------------------------|
-  | `sanshain-maven-plugin` | 2.5.0   | Java 11, `/all_dev/sanshain-maven-plugin/src/main/java/com/sanshain/maven/` (Mojos, `SanshainMojoDelegate` = precedence, `SanshainConfig` = yaml, `SanshainOrigin`, `SanshainHttpClient`, `SpecCombiner`); own `CLAUDE.md` | `mvn verify -B` (JUnit 5, WireMock)     |
-  | `sanshain-rs`           | 4.0.0   | Rust workspace: `sanshain/src/lib.rs` (library), `cargo-sanshain/src/main.rs` (CLI) | `cargo test`, clippy                    |
-  | `sanshain-go`           | 2.6.0   | Go: `cmd/sanshain-go/main.go`, `internal/{api,config,cache}` (`api/origin.go`); `ai/rules.md` | `go test ./...`, golangci-lint, gosec   |
-  | `sanshain-js`           | 2.7.0   | TypeScript: `/all_dev/sanshain-js/src/{api,cli,config,cache}.ts`, `bin/`, `action.yml` (GitHub Action) | `npm run build`, `npm test` (jest)      |
-  | `sanshain-conan`        | 2.5.0   | Python: `sanshainconan/{client,cli,config,integration,catalog,cache}.py`; `ai/rules.md` | `uv run python -m unittest discover tests`, flake8, black, bandit, mypy |
+  | Repo                    | Clone under `/all_dev/Sanshain/` | Version | Language, layout                                                                                                                                                                                           | Checks (its `AGENTS.md` has the commands)                                       |
+  |-------------------------|----------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
+  | `sanshain-maven-plugin` | `SanshainMaven`                  | 2.5.0   | Java 11, `/all_dev/Sanshain/SanshainMaven/src/main/java/com/sanshain/maven/` (Mojos, `SanshainMojoDelegate` = precedence, `SanshainConfig` = yaml, `SanshainOrigin`, `SanshainHttpClient`, `SpecCombiner`) | `mvn --batch-mode verify` (JUnit 5, WireMock, Error Prone, SpotBugs, JaCoCo)    |
+  | `sanshain-rs`           | `sanshain-rs`                    | 4.0.0   | Rust workspace: `sanshain/src/lib.rs` (library), `cargo-sanshain/src/main.rs` (CLI)                                                                                                                        | `cargo fmt`, both clippy runs, `cargo test --locked --all-features`             |
+  | `sanshain-go`           | `sanshain-go`                    | 2.6.0   | Go: `cmd/sanshain-go/main.go`, `internal/{api,config,cache}` (`api/origin.go`)                                                                                                                             | `gofmt -l .`, `golangci-lint run ./...`, `go test -race ./...`                  |
+  | `sanshain-js`           | `sanshain-js`                    | 2.7.0   | TypeScript: `/all_dev/Sanshain/sanshain-js/src/{api,cli,config,cache}.ts`, `bin/`, `action.yml` (GitHub Action)                                                                                            | prettier, eslint, `tsc --noEmit`, `npm run test:coverage` (jest)                |
+  | `sanshain-conan`        | `SanshainConan`                  | 2.5.0   | Python: `sanshainconan/{client,cli,config,integration,catalog,cache}.py`                                                                                                                                   | `uv run` with `ruff format --check .`, `ruff check .`, `mypy .`, `pytest --cov` |
 
 - Every client does the same steps: load `sanshain.yaml`, resolve settings by precedence (flag >
   env > file > default), resolve the Origin (flag > `SANSHAIN_*` > runner variables, e.g.
@@ -321,7 +322,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Tests: Rust in `tests/*.rs` (Postgres via testcontainers), UI Playwright in `tests/ui/` (import
   `test` from `tests/ui/fixtures.js`; CI runs the files listed in the `ui` job of `.github/workflows/ci.yml`),
   site in `tests/site/`. `scripts/itest.sh` against a running service.
-- CI: the workflows call the shared workflows of paxel/gates, pinned by commit. `ci.yml`: the
+- CI: the workflows call the shared workflows of paxel/gates, pinned by commit; where the
+  service adds to that standard is in `docs/adr/0012-move-to-gates.md`. `ci.yml`: the
   OSV gate (accepted advisories and licence exceptions in `osv-scanner.toml` and
   `fuzz/osv-scanner.toml`, one beside each lockfile), the Rust gate (fmt, lint set, both clippy
   runs, tests and tarpaulin under `scripts/ci-test.sh`), the TypeScript gate for the JavaScript
