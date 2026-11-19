@@ -152,7 +152,7 @@ function highlightSuggestion() {
   const detected = detectFormat(validatorInput.value);
   /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".validator-btn")).forEach(
     (btn) => {
-      const isMatch = btn.dataset.validate === detected;
+      const isMatch = detected !== null && btn.dataset.validate === detected;
       btn.classList.toggle("ring-2", isMatch);
       btn.classList.toggle("ring-offset-1", isMatch);
       btn.classList.toggle("ring-indigo-400", isMatch);
