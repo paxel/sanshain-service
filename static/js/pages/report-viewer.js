@@ -3,9 +3,6 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
-// What the buttons of the page name in their data-click attributes.
-/* exported copyMarkdown, downloadMarkdown */
-
 let rawMarkdown = "";
 let reportFilename = "report.md";
 
@@ -98,5 +95,15 @@ function downloadMarkdown() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// The page loads no common.js and so no delegated dispatcher: the buttons get their own listeners.
+/** @type {HTMLElement} */ (document.getElementById("copy-btn")).addEventListener(
+  "click",
+  copyMarkdown,
+);
+/** @type {HTMLElement} */ (document.getElementById("download-btn")).addEventListener(
+  "click",
+  downloadMarkdown,
+);
 
 void loadReport();

@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The graph's Compact density moves each lower rank less far along, so the edges keep Normal's slope; Dense centres every rank instead of moving it along.
 - In the main and branch views of the graph, the Periphery switch is greyed out and says why when the view has no peripheral resources (only catalog pushes from trunk builds reach main).
 
+### Fixed
+- The Copy Markdown and Download buttons of the report viewer work again ([san-1003](https://github.com/paxel/sanshain-service/issues/107)).
+
 ---
 
 Historical changes have been moved to [OLDER_CHANGES.md](OLDER_CHANGES.md).
