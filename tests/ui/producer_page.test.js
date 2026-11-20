@@ -7,12 +7,18 @@ const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const SERVICE = "producer-page-fixture";
 
 /**
- * Answers the request for exactly this path, never the page itself.
+ * Answers the request for exactly this path, never the page itself. Resolves to
+ * the function that takes the stub away again.
  * @param {import("@playwright/test").Page} page
  * @param {string} pathname
  * @param {(route: import("@playwright/test").Route) => Promise<void>} handler
  */
-const onPath = (page, pathname, handler) => page.route((url) => url.pathname === pathname, handler);
+const onPath = async (page, pathname, handler) => {
+  /** @param {URL} url */
+  const matches = (url) => url.pathname === pathname;
+  await page.route(matches, handler);
+  return () => page.unroute(matches, handler);
+};
 
 test.beforeAll(async ({ request }) => {
   if (!adminPassword) throw new Error("INITIAL_ADMIN_PASSWORD is required for the UI tests");
@@ -42,6 +48,23 @@ test.beforeAll(async ({ request }) => {
     },
   });
   if (!res.ok()) throw new Error(`provide: ${String(res.status())}`);
+  // What a build says about the system, for the card that can clear it.
+  const catalog = await request.put(`/catalog/${SERVICE}`, {
+    headers,
+    data: {
+      catalog_info_yaml: [
+        "apiVersion: backstage.io/v1alpha1",
+        "kind: Component",
+        "metadata:",
+        `  name: ${SERVICE}`,
+        "  description: Keeps the stock.",
+        "spec:",
+        "  owner: team-stock",
+        "",
+      ].join("\n"),
+    },
+  });
+  if (!catalog.ok()) throw new Error(`catalog: ${String(catalog.status())}`);
 });
 
 /** @type {string[]} */
@@ -88,18 +111,22 @@ test("a version downloads its full API and asks before it is deleted", async ({ 
   expect((await download).suggestedFilename()).toBe(`${SERVICE}-1.0.0.yaml`);
 
   const fullSpec = `/admin/producers/${SERVICE}/full-spec`;
-  await onPath(page, fullSpec, (route) => route.fulfill({ status: 500, body: "" }));
+  const restoreFullSpec = await onPath(page, fullSpec, (route) =>
+    route.fulfill({ status: 500, body: "" }),
+  );
   await card.click();
   await expect.poll(() => alerts).toContain("Failed to load the full API spec for this version.");
-  await page.unroute((url) => url.pathname === fullSpec);
+  await restoreFullSpec();
 
   const dependents = `/admin/producers/${SERVICE}/versions/openapi/1.0.0/dependents`;
-  await onPath(page, dependents, (route) => route.fulfill({ status: 500, body: "" }));
+  const restoreDependents = await onPath(page, dependents, (route) =>
+    route.fulfill({ status: 500, body: "" }),
+  );
   await page.locator("[data-delete]").first().click();
   await expect
     .poll(() => alerts.some((a) => a.startsWith("Could not check dependents")))
     .toBe(true);
-  await page.unrouteAll();
+  await restoreDependents();
 
   // With nobody pinned, the confirmation says so; the deletion itself is refused here.
   await onPath(page, `/admin/producers/${SERVICE}/versions/openapi/1.0.0`, (route) =>
@@ -111,4 +138,25 @@ test("a version downloads its full API and asks before it is deleted", async ({ 
   await expect(page.locator("#confirm-message")).toContainText("No Consumers are pinned");
   await page.click("#confirm-yes");
   await expect.poll(() => alerts.some((a) => a.startsWith("Failed to delete:"))).toBe(true);
+});
+
+test("what the builds said about a system can be cleared", async ({ page }) => {
+  await page.goto(`/producers.html?service=${SERVICE}`);
+  await expect(page.locator('[data-context="owner"]')).toContainText("team-stock", {
+    timeout: 10000,
+  });
+  const clear = page.locator("[data-clear-system-info]");
+  const information = `/admin/systems/${SERVICE}/information`;
+  const restoreInformation = await onPath(page, information, (route) =>
+    route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
+  );
+  await clear.click();
+  await expect
+    .poll(() => alerts.some((a) => a.startsWith("Could not clear the system information")))
+    .toBe(true);
+  await restoreInformation();
+
+  // Cleared, the card with what the builds said goes.
+  await clear.click();
+  await expect(clear).toHaveCount(0);
 });
