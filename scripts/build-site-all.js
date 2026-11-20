@@ -51,6 +51,11 @@ export const RELEASE_PATHS = [
 
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 
+// The build calls git and tar by their system paths, never through PATH, which a
+// writable directory in it could hijack. Both are there on Linux and macOS.
+const GIT = "/usr/bin/git";
+const TAR = "/usr/bin/tar";
+
 /**
  * @param {string} repoRoot
  * @param {string[]} args
@@ -58,7 +63,7 @@ const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
  * @returns {string}
  */
 function git(repoRoot, args, options = {}) {
-  return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", ...options });
+  return execFileSync(GIT, args, { cwd: repoRoot, encoding: "utf8", ...options });
 }
 
 /**
@@ -104,11 +109,11 @@ export function listReleaseTags(repoRoot = REPO_ROOT) {
  */
 export function extractTag(repoRoot, tag, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
-  const archive = execFileSync("git", ["archive", "--format=tar", tag, "--", ...RELEASE_PATHS], {
+  const archive = execFileSync(GIT, ["archive", "--format=tar", tag, "--", ...RELEASE_PATHS], {
     cwd: repoRoot,
     maxBuffer: 512 * 1024 * 1024,
   });
-  execFileSync("tar", ["-x", "-C", destDir], { input: archive });
+  execFileSync(TAR, ["-x", "-C", destDir], { input: archive });
 }
 
 /**
