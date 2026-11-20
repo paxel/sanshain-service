@@ -145,14 +145,6 @@ database that already ran it. The comparison stays as it was applied."""
 # The page scripts are classic scripts sharing globals declared in common.js and graph.js.
 [[IgnoredAlerts]]
 tool = "SonarQube Cloud"
-rule = "javascript:S4036"
-path = "scripts/build-site-all.js"
-ignoreUntil = 2027-02-18
-reason = """The site build runs on a developer's machine or the Pages runner and calls the \
-git and tar found on its PATH. It is not part of the service."""
-
-[[IgnoredAlerts]]
-tool = "SonarQube Cloud"
 rule = "jssecurity:S6549"
 path = "scripts/build-site.js"
 ignoreUntil = 2027-02-18
