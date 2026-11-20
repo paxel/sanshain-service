@@ -226,6 +226,43 @@ test.describe("Sanshain 1.5.0 Features Integration Tests", () => {
     expect(deleted.ok()).toBeTruthy();
   });
 
+  test("a hook is paused, tested, re-keyed, read and deleted from its row", async ({ page }) => {
+    await page.goto("/admin.html");
+    await ensureLoaderHidden(page);
+    const form = page.locator("#webhooks-panel [data-webhook-form]");
+    await form.scrollIntoViewIfNeeded();
+    const url = `https://hooks.example/row-${String(Date.now())}`;
+    await form.locator("[data-webhook-url]").fill(url);
+    await form.locator("[data-webhook-create]").click();
+    const row = page.locator("#webhooks-panel [data-webhook-row]").filter({ hasText: url });
+    await expect(row).toBeVisible();
+
+    await row.locator('[data-act="toggle"]').click();
+    await expect(row.locator("[data-webhook-paused]")).toBeVisible();
+    await row.locator('[data-act="toggle"]').click();
+    await expect(row.locator("[data-webhook-paused]")).toHaveCount(0);
+
+    // The test event lands in the delivery log, which opens with it.
+    await row.locator('[data-act="test"]').click();
+    const log = row.locator("[data-webhook-log]");
+    await expect(log.locator("[data-webhook-delivery]").first()).toBeVisible({ timeout: 10000 });
+    await log.locator('[data-act="redeliver"]').first().click();
+    await expect(log.locator("[data-webhook-delivery]").first()).toBeVisible();
+    await row.locator('[data-act="log"]').click();
+    await expect(log).toBeHidden();
+
+    const secret = page.locator("#webhooks-panel [data-webhook-secret]");
+    const first = await secret.textContent();
+    await row.locator('[data-act="rotate"]').click();
+    await page.click("#confirm-yes");
+    await expect(secret).not.toHaveText(/** @type {string} */ (first));
+    await expect(secret).toHaveText(/^whsec_[0-9a-f]{64}$/);
+
+    await row.locator('[data-act="delete"]').click();
+    await page.click("#confirm-yes");
+    await expect(row).toHaveCount(0);
+  });
+
   test("Producer page shows the Webhooks card to an administrator", async ({ page, request }) => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },

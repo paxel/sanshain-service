@@ -169,7 +169,7 @@ jobs:
             echo "Service failed to start"
             exit 1
           fi
-          ./node_modules/.bin/playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js tests/ui/service_account.test.js tests/ui/graph_layout.test.js tests/ui/graph_timeline.test.js tests/ui/site_chrome.test.js tests/ui/observability_logs.test.js tests/ui/admin_controls.test.js tests/ui/features.test.js
+          ./node_modules/.bin/playwright test tests/ui/smoke.test.js tests/ui/no_console_errors.test.js tests/ui/de_inlined.test.js tests/ui/link_crawl.test.js tests/ui/permissions.test.js tests/ui/structure.test.js tests/ui/endpoint_filter.test.js tests/ui/sign_in.test.js tests/ui/service_account.test.js tests/ui/graph_layout.test.js tests/ui/graph_timeline.test.js tests/ui/site_chrome.test.js tests/ui/observability_logs.test.js tests/ui/admin_controls.test.js tests/ui/features.test.js tests/ui/products.test.js
       # Before the floor check, so that a run under the floor still leaves its measurement.
       - name: Keep the coverage for SonarQube Cloud
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
