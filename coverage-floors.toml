@@ -29,4 +29,4 @@ floor = 97.40
 [[parts]]
 name = "ui"
 lcov = "coverage/ui.lcov"
-floor = 69.74
+floor = 76.52
