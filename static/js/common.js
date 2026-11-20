@@ -6,7 +6,7 @@
 /* exported escapeAttr, attrJson, setActionArgs, confirmDelete, promoteVersion */
 /* exported reloadClearingInstance, dismissReloadBanner, togglePasswordVisibility */
 /* exported systemContextHtml, loadTicketUrlTemplate, originHtml, annotationsHtml */
-/* exported appendClearSystemInfo */
+/* exported appendClearSystemInfo, storeSanshainToken, forgetCsrfToken */
 
 /**
  * @param {string} name
@@ -623,6 +623,17 @@ async function sanshainLogout(options = {}) {
 })();
 /** @type {string | null} */
 let csrfToken = null;
+
+// The page scripts change the shared session state through these, so that only this file
+// assigns the variables it declares.
+/** @param {string} token */
+function storeSanshainToken(token) {
+  sanshainToken = token;
+  localStorage.setItem("sanshain_token", token);
+}
+function forgetCsrfToken() {
+  csrfToken = null;
+}
 
 // --- Network error helper ---
 /**

@@ -289,8 +289,7 @@ async function loadServiceAccountChoices() {
           return;
         }
         const data = /** @type {{ token: string }} */ (await res.json());
-        sanshainToken = data.token;
-        localStorage.setItem("sanshain_token", /** @type {string} */ (sanshainToken));
+        storeSanshainToken(data.token);
         // Signed in: on to the dashboard, like an OIDC sign-in.
         window.location.href = "/";
       } catch (err) {
@@ -397,8 +396,7 @@ async function doLogout() {
       if (res.ok) {
         const data = /** @type {{ token?: string } | null} */ (await res.json());
         if (data?.token) {
-          sanshainToken = data.token;
-          localStorage.setItem("sanshain_token", /** @type {string} */ (sanshainToken));
+          storeSanshainToken(data.token);
         }
         successEl.textContent = "Password updated successfully.";
         successEl.classList.remove("hidden");
