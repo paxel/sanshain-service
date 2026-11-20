@@ -1001,9 +1001,9 @@ export function resolveRequest(root, urlPath) {
   } catch {
     return null;
   }
-  let file = path.resolve(root, `.${decoded}`);
-  const rel = path.relative(root, file);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  const base = path.resolve(root);
+  let file = path.resolve(base, `.${decoded}`);
+  if (file !== base && !file.startsWith(base + path.sep)) return null;
   if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");
   return fs.existsSync(file) ? file : null;
 }
