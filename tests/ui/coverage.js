@@ -16,11 +16,15 @@ export const uiCoverageOptions = {
   name: "Sanshain UI tests",
   outputDir: "coverage/ui",
   reports: ["lcovonly"],
-  // The service's own page scripts; the vendored libraries are not ours.
+  // The service's own page scripts, and the documentation site's script that
+  // site_stepper.test.js loads from the built site; the vendored libraries are not ours.
   entryFilter: (entry) =>
-    /\/js\/[\w/.-]+\.js(\?|$)/.test(entry.url) && !entry.url.includes("/vendor/"),
-  // Served under /js/, kept in the repository under static/js/.
+    (/\/js\/[\w/.-]+\.js(\?|$)/.test(entry.url) && !entry.url.includes("/vendor/")) ||
+    /\/assets\/site\.js(\?|$)/.test(entry.url),
+  // Served under /js/, kept in the repository under static/js/; the site's script is
+  // copied unchanged from site/assets/.
   sourcePath: (filePath) => {
+    if (/(^|\/)assets\/site\.js$/.test(filePath)) return "site/assets/site.js";
     const at = filePath.indexOf("js/");
     return at >= 0 ? `static/${filePath.slice(at)}` : filePath;
   },

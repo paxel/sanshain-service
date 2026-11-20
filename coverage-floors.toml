@@ -13,8 +13,8 @@
 # (`npm run test:coverage` writes coverage/lcov.info, which the shared TypeScript gate copies
 # to coverage/site.lcov).
 #
-# ui: the page scripts in static/js/, measured by the Playwright UI tests with UI_COVERAGE=1
-# (tests/ui/coverage.js writes coverage/ui.lcov).
+# ui: the page scripts in static/js/ and the documentation site's site/assets/site.js, measured
+# by the Playwright UI tests with UI_COVERAGE=1 (tests/ui/coverage.js writes coverage/ui.lcov).
 
 [[parts]]
 name = "rust"
