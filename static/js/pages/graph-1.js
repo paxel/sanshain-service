@@ -1039,7 +1039,7 @@ let graphFocusServices = [];
 function initGraphFocusPicker() {
   const root = document.getElementById("graph-focus-picker");
   if (!root) return;
-  graphFocusPicker = createPicker(root, {
+  const picker = createPicker(root, {
     id: "graph-service-filter",
     placeholder: "Add service...",
     multiple: true,
@@ -1056,6 +1056,7 @@ function initGraphFocusPicker() {
       window.addFocusTag(text);
     },
   });
+  setGraphFocusPicker(picker);
 }
 
 // ── Fullscreen ───────────────────────────────────────────────────────

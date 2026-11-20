@@ -82,7 +82,7 @@ async function loadTokens() {
         },
         body: JSON.stringify({ name, expires_in_days }),
       });
-      csrfToken = null;
+      forgetCsrfToken();
       if (!res.ok) {
         const text = await res.text();
         alert("Failed to create token: " + (text || res.statusText));
@@ -130,7 +130,7 @@ async function revokeToken(id) {
       "X-CSRF-Token": /** @type {string} */ (csrfToken),
     },
   });
-  csrfToken = null;
+  forgetCsrfToken();
   void loadTokens();
 }
 

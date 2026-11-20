@@ -16,7 +16,7 @@
 // Storage can be unavailable (private window, blocked site data): then every
 // visit starts from the defaults.
 // What the page script of the graph uses by name.
-/* exported readGraphViewPref, getCustomGraphSVG */
+/* exported readGraphViewPref, getCustomGraphSVG, setGraphFocusPicker */
 
 const GRAPH_VIEW_KEYS = {
   direction: "sanshain_graph_direction",
@@ -87,6 +87,10 @@ window.GRAPH_DOMAIN_PALETTE = GRAPH_DOMAIN_PALETTE;
 // The Focus picker, created by the page script once the toolbar exists.
 /** @type {{ input: HTMLInputElement, refresh: () => void } | null} */
 let graphFocusPicker = null;
+/** @param {{ input: HTMLInputElement, refresh: () => void }} picker */
+function setGraphFocusPicker(picker) {
+  graphFocusPicker = picker;
+}
 
 window.graphRedrawMode = "all"; // 'all' or 'circular'
 window.graphFocusTags = []; // focus filter (multi-service tag cloud)

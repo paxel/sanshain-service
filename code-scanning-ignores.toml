@@ -145,30 +145,6 @@ database that already ran it. The comparison stays as it was applied."""
 # The page scripts are classic scripts sharing globals declared in common.js and graph.js.
 [[IgnoredAlerts]]
 tool = "SonarQube Cloud"
-rule = "javascript:S2703"
-path = "static/js/pages/account.js"
-ignoreUntil = 2027-02-18
-reason = """The page scripts are classic scripts that share globals declared in common.js and \
-graph.js. The assignment sets such a global; a declaration here would shadow it."""
-
-[[IgnoredAlerts]]
-tool = "SonarQube Cloud"
-rule = "javascript:S2703"
-path = "static/js/pages/dashboard.js"
-ignoreUntil = 2027-02-18
-reason = """The page scripts are classic scripts that share globals declared in common.js and \
-graph.js. The assignment sets such a global; a declaration here would shadow it."""
-
-[[IgnoredAlerts]]
-tool = "SonarQube Cloud"
-rule = "javascript:S2703"
-path = "static/js/pages/graph-1.js"
-ignoreUntil = 2027-02-18
-reason = """The page scripts are classic scripts that share globals declared in common.js and \
-graph.js. The assignment sets such a global; a declaration here would shadow it."""
-
-[[IgnoredAlerts]]
-tool = "SonarQube Cloud"
 rule = "javascript:S4036"
 path = "scripts/build-site-all.js"
 ignoreUntil = 2027-02-18
