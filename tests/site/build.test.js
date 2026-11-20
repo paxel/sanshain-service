@@ -557,6 +557,8 @@ void test("the preview server stays inside the output folder and binds to loopba
   );
   assert.equal(resolveRequest(outDir, "/start/"), null, "no index.html in that folder");
   assert.equal(resolveRequest(outDir, "/../site/index.html"), null);
+  // A sibling folder whose name starts with the output folder's is outside too.
+  assert.equal(resolveRequest(outDir, `/../${path.basename(outDir)}-other/index.html`), null);
   assert.equal(resolveRequest(outDir, "/..%2F..%2Fetc%2Fpasswd"), null);
   assert.equal(resolveRequest(outDir, "/%ZZ"), null);
 
