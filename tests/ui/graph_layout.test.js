@@ -624,7 +624,10 @@ test("the density scales how far a lower rank moves along", async ({ page }) => 
   const producers = [...DOMAINS.alpha, ...DOMAINS.beta, `resource:default/${P}-db`];
   /** @param {string} density */
   const measure = async (density) => {
-    await page.goto(`/graph.html?domains=node&density=${density}`);
+    // Focused on this file's systems: the suites before it leave other
+    // consumers in the graph, whose names would widen the Consumers' lane.
+    const focus = [...CONSUMERS, ...DOMAINS.alpha, ...DOMAINS.beta].join(",");
+    await page.goto(`/graph.html?domains=node&density=${density}&focus=${focus}`);
     await expect(page.locator("#custom-graph")).toHaveAttribute("data-density", density, {
       timeout: 20000,
     });
