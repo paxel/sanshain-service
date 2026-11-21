@@ -934,9 +934,26 @@ fn config(base_url: Option<&str>) -> WebhookDeliveryConfig {
     }
 }
 
+/// A pass sets the process-wide gauge `sanshain_webhook_outbox_pending`, so a
+/// pass of a test running in parallel could change it while the metrics test
+/// reads it. Every pass takes this lock; the metrics test holds it throughout.
+#[cfg(test)]
+static OUTBOX_GAUGE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// One worker pass at `now` — the single-pass function the worker loops over.
 #[cfg(test)]
 async fn pass(
+    ctx: &TestContext,
+    config: &WebhookDeliveryConfig,
+    now: chrono::DateTime<Utc>,
+) -> PassSummary {
+    let _gauge = OUTBOX_GAUGE.lock().await;
+    pass_holding_gauge(ctx, config, now).await
+}
+
+/// [`pass`] for a test that already holds [`OUTBOX_GAUGE`].
+#[cfg(test)]
+async fn pass_holding_gauge(
     ctx: &TestContext,
     config: &WebhookDeliveryConfig,
     now: chrono::DateTime<Utc>,
@@ -1577,6 +1594,7 @@ async fn a_host_removed_from_the_allow_list_stops_delivery_with_a_reason() {
 
 #[tokio::test]
 async fn deliveries_are_counted_by_outcome_and_the_backlog_is_a_gauge() {
+    let _gauge = OUTBOX_GAUGE.lock().await;
     let ctx = setup().await;
     let receiver = Receiver::start().await;
     receiver.answer_with(500);
@@ -1588,7 +1606,7 @@ async fn deliveries_are_counted_by_outcome_and_the_backlog_is_a_gauge() {
         Some(json!({"name": "rel"})),
     )
     .await;
-    pass(&ctx, &config(None), Utc::now()).await;
+    pass_holding_gauge(&ctx, &config(None), Utc::now()).await;
     let (status, _, body) = send(&ctx, "GET", "/metrics", None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
@@ -1597,7 +1615,7 @@ async fn deliveries_are_counted_by_outcome_and_the_backlog_is_a_gauge() {
     );
     assert!(body.contains("sanshain_webhook_outbox_pending 1"), "{body}");
     receiver.answer_with(200);
-    pass(
+    pass_holding_gauge(
         &ctx,
         &config(None),
         Utc::now() + chrono::Duration::minutes(1),

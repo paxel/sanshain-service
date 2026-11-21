@@ -7,15 +7,28 @@ import { test, expect } from "./fixtures.js";
 import { spawn } from "node:child_process";
 import net from "node:net";
 
+/**
+ * @typedef {import("node:child_process").ChildProcessByStdio<
+ *   null,
+ *   import("node:stream").Readable,
+ *   import("node:stream").Readable
+ * >} SiteServer
+ */
+
+/** @type {SiteServer | undefined} */
 let server;
+/** @type {string} */
 let base;
 
+/** @returns {Promise<number>} */
 function freePort() {
   return new Promise((resolve) => {
     const s = net.createServer();
     s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address();
-      s.close(() => resolve(port));
+      const { port } = /** @type {import("node:net").AddressInfo} */ (s.address());
+      s.close(() => {
+        resolve(port);
+      });
     });
   });
 }
@@ -23,25 +36,31 @@ function freePort() {
 test.describe("Documentation site: the walkthrough stepper", () => {
   test.beforeAll(async () => {
     const port = await freePort();
-    base = `http://127.0.0.1:${port}`;
+    base = `http://127.0.0.1:${String(port)}`;
     server = spawn(process.execPath, ["scripts/build-site.js", "--serve", String(port)], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
-    await new Promise((resolve, reject) => {
-      server.stdout.on("data", (chunk) => {
-        output += chunk;
-        if (output.includes("Serving ")) resolve();
-      });
-      server.stderr.on("data", (chunk) => (output += chunk));
-      server.on("exit", (code) => reject(new Error(`build-site exited with ${code}:\n${output}`)));
-    });
+    const started = server;
+    await /** @type {Promise<void>} */ (
+      new Promise((resolve, reject) => {
+        started.stdout.on("data", (/** @type {Buffer} */ chunk) => {
+          output += String(chunk);
+          if (output.includes("Serving ")) resolve();
+        });
+        started.stderr.on("data", (/** @type {Buffer} */ chunk) => (output += String(chunk)));
+        started.on("exit", (code) => {
+          reject(new Error(`build-site exited with ${String(code)}:\n${output}`));
+        });
+      })
+    );
   });
 
   test.afterAll(() => {
     if (server) server.kill();
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const visibleStep = (page) => page.locator(".story .step:not([hidden])");
 
   test("opens on step 1, hides the others, and lists every step", async ({ page }) => {
@@ -91,7 +110,7 @@ test.describe("Documentation site: the walkthrough stepper", () => {
     await expect(visibleStep(page)).toHaveId("step-6");
     await expect(page.locator(".step-counter")).toHaveText("Step 6 of 10");
     const innerId = await page.locator("#step-8 h2").getAttribute("id");
-    await page.goto(`${base}/operator/story.html#${innerId}`);
+    await page.goto(`${base}/operator/story.html#${String(innerId)}`);
     await expect(visibleStep(page)).toHaveId("step-8");
     await page.evaluate(() => {
       window.location.hash = "#step-3";
@@ -101,6 +120,7 @@ test.describe("Documentation site: the walkthrough stepper", () => {
 
   test("the story graph shows and highlights what each step declares", async ({ page }) => {
     await page.goto(`${base}/developer/story.html`);
+    /** @param {string} name */
     const part = (name) => page.locator(`.story-graph [data-g='${name}']`);
     // Step 1: payments and its snapshot exist and are highlighted; orders does not exist yet.
     await expect(part("payments")).toHaveClass(/is-highlight/);

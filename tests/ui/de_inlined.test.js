@@ -33,11 +33,12 @@ const ON_ATTRS = [
   "onmouseout",
 ];
 
+/** @param {import("@playwright/test").Page} page */
 async function login(page) {
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
@@ -61,9 +62,11 @@ const AUTHED_PAGES = [
   "/dashboard",
 ];
 
-async function auditPage(page) {
+/** @param {import("@playwright/test").Page} page */
+function auditPage(page) {
   return page.evaluate(
     ({ events, onAttrs }) => {
+      /** @type {string[]} */
       const unresolved = [];
       // Args that do not parse are the quiet failure: the dispatcher catches
       // the error and calls the handler with an empty list, so the action
@@ -72,11 +75,14 @@ async function auditPage(page) {
       // broken. The usual cause is building the attribute with attrJson() and
       // setAttribute(), which stores the HTML entities verbatim instead of
       // letting the parser decode them.
+      /** @type {string[]} */
       const badArgs = [];
+      const globals = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (window));
       for (const type of events) {
         for (const el of document.querySelectorAll(`[data-${type}]`)) {
-          const name = el.getAttribute(`data-${type}`);
-          if (typeof window[name] !== "function") {
+          // The selector matched on the attribute, so it has a value.
+          const name = /** @type {string} */ (el.getAttribute(`data-${type}`));
+          if (typeof globals[name] !== "function") {
             unresolved.push(`data-${type}="${name}" (${el.tagName.toLowerCase()})`);
           }
           const raw = el.getAttribute(`data-${type}-args`);
@@ -91,6 +97,7 @@ async function auditPage(page) {
           }
         }
       }
+      /** @type {string[]} */
       const inline = [];
       for (const el of document.querySelectorAll("*")) {
         for (const a of onAttrs) {
@@ -109,7 +116,9 @@ for (const path of AUTHED_PAGES) {
   }) => {
     await login(page);
     await page.goto(path);
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // The page may never go idle: the fixed wait below covers that.
+    });
     await page.waitForTimeout(1500);
     const { unresolved, badArgs, inline } = await auditPage(page);
     expect(unresolved, `${path} has dead data-action handlers:\n${unresolved.join("\n")}`).toEqual(
@@ -122,7 +131,9 @@ for (const path of AUTHED_PAGES) {
 
 test("the public landing page data-action handlers resolve", async ({ page }) => {
   await page.goto("/");
-  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+    // The page may never go idle: the fixed wait below covers that.
+  });
   await page.waitForTimeout(1000);
   const { unresolved, badArgs, inline } = await auditPage(page);
   expect(badArgs, `landing has unparseable action args:\n${badArgs.join("\n")}`).toEqual([]);

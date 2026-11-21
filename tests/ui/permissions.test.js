@@ -1,7 +1,7 @@
 // Every page as a caller with less than everything: no request on load may be
 // refused (a refused read shows as an empty or wrong value), and every control
 // the caller may not use is greyed out with the permission named, never live.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const RUN = Date.now().toString(36);
@@ -24,6 +24,7 @@ const PAGES = [
   "/admin.html",
   "/observability.html",
 ];
+/** @param {string} title */
 const SPEC = (title) =>
   [
     "openapi: 3.0.0",
@@ -38,11 +39,13 @@ const SPEC = (title) =>
     "          description: OK",
   ].join("\n");
 
+/** @typedef {{ id: number, username: string }} AdminUser This is a row of `GET /admin/users`, as far as it is read here. */
+
 test.beforeAll(async ({ request }) => {
   const login = await request.post("/auth/login", {
     data: { username: "root", password: adminPassword },
   });
-  const { token } = await login.json();
+  const { token } = /** @type {{ token: string }} */ (await json(login));
   const headers = { Authorization: `Bearer ${token}` };
   for (const producer of [PRODUCER, OTHER]) {
     const res = await request.post("/provide", {
@@ -60,12 +63,15 @@ test.beforeAll(async ({ request }) => {
   for (const username of Object.values(PERSONAS)) {
     await request.post("/auth/register", { data: { username, password: PASSWORD } });
   }
-  const users = await (await request.get("/admin/users", { headers })).json();
-  const idOf = (name) => users.find((u) => u.username === name).id;
+  const users = /** @type {AdminUser[]} */ (
+    await json(await request.get("/admin/users", { headers }))
+  );
+  /** @param {string} name */
+  const idOf = (name) => /** @type {AdminUser} */ (users.find((u) => u.username === name)).id;
   for (const username of Object.values(PERSONAS)) {
-    await request.post(`/admin/users/${idOf(username)}/approve`, { headers });
+    await request.post(`/admin/users/${String(idOf(username))}/approve`, { headers });
   }
-  let res = await request.post(`/admin/users/${idOf(PERSONAS.usermanager)}/roles`, {
+  let res = await request.post(`/admin/users/${String(idOf(PERSONAS.usermanager))}/roles`, {
     headers,
     data: { role: "user_manager" },
   });
@@ -77,25 +83,37 @@ test.beforeAll(async ({ request }) => {
   expect(res.ok(), "assign maintainer").toBeTruthy();
 });
 
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} username
+ */
 async function signIn(page, username) {
   // A fresh start: the previous persona's session must not carry over.
   await page.context().clearCookies();
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.goto("/account.html");
   await page.waitForSelector("#login-username", { state: "visible" });
   await page.fill('input[id="login-username"]', username);
-  await page.fill('input[id="login-password"]', username === "root" ? adminPassword : PASSWORD);
+  await page.fill(
+    'input[id="login-password"]',
+    username === "root" ? /** @type {string} */ (adminPassword) : PASSWORD,
+  );
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
 
 for (const [persona, username] of Object.entries(PERSONAS)) {
   test(`no page draws a refused request for the ${persona}`, async ({ page }) => {
+    /** @type {string[]} */
     const refused = [];
     page.on("response", (res) => {
       if ([401, 403].includes(res.status())) {
-        refused.push(`${res.status()} ${res.request().method()} ${new URL(res.url()).pathname}`);
+        refused.push(
+          `${String(res.status())} ${res.request().method()} ${new URL(res.url()).pathname}`,
+        );
       }
     });
     await signIn(page, username);
@@ -112,12 +130,12 @@ for (const [persona, username] of Object.entries(PERSONAS)) {
 test("a gated control is greyed with the permission named, a granted one is live", async ({
   page,
 }) => {
-  const versionDelete = (producer) =>
+  const versionDelete = () =>
     page.locator(".endpoint-card", { hasText: "1.0.0" }).locator(`[data-delete]`).first();
 
   await signIn(page, PERSONAS.plain);
   await page.goto(`/producers.html?service=${PRODUCER}`);
-  const plainDelete = versionDelete(PRODUCER);
+  const plainDelete = versionDelete();
   await expect(plainDelete).toBeDisabled({ timeout: 10000 });
   await expect(plainDelete).toHaveAttribute("title", /manage_producers/);
   await expect(page.locator("[data-promote]").first()).toBeDisabled();
@@ -125,9 +143,9 @@ test("a gated control is greyed with the permission named, a granted one is live
   // The maintainer may delete on their own Producer, not on another one.
   await signIn(page, PERSONAS.maintainer);
   await page.goto(`/producers.html?service=${PRODUCER}`);
-  await expect(versionDelete(PRODUCER)).toBeEnabled({ timeout: 10000 });
+  await expect(versionDelete()).toBeEnabled({ timeout: 10000 });
   await page.goto(`/producers.html?service=${OTHER}`);
-  await expect(versionDelete(OTHER)).toBeDisabled({ timeout: 10000 });
+  await expect(versionDelete()).toBeDisabled({ timeout: 10000 });
 
   // A user manager may not change the auto-approve switch (it sits in the
   // Local-users panel, shown to those who manage the auth configuration), and
@@ -150,17 +168,21 @@ test("a gated control is greyed with the permission named, a granted one is live
 // former WebSocket mode put the token into the URL, which the server refuses;
 // its old switch in local storage must not bring it back.
 test("live updates authenticate with the header, never a token in the URL", async ({ page }) => {
+  /** @type {{ url: URL, authorization: string | undefined }[]} */
   const streams = [];
+  /** @type {string[]} */
   const sockets = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
   page.on("request", (req) => {
     const url = new URL(req.url());
     if (url.pathname.startsWith("/api/sse/") || url.pathname.startsWith("/api/ws/")) {
-      streams.push({ url, authorization: req.headers()["authorization"] });
+      streams.push({ url, authorization: req.headers().authorization });
     }
   });
   await signIn(page, PERSONAS.plain);
-  await page.evaluate(() => localStorage.setItem("sanshain_use_ws", "true"));
+  await page.evaluate(() => {
+    localStorage.setItem("sanshain_use_ws", "true");
+  });
   streams.length = 0;
   await page.goto("/");
   await expect.poll(() => streams.length + sockets.length).toBeGreaterThan(0);

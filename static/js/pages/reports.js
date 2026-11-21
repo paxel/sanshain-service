@@ -3,7 +3,7 @@
 // execution. Declarations stay global as when inline; the file loads at
 // the same document position, so DOM timing is unchanged.
 
-async function showReports() {
+function showReports() {
   showLoader();
   try {
     void loadReports();
@@ -13,7 +13,7 @@ async function showReports() {
     hideLoader();
     const grid = document.getElementById("reports-grid");
     if (grid) {
-      grid.innerHTML = `<div class="text-red-500 text-center py-10 col-span-2">Error: ${escapeHtml(err.message)}</div>`;
+      grid.innerHTML = `<div class="text-red-500 text-center py-10 col-span-2">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
     }
   }
 }
@@ -21,14 +21,17 @@ async function showReports() {
 // Reports cover the whole instance: every dependency is a Consumer's exact
 // Pin on a Producer version, so there is no further axis to pick.
 async function loadReports() {
-  const grid = document.getElementById("reports-grid");
+  const grid = /** @type {HTMLElement} */ (document.getElementById("reports-grid"));
   // Graph scope (ADR-0005): dev (accumulated activity), main (trunk
   // pins), or one sanshain-branch. The selector feeds the report links.
+  /** @type {string[]} */
   let branchNames = [];
   try {
     const res = await apiCall("/admin/branches");
-    if (res.ok) branchNames = (await res.json()).map((b) => b.name);
-  } catch (_) {
+    if (res.ok) {
+      branchNames = /** @type {CatalogBranch[]} */ (await res.json()).map((b) => b.name);
+    }
+  } catch {
     /* branch listing is optional for reports */
   }
   const scopeOptions = ["dev", "main", ...branchNames]
@@ -38,11 +41,11 @@ async function loadReports() {
     )
     .join("");
   const scopeParam = () => {
-    const v = document.getElementById("report-scope").value;
+    const v = /** @type {HTMLSelectElement} */ (document.getElementById("report-scope")).value;
     return v === "dev" ? "" : `?scope=${encodeURIComponent(v)}`;
   };
   window.openScopedReport = (src, title) => {
-    const scope = document.getElementById("report-scope").value;
+    const scope = /** @type {HTMLSelectElement} */ (document.getElementById("report-scope")).value;
     const label = scope === "dev" ? title : `${title} — ${scope}`;
     window.location.href = `/report-viewer.html?src=${encodeURIComponent(src + scopeParam())}&title=${encodeURIComponent(label)}`;
   };
@@ -84,11 +87,13 @@ async function loadReports() {
 
 window.addEventListener("sanshain-update", () => {
   console.log("Live update received, refreshing reports...");
-  void showReports();
+  showReports();
 });
 
 function initReports() {
-  void checkDiscoveryAuth(() => showReports());
+  void checkDiscoveryAuth(() => {
+    showReports();
+  });
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initReports);

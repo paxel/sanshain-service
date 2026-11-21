@@ -31,14 +31,22 @@ const SITE_V1 = {
   "docs/adr/.keep": "",
 };
 
+/** @type {string} */
 let tmp;
+/** @type {string} */
 let repo;
+/** @type {string} */
 let outDir;
 
+/**
+ * @param {string[]} args
+ * @param {import("node:child_process").ExecFileSyncOptions} [options]
+ */
 function git(args, options = {}) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: "pipe", ...options });
 }
 
+/** @param {Record<string, string>} files */
 function write(files) {
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(repo, rel);
@@ -47,6 +55,7 @@ function write(files) {
   }
 }
 
+/** @param {string} message */
 function commitAll(message) {
   git(["add", "-A"]);
   git(["commit", "-q", "-m", message]);
@@ -99,10 +108,10 @@ after(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const read = (rel) => fs.readFileSync(path.join(outDir, rel), "utf8");
-const exists = (rel) => fs.existsSync(path.join(outDir, rel));
+const read = (/** @type {string} */ rel) => fs.readFileSync(path.join(outDir, rel), "utf8");
+const exists = (/** @type {string} */ rel) => fs.existsSync(path.join(outDir, rel));
 
-test("compareVersions sorts newest first, numerically per part", () => {
+void test("compareVersions sorts newest first, numerically per part", () => {
   assert.deepEqual(["2.9.0", "2.10.0", "10.0.0", "2.9.1"].sort(compareVersions), [
     "10.0.0",
     "2.10.0",
@@ -111,11 +120,11 @@ test("compareVersions sorts newest first, numerically per part", () => {
   ]);
 });
 
-test("release tags are the vX.Y.Z tags whose tree carries the site, newest first", () => {
+void test("release tags are the vX.Y.Z tags whose tree carries the site, newest first", () => {
   assert.deepEqual(listReleaseTags(repo), ["v1.1.0", "v1.0.0"]);
 });
 
-test("the plan puts the working tree in place of its tag and marks the newest as latest", () => {
+void test("the plan puts the working tree in place of its tag and marks the newest as latest", () => {
   assert.deepEqual(planVersions({ tags: ["v1.1.0", "v1.0.0"], workingVersion: "1.2.0" }), [
     { version: "1.2.0", tag: null, source: "worktree", latest: true },
     { version: "1.1.0", tag: "v1.1.0", source: "tag", latest: false },
@@ -128,19 +137,21 @@ test("the plan puts the working tree in place of its tag and marks the newest as
   ]);
   // A maintenance branch below the newest tag is not the latest.
   const plan = planVersions({ tags: ["v1.1.0", "v1.0.0"], workingVersion: "1.0.1" });
-  assert.equal(plan[0].version, "1.1.0");
-  assert.equal(plan[1].version, "1.0.1");
+  assert.equal(plan[0]?.version, "1.1.0");
+  assert.equal(plan[1]?.version, "1.0.1");
 });
 
-test("extractTag unpacks the release paths of a tag and fails on a tag that lacks one", () => {
+void test("extractTag unpacks the release paths of a tag and fails on a tag that lacks one", () => {
   const dest = path.join(tmp, "extract");
   extractTag(repo, "v1.0.0", dest);
   assert.ok(fs.existsSync(path.join(dest, "site/operator/legacy.html")));
   assert.match(fs.readFileSync(path.join(dest, "Cargo.toml"), "utf8"), /1\.0\.0/);
-  assert.throws(() => extractTag(repo, "v0.9.0", path.join(tmp, "extract-old")), /site|pathspec/i);
+  assert.throws(() => {
+    extractTag(repo, "v0.9.0", path.join(tmp, "extract-old"));
+  }, /site|pathspec/i);
 });
 
-test("the root is the latest version, every version lives under /vX.Y.Z/, versions.json lists them", () => {
+void test("the root is the latest version, every version lives under /vX.Y.Z/, versions.json lists them", () => {
   assert.match(read("index.html"), /<summary class="chip"[^>]*>v1\.2\.0<\/summary>/);
   assert.ok(exists("developer/mcp.html"), "the unreleased chapter is in the root");
   assert.ok(exists("v1.2.0/developer/mcp.html"));
@@ -157,7 +168,7 @@ test("the root is the latest version, every version lives under /vX.Y.Z/, versio
   ]);
 });
 
-test("the menu of an old version links the same chapter where it exists and the start page elsewhere", () => {
+void test("the menu of an old version links the same chapter where it exists and the start page elsewhere", () => {
   const legacy = read("v1.0.0/operator/legacy.html");
   assert.match(
     legacy,
@@ -179,14 +190,14 @@ test("the menu of an old version links the same chapter where it exists and the 
   );
 });
 
-test("changelog links follow the tag; the working tree without a tag keeps summer", () => {
+void test("changelog links follow the tag; the working tree without a tag keeps summer", () => {
   assert.match(read("v1.0.0/index.html"), /blob\/v1\.0\.0\/CHANGELOG\.md">changelog<\/a>/);
   assert.match(read("v1.0.0/index.html"), /blob\/v1\.0\.0\/CHANGELOG\.md">Changelog<\/a>/);
   assert.match(read("v1.1.0/index.html"), /blob\/v1\.1\.0\/CHANGELOG\.md">Changelog<\/a>/);
   assert.match(read("index.html"), /blob\/summer\/CHANGELOG\.md">Changelog<\/a>/);
 });
 
-test("every version is served with today's assets, its pages from its own tree", () => {
+void test("every version is served with today's assets, its pages from its own tree", () => {
   assert.equal(read("v1.0.0/assets/site.css"), "body{color:navy}");
   assert.equal(read("v1.0.0/assets/site.js"), "/* v1 */");
   assert.match(read("v1.0.0/index.html"), /Version one\./);
@@ -194,11 +205,12 @@ test("every version is served with today's assets, its pages from its own tree",
   assert.match(read("v1.0.0/404.html"), /href="\/docs\/v1\.0\.0\/assets\/site\.css"/);
 });
 
-test("a release that no longer builds fails the whole build naming the tag", () => {
+void test("a release that no longer builds fails the whole build naming the tag", () => {
   const broken = path.join(tmp, "broken");
   fs.cpSync(repo, broken, { recursive: true });
   // Today's build requires an index page; v1.0.0 in the copy loses its front matter.
-  const b = (args) => execFileSync("git", args, { cwd: broken, encoding: "utf8", stdio: "pipe" });
+  const b = (/** @type {string[]} */ args) =>
+    execFileSync("git", args, { cwd: broken, encoding: "utf8", stdio: "pipe" });
   b(["stash", "-q"]); // the copied working tree carries the unreleased 1.2.0
   b(["checkout", "-q", "v1.0.0"]);
   fs.writeFileSync(path.join(broken, "site/index.html"), "<p>no front matter</p>");

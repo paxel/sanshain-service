@@ -1,5 +1,7 @@
 # Stage 1: Build
-FROM rust:1.99.1-alpine AS builder
+# Both base images are pinned by the digest of their multi-platform index, with the tag kept
+# for the reader. A toolchain bump moves the tag and the digest of the Rust image together.
+FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS builder
 
 # SQLite is compiled into the binary (sqlx sqlite-bundled): no sqlite package here or below.
 RUN apk add --no-cache musl-dev openssl-dev pkgconfig
@@ -15,7 +17,7 @@ COPY benches/ benches/
 RUN cargo build --release --locked
 
 # Stage 2: Runtime
-FROM alpine:3.24
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # ca-certificates: the platform trust store, so ldaps:// against a publicly
 # signed directory works without a certificate mount. Private CAs still go

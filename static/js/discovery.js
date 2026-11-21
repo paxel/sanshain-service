@@ -3,64 +3,105 @@
  * (producers.html, consumers.html, graph.html, reports.html)
  */
 
+// What the page scripts, and the controls through the dispatcher in common.js, use by name.
+/* exported loadAllProducers, producerHasAnyEndpoints, latestGaVersion, stabilityBadge */
+/* exported loadUserFavorites, toggleFavorite, getMethodColor, renderPaginatedYaml */
+/* exported mountDiffView, fetchVersionDiff, checkDiscoveryAuth, closeModal */
+
+/** @type {ProducerSummary[]} */
 let allServices = []; // ProducerSummary[]: { name, versions[], is_favorite, icon, domain }
+/** @type {UserFavorites} */
 let userFavorites = { services: [], clients: [] };
 
 const YAML_PAGE_SIZE = 80; // lines per page for YAML viewer
 
+/**
+ * The parsed JSON of a GET; the caller says which shape it expects.
+ * @param {string} url
+ * @returns {Promise<unknown>}
+ */
 async function fetchJSON(url) {
   const res = await apiCall(url);
-  if (!res.ok) throw new Error(`Fetch error: ${res.status}`);
+  if (!res.ok) throw new Error(`Fetch error: ${String(res.status)}`);
   return res.json();
 }
 
 // Load every Producer with its version lines (all API types) in one request.
 async function loadAllProducers() {
-  allServices = (await fetchJSON("/admin/producers")) || [];
+  allServices = /** @type {ProducerSummary[] | null} */ (await fetchJSON("/admin/producers")) ?? [];
 }
 
+/**
+ * @param {string} name
+ * @returns {ProducerSummary | null}
+ */
 function producerByName(name) {
-  return allServices.find((s) => s.name === name) || null;
+  return allServices.find((s) => s.name === name) ?? null;
 }
 
+/**
+ * @param {string} name
+ * @returns {ProducerVersionInfo[]}
+ */
 function producerVersions(name) {
   const svc = producerByName(name);
-  return svc ? svc.versions || [] : [];
+  return svc ? (svc.versions ?? []) : [];
 }
 
 // A Producer "serves something" once at least one entry of its version lines
 // has at least one endpoint. Used by the discovery view (producers.html) to
 // hide Producers that provide nothing — e.g. a spec published with no paths.
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
 function producerHasAnyEndpoints(name) {
-  return producerVersions(name).some((v) => (v.endpoint_count || 0) > 0);
+  return producerVersions(name).some((v) => (v.endpoint_count ?? 0) > 0);
 }
 
 // --- Semver helpers (versions are strict MAJOR.MINOR.PATCH strings) ---
 
+/**
+ * @param {string | number} v
+ * @returns {number[]}
+ */
 function parseSemver(v) {
   return String(v)
     .split(".")
     .map((n) => Number.parseInt(n, 10) || 0);
 }
 
+/**
+ * @param {string | number} a
+ * @param {string | number} b
+ * @returns {number}
+ */
 function compareSemver(a, b) {
   const pa = parseSemver(a);
   const pb = parseSemver(b);
   for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
   }
   return 0;
 }
 
 // The highest GA version of one line (an array of version entries), or null
 // when the line has no GA yet.
+/**
+ * @param {{ stability: string, version: string }[]} versions
+ * @returns {string | null}
+ */
 function latestGaVersion(versions) {
   const gas = versions.filter((v) => v.stability === "ga").map((v) => v.version);
   gas.sort(compareSemver);
-  return gas.length > 0 ? gas[gas.length - 1] : null;
+  return gas.length > 0 ? /** @type {string} */ (gas[gas.length - 1]) : null;
 }
 
 // SNAPSHOT / GA badge markup for a version entry.
+/**
+ * @param {string | null | undefined} stability
+ * @returns {string}
+ */
 function stabilityBadge(stability) {
   return stability === "ga"
     ? '<span class="text-[10px] text-green-700 bg-green-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">GA</span>'
@@ -69,22 +110,29 @@ function stabilityBadge(stability) {
 
 async function loadUserFavorites() {
   try {
-    const favorites = await fetchJSON("/auth/favorites");
-    userFavorites = favorites || { services: [], clients: [] };
+    const favorites = /** @type {UserFavorites | null} */ (await fetchJSON("/auth/favorites"));
+    userFavorites = favorites ?? { services: [], clients: [] };
   } catch (err) {
     console.error("Failed to load user favorites:", err);
     userFavorites = { services: [], clients: [] };
   }
 }
 
+/**
+ * @param {Event | null | undefined} event
+ * @param {string} itemType `service` or `client`.
+ * @param {string} itemName
+ * @param {boolean} currentIsFavorite
+ */
 async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
   if (event) {
     event.stopPropagation();
     event.preventDefault();
   }
   const token = localStorage.getItem("sanshain_token");
+  /** @type {Record<string, string>} */
   const headers = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const method = currentIsFavorite ? "DELETE" : "POST";
   try {
@@ -92,10 +140,12 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
       method,
       headers,
     });
-    if (!res.ok) throw new Error(`Failed to toggle favorite: ${res.status}`);
+    if (!res.ok) throw new Error(`Failed to toggle favorite: ${String(res.status)}`);
 
     // Update local cache
-    const list = itemType === "service" ? userFavorites.services : userFavorites.clients;
+    const list = /** @type {string[]} */ (
+      itemType === "service" ? userFavorites.services : userFavorites.clients
+    );
     if (currentIsFavorite) {
       const idx = list.indexOf(itemName);
       if (idx !== -1) list.splice(idx, 1);
@@ -106,7 +156,7 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
     // Refresh page/lists
     if (window.loadData) {
       await window.loadData();
-    } else if (window.location.reload) {
+    } else {
       window.location.reload();
     }
   } catch (err) {
@@ -115,7 +165,12 @@ async function toggleFavorite(event, itemType, itemName, currentIsFavorite) {
   }
 }
 
+/**
+ * @param {string} m
+ * @returns {string}
+ */
 function getMethodColor(m) {
+  /** @type {Record<string, string>} */
   const colors = {
     GET: "bg-blue-100 text-blue-700",
     POST: "bg-green-100 text-green-700",
@@ -123,11 +178,16 @@ function getMethodColor(m) {
     DELETE: "bg-red-100 text-red-700",
     PATCH: "bg-purple-100 text-purple-700",
   };
-  return colors[m.toUpperCase()] || "bg-slate-100 text-slate-700";
+  return colors[m.toUpperCase()] ?? "bg-slate-100 text-slate-700";
 }
 
+/**
+ * @param {HTMLElement} container
+ * @param {string} yamlText
+ * @param {string} [filename]
+ */
 function renderPaginatedYaml(container, yamlText, filename) {
-  filename = filename || "endpoint.yaml";
+  const downloadName = (filename ?? "") || "endpoint.yaml";
   const lines = yamlText.split("\n");
   const totalPages = Math.max(1, Math.ceil(lines.length / YAML_PAGE_SIZE));
   let currentPage = 1;
@@ -143,14 +203,14 @@ function renderPaginatedYaml(container, yamlText, filename) {
       paginationHtml = `
                 <div class="flex items-center justify-between mt-4">
                     <button id="yaml-prev" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage <= 1 ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"}" ${currentPage <= 1 ? "disabled" : ""}>← Previous</button>
-                    <span class="text-sm text-slate-500">Page ${currentPage} of ${totalPages} &middot; Lines ${start + 1}–${end} of ${lines.length}</span>
+                    <span class="text-sm text-slate-500">Page ${String(currentPage)} of ${String(totalPages)} &middot; Lines ${String(start + 1)}–${String(end)} of ${String(lines.length)}</span>
                     <button id="yaml-next" class="px-3 py-1.5 rounded-lg text-sm font-medium ${currentPage >= totalPages ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"}" ${currentPage >= totalPages ? "disabled" : ""}>Next →</button>
                 </div>`;
     }
 
     container.innerHTML = `
             <div class="flex items-center justify-between mb-2">
-                <span class="text-xs text-slate-500">${lines.length} lines total</span>
+                <span class="text-xs text-slate-500">${String(lines.length)} lines total</span>
                 <div class="flex gap-2">
                     <button id="yaml-copy" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors" title="Copy to clipboard">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke-width="2"/></svg>
@@ -198,7 +258,7 @@ function renderPaginatedYaml(container, yamlText, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = filename;
+        a.download = downloadName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -216,20 +276,39 @@ function renderPaginatedYaml(container, yamlText, filename) {
 
 const DIFF_LAYOUT_STORAGE_KEY = "sanshain.diffLayout";
 const DIFF_NARROW_QUERY = "(max-width: 767px)";
+/**
+ * @typedef {object} DiffViewOptions
+ * @property {(ignoreWhitespace: boolean) => Promise<TextDiff>} load
+ * @property {string} [caption] Trusted HTML shown in the toolbar.
+ * @property {string} [emptyHtml] Trusted HTML shown when nothing differs.
+ * @property {boolean} [ignoreWhitespaceSwitch] `false` leaves the switch out.
+ */
+
+/**
+ * @typedef {object} DiffViewState
+ * @property {boolean} ignoreWhitespace
+ * @property {DiffViewOptions} [options]
+ * @property {object} [token]
+ * @property {TextDiff | null} [diff]
+ */
+
+/** @type {WeakMap<Element, DiffViewState>} */
 const diffViewStates = new WeakMap();
 
+/** @returns {string | null} */
 function storedDiffLayout() {
   try {
     return localStorage.getItem(DIFF_LAYOUT_STORAGE_KEY);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
+/** @param {string} layout */
 function storeDiffLayout(layout) {
   try {
     localStorage.setItem(DIFF_LAYOUT_STORAGE_KEY, layout);
-  } catch (e) {
+  } catch {
     // Storage unavailable: the choice lasts until the page is left.
   }
 }
@@ -243,8 +322,12 @@ function effectiveDiffLayout() {
   return storedDiffLayout() === "unified" ? "unified" : "split";
 }
 
+/**
+ * @param {number | null | undefined} n
+ * @returns {string}
+ */
 function diffLineNo(n) {
-  return `<span class="diff-no w-10 shrink-0 text-right pr-2 text-slate-500 select-none">${n == null ? "" : n}</span>`;
+  return `<span class="diff-no w-10 shrink-0 text-right pr-2 text-slate-500 select-none">${n == null ? "" : String(n)}</span>`;
 }
 
 const DIFF_LINE_STYLES = {
@@ -253,10 +336,14 @@ const DIFF_LINE_STYLES = {
   ctx: { cls: "text-slate-300", sign: " " },
 };
 
+/**
+ * @param {DiffHunk[]} hunks
+ * @returns {string}
+ */
 function renderUnifiedDiffRows(hunks) {
   return hunks
     .map((h) => {
-      const header = `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${h.old_start},${h.old_len} +${h.new_start},${h.new_len} @@</div>`;
+      const header = `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${String(h.old_start)},${String(h.old_len)} +${String(h.new_start)},${String(h.new_len)} @@</div>`;
       const lines = h.lines
         .map((l) => {
           const style = DIFF_LINE_STYLES[l.op];
@@ -268,6 +355,13 @@ function renderUnifiedDiffRows(hunks) {
     .join("");
 }
 
+/**
+ * @param {string} side
+ * @param {number | null | undefined} no
+ * @param {string} text
+ * @param {DiffLine["op"]} op
+ * @returns {string}
+ */
 function diffSideCell(side, no, text, op) {
   if (no == null) {
     return `<div class="diff-cell bg-slate-900/60" data-side="${side}"></div>`;
@@ -278,15 +372,19 @@ function diffSideCell(side, no, text, op) {
 
 // Pair each run of deletions with the following run of insertions so a
 // changed line sits next to its replacement.
+/**
+ * @param {DiffHunk[]} hunks
+ * @returns {string}
+ */
 function renderSplitDiffRows(hunks) {
   return hunks
     .map((h) => {
       const rows = [
-        `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${h.old_start},${h.old_len} +${h.new_start},${h.new_len} @@</div>`,
+        `<div class="diff-hunk-header text-indigo-400 px-2 py-0.5 select-none">@@ -${String(h.old_start)},${String(h.old_len)} +${String(h.new_start)},${String(h.new_len)} @@</div>`,
       ];
       let i = 0;
       while (i < h.lines.length) {
-        const l = h.lines[i];
+        const l = /** @type {DiffLine} */ (h.lines[i]);
         if (l.op === "ctx") {
           rows.push(
             `<div class="diff-row grid grid-cols-2 divide-x divide-slate-800" data-diff="ctx">${diffSideCell("old", l.old_no, l.old_text ?? l.text, "ctx")}${diffSideCell("new", l.new_no, l.text, "ctx")}</div>`,
@@ -294,10 +392,13 @@ function renderSplitDiffRows(hunks) {
           i++;
           continue;
         }
+        /** @type {DiffLine[]} */
         const dels = [];
+        /** @type {DiffLine[]} */
         const adds = [];
-        while (i < h.lines.length && h.lines[i].op !== "ctx") {
-          (h.lines[i].op === "del" ? dels : adds).push(h.lines[i]);
+        while (i < h.lines.length && /** @type {DiffLine} */ (h.lines[i]).op !== "ctx") {
+          const line = /** @type {DiffLine} */ (h.lines[i]);
+          (line.op === "del" ? dels : adds).push(line);
           i++;
         }
         for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
@@ -318,8 +419,12 @@ function renderSplitDiffRows(hunks) {
 // resolves to the JSON diff; `options.caption` is trusted HTML shown in the
 // toolbar; `options.emptyHtml` replaces the body when nothing differs. The
 // whitespace switch survives re-mounts into the same container.
+/**
+ * @param {HTMLElement} container
+ * @param {DiffViewOptions} options
+ */
 async function mountDiffView(container, options) {
-  const state = diffViewStates.get(container) || { ignoreWhitespace: false };
+  const state = diffViewStates.get(container) ?? { ignoreWhitespace: false };
   diffViewStates.set(container, state);
   state.options = options;
   // `options.ignoreWhitespaceSwitch === false` omits the switch (and compares
@@ -331,7 +436,7 @@ async function mountDiffView(container, options) {
 
   container.innerHTML = `<div class="diff-view flex flex-col border border-slate-800 rounded-lg overflow-hidden bg-slate-950 font-mono text-xs">
       <div class="diff-toolbar flex flex-wrap items-center justify-between gap-3 bg-slate-900 px-4 py-2 border-b border-slate-800 text-slate-400 font-sans">
-        <div class="diff-caption">${options.caption || ""}</div>
+        <div class="diff-caption">${options.caption ?? ""}</div>
         <div class="flex flex-wrap items-center gap-3">
           ${
             wsSwitch
@@ -348,15 +453,18 @@ async function mountDiffView(container, options) {
         </div>
       </div>
       <div class="diff-body overflow-x-auto py-1"><div class="text-slate-500 italic px-4 py-2">Loading diff…</div></div></div>`;
-  const body = container.querySelector(".diff-body");
-  const view = container.querySelector(".diff-view");
-  const layoutSwitch = container.querySelector(".diff-layout-switch");
+  const body = /** @type {HTMLElement} */ (container.querySelector(".diff-body"));
+  const view = /** @type {HTMLElement} */ (container.querySelector(".diff-view"));
+  const layoutSwitch = /** @type {HTMLElement} */ (container.querySelector(".diff-layout-switch"));
+  const layoutButtons = /** @type {NodeListOf<HTMLElement>} */ (
+    layoutSwitch.querySelectorAll(".diff-layout-btn")
+  );
 
   const renderBody = () => {
     const layout = effectiveDiffLayout();
     view.dataset.layout = layout;
     layoutSwitch.classList.toggle("hidden", isNarrowDiffScreen());
-    layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
+    layoutButtons.forEach((btn) => {
       const active = btn.dataset.layout === layout;
       btn.classList.toggle("bg-slate-600", active);
       btn.classList.toggle("text-white", active);
@@ -364,7 +472,7 @@ async function mountDiffView(container, options) {
     });
     if (!state.diff) return;
     if (state.diff.hunks.length === 0) {
-      body.innerHTML = `<div class="diff-empty text-slate-400 italic px-4 py-2 font-sans">${options.emptyHtml || "No differences."}</div>`;
+      body.innerHTML = `<div class="diff-empty text-slate-400 italic px-4 py-2 font-sans">${(options.emptyHtml ?? "") || "No differences."}</div>`;
       return;
     }
     body.innerHTML =
@@ -383,20 +491,20 @@ async function mountDiffView(container, options) {
       renderBody();
     } catch (e) {
       if (state.token !== token) return;
-      body.innerHTML = `<div class="text-red-400 px-4 py-2 font-sans">Failed to load diff: ${escapeHtml(e.message)}</div>`;
+      body.innerHTML = `<div class="text-red-400 px-4 py-2 font-sans">Failed to load diff: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
     }
   };
 
   const wsToggle = container.querySelector(".diff-ignore-ws");
   if (wsToggle) {
     wsToggle.addEventListener("change", (e) => {
-      state.ignoreWhitespace = e.target.checked;
+      state.ignoreWhitespace = /** @type {HTMLInputElement} */ (e.target).checked;
       void load();
     });
   }
-  layoutSwitch.querySelectorAll(".diff-layout-btn").forEach((btn) => {
+  layoutButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      storeDiffLayout(btn.dataset.layout);
+      storeDiffLayout(/** @type {string} */ (btn.dataset.layout));
       renderBody();
     });
   });
@@ -415,13 +523,23 @@ async function mountDiffView(container, options) {
 
 // Fetch one version-to-version diff of a Producer's line from the server.
 // `extra` adds query parameters (path, method, context, ...).
+/**
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} from
+ * @param {string} to
+ * @param {Record<string, string>} [extra]
+ * @returns {Promise<unknown>} The parsed JSON diff for `format: "json"`, otherwise the text.
+ */
 async function fetchVersionDiff(serviceName, apiType, from, to, extra) {
   const q = new URLSearchParams({ api_type: apiType, from, to, ...extra });
-  const res = await apiCall(`/admin/producers/${encodeURIComponent(serviceName)}/diff?${q}`);
+  const res = await apiCall(
+    `/admin/producers/${encodeURIComponent(serviceName)}/diff?${q.toString()}`,
+  );
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    throw new Error(`HTTP ${String(res.status)}`);
   }
-  return extra && extra.format === "json" ? res.json() : res.text();
+  return extra?.format === "json" ? res.json() : res.text();
 }
 
 /// Resolve who the caller is, then hand that to `onSuccess`.
@@ -431,6 +549,7 @@ async function fetchVersionDiff(serviceName, apiType, from, to, extra) {
 /// invoking the callback with no argument leaves their `user` parameter
 /// `undefined`, which reads as not-an-admin and silently disables the feature
 /// for everyone.
+/** @param {((user: SanshainUser | null) => unknown) | null} [onSuccess] */
 async function checkDiscoveryAuth(onSuccess) {
   const token = getSanshainToken();
   // Screenshot runs skip the wait for a sign-in, not the caller: without the
@@ -447,7 +566,7 @@ async function checkDiscoveryAuth(onSuccess) {
     try {
       const res = await apiCall("/auth/me");
       if (res.ok) {
-        const user = await res.json();
+        const user = /** @type {SanshainUser} */ (await res.json());
         void renderBanner(user);
         if (onSuccess) await onSuccess(user);
         return;
@@ -466,7 +585,7 @@ async function checkDiscoveryAuth(onSuccess) {
 }
 
 function closeModal() {
-  document.getElementById("modal").classList.add("hidden");
+  /** @type {HTMLElement} */ (document.getElementById("modal")).classList.add("hidden");
   const reportBtn = document.getElementById("md-report-btn");
   if (reportBtn) reportBtn.style.display = "";
 }

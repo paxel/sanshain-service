@@ -40,6 +40,7 @@ site-dist/
 Thumbs.db
 
 # Coverage and Logs
+/coverage/
 cobertura.xml
 lcov.info
 site-lcov.info

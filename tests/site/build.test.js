@@ -50,10 +50,19 @@ const FIXTURE = {
   "assets/sun.svg": "<svg/>",
 };
 
+/** @typedef {ReturnType<typeof buildIndex>[number]} IndexedPage */
+
+/** @type {string} */
 let tmp;
+/** @type {string} */
 let srcDir;
+/** @type {string} */
 let outDir;
 
+/**
+ * @param {string} dir
+ * @param {Record<string, string>} files
+ */
 function writeFixture(dir, files) {
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel);
@@ -62,6 +71,11 @@ function writeFixture(dir, files) {
   }
 }
 
+/**
+ * @param {string} name
+ * @param {Record<string, string>} overrides
+ * @param {import("../../scripts/build-site.js").BuildOptions} [options]
+ */
 function buildVariant(name, overrides, options = {}) {
   const src = path.join(tmp, `${name}-src`);
   writeFixture(src, { ...FIXTURE, ...overrides });
@@ -87,9 +101,9 @@ after(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const read = (rel) => fs.readFileSync(path.join(outDir, rel), "utf8");
+const read = (/** @type {string} */ rel) => fs.readFileSync(path.join(outDir, rel), "utf8");
 
-test("front matter parsing reads quoted and bare values and strips the block", () => {
+void test("front matter parsing reads quoted and bare values and strips the block", () => {
   const { meta, body } = parseFrontMatter(
     '<!-- page: title="A title" track="operator" order=3 summary="Sum" -->\n<p>x</p>',
   );
@@ -113,7 +127,7 @@ test("front matter parsing reads quoted and bare values and strips the block", (
   );
 });
 
-test("slugify, stripTags, decodeEntities and readVersion", () => {
+void test("slugify, stripTags, decodeEntities and readVersion", () => {
   assert.equal(slugify("Docker &amp; Compose: the basics!"), "docker-compose-the-basics");
   assert.equal(slugify("<code>sanshain.yaml</code> file"), "sanshainyaml-file");
   assert.equal(
@@ -128,7 +142,7 @@ test("slugify, stripTags, decodeEntities and readVersion", () => {
   assert.equal(readVersion('[package]\nname = "x"\nversion = "2.6.0"\n'), "2.6.0");
 });
 
-test("nav lists the four tracks in order with pages sorted by order", () => {
+void test("nav lists the four tracks in order with pages sorted by order", () => {
   const nav = buildNav([
     { title: "B", track: "start", order: 2, url: "b.html" },
     { title: "A", track: "start", order: 1, url: "a.html" },
@@ -140,11 +154,11 @@ test("nav lists the four tracks in order with pages sorted by order", () => {
     ["Start", "Developer", "Operator", "Reference"],
   );
   assert.deepEqual(
-    nav[0].pages.map((p) => p.title),
+    nav[0]?.pages.map((p) => p.title),
     ["A", "B"],
   );
-  assert.equal(nav[1].pages.length, 0);
-  assert.equal(nav[2].pages[0].url, "h.html");
+  assert.equal(nav[1]?.pages.length, 0);
+  assert.equal(nav[2]?.pages[0]?.url, "h.html");
 
   const html = read("start/install.html");
   const sidebar = html.slice(html.indexOf('id="sidebar"'), html.indexOf("</nav>"));
@@ -172,7 +186,7 @@ test("nav lists the four tracks in order with pages sorted by order", () => {
   assert.equal(html.search(/<h[1-6]/), html.indexOf("<h1>"), "the page h1 is the first heading");
 });
 
-test("headings get ids, deduplicated, with copy-link anchors and a table of contents", () => {
+void test("headings get ids, deduplicated, with copy-link anchors and a table of contents", () => {
   const html = read("start/install.html");
   assert.match(html, /<h2 id="docker">Docker<a class="anchor" href="#docker"/);
   assert.match(html, /<h3 id="volumes">Volumes<a class="anchor" href="#volumes"/);
@@ -189,11 +203,11 @@ test("headings get ids, deduplicated, with copy-link anchors and a table of cont
   assert.match(html, /href="\.\.\/assets\/site\.css"/);
 });
 
-test("a heading never takes an authored id elsewhere in the page; entities decode in ids and TOC", () => {
+void test("a heading never takes an authored id elsewhere in the page; entities decode in ids and TOC", () => {
   const html = read("index.html");
   assert.match(html, /<p id="docker">/);
   assert.match(html, /<h2 id="docker-2">Docker<a class="anchor" href="#docker-2"/);
-  assert.equal((html.match(/id="docker"/g) || []).length, 1, "no duplicate id");
+  assert.equal((html.match(/id="docker"/g) ?? []).length, 1, "no duplicate id");
   assert.match(html, /<h2 id="provide-require-the-contract">/);
   const toc = html.slice(html.indexOf('class="toc"'), html.indexOf("</aside>"));
   assert.match(toc, /Provide &amp; require — the “contract”/);
@@ -207,9 +221,9 @@ test("a heading never takes an authored id elsewhere in the page; entities decod
   );
 });
 
-test("shell carries the version chip, footer links, combobox search and live region", () => {
+void test("shell carries the version chip, footer links, combobox search and live region", () => {
   const html = read("index.html");
-  assert.equal((html.match(/v9\.9\.9/g) || []).length, 2, "version chip in header and footer");
+  assert.equal((html.match(/v9\.9\.9/g) ?? []).length, 2, "version chip in header and footer");
   assert.match(html, /Sanshain Service <span class="chip"/);
   assert.match(html, /href="https:\/\/github\.com\/paxel\/sanshain-service">GitHub<\/a>/);
   assert.match(html, /CHANGELOG\.md">Changelog<\/a>/);
@@ -224,14 +238,14 @@ test("shell carries the version chip, footer links, combobox search and live reg
   assert.doesNotMatch(html, /<script src="http/, "no third-party script");
 });
 
-test("search index holds pages in nav order, headings and stripped section text", () => {
-  const index = JSON.parse(read("search-index.json"));
+void test("search index holds pages in nav order, headings and stripped section text", () => {
+  const index = /** @type {IndexedPage[]} */ (JSON.parse(read("search-index.json")));
   assert.deepEqual(
     index.map((p) => p.url),
     ["index.html", "start/first-steps.html", "start/install.html", "operator/helm.html"],
     "landing page first, then tracks in order, then page order",
   );
-  const install = index.find((p) => p.url === "start/install.html");
+  const install = /** @type {IndexedPage} */ (index.find((p) => p.url === "start/install.html"));
   assert.equal(install.title, "Install");
   assert.equal(install.track, "Start");
   assert.equal(install.intro, "Intro text about installing.");
@@ -239,16 +253,16 @@ test("search index holds pages in nav order, headings and stripped section text"
     install.headings.map((h) => h.id),
     ["docker", "volumes", "docker-2", "kept"],
   );
-  assert.equal(install.headings[0].text, "Docker");
+  assert.equal(install.headings[0]?.text, "Docker");
   assert.equal(install.headings[0].body, "Run the container with the allow-list set.");
-  assert.equal(install.headings[1].body, "Mount /data.");
-  const home = index.find((p) => p.url === "index.html");
+  assert.equal(install.headings[1]?.body, "Mount /data.");
+  const home = /** @type {IndexedPage} */ (index.find((p) => p.url === "index.html"));
   assert.equal(home.track, "");
   assert.equal(
-    home.headings[0].body,
+    home.headings[0]?.body,
     "Because pinning is good. See Docker. An authored id that a heading must not steal.",
   );
-  assert.equal(home.headings[2].text, "Provide & require — the “contract”");
+  assert.equal(home.headings[2]?.text, "Provide & require — the “contract”");
 
   const direct = buildIndex([
     {
@@ -260,10 +274,10 @@ test("search index holds pages in nav order, headings and stripped section text"
       body: "<h2>A &amp; B</h2><p>c</p>",
     },
   ]);
-  assert.deepEqual(direct[0].headings, [{ id: "a-b", text: "A & B", body: "c" }]);
+  assert.deepEqual(direct[0]?.headings, [{ id: "a-b", text: "A & B", body: "c" }]);
 });
 
-test("404 page and assets are written in the site look; no empty TOC aside", () => {
+void test("404 page and assets are written in the site look; no empty TOC aside", () => {
   const notFound = read("404.html");
   assert.match(notFound, /<h1>Page not found<\/h1>/);
   assert.match(notFound, /id="search"/);
@@ -275,7 +289,7 @@ test("404 page and assets are written in the site look; no empty TOC aside", () 
   assert.ok(fs.existsSync(path.join(outDir, ".nojekyll")));
 });
 
-test("a base path makes the 404 page absolute while nested pages stay relative", () => {
+void test("a base path makes the 404 page absolute while nested pages stay relative", () => {
   const out = path.join(tmp, "based");
   buildSite({
     srcDir,
@@ -302,7 +316,7 @@ test("a base path makes the 404 page absolute while nested pages stay relative",
   assert.match(fs.readFileSync(path.join(out, "index.html"), "utf8"), /href="assets\/site\.css"/);
 });
 
-test("a release tag points the changelog links, footer and prose, at that tag", () => {
+void test("a release tag points the changelog links, footer and prose, at that tag", () => {
   const out = path.join(tmp, "tagged");
   buildSite({
     srcDir,
@@ -336,7 +350,7 @@ test("a release tag points the changelog links, footer and prose, at that tag", 
   );
 });
 
-test("the version menu links the same chapter in other versions, the start page where it is missing", () => {
+void test("the version menu links the same chapter in other versions, the start page where it is missing", () => {
   const versions = [
     { version: "2.0.0", base: "/docs/", pages: ["index.html", "start/install.html"], latest: true },
     {
@@ -348,7 +362,7 @@ test("the version menu links the same chapter in other versions, the start page 
     { version: "0.9.0", base: "/docs/v0.9.0/", pages: ["index.html"], latest: false },
   ];
   // What build-site-all.js passes: every page of every version, root-relative.
-  const targetsOf = (entries) =>
+  const targetsOf = (/** @type {import("../../scripts/build-site.js").VersionEntry[]} */ entries) =>
     new Set(entries.flatMap((entry) => entry.pages.map((page) => `${entry.base}${page}`)));
   const out = path.join(tmp, "versioned");
   buildSite({
@@ -387,7 +401,7 @@ test("the version menu links the same chapter in other versions, the start page 
     fs.readFileSync(path.join(out, "404.html"), "utf8"),
     /<a href="\/docs\/index\.html">v2\.0\.0/,
   );
-  assert.equal((install.match(/class="chip"/g) || []).length, 2, "menu summary and footer chip");
+  assert.equal((install.match(/class="chip"/g) ?? []).length, 2, "menu summary and footer chip");
 
   // The latest version itself carries the menu but no notice.
   const latestOut = path.join(tmp, "versioned-latest");
@@ -421,15 +435,18 @@ test("the version menu links the same chapter in other versions, the start page 
   );
 });
 
-test("a broken link fails the build naming the file and the link", () => {
-  const page = (body) => `<!-- page: title="Helm" track="operator" order=1 -->\n${body}`;
+void test("a broken link fails the build naming the file and the link", () => {
+  const page = (/** @type {string} */ body) =>
+    `<!-- page: title="Helm" track="operator" order=1 -->\n${body}`;
   assert.throws(
     () =>
       buildVariant("broken", {
         "operator/helm.html": page('<a href="../start/missing.html">gone</a>'),
       }),
     (err) =>
-      err.message.includes("operator/helm.html") && err.message.includes('"../start/missing.html"'),
+      err instanceof Error &&
+      err.message.includes("operator/helm.html") &&
+      err.message.includes('"../start/missing.html"'),
   );
   assert.throws(
     () =>
@@ -470,7 +487,7 @@ test("a broken link fails the build naming the file and the link", () => {
     assert.throws(
       () =>
         buildVariant(
-          `root-${base.length}`,
+          `root-${String(base.length)}`,
           { "operator/helm.html": page('<a href="/start/install.html">abs</a>') },
           { base },
         ),
@@ -479,7 +496,7 @@ test("a broken link fails the build naming the file and the link", () => {
   }
 });
 
-test("checkLinks accepts external links, same-page anchors, root and directory links", () => {
+void test("checkLinks accepts external links, same-page anchors, root and directory links", () => {
   const files = new Map([
     [
       "index.html",
@@ -495,21 +512,24 @@ test("checkLinks accepts external links, same-page anchors, root and directory l
     ],
     ["assets/site.css", "a{}"],
   ]);
-  assert.doesNotThrow(() => checkLinks(files));
+  assert.doesNotThrow(() => {
+    checkLinks(files);
+  });
   files.set("start/index.html", '<h2 id="s">s</h2><a href="#zzz">bad</a>');
-  assert.throws(() => checkLinks(files), /start\/index\.html: "#zzz"/);
+  assert.throws(() => {
+    checkLinks(files);
+  }, /start\/index\.html: "#zzz"/);
   files.set("start/index.html", '<h2 id="s">s</h2>');
-  assert.throws(
-    () => checkLinks(files, { base: "/docs/" }),
-    /404\.html: "\/index\.html" is outside the site base \/docs\//,
-  );
+  assert.throws(() => {
+    checkLinks(files, { base: "/docs/" });
+  }, /404\.html: "\/index\.html" is outside the site base \/docs\//);
   assert.deepEqual(
     extractLinks("a.html", "<a href='x'>1</a><a href=y>2</a><img srcset=\"p 1x, q 2x\">"),
     ["x", "y", "p", "q"],
   );
 });
 
-test("the output folder guard refuses dangerous targets", () => {
+void test("the output folder guard refuses dangerous targets", () => {
   const opts = { srcDir, version: "1", contracts: [], arc42: null };
   assert.throws(() => buildSite({ ...opts, outDir: "/" }), /Refusing to wipe/);
   assert.throws(() => buildSite({ ...opts, outDir: os.homedir() }), /Refusing to wipe/);
@@ -517,7 +537,7 @@ test("the output folder guard refuses dangerous targets", () => {
   assert.throws(() => buildSite({ ...opts, outDir: srcDir }), /contains the source folder/);
 });
 
-test("renderPage escapes the title and renders without a track", () => {
+void test("renderPage escapes the title and renders without a track", () => {
   const nav = buildNav([]);
   const html = renderPage(
     { title: "A <b>", track: "", order: 0, url: "index.html", summary: "", body: "<p>hi</p>" },
@@ -529,7 +549,7 @@ test("renderPage escapes the title and renders without a track", () => {
   assert.match(html, /No chapters yet/);
 });
 
-test("the preview server stays inside the output folder and binds to loopback", async () => {
+void test("the preview server stays inside the output folder and binds to loopback", async () => {
   assert.equal(resolveRequest(outDir, "/"), path.join(outDir, "index.html"));
   assert.equal(
     resolveRequest(outDir, "/start/install.html"),
@@ -537,21 +557,26 @@ test("the preview server stays inside the output folder and binds to loopback", 
   );
   assert.equal(resolveRequest(outDir, "/start/"), null, "no index.html in that folder");
   assert.equal(resolveRequest(outDir, "/../site/index.html"), null);
+  // A sibling folder whose name starts with the output folder's is outside too.
+  assert.equal(resolveRequest(outDir, `/../${path.basename(outDir)}-other/index.html`), null);
   assert.equal(resolveRequest(outDir, "/..%2F..%2Fetc%2Fpasswd"), null);
   assert.equal(resolveRequest(outDir, "/%ZZ"), null);
 
   const server = serve(outDir, 0);
   await new Promise((resolve) => server.once("listening", resolve));
   try {
-    const { address, port } = server.address();
+    const { address, port } = /** @type {import("node:net").AddressInfo} */ (server.address());
     assert.equal(address, "127.0.0.1");
+    /** @type {(p: string) => Promise<{ status: number | undefined, body: string }>} */
     const get = (p) =>
       new Promise((resolve, reject) =>
         http
           .get({ host: "127.0.0.1", port, path: p }, (res) => {
             let body = "";
-            res.on("data", (c) => (body += c));
-            res.on("end", () => resolve({ status: res.statusCode, body }));
+            res.on("data", (/** @type {Buffer} */ c) => (body += String(c)));
+            res.on("end", () => {
+              resolve({ status: res.statusCode, body });
+            });
           })
           .on("error", reject),
       );

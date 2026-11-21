@@ -4,6 +4,10 @@ import path from "path";
 
 // Takes the screenshot and asserts the file was written and is not empty, so
 // a capture that breaks fails the recording instead of leaving a gap in the docs.
+/**
+ * @param {import("@playwright/test").Page | import("@playwright/test").Locator} target
+ * @param {import("@playwright/test").PageScreenshotOptions & { path: string }} options
+ */
 const capture = async (target, options) => {
   await target.screenshot(options);
   expect(fs.statSync(options.path).size, options.path).toBeGreaterThan(0);
@@ -17,6 +21,8 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+/** @typedef {{ applySockeGimmick?: (theme: string) => void }} GimmickWindow A page may put this theme hook on `window`. */
+
 test.describe("Sanshain Screenshot Capture", () => {
   const screenshotDir = "site/assets/images";
   const token = process.env.SANSHAIN_TOKEN;
@@ -26,7 +32,9 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // Enable console logging
-    page.on("console", (msg) => console.log(`[BROWSER ${testInfo.title}]: ${msg.text()}`));
+    page.on("console", (msg) => {
+      console.log(`[BROWSER ${testInfo.title}]: ${msg.text()}`);
+    });
 
     // Public pages don't need auth
     const isPublic =
@@ -59,11 +67,12 @@ test.describe("Sanshain Screenshot Capture", () => {
     }
   });
 
+  /** @param {import("@playwright/test").Page} page */
   const ensureLoaderHidden = async (page) => {
     // Fast check for loader hidden state
     try {
       await page.waitForSelector("#app-loader", { state: "hidden", timeout: 5000 });
-    } catch (e) {
+    } catch {
       // Force hide if it's stuck
       await page.evaluate(() => {
         const loader = document.getElementById("app-loader");
@@ -75,6 +84,10 @@ test.describe("Sanshain Screenshot Capture", () => {
     }
   };
 
+  /**
+   * @param {import("@playwright/test").Page} page
+   * @param {string} theme
+   */
   const setTheme = async (page, theme) => {
     await page.evaluate((t) => {
       document.cookie = `sanshain_theme=${t};path=/;max-age=31536000;SameSite=Lax`;
@@ -84,7 +97,8 @@ test.describe("Sanshain Screenshot Capture", () => {
         document.documentElement.classList.remove("dark");
       }
       // Re-trigger gimmicks if any
-      if (window.applySockeGimmick) window.applySockeGimmick(t);
+      const themed = /** @type {GimmickWindow} */ (window);
+      if (themed.applySockeGimmick) themed.applySockeGimmick(t);
     }, theme);
     await page.waitForTimeout(500); // Wait for theme transition
   };
@@ -106,7 +120,9 @@ test.describe("Sanshain Screenshot Capture", () => {
     // Clear cookies and localStorage for this test to show login
     await context.clearCookies();
     await page.goto("/account.html", { waitUntil: "domcontentloaded" });
-    await page.evaluate(() => localStorage.clear());
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
     await page.reload({ waitUntil: "domcontentloaded" });
 
     await ensureLoaderHidden(page);
@@ -159,7 +175,9 @@ test.describe("Sanshain Screenshot Capture", () => {
     await ensureLoaderHidden(page);
 
     // Optional network idle, don't fail if it doesn't happen
-    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {
+      // The network going idle is optional: the capture goes on without it.
+    });
 
     // Wait for content that indicates YAML is loaded - use locator for more stability
     await page.locator("text=openapi:").first().waitFor({ timeout: 60000 });
@@ -245,7 +263,9 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.selectOption("#diff-right", "main");
     await page.click('button:has-text("Diff")');
     await page.waitForFunction(
-      () => document.getElementById("graph-diff-output").innerText.trim().length > 0,
+      () =>
+        /** @type {HTMLElement} */ (document.getElementById("graph-diff-output")).innerText.trim()
+          .length > 0,
       { timeout: 20000 },
     );
     await page.waitForTimeout(500);
@@ -320,7 +340,9 @@ test.describe("Sanshain Screenshot Capture", () => {
         },
         { timeout: 15000 },
       )
-      .catch(() => console.log("Audit timeline timeout, proceeding anyway"));
+      .catch(() => {
+        console.log("Audit timeline timeout, proceeding anyway");
+      });
 
     await page.waitForTimeout(2000);
     await capture(page, { path: path.join(screenshotDir, "audit.png") });
@@ -335,9 +357,9 @@ test.describe("Sanshain Screenshot Capture", () => {
     const diffBtn = page.locator('button:has-text("View Changes")').first();
     if (await diffBtn.isVisible()) {
       await diffBtn.click();
-      await page
-        .waitForSelector(".d2h-wrapper", { state: "visible", timeout: 10000 })
-        .catch(() => {});
+      await page.waitForSelector(".d2h-wrapper", { state: "visible", timeout: 10000 }).catch(() => {
+        // The capture is taken with or without the diff.
+      });
       await page.waitForTimeout(1000);
       await capture(page, { path: path.join(screenshotDir, "audit_diff.png") });
     }
@@ -370,14 +392,18 @@ test.describe("Sanshain Screenshot Capture", () => {
     const viewReportBtn = page.locator("text=View Markdown Report");
     if (await viewReportBtn.isVisible()) {
       await viewReportBtn.click();
-      await page.waitForSelector("#report-container table", { timeout: 20000 }).catch(() => {});
+      await page.waitForSelector("#report-container table", { timeout: 20000 }).catch(() => {
+        // The capture is taken with or without the table.
+      });
       await page.waitForTimeout(2000);
       await capture(page, { path: path.join(screenshotDir, "reports.png") });
     }
 
     await page.goto("/observability.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
-    await page.waitForSelector('h3:has-text("Health Check")', { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('h3:has-text("Health Check")', { timeout: 15000 }).catch(() => {
+      // The capture is taken with or without the heading.
+    });
     await page.waitForTimeout(2000);
     await capture(page, { path: path.join(screenshotDir, "observability.png") });
   });

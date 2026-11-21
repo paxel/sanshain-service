@@ -2,7 +2,7 @@
 <p class="lede">
   The Maven plugin <code>sanshain-maven-plugin</code> reads
   <a href="../sanshain-yaml.html"><code>sanshain.yaml</code></a> and runs provide, require and the
-  catalog push as Maven goals. This page describes version <code>2.5.0</code>; the source is
+  catalog push as Maven goals. This page describes version <code>2.5.1</code>; the source is
   <a href="https://github.com/paxel/sanshain-maven-plugin">paxel/sanshain-maven-plugin</a>. In the
   option table, the Since column names the plugin version whose changelog entry introduced the
   option.
@@ -11,7 +11,7 @@
 <h2 id="install">Install</h2>
 <p>
   The plugin is on Maven Central as
-  <code>io.github.paxel.sanshain:sanshain-maven-plugin:2.5.0</code>. It needs Java 11 or later and
+  <code>io.github.paxel.sanshain:sanshain-maven-plugin:2.5.1</code>. It needs Java 11 or later and
   Maven 3.6.3 or later, and it speaks Sanshain Service 2.x. The catalog goal and
   <code>format: openapi</code> need 2.4.0 or later, the build's origin is stored from 2.9.0, and
   annotations need 2.13.0 or later. Bind the goals in <code>pom.xml</code>:
@@ -19,7 +19,7 @@
 <pre><code>&lt;plugin&gt;
     &lt;groupId&gt;io.github.paxel.sanshain&lt;/groupId&gt;
     &lt;artifactId&gt;sanshain-maven-plugin&lt;/artifactId&gt;
-    &lt;version&gt;2.5.0&lt;/version&gt;
+    &lt;version&gt;2.5.1&lt;/version&gt;
     &lt;executions&gt;
         &lt;execution&gt;
             &lt;phase&gt;initialize&lt;/phase&gt;
@@ -50,7 +50,7 @@ mvn sanshain:catalog
 mvn verify                      # runs the goals bound to initialize</code></pre>
 <p>
   The goals also run without a <code>pom.xml</code>; then name the plugin in full, for example
-  <code>mvn io.github.paxel.sanshain:sanshain-maven-plugin:2.5.0:provide</code>, and
+  <code>mvn io.github.paxel.sanshain:sanshain-maven-plugin:2.5.1:provide</code>, and
   <code>sanshain.yaml</code> is read from the current directory. Properties are Maven properties:
   <code>-Dsanshain.ga=true</code> anywhere on the command line, or the same name in the
   <code>&lt;configuration&gt;</code> of the plugin (the element names are in the
@@ -844,7 +844,7 @@ mvn verify                      # runs the goals bound to initialize</code></pre
         &lt;plugin&gt;
             &lt;groupId&gt;io.github.paxel.sanshain&lt;/groupId&gt;
             &lt;artifactId&gt;sanshain-maven-plugin&lt;/artifactId&gt;
-            &lt;version&gt;2.5.0&lt;/version&gt;
+            &lt;version&gt;2.5.1&lt;/version&gt;
             &lt;executions&gt;
                 &lt;execution&gt;
                     &lt;phase&gt;initialize&lt;/phase&gt;
@@ -918,7 +918,7 @@ mvn verify                      # runs the goals bound to initialize</code></pre
         &lt;plugin&gt;
             &lt;groupId&gt;io.github.paxel.sanshain&lt;/groupId&gt;
             &lt;artifactId&gt;sanshain-maven-plugin&lt;/artifactId&gt;
-            &lt;version&gt;2.5.0&lt;/version&gt;
+            &lt;version&gt;2.5.1&lt;/version&gt;
             &lt;executions&gt;
                 &lt;execution&gt;
                     &lt;phase&gt;initialize&lt;/phase&gt;
@@ -1024,4 +1024,4 @@ mvn verify</code></pre>
   the trunk switch.
 </p>
 
-<p class="checked">Checked against v2.13.0 and sanshain-maven-plugin 2.5.0.</p>
+<p class="checked">Checked against v2.13.0 and sanshain-maven-plugin 2.5.1.</p>

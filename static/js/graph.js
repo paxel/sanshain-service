@@ -15,6 +15,9 @@
 // that hides it still does.
 // Storage can be unavailable (private window, blocked site data): then every
 // visit starts from the defaults.
+// What the page script of the graph uses by name.
+/* exported readGraphViewPref, getCustomGraphSVG, setGraphFocusPicker */
+
 const GRAPH_VIEW_KEYS = {
   direction: "sanshain_graph_direction",
   compact: "sanshain_graph_compact",
@@ -24,6 +27,10 @@ const GRAPH_VIEW_KEYS = {
   periphery: "sanshain_graph_periphery",
   domains: "sanshain_graph_domains",
 };
+/**
+ * @param {keyof typeof GRAPH_VIEW_KEYS} name
+ * @returns {string | null}
+ */
 function readGraphViewPref(name) {
   try {
     return localStorage.getItem(GRAPH_VIEW_KEYS[name]);
@@ -31,6 +38,10 @@ function readGraphViewPref(name) {
     return null;
   }
 }
+/**
+ * @param {keyof typeof GRAPH_VIEW_KEYS} name
+ * @param {string} value
+ */
 function writeGraphViewPref(name, value) {
   try {
     localStorage.setItem(GRAPH_VIEW_KEYS[name], value);
@@ -58,20 +69,28 @@ const GRAPH_DOMAIN_PALETTE = [
 
 // FNV-1a over the name's UTF-16 code units: stable, and cheap enough to run
 // per node on every redraw.
+/** @param {string} domain */
 function graphDomainColor(domain) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < domain.length; i++) {
     hash ^= domain.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  const { border, text } = GRAPH_DOMAIN_PALETTE[hash % GRAPH_DOMAIN_PALETTE.length];
+  const { border, text } = /** @type {{ border: string, text: string }} */ (
+    GRAPH_DOMAIN_PALETTE[hash % GRAPH_DOMAIN_PALETTE.length]
+  );
   return { border, text, fill: `${border}14` };
 }
 window.graphDomainColor = graphDomainColor;
 window.GRAPH_DOMAIN_PALETTE = GRAPH_DOMAIN_PALETTE;
 
 // The Focus picker, created by the page script once the toolbar exists.
+/** @type {{ input: HTMLInputElement, refresh: () => void } | null} */
 let graphFocusPicker = null;
+/** @param {{ input: HTMLInputElement, refresh: () => void }} picker */
+function setGraphFocusPicker(picker) {
+  graphFocusPicker = picker;
+}
 
 window.graphRedrawMode = "all"; // 'all' or 'circular'
 window.graphFocusTags = []; // focus filter (multi-service tag cloud)
@@ -108,6 +127,10 @@ window.GRAPH_HOVER_DELAY_MS = GRAPH_HOVER_DELAY_MS;
 // outgrows the screen; Dense keeps the nodes as they are and leaves only room
 // for the edges and badges between them, for small monitors; the airy default
 // stays for the small installs.
+/**
+ * @param {boolean} isLR
+ * @param {string} density
+ */
 function graphLayoutGaps(isLR, density) {
   if (density === "dense") {
     return isLR
@@ -134,6 +157,7 @@ window.graphLayoutGaps = graphLayoutGaps;
 // hues are a fixed order of ones that read as different colours, the most
 // distinct first. Past the end the order repeats darker, then lighter. A
 // source keeps its colour as long as the graph keeps its sources.
+/** @type {[number, number, number][]} */
 const GRAPH_RAINBOW_HUES = [
   [220, 80, 46], // blue
   [325, 75, 50], // pink
@@ -146,8 +170,14 @@ const GRAPH_RAINBOW_HUES = [
 ];
 const GRAPH_RAINBOW_SHADES = [0, -12, 12];
 
+/**
+ * @param {number} h
+ * @param {number} s
+ * @param {number} l
+ */
 function graphHslHex(h, s, l) {
   const a = (s / 100) * Math.min(l / 100, 1 - l / 100);
+  /** @param {number} n */
   const channel = (n) => {
     const k = (n + h / 30) % 12;
     const c = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
@@ -159,12 +189,19 @@ function graphHslHex(h, s, l) {
 }
 
 // `count` colours for the rainbow, the first ones the most distinct.
+/**
+ * @param {number} count
+ * @returns {string[]}
+ */
 function graphRainbowPalette(count) {
   const colours = [];
   for (let i = 0; i < count; i++) {
-    const [h, s, l] = GRAPH_RAINBOW_HUES[i % GRAPH_RAINBOW_HUES.length];
-    const shade =
-      GRAPH_RAINBOW_SHADES[Math.floor(i / GRAPH_RAINBOW_HUES.length) % GRAPH_RAINBOW_SHADES.length];
+    const [h, s, l] = /** @type {[number, number, number]} */ (
+      GRAPH_RAINBOW_HUES[i % GRAPH_RAINBOW_HUES.length]
+    );
+    const shade = /** @type {number} */ (
+      GRAPH_RAINBOW_SHADES[Math.floor(i / GRAPH_RAINBOW_HUES.length) % GRAPH_RAINBOW_SHADES.length]
+    );
     // Past every shade, nudge the hue so no two sources share a colour.
     const turn = Math.floor(i / (GRAPH_RAINBOW_HUES.length * GRAPH_RAINBOW_SHADES.length));
     colours.push(graphHslHex(h + turn * 7, s, l + shade));
@@ -174,8 +211,16 @@ function graphRainbowPalette(count) {
 window.graphRainbowPalette = graphRainbowPalette;
 
 // Source name -> its index into the palette, by sorted position.
+/**
+ * @param {string[]} sources
+ * @returns {Map<string, number>}
+ */
 function graphRainbowIndexes(sources) {
-  return new Map([...new Set(sources)].sort(byCodeUnit).map((name, i) => [name, i]));
+  return new Map(
+    [...new Set(sources)]
+      .sort(byCodeUnit)
+      .map((name, i) => /** @type {[string, number]} */ ([name, i])),
+  );
 }
 window.graphRainbowIndexes = graphRainbowIndexes;
 // Independent display-state highlights (never resolution inputs):
@@ -212,6 +257,7 @@ window.graphScopeData = null;
 // A Peripheral Resource node (or a missing component, ADR-0010) is keyed by
 // its full Backstage ref; it is shown as `name`, or `namespace/name` outside
 // the default namespace.
+/** @param {string} ref */
 function graphPeripheralLabel(ref) {
   const rest = ref.replace(/^(resource|component):/, "");
   return rest.startsWith("default/") ? rest.slice("default/".length) : rest;
@@ -221,13 +267,19 @@ window.graphPeripheralLabel = graphPeripheralLabel;
 // Fetch the periphery of the current main/branch view at the current
 // timeline position. A past instant gets the periphery as it was then —
 // today's set must never be drawn onto a reconstructed graph.
+/**
+ * @param {string} view
+ * @param {string | null} branchName Named in the branch view.
+ * @param {string | null} at
+ * @returns {Promise<GraphPeripheralDependency[] | null>}
+ */
 async function graphFetchScopePeriphery(view, branchName, at) {
   if (view === "dev") return null;
-  let scope = view === "main" ? "main" : branchName;
+  let scope = view === "main" ? "main" : /** @type {string} */ (branchName);
   if (at) scope += `@${at}`;
   try {
     const res = await apiCall(`/admin/periphery?scope=${encodeURIComponent(scope)}`);
-    return res.ok ? await res.json() : [];
+    return res.ok ? /** @type {GraphPeripheralDependency[]} */ (await res.json()) : [];
   } catch (e) {
     console.warn("Could not load the periphery:", e);
     return [];
@@ -238,13 +290,21 @@ async function graphFetchScopePeriphery(view, branchName, at) {
 // its producers with their version lines, its harvested subscriptions
 // (dev = all, live main = trunk-flagged, anything else = none) and the
 // context of every system that pushed a catalog-info (#48).
+/**
+ * @param {string} view
+ * @param {string | null} branchName Named in the branch view.
+ * @param {string | null} at
+ * @returns {Promise<GraphScopeData>}
+ */
 async function graphFetchScopeData(view, branchName, at) {
-  let scope = view === "dev" ? "dev" : view === "main" ? "main" : branchName;
+  let scope =
+    view === "dev" ? "dev" : view === "main" ? "main" : /** @type {string} */ (branchName);
   if (at && view !== "dev") scope += `@${at}`;
+  /** @type {GraphScopeData} */
   const empty = { producers: [], harvested_subscriptions: [], systems: {} };
   try {
     const res = await apiCall(`/admin/graph/scope?scope=${encodeURIComponent(scope)}`);
-    return res.ok ? await res.json() : empty;
+    return res.ok ? /** @type {GraphScopeData} */ (await res.json()) : empty;
   } catch (e) {
     console.warn("Could not load the graph scope:", e);
     return empty;
@@ -254,10 +314,15 @@ window.graphFetchScopeData = graphFetchScopeData;
 
 // Per (service, api_type): the newest trunk-marked version of the line —
 // what the main view labels producers with and checks conflicts against.
+/**
+ * @param {GraphReportLike} report
+ * @returns {Map<string, string>}
+ */
 function graphTrunkVersionMap(report) {
+  /** @type {Map<string, string>} */
   const map = new Map();
-  (report.services_detailed || []).forEach((svc) => {
-    (svc.versions || []).forEach((v) => {
+  (report.services_detailed ?? []).forEach((svc) => {
+    (svc.versions ?? []).forEach((v) => {
       if (!v.trunk_provided_at) return;
       const key = `${svc.name}|${(v.api_type || "openapi").toLowerCase()}`;
       const existing = map.get(key);
@@ -275,6 +340,11 @@ const GRAPH_SNAPSHOT_COLOR = "#f59e0b";
 // A major behind is a different kind of problem, so it gets its own colour.
 const GRAPH_BREAKING_OUTDATED_COLOR = "#be123c";
 
+/**
+ * @param {string | number | null} a A version; anything else is read as its text.
+ * @param {string | number | null} b
+ * @returns {number}
+ */
 function _graphCompareSemver(a, b) {
   const pa = String(a)
     .split(".")
@@ -283,7 +353,7 @@ function _graphCompareSemver(a, b) {
     .split(".")
     .map((n) => Number.parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
   }
   return 0;
 }
@@ -291,10 +361,15 @@ function _graphCompareSemver(a, b) {
 // Latest GA per version line, from the Producer listing that rides along in
 // report.services_detailed: Map "producer|api_type" -> "x.y.z" (absent when
 // the line has no GA yet).
+/**
+ * @param {GraphReportLike} report
+ * @returns {Map<string, string>}
+ */
 function graphLatestGaMap(report) {
+  /** @type {Map<string, string>} */
   const map = new Map();
-  (report.services_detailed || []).forEach((svc) => {
-    (svc.versions || []).forEach((v) => {
+  (report.services_detailed ?? []).forEach((svc) => {
+    (svc.versions ?? []).forEach((v) => {
       if (v.stability !== "ga") return;
       const key = `${svc.name}|${(v.api_type || "openapi").toLowerCase()}`;
       const cur = map.get(key);
@@ -307,6 +382,11 @@ function graphLatestGaMap(report) {
 // A Pin to a Snapshot whose version is below the latest GA of its line is
 // "superseded": the GA it should move to, or null. Such a Pin is Outdated (or
 // Major behind) like any Pin below the latest GA, and says so in the tooltip.
+/**
+ * @param {Pick<GraphEdge, "stability" | "service" | "api_type" | "version">} d
+ * @param {Map<string, string>} latestGaMap
+ * @returns {string | null}
+ */
 function graphSupersededBy(d, latestGaMap) {
   if (d.stability !== "snapshot") return null;
   const latestGa = latestGaMap.get(`${d.service}|${(d.api_type || "openapi").toLowerCase()}`);
@@ -316,7 +396,14 @@ window.graphSupersededBy = graphSupersededBy;
 
 // Per aggregated edge ("client-->service"): does any dependency on it carry an
 // Outdated or Snapshot-pinned Pin? Map key -> { outdated, snapshot }.
+/**
+ * @param {GraphReportLike} report
+ * @param {Map<string, string>} latestGaMap
+ * @param {Map<string, string> | null} [trunkVersionMap] Given in the main view only.
+ * @returns {Map<string, GraphEdgeFlags>}
+ */
 function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
+  /** @type {Map<string, GraphEdgeFlags>} */
   const flags = new Map();
   // Staleness and major-lag are statements about *now*: both are measured
   // against today's boundary and today's trunk versions. A reconstructed past
@@ -325,7 +412,7 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
   const historical = !!window.graphTimelineAt;
   const staleBefore = trunkVersionMap && !historical ? report.trunk_stale_before : null;
   const conflictMap = historical ? null : trunkVersionMap;
-  (report.dependency_graph || []).forEach((d) => {
+  (report.dependency_graph ?? []).forEach((d) => {
     const key = `${d.client}-->${d.service}`;
     if (!flags.has(key))
       flags.set(key, {
@@ -335,7 +422,7 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
         conflict: false,
         stale: false,
       });
-    const f = flags.get(key);
+    const f = /** @type {GraphEdgeFlags} */ (flags.get(key));
     // Harvested subscriptions (#6) are version-less consumer edges: no version
     // to be outdated/behind, and no last_required_at to be stale. Skip the
     // version-based classification for them.
@@ -354,14 +441,20 @@ function graphEdgeFlags(report, latestGaMap, trunkVersionMap) {
     if (latestGa && _graphCompareSemver(d.version, latestGa) < 0) {
       // Two tiers: behind within the same major is an upgrade waiting to
       // happen; a whole major behind means the contract moved underneath.
-      if (Number.parseInt(d.version, 10) < Number.parseInt(latestGa, 10)) f.breakingOutdated = true;
+      // An edge that came this far has a version: the two kinds without one returned above.
+      if (Number.parseInt(/** @type {string} */ (d.version), 10) < Number.parseInt(latestGa, 10))
+        f.breakingOutdated = true;
       else f.outdated = true;
     }
     // Main view: a pin a whole major behind the producer's trunk version is a
     // conflict, drawn loud (ADR-0004).
     if (conflictMap) {
       const trunkV = conflictMap.get(typeKey);
-      if (trunkV && Number.parseInt(d.version, 10) < Number.parseInt(trunkV, 10)) f.conflict = true;
+      if (
+        trunkV &&
+        Number.parseInt(/** @type {string} */ (d.version), 10) < Number.parseInt(trunkV, 10)
+      )
+        f.conflict = true;
     }
   });
   return flags;
@@ -370,6 +463,7 @@ window.graphLatestGaMap = graphLatestGaMap;
 window.graphEdgeFlags = graphEdgeFlags;
 
 function updateHighlightButtons() {
+  /** @type {[string, keyof GraphHighlightFilters, string][]} */
   const styles = [
     ["highlight-outdated", "outdated", "bg-rose-500 text-white"],
     ["highlight-breaking-outdated", "breakingOutdated", "bg-rose-800 text-white"],
@@ -386,9 +480,11 @@ function updateHighlightButtons() {
 }
 window.updateHighlightButtons = updateHighlightButtons;
 
+/** @param {keyof GraphHighlightFilters} filter */
 function toggleHighlightFilter(filter) {
   window.graphHighlightFilters[filter] = !window.graphHighlightFilters[filter];
   updateHighlightButtons();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   // Mermaid encodes the highlight in its generated code, so it needs a full
   // redraw; the custom renderer just restyles in place.
@@ -413,8 +509,8 @@ function applyGraphHighlights() {
   if (!outdated && !breakingOutdated && !snapshot) {
     edges.forEach((els) => {
       els.path.style.opacity = "1";
-      els.path.setAttribute("stroke", els.path.dataset.baseStroke);
-      els.path.setAttribute("stroke-width", els.path.dataset.baseWidth);
+      els.path.setAttribute("stroke", /** @type {string} */ (els.path.dataset.baseStroke));
+      els.path.setAttribute("stroke-width", /** @type {string} */ (els.path.dataset.baseWidth));
     });
     nodes.forEach((el) => {
       el.style.opacity = "1";
@@ -422,6 +518,7 @@ function applyGraphHighlights() {
     return;
   }
 
+  /** @type {Set<string | undefined>} */
   const litNodes = new Set();
   edges.forEach((els, key) => {
     const isOutdated = outdated && els.path.dataset.outdated === "1";
@@ -441,8 +538,8 @@ function applyGraphHighlights() {
       litNodes.add(to);
     } else {
       els.path.style.opacity = "0.12";
-      els.path.setAttribute("stroke", els.path.dataset.baseStroke);
-      els.path.setAttribute("stroke-width", els.path.dataset.baseWidth);
+      els.path.setAttribute("stroke", /** @type {string} */ (els.path.dataset.baseStroke));
+      els.path.setAttribute("stroke-width", /** @type {string} */ (els.path.dataset.baseWidth));
     }
   });
   nodes.forEach((el, name) => {
@@ -459,21 +556,25 @@ function redrawGraph() {
   const mode = typeof currentGraphMode !== "undefined" ? currentGraphMode : "custom";
   const direction = typeof currentGraphDirection !== "undefined" ? currentGraphDirection : "TB";
 
-  const filteredReport = getFilteredReport(lastGraphReport);
+  // The report was just checked, so the filtered one is not null either.
+  const filteredReport = /** @type {GraphFilteredReport} */ (getFilteredReport(lastGraphReport));
 
-  const customSvg = document.getElementById("custom-graph");
+  const customSvg = /** @type {SVGSVGElement | null} */ (
+    /** @type {unknown} */ (document.getElementById("custom-graph"))
+  );
   const mermaidDiv = document.getElementById("mermaid-graph");
 
   if (
     mode === "custom" &&
     customSvg &&
     window.graphLevel === "domains" &&
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- graph-domains.js always defines this function; the guard is kept so that the served script does not change.
     window.renderDomainGraph
   ) {
     window.renderDomainGraph(filteredReport, customSvg, direction);
   } else if (mode === "custom" && customSvg) {
     // The domain view's own zoom and pan handlers go with it.
-    for (const handler of ["onmousemove", "onmouseup", "onmouseleave"]) {
+    for (const handler of /** @type {const} */ (["onmousemove", "onmouseup", "onmouseleave"])) {
       customSvg[handler] = null;
     }
     customSvg.dataset.level = "services";
@@ -496,8 +597,13 @@ window.redrawGraph = redrawGraph;
 // ── Provides/requires badges ──────────────────────────────────────
 // One fixed reading order in both renderers: REST, gRPC, messaging.
 const GRAPH_BADGE_ORDER = ["rest", "grpc", "msg"];
+/** @type {Record<string, string>} */
 const GRAPH_BADGE_LABELS = { rest: "REST", grpc: "gRPC", msg: "MSG" };
 
+/**
+ * @param {string} apiType
+ * @returns {string | null}
+ */
 function graphBadgeKind(apiType) {
   const t = (apiType || "openapi").toLowerCase();
   if (t === "openapi") return "rest";
@@ -514,16 +620,30 @@ function graphBadgeKind(apiType) {
 // from the node's own outgoing edges (harvested subscriptions are messaging);
 // Peripheral Resources provide the hexagon.
 // Returns Map node -> { provides: [...], requires: [...] }.
+/**
+ * @param {GraphReportLike} report Not read: the scope data and the edges say it all.
+ * @param {GraphEdge[]} deps
+ * @returns {Map<string, GraphNodeBadges>}
+ */
 function graphNodeBadges(report, deps) {
+  /** @type {Map<string, Set<string>>} */
   const provides = new Map();
+  /** @type {Map<string, Set<string>>} */
   const requires = new Map();
+  /**
+   * @param {Map<string, Set<string>>} map
+   * @param {string} node
+   * @param {string | null} kind
+   */
   const add = (map, node, kind) => {
     if (!kind) return;
     if (!map.has(node)) map.set(node, new Set());
-    map.get(node).add(kind);
+    /** @type {Set<string>} */ (map.get(node)).add(kind);
   };
-  ((window.graphScopeData && window.graphScopeData.producers) || []).forEach((p) => {
-    (p.versions || []).forEach((v) => add(provides, p.name, graphBadgeKind(v.api_type)));
+  (window.graphScopeData?.producers ?? []).forEach((p) => {
+    (p.versions ?? []).forEach((v) => {
+      add(provides, p.name, graphBadgeKind(v.api_type));
+    });
   });
   deps.forEach((d) => {
     if (d.peripheral) {
@@ -536,9 +656,11 @@ function graphNodeBadges(report, deps) {
     }
     add(requires, d.client, graphBadgeKind(d.api_type));
   });
+  /** @param {Set<string> | undefined} set */
   const ordered = (set) =>
     set ? [...GRAPH_BADGE_ORDER, "resource"].filter((k) => set.has(k)) : [];
   const nodes = new Set([...provides.keys(), ...requires.keys()]);
+  /** @type {Map<string, GraphNodeBadges>} */
   const result = new Map();
   nodes.forEach((n) =>
     result.set(n, { provides: ordered(provides.get(n)), requires: ordered(requires.get(n)) }),
@@ -549,8 +671,13 @@ window.graphNodeBadges = graphNodeBadges;
 
 // The mermaid renderer's second label line: "▲ REST · MSG   ▼ gRPC"
 // (▲ provides, ▼ requires); a side without badges is left out.
+/** @param {GraphNodeBadges | undefined} badges */
 function graphBadgeLine(badges) {
   if (!badges) return "";
+  /**
+   * @param {string} arrow
+   * @param {string[]} kinds
+   */
   const side = (arrow, kinds) => {
     const labels = kinds.filter((k) => GRAPH_BADGE_LABELS[k]).map((k) => GRAPH_BADGE_LABELS[k]);
     return labels.length ? `${arrow} ${labels.join(" · ")}` : "";
@@ -560,6 +687,7 @@ function graphBadgeLine(badges) {
 window.graphBadgeLine = graphBadgeLine;
 
 // 24x24 line icons (stroke only) for the badges.
+/** @type {Record<string, [string, Record<string, string>][]>} */
 const GRAPH_BADGE_ICONS = {
   rest: [
     ["path", { d: "M9 4c-2 0-3 1-3 3v2c0 1.5-1 2.5-2.5 3C5 12.5 6 13.5 6 15v2c0 2 1 3 3 3" }],
@@ -578,6 +706,13 @@ const GRAPH_BADGE_ICONS = {
 
 // One badge: a provides badge is solid (dark circle, white ring and icon), a
 // requires badge outlined (white circle, dark ring and icon).
+/**
+ * @param {SVGElement} parent
+ * @param {string} side
+ * @param {string} kind
+ * @param {number} cx
+ * @param {number} cy
+ */
 function graphDrawBadge(parent, side, kind, cx, cy) {
   const ns = "http://www.w3.org/2000/svg";
   const solid = side === "provides";
@@ -585,8 +720,8 @@ function graphDrawBadge(parent, side, kind, cx, cy) {
   const g = document.createElementNS(ns, "g");
   g.dataset.badge = `${side}-${kind}`;
   const circle = document.createElementNS(ns, "circle");
-  circle.setAttribute("cx", cx);
-  circle.setAttribute("cy", cy);
+  circle.setAttribute("cx", String(cx));
+  circle.setAttribute("cy", String(cy));
   circle.setAttribute("r", solid ? "11" : "10");
   circle.setAttribute("fill", solid ? dark : "#fff");
   circle.setAttribute("stroke", solid ? "#fff" : dark);
@@ -596,16 +731,18 @@ function graphDrawBadge(parent, side, kind, cx, cy) {
   const icon = document.createElementNS(ns, "g");
   icon.setAttribute(
     "transform",
-    `translate(${cx - size / 2},${cy - size / 2}) scale(${size / 24})`,
+    `translate(${String(cx - size / 2)},${String(cy - size / 2)}) scale(${String(size / 24)})`,
   );
   icon.setAttribute("fill", "none");
   icon.setAttribute("stroke", solid ? "#fff" : dark);
   icon.setAttribute("stroke-width", "2.2");
   icon.setAttribute("stroke-linecap", "round");
   icon.setAttribute("stroke-linejoin", "round");
-  (GRAPH_BADGE_ICONS[kind] || []).forEach(([tag, attrs]) => {
+  (GRAPH_BADGE_ICONS[kind] ?? []).forEach(([tag, attrs]) => {
     const el = document.createElementNS(ns, tag);
-    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    Object.entries(attrs).forEach(([k, v]) => {
+      el.setAttribute(k, v);
+    });
     icon.appendChild(el);
   });
   g.appendChild(icon);
@@ -614,6 +751,7 @@ function graphDrawBadge(parent, side, kind, cx, cy) {
 
 // The node an unowned harvested subscription points at: the channel name with
 // a question mark, drawn in the missing-node style by both renderers.
+/** @param {string} channel */
 function graphUnownedChannelNode(channel) {
   return `${channel} ?`;
 }
@@ -631,14 +769,23 @@ window.graphUnownedChannelNode = graphUnownedChannelNode;
 // every other type pass through unchanged. `declared` are the channels the
 // drawn producers publish that nobody requires (see
 // graphDeclaredChannelEdges): already producer → topic, they join as they are.
+/** @param {string} channel */
 function graphTopicNode(channel) {
   return `topic:${channel}`;
 }
 window.graphTopicNode = graphTopicNode;
 
+/**
+ * @param {GraphEdge[]} deps
+ * @param {GraphEdge[]} [declared]
+ * @returns {GraphEdge[]}
+ */
 function graphExplodeTopics(deps, declared = []) {
+  /** @type {GraphEdge[]} */
   const out = [];
+  /** @type {Set<string>} */
   const seen = new Set();
+  /** @param {GraphEdge} edge */
   const push = (edge) => {
     const key = `${edge.client}-->${edge.service}`;
     if (seen.has(key)) return;
@@ -700,7 +847,14 @@ function graphExplodeTopics(deps, declared = []) {
 // as a producer → topic edge. Only producers already in the graph or its
 // "(unrequired)" box, so focus and the other filters keep their say; none
 // when messaging is filtered out or only cycles are shown.
+/**
+ * @param {GraphScopeData | null} scopeData
+ * @param {GraphEdge[]} deps
+ * @param {GraphScopeProducer[]} unrequired
+ * @returns {GraphEdge[]}
+ */
 function graphDeclaredChannelEdges(scopeData, deps, unrequired) {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-optional-chain, @typescript-eslint/no-unnecessary-boolean-literal-compare -- The filters are always set by now; the guard is kept so that the served script does not change.
   if (window.graphProtocolFilters && window.graphProtocolFilters.asyncapi === false) return [];
   if (window.graphRedrawMode === "circular") return [];
   const drawn = new Set(unrequired.map((p) => p.name));
@@ -708,12 +862,13 @@ function graphDeclaredChannelEdges(scopeData, deps, unrequired) {
     drawn.add(d.client);
     drawn.add(d.service);
   });
+  /** @type {GraphEdge[]} */
   const edges = [];
-  ((scopeData && scopeData.producers) || []).forEach((producer) => {
+  (scopeData?.producers ?? []).forEach((producer) => {
     if (!drawn.has(producer.name)) return;
-    (producer.versions || []).forEach((line) => {
+    (producer.versions ?? []).forEach((line) => {
       if ((line.api_type || "").toLowerCase() !== "asyncapi") return;
-      (line.channels || []).forEach((c) => {
+      (line.channels ?? []).forEach((c) => {
         if ((c.method || "").toUpperCase() !== "PUB") return;
         edges.push({
           api_type: "asyncapi",
@@ -741,35 +896,62 @@ window.graphExplodeTopics = graphExplodeTopics;
 // (nobody requires them, they require nothing, no harvested subscription) and
 // no resource edge. `deps` must be the scope's edges before any filter, or
 // hiding a protocol would push its producers into the box.
+/**
+ * @param {GraphScopeProducer[] | null | undefined} producers
+ * @param {GraphEdge[]} deps
+ * @returns {GraphScopeProducer[]}
+ */
 function graphUnrequiredMembers(producers, deps) {
+  /** @type {Set<string>} */
   const connected = new Set();
   deps.forEach((d) => {
     connected.add(d.client);
     if (!d.peripheral) connected.add(d.service);
   });
-  return (producers || []).filter((p) => !connected.has(p.name));
+  return (producers ?? []).filter((p) => !connected.has(p.name));
 }
 window.graphUnrequiredMembers = graphUnrequiredMembers;
 
 // A chip's version-line line: "openapi 1.4.0 ga · asyncapi 0.3.0 snapshot".
+/** @param {GraphScopeVersionLine[] | undefined} versions */
 function graphVersionLinesText(versions) {
-  return (versions || [])
-    .map((v) => `${v.api_type} ${v.version} ${v.stability || "deleted"}`)
+  return (versions ?? [])
+    .map((v) => `${v.api_type} ${v.version} ${(v.stability ?? "") || "deleted"}`)
     .join(" · ");
 }
 window.graphVersionLinesText = graphVersionLinesText;
 
 // When a producer was last provided: the latest of its lines' provides.
+/**
+ * The order a bare sort() gives strings (by code unit), said out loud.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function graphByCodeUnit(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+/** @param {GraphScopeVersionLine[] | undefined} versions */
 function graphLastProvided(versions) {
-  const stamps = (versions || []).map((v) => v.last_provided_at).filter(Boolean);
-  return stamps.length ? stamps.sort().pop() : null;
+  const stamps = (versions ?? []).flatMap((v) => (v.last_provided_at ? [v.last_provided_at] : []));
+  return stamps.length ? stamps.sort(graphByCodeUnit).pop() : null;
 }
 window.graphLastProvided = graphLastProvided;
 
 // The node panel's provides/requires rows, from the same badges the renderer
 // draws (never from the sticky service_tags table).
+/** @param {GraphNodeBadges | undefined} badges */
 function graphBadgeSummaryHtml(badges) {
-  const label = (k) => (k === "resource" ? "Resource" : GRAPH_BADGE_LABELS[k]);
+  /** @param {string} k One of the badge kinds, each of which has a label. */
+  const label = (k) =>
+    k === "resource" ? "Resource" : /** @type {string} */ (GRAPH_BADGE_LABELS[k]);
+  /**
+   * @param {string} title
+   * @param {string[]} kinds
+   * @param {boolean} solid
+   */
   const row = (title, kinds, solid) =>
     kinds.length
       ? `<div class="flex flex-wrap items-center gap-1.5 mt-1" data-panel="${title.toLowerCase()}"><span class="text-[10px] text-slate-400 w-14">${title}</span>${kinds
@@ -779,22 +961,27 @@ function graphBadgeSummaryHtml(badges) {
           )
           .join("")}</div>`
       : "";
-  const b = badges || { provides: [], requires: [] };
+  const b = badges ?? { provides: [], requires: [] };
   return row("Provides", b.provides, true) + row("Requires", b.requires, false);
 }
 window.graphBadgeSummaryHtml = graphBadgeSummaryHtml;
 
+/**
+ * @param {GraphReportLike | null | undefined} report
+ * @returns {GraphFilteredReport | null}
+ */
 function getFilteredReport(report) {
   if (!report) return null;
-  let deps = [...(report.dependency_graph || [])];
+  let deps = [...(report.dependency_graph ?? [])];
   let missing = report.missing_endpoints;
 
   // Pin-set views show the version line's stored stability, looked up from
   // the report's detailed services (a dangling pin's line is gone → "ga").
+  /** @param {GraphPin} t */
   const stabilityOf = (t) => {
-    const svc = (report.services_detailed || []).find((s) => s.name === t.service);
+    const svc = (report.services_detailed ?? []).find((s) => s.name === t.service);
     const v = svc
-      ? (svc.versions || []).find(
+      ? (svc.versions ?? []).find(
           (x) =>
             x.version === t.version &&
             (x.api_type || "openapi").toLowerCase() === (t.api_type || "openapi").toLowerCase(),
@@ -802,6 +989,10 @@ function getFilteredReport(report) {
       : null;
     return v ? v.stability : "ga";
   };
+  /**
+   * @param {GraphPin} t
+   * @returns {GraphEdge}
+   */
   const pinAsDep = (t) => ({
     api_type: t.api_type,
     client: t.client,
@@ -819,14 +1010,14 @@ function getFilteredReport(report) {
   // references included; overlays are dev-view data. The circular/focus/
   // protocol filters below apply to pin sets like to any other view.
   if (window.graphStreamView === "branch") {
-    deps = (window.graphTimelinePins || window.graphBranchPins || []).map(pinAsDep);
+    deps = (window.graphTimelinePins ?? window.graphBranchPins ?? []).map(pinAsDep);
     missing = [];
   }
 
   // Main view (ADR-0004): the edges are the current trunk pin set, not the
   // accumulated dev activity; the missing-endpoints overlay is dev-view data.
   if (window.graphStreamView === "main") {
-    deps = (window.graphTimelinePins || report.trunk_graph || []).map(pinAsDep);
+    deps = (window.graphTimelinePins ?? report.trunk_graph ?? []).map(pinAsDep);
     missing = [];
   }
 
@@ -836,11 +1027,11 @@ function getFilteredReport(report) {
   // whichever deps we built. A subscription with no resolved owner (nobody provides the channel
   // yet) points at a missing node named after the channel, so the pending
   // consumption stays visible and every subscriber of that channel meets there.
-  ((window.graphScopeData && window.graphScopeData.harvested_subscriptions) || []).forEach((h) => {
+  (window.graphScopeData?.harvested_subscriptions ?? []).forEach((h) => {
     deps.push({
       api_type: "asyncapi",
       client: h.client,
-      service: h.owner || graphUnownedChannelNode(h.channel),
+      service: (h.owner ?? "") || graphUnownedChannelNode(h.channel),
       version: null,
       stability: null,
       path: h.channel,
@@ -855,8 +1046,8 @@ function getFilteredReport(report) {
   // catalog-info lists under dependsOn — their own node kind, no version.
   const periphery =
     window.graphStreamView === "dev"
-      ? report.peripheral_dependencies || []
-      : window.graphScopePeriphery || [];
+      ? (report.peripheral_dependencies ?? [])
+      : (window.graphScopePeriphery ?? []);
   periphery.forEach((p) => {
     deps.push({
       api_type: "periphery",
@@ -876,19 +1067,19 @@ function getFilteredReport(report) {
 
   // The "(unrequired)" box, decided on the scope's unfiltered edges; the
   // filters below then narrow its members on their own terms.
-  let unrequired = graphUnrequiredMembers(
-    window.graphScopeData && window.graphScopeData.producers,
-    deps,
-  );
+  let unrequired = graphUnrequiredMembers(window.graphScopeData?.producers, deps);
 
   // 1. Circular dependencies filter
   if (window.graphRedrawMode === "circular") {
+    /** @type {Map<string, string[]>} */
     const adjMap = new Map();
     deps.forEach((d) => {
       if (!adjMap.has(d.client)) adjMap.set(d.client, []);
-      if (!adjMap.get(d.client).includes(d.service)) adjMap.get(d.client).push(d.service);
+      if (!(/** @type {string[]} */ (adjMap.get(d.client)).includes(d.service)))
+        /** @type {string[]} */ (adjMap.get(d.client)).push(d.service);
     });
     const cycleEdges = graphDetectCycles(adjMap);
+    /** @type {Set<string | undefined>} */
     const cycleNodes = new Set();
     cycleEdges.forEach((e) => {
       const [from, to] = e.split("-->");
@@ -902,23 +1093,28 @@ function getFilteredReport(report) {
   }
 
   // 2. Focus filter (multi-service tag cloud)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The focus tags are always set by now; the guard is kept so that the served script does not change.
   if (window.graphFocusTags && window.graphFocusTags.length > 0) {
+    /** @type {Set<string>} */
     const focusNodes = new Set();
     const tags = window.graphFocusTags.map((t) => t.toLowerCase());
     // The box keeps only the members a focus tag names; a named member also
     // narrows the edges like any other focused node.
     unrequired = unrequired.filter((p) => tags.includes(p.name.toLowerCase()));
-    unrequired.forEach((p) => focusNodes.add(p.name));
+    unrequired.forEach((p) => {
+      focusNodes.add(p.name);
+    });
     // `tag:<name>` (ADR-0010) focuses every system whose catalog context
     // carries the tag, plus their neighbours, like naming each of them.
-    const systems = report.systems || {};
+    const systems = report.systems ?? {};
     for (const tag of window.graphFocusTags) {
       const target = tag.toLowerCase();
       if (target.startsWith("tag:")) {
         const wanted = target.slice(4).trim();
-        const tagged = Object.keys(systems).filter((name) =>
-          (systems[name].tags || []).includes(wanted),
-        );
+        const tagged = Object.keys(systems).filter((name) => {
+          const context = /** @type {SystemContext} */ (systems[name]);
+          return (context.tags ?? []).includes(wanted);
+        });
         tagged.forEach((name) => {
           focusNodes.add(name);
           deps.forEach((d) => {
@@ -947,8 +1143,8 @@ function getFilteredReport(report) {
       if (target.startsWith("domain:")) {
         const wanted = target.slice(7).trim();
         const members = new Set(
-          (report.services_detailed || [])
-            .filter((s) => (s.domain || "").toLowerCase() === wanted)
+          (report.services_detailed ?? [])
+            .filter((s) => (s.domain ?? "").toLowerCase() === wanted)
             .map((s) => s.name),
         );
         deps.forEach((d) => {
@@ -988,7 +1184,7 @@ function getFilteredReport(report) {
   });
   // A member stays while any of its API types is shown.
   unrequired = unrequired.filter((p) =>
-    (p.versions || []).some((v) => window.graphProtocolFilters[v.api_type] !== false),
+    (p.versions ?? []).some((v) => window.graphProtocolFilters[v.api_type] !== false),
   );
   if (!window.graphProtocolFilters.unrequired) unrequired = [];
 
@@ -996,6 +1192,7 @@ function getFilteredReport(report) {
 }
 window.getFilteredReport = getFilteredReport;
 
+/** @param {string} mode */
 function setGraphRedrawMode(mode) {
   window.graphRedrawMode = mode;
   ["all", "circular"].forEach((m) => {
@@ -1007,6 +1204,7 @@ function setGraphRedrawMode(mode) {
           : "px-3 py-1.5 text-slate-600 hover:bg-slate-50 font-medium";
     }
   });
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(false);
   redrawGraph();
 }
@@ -1016,11 +1214,18 @@ window.setGraphRedrawMode = setGraphRedrawMode;
 // view-aware: entries carrying data-stream-only show only in their view.
 // `at` opens the view at that instant (a shared link); `push` adds a history
 // entry, which a switch by the user does and a restore from the address not.
+/**
+ * @param {string} view
+ * @param {string | null} [at]
+ * @param {boolean} [push]
+ */
 async function setStreamView(view, at = null, push = true) {
   window.graphStreamView = view;
   if (view !== "branch") {
     window.graphBranchName = null;
-    const sel = document.getElementById("graph-branch-select");
+    const sel = /** @type {HTMLSelectElement | null} */ (
+      document.getElementById("graph-branch-select")
+    );
     if (sel) sel.value = "";
   }
   ["dev", "main"].forEach((v) => {
@@ -1034,28 +1239,31 @@ async function setStreamView(view, at = null, push = true) {
   });
   // Space-separated: a marker can belong to more than one view — a dangling
   // pin is drawn in both the main and the branch graph.
-  document.querySelectorAll("[data-stream-only]").forEach((el) => {
-    const views = el.dataset.streamOnly.split(/\s+/);
-    el.classList.toggle("hidden", !views.includes(view));
-  });
+  /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll("[data-stream-only]")).forEach(
+    (el) => {
+      const views = /** @type {string} */ (el.dataset.streamOnly).split(/\s+/);
+      el.classList.toggle("hidden", !views.includes(view));
+    },
+  );
   window.graphTimelineAt = null;
   window.graphTimelineTarget = null;
   window.graphTimelinePins = null;
   window.graphScopePeriphery = null;
   window.graphScopeData = null;
   // A view switch outdates every timeline/periphery request still in flight.
-  const token = (window._graphTimelineToken || 0) + 1;
+  const token = (window._graphTimelineToken ?? 0) + 1;
   window._graphTimelineToken = token;
   if (push) {
     // A switch by the user wins over a view still being opened from the address.
-    window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
+    window._graphUserViewSwitches = (window._graphUserViewSwitches ?? 0) + 1;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
     if (window.updateGraphUrl) window.updateGraphUrl(true);
   }
   initTimelineSlider();
   await refreshTimeline(token);
   if (token !== window._graphTimelineToken) return;
   // A range ending before today opens at its right edge, the end of that day.
-  const target = view === "dev" ? null : at || graphTimelineEdges().end;
+  const target = view === "dev" ? null : (at ?? "") || graphTimelineEdges().end;
   if (target) {
     await setTimelinePosition(target);
     return;
@@ -1081,6 +1289,7 @@ window.setStreamView = setStreamView;
 
 const GRAPH_TIMELINE_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/** @param {Date} date */
 function graphUtcDay(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -1095,6 +1304,10 @@ function graphDefaultTimelineRange(now = new Date()) {
 window.graphDefaultTimelineRange = graphDefaultTimelineRange;
 
 // A real calendar day written YYYY-MM-DD (2026-02-30 is not).
+/**
+ * @param {unknown} day
+ * @returns {boolean}
+ */
 function graphIsTimelineDay(day) {
   if (typeof day !== "string" || !GRAPH_TIMELINE_DAY.test(day)) return false;
   const parsed = new Date(`${day}T00:00:00Z`);
@@ -1121,11 +1334,25 @@ window.graphTimelineEdges = graphTimelineEdges;
 // The snap stops along the slider, in seconds from the left edge: both edges
 // and every change date strictly between them. The right edge's `at` is null
 // when it stands for "now".
+/**
+ * One place the timeline handle snaps to.
+ * @typedef {object} GraphTimelineStop
+ * @property {number} secs Seconds from the left edge.
+ * @property {string | null} at The instant; null stands for now.
+ */
+
+/**
+ * @param {GraphTimelineRange} range
+ * @param {string[]} dates
+ * @param {number} nowMs
+ * @returns {{ stops: GraphTimelineStop[], max: number }}
+ */
 function graphTimelineStops(range, dates, nowMs) {
   const { start, end } = graphTimelineEdges(range, new Date(nowMs));
   const startMs = Date.parse(start);
   const endMs = end ? Date.parse(end) : nowMs;
   const max = Math.max(0, Math.round((endMs - startMs) / 1000));
+  /** @type {GraphTimelineStop[]} */
   const stops = [{ secs: 0, at: start }];
   for (const d of dates) {
     const secs = Math.round((Date.parse(d) - startMs) / 1000);
@@ -1136,9 +1363,16 @@ function graphTimelineStops(range, dates, nowMs) {
 }
 window.graphTimelineStops = graphTimelineStops;
 
+/**
+ * @param {GraphTimelineStop[]} stops
+ * @param {number} secs
+ * @returns {GraphTimelineStop}
+ */
 function graphNearestStop(stops, secs) {
-  return stops.reduce((best, s) =>
-    Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best,
+  // The timeline always has its end stop, so there is a first one to start from.
+  return stops.reduce(
+    (best, s) => (Math.abs(s.secs - secs) < Math.abs(best.secs - secs) ? s : best),
+    /** @type {GraphTimelineStop} */ (stops[0]),
   );
 }
 window.graphNearestStop = graphNearestStop;
@@ -1152,20 +1386,27 @@ function graphCurrentStops() {
 }
 
 // Where an instant sits on the slider; the right edge for "now".
+/** @param {string | null} at */
 function graphTimelineSecondsOf(at) {
   const { stops, max } = graphCurrentStops();
   if (!at) return max;
-  const secs = Math.round((Date.parse(at) - Date.parse(stops[0].at)) / 1000);
+  // The first stop is the left edge, which always is an instant.
+  const start = /** @type {string} */ (/** @type {GraphTimelineStop} */ (stops[0]).at);
+  const secs = Math.round((Date.parse(at) - Date.parse(start)) / 1000);
   return Math.min(max, Math.max(0, secs));
 }
 
+/** @param {string | null} at */
 function graphTimelineLabel(at) {
   return at ? at.slice(0, 16).replace("T", " ") : "now";
 }
 
 // Move the handle and the label to `at` (null = the right edge).
+/** @param {string | null} at */
 function graphShowTimelinePosition(at) {
-  const slider = document.getElementById("graph-timeline-slider");
+  const slider = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-slider")
+  );
   const label = document.getElementById("graph-timeline-label");
   if (slider) slider.value = String(graphTimelineSecondsOf(at));
   if (label) label.textContent = graphTimelineLabel(at);
@@ -1174,6 +1415,10 @@ function graphShowTimelinePosition(at) {
 const GRAPH_DAY_FIELD_OK = ["border-slate-300", "bg-white"];
 const GRAPH_DAY_FIELD_BAD = ["border-red-500", "bg-red-50"];
 
+/**
+ * @param {HTMLElement} field
+ * @param {boolean} valid
+ */
 function graphMarkDayField(field, valid) {
   field.classList.remove(...(valid ? GRAPH_DAY_FIELD_BAD : GRAPH_DAY_FIELD_OK));
   field.classList.add(...(valid ? GRAPH_DAY_FIELD_OK : GRAPH_DAY_FIELD_BAD));
@@ -1183,7 +1428,9 @@ function graphMarkDayField(field, valid) {
 // Bring the range fields, the slider's scale, its ticks, the handle and the
 // Now button in line with the range and the change dates.
 function syncTimelineControls() {
-  const slider = document.getElementById("graph-timeline-slider");
+  const slider = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-slider")
+  );
   if (!slider) return;
   const { stops, max } = graphCurrentStops();
   slider.min = "0";
@@ -1195,18 +1442,18 @@ function syncTimelineControls() {
     for (const stop of stops.slice(1, -1)) {
       const tick = document.createElement("span");
       tick.className = "absolute top-0 h-2 w-px bg-amber-500";
-      tick.style.left = `${max ? (stop.secs / max) * 100 : 0}%`;
+      tick.style.left = `${String(max ? (stop.secs / max) * 100 : 0)}%`;
       tick.title = graphTimelineLabel(stop.at);
       ticks.appendChild(tick);
     }
   }
   const nowBtn = document.getElementById("graph-timeline-now");
   if (nowBtn) nowBtn.classList.toggle("hidden", graphTimelineEdges().end !== null);
-  for (const [id, value] of [
+  for (const [id, value] of /** @type {[string, string][]} */ ([
     ["graph-timeline-from", window.graphTimelineRange.from],
     ["graph-timeline-to", window.graphTimelineRange.to],
-  ]) {
-    const field = document.getElementById(id);
+  ])) {
+    const field = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
     if (!field) continue;
     field.value = value;
     graphMarkDayField(field, true);
@@ -1231,13 +1478,14 @@ async function refreshTimeline(token = window._graphTimelineToken) {
   const base =
     view === "main"
       ? "/admin/trunk/timeline"
-      : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/timeline`;
+      : `/admin/branches/${encodeURIComponent(/** @type {string} */ (window.graphBranchName))}/timeline`;
   const from = encodeURIComponent(`${range.from}T00:00:00Z`);
   const to = encodeURIComponent(`${range.to}T23:59:59Z`);
+  /** @type {string[]} */
   let dates = [];
   try {
     const res = await apiCall(`${base}?from=${from}&to=${to}`);
-    dates = res.ok ? await res.json() : [];
+    dates = res.ok ? /** @type {string[]} */ (await res.json()) : [];
   } catch (e) {
     console.warn("Could not load the timeline:", e);
   }
@@ -1250,8 +1498,9 @@ async function refreshTimeline(token = window._graphTimelineToken) {
 }
 
 // Show the graph of the view at `at`, or the current graph for null ("now").
+/** @param {string | null} at */
 async function setTimelinePosition(at) {
-  const token = (window._graphTimelineToken || 0) + 1;
+  const token = (window._graphTimelineToken ?? 0) + 1;
   window._graphTimelineToken = token;
   // The instant asked for last, applied or still loading: a step or a drag
   // compares against it, not against the instant on screen.
@@ -1264,15 +1513,16 @@ async function setTimelinePosition(at) {
   // leave the graph on an instant the user already scrubbed past. Only the
   // newest request may apply its result.
   try {
+    /** @type {GraphPin[] | null} */
     let pins = null;
     if (at) {
       const url =
         view === "main"
           ? `/admin/trunk/graph?at=${encodeURIComponent(at)}`
-          : `/admin/branches/${encodeURIComponent(window.graphBranchName)}/graph?at=${encodeURIComponent(at)}`;
+          : `/admin/branches/${encodeURIComponent(/** @type {string} */ (window.graphBranchName))}/graph?at=${encodeURIComponent(at)}`;
       const res = await apiCall(url);
       if (!res.ok || token !== window._graphTimelineToken) return;
-      pins = await res.json();
+      pins = /** @type {GraphPin[]} */ (await res.json());
       if (token !== window._graphTimelineToken) return;
     }
     const [periphery, scopeData] = await Promise.all([
@@ -1284,6 +1534,7 @@ async function setTimelinePosition(at) {
     window.graphTimelineAt = at;
     window.graphScopePeriphery = periphery;
     window.graphScopeData = scopeData;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
     if (window.updateGraphUrl) window.updateGraphUrl(false);
     redrawGraph();
   } catch (e) {
@@ -1295,8 +1546,12 @@ window.setTimelinePosition = setTimelinePosition;
 // The range fields: a day after the other is refused — both turn red and the
 // range on screen stays — anything else becomes the range, a history entry.
 async function setTimelineRangeFromFields() {
-  const fromField = document.getElementById("graph-timeline-from");
-  const toField = document.getElementById("graph-timeline-to");
+  const fromField = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-from")
+  );
+  const toField = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-to")
+  );
   if (!fromField || !toField) return;
   const from = fromField.value;
   const to = toField.value;
@@ -1308,8 +1563,9 @@ async function setTimelineRangeFromFields() {
   window.graphTimelineRangeChosen = true;
   window.graphTimelineAt = null;
   window.graphTimelineTarget = null;
-  const token = (window._graphTimelineToken || 0) + 1;
+  const token = (window._graphTimelineToken ?? 0) + 1;
   window._graphTimelineToken = token;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   await refreshTimeline(token);
   if (token !== window._graphTimelineToken) return;
@@ -1319,15 +1575,20 @@ window.setTimelineRangeFromFields = setTimelineRangeFromFields;
 
 // Step the timeline handle to the previous (-1) or next (+1) tick or edge —
 // the [ and ] keys; nothing in the dev view, which has no timeline.
+/** @param {number} delta */
 function graphStepTimeline(delta) {
-  const slider = document.getElementById("graph-timeline-slider");
+  const slider = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-slider")
+  );
   if (!slider || window.graphStreamView === "dev") return;
   const { stops } = graphCurrentStops();
   const secs = Number(slider.value);
-  const stop =
+  // There always are two stops at least, the edges.
+  const stop = /** @type {GraphTimelineStop} */ (
     delta < 0
-      ? stops.filter((s) => s.secs < secs).pop() || stops[0]
-      : stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+      ? (stops.filter((s) => s.secs < secs).pop() ?? stops[0])
+      : (stops.find((s) => s.secs > secs) ?? stops[stops.length - 1])
+  );
   slider.value = String(stop.secs);
   if (stop.at === window.graphTimelineTarget) return;
   void setTimelinePosition(stop.at);
@@ -1335,9 +1596,12 @@ function graphStepTimeline(delta) {
 window.graphStepTimeline = graphStepTimeline;
 
 function initTimelineSlider() {
-  const slider = document.getElementById("graph-timeline-slider");
+  const slider = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("graph-timeline-slider")
+  );
   if (!slider || slider.dataset.wired) return;
   slider.dataset.wired = "1";
+  /** @param {GraphTimelineStop} stop */
   const moveTo = (stop) => {
     slider.value = String(stop.secs);
     if (stop.at === window.graphTimelineTarget) return;
@@ -1351,11 +1615,12 @@ function initTimelineSlider() {
   slider.addEventListener("keydown", (e) => {
     const { stops } = graphCurrentStops();
     const secs = Number(slider.value);
+    /** @type {GraphTimelineStop | null | undefined} */
     let stop = null;
     if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-      stop = stops.filter((s) => s.secs < secs).pop() || stops[0];
+      stop = stops.filter((s) => s.secs < secs).pop() ?? stops[0];
     } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-      stop = stops.find((s) => s.secs > secs) || stops[stops.length - 1];
+      stop = stops.find((s) => s.secs > secs) ?? stops[stops.length - 1];
     } else if (e.key === "Home") {
       stop = stops[0];
     } else if (e.key === "End") {
@@ -1376,6 +1641,7 @@ async function createBranchHere() {
       : "Create a sanshain-branch off the current graph:",
   );
   if (!name) return;
+  /** @type {{ name: string, as_of?: string, source?: string | null }} */
   const body = { name };
   if (at) body.as_of = at;
   if (window.graphStreamView === "branch") body.source = window.graphBranchName;
@@ -1390,10 +1656,11 @@ window.createBranchHere = createBranchHere;
 
 // Enter the branch view (ADR-0005): fetch the branch's pin set — dangling
 // references included — and draw it with the shared pipeline.
+/** @param {string} name */
 async function selectBranchView(name) {
   // Counted at once: the branch's pins are still loading when the view the
   // address named might be applied.
-  window._graphUserViewSwitches = (window._graphUserViewSwitches || 0) + 1;
+  window._graphUserViewSwitches = (window._graphUserViewSwitches ?? 0) + 1;
   if (!name) {
     try {
       await setStreamView("dev");
@@ -1405,23 +1672,29 @@ async function selectBranchView(name) {
   try {
     const res = await apiCall(`/admin/branches/${encodeURIComponent(name)}/graph`);
     if (!res.ok) {
-      failBranchSelection(name, `HTTP ${res.status}`);
+      failBranchSelection(name, `HTTP ${String(res.status)}`);
       return;
     }
-    window.graphBranchPins = await res.json();
+    window.graphBranchPins = /** @type {GraphPin[]} */ (await res.json());
     window.graphBranchName = name;
     await setStreamView("branch");
   } catch (e) {
-    failBranchSelection(name, e.message || String(e));
+    failBranchSelection(name, /** @type {Error} */ (e).message || String(e));
   }
 }
 
 /// The select must not keep showing a branch the view never switched to — put
 /// it back where the graph actually is, and say why out loud rather than only
 /// in the console.
+/**
+ * @param {string} name
+ * @param {string} reason
+ */
 function failBranchSelection(name, reason) {
-  const sel = document.getElementById("graph-branch-select");
-  if (sel) sel.value = window.graphBranchName || "";
+  const sel = /** @type {HTMLSelectElement | null} */ (
+    document.getElementById("graph-branch-select")
+  );
+  if (sel) sel.value = window.graphBranchName ?? "";
   console.warn(`Could not load branch '${name}': ${reason}`);
   // Visible, like a failed branch creation in this file: the user chose this
   // branch, so a silent console line is not an answer.
@@ -1432,10 +1705,15 @@ window.selectBranchView = selectBranchView;
 // The member names of the Products a `product:<name>` focus names (#76),
 // fetched once per Product from its read route. Unknown until loaded, and
 // empty for a Product that does not exist.
+/** @type {Map<string, string[]>} */
 const graphProductMemberCache = new Map();
 
+/**
+ * @param {string} product
+ * @returns {string[]}
+ */
 function graphProductMembers(product) {
-  return graphProductMemberCache.get(product) || [];
+  return graphProductMemberCache.get(product) ?? [];
 }
 
 async function graphLoadFocusProducts() {
@@ -1446,11 +1724,15 @@ async function graphLoadFocusProducts() {
   if (wanted.length === 0) return;
   await Promise.all(
     wanted.map(async (product) => {
+      /** @type {string[]} */
       let members = [];
       try {
         const res = await apiCall(`/admin/products/${encodeURIComponent(product)}`);
-        if (res.ok) members = ((await res.json()).members || []).map((m) => m.system);
-        else console.warn(`No Product '${product}' to focus on`);
+        if (res.ok) {
+          // `ProductDetail` in `src/application/product_service.rs`, as far as it is read.
+          const detail = /** @type {{ members?: { system: string }[] }} */ (await res.json());
+          members = (detail.members ?? []).map((m) => m.system);
+        } else console.warn(`No Product '${product}' to focus on`);
       } catch (e) {
         console.warn(`Could not load Product '${product}':`, e);
       }
@@ -1461,21 +1743,25 @@ async function graphLoadFocusProducts() {
 }
 window.graphLoadFocusProducts = graphLoadFocusProducts;
 
+/** @param {string | null | undefined} name */
 function addFocusTag(name) {
-  if (!name || !name.trim()) return;
+  if (!name?.trim()) return;
   const trimmed = name.trim();
   if (window.graphFocusTags.includes(trimmed)) return;
   window.graphFocusTags.push(trimmed);
   renderFocusTags();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
   void graphLoadFocusProducts();
 }
 window.addFocusTag = addFocusTag;
 
+/** @param {string} name */
 function removeFocusTag(name) {
   window.graphFocusTags = window.graphFocusTags.filter((t) => t !== name);
   renderFocusTags();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
 }
@@ -1502,12 +1788,14 @@ window.renderFocusTags = renderFocusTags;
 // the toolbar button's data-click resolves at page load; it forwards to the
 // live implementation once render has set it, and is a no-op before then (there
 // is nothing to fit yet).
+/** @type {(() => void) | null} */
 let _graphFitToView = null;
 function graphFitToView() {
   if (_graphFitToView) _graphFitToView();
 }
 window.graphFitToView = graphFitToView;
 
+/** @param {string} protocol */
 function toggleProtocolFilter(protocol) {
   window.graphProtocolFilters[protocol] = !window.graphProtocolFilters[protocol];
   if (protocol === "periphery") {
@@ -1522,6 +1810,7 @@ function toggleProtocolFilter(protocol) {
       btn.className = "px-2.5 py-1.5 bg-white text-slate-600 hover:bg-slate-50 font-medium";
     }
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The page script always defines this function; the guard is kept so that the served script does not change.
   if (window.updateGraphUrl) window.updateGraphUrl(true);
   redrawGraph();
 }
@@ -1531,6 +1820,7 @@ window.toggleProtocolFilter = toggleProtocolFilter;
 
 // Text for element content and for quoted attributes alike: the quotes are
 // escaped too, so a value cannot end the attribute it is placed in.
+/** @param {string} s */
 function _graphEscapeHtml(s) {
   return s
     .replace(/&/g, "&amp;")
@@ -1543,8 +1833,21 @@ function _graphEscapeHtml(s) {
 // The height the domain line adds to a node when domains sit on the nodes.
 const GRAPH_DOMAIN_LINE_H = 16;
 
+/**
+ * The size of a node and the lines its name is written in.
+ * @typedef {object} GraphNodeMetrics
+ * @property {number} width
+ * @property {number} height
+ * @property {string[]} lines
+ * @property {string} [domain] Set when the domain is written onto the node.
+ */
+
+/**
+ * @param {string} name
+ * @param {boolean} hasIcon
+ * @returns {GraphNodeMetrics}
+ */
 function _measureNode(name, hasIcon) {
-  const fontSize = 16;
   const charW = 9; // estimated average char width for 16px bold sans
   const idealCharsPerLine = 16;
   const maxLines = 3;
@@ -1559,6 +1862,7 @@ function _measureNode(name, hasIcon) {
   }
 
   // Wrap long names
+  /** @type {string[]} */
   const lines = [];
   let remaining = name;
   while (remaining.length > 0 && lines.length < maxLines) {
@@ -1570,8 +1874,8 @@ function _measureNode(name, hasIcon) {
       let breakIdx = idealCharsPerLine;
       // Scan backwards from ideal for a capital or underscore/dash
       for (let j = idealCharsPerLine; j > idealCharsPerLine / 2; j--) {
-        const char = remaining[j];
-        if (/[A-Z0-9_\-\.]/.test(char)) {
+        const char = /** @type {string} */ (remaining[j]);
+        if (/[A-Z0-9_\-.]/.test(char)) {
           breakIdx = j;
           break;
         }
@@ -1581,7 +1885,7 @@ function _measureNode(name, hasIcon) {
     }
   }
   if (remaining.length > 0) {
-    lines[lines.length - 1] = lines[lines.length - 1].slice(0, -1) + "…";
+    lines[lines.length - 1] = /** @type {string} */ (lines[lines.length - 1]).slice(0, -1) + "…";
   }
 
   const maxLineLen = Math.max(...lines.map((l) => l.length));
@@ -1594,24 +1898,34 @@ function _measureNode(name, hasIcon) {
 
 // ── Cycle detection (reusable from service.html) ─────────────────────
 
+/**
+ * @param {Map<string, string[]>} adjMap
+ * @returns {Set<string>}
+ */
 function graphDetectCycles(adjMap) {
   const WHITE = 0,
     GRAY = 1,
     BLACK = 2;
+  /** @type {Record<string, number>} */
   const color = {};
+  /** @type {Record<string, string>} */
   const parent = {};
+  /** @type {Set<string>} */
   const cycleEdges = new Set();
 
   for (const node of adjMap.keys()) color[node] = WHITE;
 
+  /** @param {string} u */
   function dfs(u) {
     color[u] = GRAY;
-    for (const v of adjMap.get(u) || []) {
-      if (color[v] === undefined) color[v] = WHITE;
+    for (const v of adjMap.get(u) ?? []) {
+      color[v] = color[v] ?? WHITE;
       if (color[v] === GRAY) {
         cycleEdges.add(`${u}-->${v}`);
+        /** @type {string | undefined} */
         let cur = u;
         while (cur && cur !== v) {
+          /** @type {string | undefined} */
           const p = parent[cur];
           if (p !== undefined) cycleEdges.add(`${p}-->${cur}`);
           cur = p;
@@ -1638,6 +1952,12 @@ function graphDetectCycles(adjMap) {
 //    a smooth "river" flow.
 //  - Same-rank / reverse edges (tiny rank delta): S-curve that bows sideways
 //    along the flow axis so arrows don't cut through nodes.
+/**
+ * @param {dagre.Point} p0
+ * @param {dagre.Point} p1
+ * @param {"x" | "y"} F The axis along a rank.
+ * @param {"x" | "y"} R The axis across the ranks.
+ */
 function graphEdgeControls(p0, p1, F, R) {
   const dF = p1[F] - p0[F];
   const dR = p1[R] - p0[R];
@@ -1663,12 +1983,20 @@ function graphEdgeControls(p0, p1, F, R) {
 // Disconnected islands: connected groups of nodes whose every edge is a
 // resource edge — a system nobody requires and that requires nothing, with
 // its Peripheral Resources. Returns one array of node names per island.
+/**
+ * @param {string[]} nodes
+ * @param {GraphEdge[]} deps
+ * @returns {string[][]}
+ */
 function graphIslands(nodes, deps) {
+  // Every node is in the map before `find` runs, so each lookup below finds a name.
+  /** @type {Map<string, string>} */
   const parent = new Map();
+  /** @param {string} n */
   const find = (n) => {
     while (parent.get(n) !== n) {
-      parent.set(n, parent.get(parent.get(n)));
-      n = parent.get(n);
+      parent.set(n, /** @type {string} */ (parent.get(/** @type {string} */ (parent.get(n)))));
+      n = /** @type {string} */ (parent.get(n));
     }
     return n;
   };
@@ -1677,18 +2005,21 @@ function graphIslands(nodes, deps) {
     if (!parent.has(d.client) || !parent.has(d.service)) return;
     parent.set(find(d.client), find(d.service));
   });
+  /** @typedef {{ nodes: string[], allPeripheral: boolean }} GraphIslandGroup */
+  /** @type {Map<string, GraphIslandGroup>} */
   const groups = new Map();
   nodes.forEach((n) => {
     const root = find(n);
     if (!groups.has(root)) groups.set(root, { nodes: [], allPeripheral: true });
-    groups.get(root).nodes.push(n);
+    /** @type {GraphIslandGroup} */ (groups.get(root)).nodes.push(n);
   });
   deps.forEach((d) => {
-    if (!d.peripheral && parent.has(d.client)) groups.get(find(d.client)).allPeripheral = false;
+    if (!d.peripheral && parent.has(d.client))
+      /** @type {GraphIslandGroup} */ (groups.get(find(d.client))).allPeripheral = false;
   });
   return [...groups.values()]
     .filter((grp) => grp.allPeripheral && grp.nodes.length > 1)
-    .map((grp) => grp.nodes.sort());
+    .map((grp) => grp.nodes.sort(graphByCodeUnit));
 }
 window.graphIslands = graphIslands;
 
@@ -1697,6 +2028,20 @@ window.graphIslands = graphIslands;
 // "right" when the graph is taller than wide, "below" otherwise, so the
 // drawing squares up instead of growing along its long side. Without a main
 // graph the flow direction decides.
+/**
+ * A bounding box.
+ * @typedef {object} GraphBox
+ * @property {number} minX
+ * @property {number} minY
+ * @property {number} maxX
+ * @property {number} maxY
+ */
+
+/**
+ * @param {GraphBox | null} box
+ * @param {boolean} isLR
+ * @returns {string}
+ */
 function graphOverflowSide(box, isLR) {
   if (!box) return isLR ? "right" : "below";
   return box.maxY - box.minY > box.maxX - box.minX ? "right" : "below";
@@ -1709,13 +2054,22 @@ window.graphOverflowSide = graphOverflowSide;
 // go to `side` ("right" or "below", see graphOverflowSide) wrapped inside the
 // box's height (right) / width (below), so they never lengthen the long side.
 // Returns the top-left {x, y} of every island, in input order.
+/**
+ * @param {GraphBox | null} box
+ * @param {{ x0: number, y0: number, x1: number, y1: number }[]} obstacles
+ * @param {{ w: number, h: number }[]} islands
+ * @param {string} side
+ * @returns {{ x: number, y: number }[]}
+ */
 function graphPackIslands(box, obstacles, islands, side) {
+  // Every index used below comes from `islands` itself, so each lookup finds an island.
+  /** @typedef {{ w: number, h: number }} Size */
   const CELL = 10;
   const MARGIN = 30;
   const toRight = side === "right";
   const widest = Math.max(0, ...islands.map((i) => i.w));
   const tallest = Math.max(0, ...islands.map((i) => i.h));
-  const frame = box || {
+  const frame = box ?? {
     minX: 0,
     minY: 0,
     maxX: toRight ? 0 : Math.max(widest, 900),
@@ -1724,6 +2078,12 @@ function graphPackIslands(box, obstacles, islands, side) {
   const cols = Math.max(0, Math.floor((frame.maxX - frame.minX) / CELL));
   const rows = Math.max(0, Math.floor((frame.maxY - frame.minY) / CELL));
   const used = new Uint8Array(cols * rows);
+  /**
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   */
   const mark = (x0, y0, x1, y1) => {
     const c0 = Math.max(0, Math.floor((x0 - frame.minX) / CELL));
     const c1 = Math.min(cols - 1, Math.floor((x1 - frame.minX) / CELL));
@@ -1731,21 +2091,36 @@ function graphPackIslands(box, obstacles, islands, side) {
     const r1 = Math.min(rows - 1, Math.floor((y1 - frame.minY) / CELL));
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) used[r * cols + c] = 1;
   };
-  obstacles.forEach((o) => mark(o.x0 - MARGIN, o.y0 - MARGIN, o.x1 + MARGIN, o.y1 + MARGIN));
+  obstacles.forEach((o) => {
+    mark(o.x0 - MARGIN, o.y0 - MARGIN, o.x1 + MARGIN, o.y1 + MARGIN);
+  });
+  /**
+   * @param {number} r0
+   * @param {number} c0
+   * @param {number} rh
+   * @param {number} cw
+   */
   const fits = (r0, c0, rh, cw) => {
     for (let r = r0; r < r0 + rh; r++)
       for (let c = c0; c < c0 + cw; c++) if (used[r * cols + c]) return false;
     return true;
   };
+  /** @type {({ x: number, y: number } | null)[]} */
   const positions = new Array(islands.length).fill(null);
   const order = islands
     .map((_, i) => i)
-    .sort((a, b) => islands[b].w * islands[b].h - islands[a].w * islands[a].h);
+    .sort(
+      (a, b) =>
+        /** @type {Size} */ (islands[b]).w * /** @type {Size} */ (islands[b]).h -
+        /** @type {Size} */ (islands[a]).w * /** @type {Size} */ (islands[a]).h,
+    );
+  /** @type {number[]} */
   const overflow = [];
   if (box) {
     for (const i of order) {
-      const cw = Math.ceil(islands[i].w / CELL);
-      const rh = Math.ceil(islands[i].h / CELL);
+      const cw = Math.ceil(/** @type {Size} */ (islands[i]).w / CELL);
+      const rh = Math.ceil(/** @type {Size} */ (islands[i]).h / CELL);
+      /** @type {{ r: number, c: number } | null} */
       let spot = null;
       for (let r = 0; r + rh <= rows && !spot; r++)
         for (let c = 0; c + cw <= cols && !spot; c++) if (fits(r, c, rh, cw)) spot = { r, c };
@@ -1756,7 +2131,12 @@ function graphPackIslands(box, obstacles, islands, side) {
       const x = frame.minX + spot.c * CELL;
       const y = frame.minY + spot.r * CELL;
       positions[i] = { x, y };
-      mark(x - MARGIN, y - MARGIN, x + islands[i].w + MARGIN, y + islands[i].h + MARGIN);
+      mark(
+        x - MARGIN,
+        y - MARGIN,
+        x + /** @type {Size} */ (islands[i]).w + MARGIN,
+        y + /** @type {Size} */ (islands[i]).h + MARGIN,
+      );
     }
   } else {
     overflow.push(...islands.map((_, i) => i));
@@ -1769,8 +2149,8 @@ function graphPackIslands(box, obstacles, islands, side) {
   let lane = 0;
   const limit = toRight ? frame.maxY : frame.maxX;
   overflow.forEach((i) => {
-    const size = toRight ? islands[i].h : islands[i].w;
-    const depth = toRight ? islands[i].w : islands[i].h;
+    const size = toRight ? /** @type {Size} */ (islands[i]).h : /** @type {Size} */ (islands[i]).w;
+    const depth = toRight ? /** @type {Size} */ (islands[i]).w : /** @type {Size} */ (islands[i]).h;
     const start = toRight ? frame.minY : frame.minX;
     if (across > start && across + size > limit) {
       along += lane + GAP;
@@ -1781,7 +2161,8 @@ function graphPackIslands(box, obstacles, islands, side) {
     across += size + GAP;
     lane = Math.max(lane, depth);
   });
-  return positions;
+  // Every island has its place by now.
+  return /** @type {{ x: number, y: number }[]} */ (positions);
 }
 window.graphPackIslands = graphPackIslands;
 
@@ -1789,6 +2170,11 @@ window.graphPackIslands = graphPackIslands;
 // graphOverflowSide) with one compact chip per member in a dense grid: a
 // column as tall as the graph on the right, a strip as wide as the graph below.
 // `extent` = {minX, minY, maxX, maxY} of everything drawn before it.
+/**
+ * @param {string[]} names
+ * @param {GraphBox | null} extent
+ * @param {string} side
+ */
 function graphLayoutUnrequiredBox(names, extent, side) {
   const toRight = side === "right";
   const CHIP_H = 26;
@@ -1797,7 +2183,7 @@ function graphLayoutUnrequiredBox(names, extent, side) {
   const HEADER = 26;
   const longest = Math.max(0, ...names.map((n) => n.length));
   const cellW = Math.min(220, Math.max(90, longest * 7 + 20));
-  const e = extent || { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  const e = extent ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   let cols;
   let x;
   let y;
@@ -1837,23 +2223,30 @@ window.graphLayoutUnrequiredBox = graphLayoutUnrequiredBox;
 
 // ── Main renderer ────────────────────────────────────────────────────
 
+/**
+ * @param {GraphReportLike} report The filtered report.
+ * @param {SVGSVGElement} svgElement
+ * @param {string} direction "LR" or anything else for top to bottom.
+ */
 function renderCustomGraph(report, svgElement, direction) {
   graphDetachPan();
   // Clear previous content
   while (svgElement.firstChild) svgElement.removeChild(svgElement.firstChild);
 
+  /** @type {Partial<GraphViewSwitches>} */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- The switches are always set by now; the guard is kept so that the served script does not change.
   const switches = window.graphViewSwitches || {};
   // The roles (Consumer, Producer, both) come from the edges as recorded;
   // the topic explode rewires them through topic nodes for drawing only.
-  const roleDeps = report.dependency_graph || [];
+  const roleDeps = report.dependency_graph ?? [];
   const declared = switches.topics
-    ? graphDeclaredChannelEdges(window.graphScopeData, roleDeps, report.unrequired || [])
+    ? graphDeclaredChannelEdges(window.graphScopeData, roleDeps, report.unrequired ?? [])
     : [];
   const deps = switches.topics ? graphExplodeTopics(roleDeps, declared) : roleDeps;
   svgElement.dataset.topics = switches.topics ? "1" : "0";
   // A producer whose published channels are drawn is connected now.
   const publishing = new Set(declared.map((d) => d.client));
-  const unrequired = (report.unrequired || []).filter((p) => !publishing.has(p.name));
+  const unrequired = (report.unrequired ?? []).filter((p) => !publishing.has(p.name));
   if (deps.length === 0 && unrequired.length === 0) {
     const warningDiv = document.getElementById("graph-cycle-warning");
     if (warningDiv) warningDiv.classList.add("hidden");
@@ -1887,6 +2280,7 @@ function renderCustomGraph(report, svgElement, direction) {
   svgElement.dataset.rainbow = rainbow ? "1" : "0";
 
   // Build missing edge keys from report.missing_endpoints
+  /** @type {Set<string>} */
   const missingEdgeKeys = new Set();
   if (report.missing_endpoints) {
     report.missing_endpoints.forEach((me) => {
@@ -1895,8 +2289,11 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   // Build graph data
+  /** @type {Set<string>} */
   const allNodes = new Set();
+  /** @type {Map<string, string[]>} */
   const adjMap = new Map();
+  /** @type {Map<string, GraphEdge[]>} */
   const edgeLabels = new Map(); // "from-->to" -> [dependency, ...]
 
   deps.forEach((d) => {
@@ -1905,16 +2302,19 @@ function renderCustomGraph(report, svgElement, direction) {
     allNodes.add(from);
     allNodes.add(to);
     if (!adjMap.has(from)) adjMap.set(from, []);
-    if (!adjMap.get(from).includes(to)) adjMap.get(from).push(to);
+    if (!(/** @type {string[]} */ (adjMap.get(from)).includes(to)))
+      /** @type {string[]} */ (adjMap.get(from)).push(to);
     const key = `${from}-->${to}`;
     if (!edgeLabels.has(key)) edgeLabels.set(key, []);
-    edgeLabels.get(key).push(d);
+    /** @type {GraphEdge[]} */ (edgeLabels.get(key)).push(d);
   });
 
   const clientNodes = new Set(roleDeps.map((d) => d.client));
   const serviceNodes = new Set(roleDeps.map((d) => d.service));
   // Topic nodes (the Topics switch) and the ones nobody publishes.
+  /** @type {Set<string>} */
   const topicNodes = new Set();
+  /** @type {Set<string>} */
   const unownedTopicNodes = new Set();
   deps.forEach((d) => {
     if (!d.topic_edge) return;
@@ -1947,15 +2347,17 @@ function renderCustomGraph(report, svgElement, direction) {
   // "(unrequired)" box with the rest of the scope's unrequired producers.
 
   // Detect bidirectional PUB/SUB edges (both directions between same pair)
+  /** @type {Set<string>} */
   const pubsubBidirectional = new Set();
+  /** @type {Map<string, Set<string>>} */
   const edgeMethods = new Map(); // "A-->B" -> Set of methods
   deps.forEach((d) => {
     const key = `${d.client}-->${d.service}`;
     if (!edgeMethods.has(key)) edgeMethods.set(key, new Set());
-    edgeMethods.get(key).add((d.method || "").toUpperCase());
+    /** @type {Set<string>} */ (edgeMethods.get(key)).add((d.method || "").toUpperCase());
   });
   for (const [key, methods] of edgeMethods) {
-    const [from, to] = key.split("-->");
+    const [from, to] = /** @type {[string, string]} */ (key.split("-->"));
     const reverseKey = `${to}-->${from}`;
     const reverseMethods = edgeMethods.get(reverseKey);
     if (reverseMethods) {
@@ -1973,6 +2375,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // An unowned harvested subscription points at a missing `<channel> ?` node:
   // its edge is drawn as a missing dependency in every view, not only in dev.
+  /** @type {Set<string>} */
   const unownedChannelNodes = new Set();
   deps.forEach((d) => {
     if (!d.unfulfilled) return;
@@ -1981,6 +2384,7 @@ function renderCustomGraph(report, svgElement, direction) {
   });
 
   // Identify missing services: services where ALL inbound edges are missing
+  /** @type {Set<string>} */
   const missingServices = new Set();
   for (const svc of serviceNodes) {
     const inboundKeys = deps
@@ -2015,7 +2419,9 @@ function renderCustomGraph(report, svgElement, direction) {
   });
   g.setDefaultEdgeLabel(() => ({}));
 
+  /** @type {Map<string, GraphNodeMetrics>} */
   const nodeMetrics = new Map();
+  /** @type {Map<string, ProducerSummary>} */
   const serviceMetaMap = new Map();
   if (report.services_detailed) {
     report.services_detailed.forEach((s) => serviceMetaMap.set(s.name, s));
@@ -2024,10 +2430,12 @@ function renderCustomGraph(report, svgElement, direction) {
   // Grouped, a domain is a dagre cluster and a block of its own; on the
   // nodes, it is only a line and a colour on each node.
   const groupDomains = window.graphDomainsMode !== "node";
+  /** @param {string} node */
   const nodeDomain = (node) => {
     const meta = serviceMetaMap.get(node);
-    return meta && meta.domain ? meta.domain : "";
+    return meta?.domain ?? "";
   };
+  /** @type {Set<string>} */
   const domains = new Set();
   if (groupDomains) {
     for (const node of layoutNodes) {
@@ -2047,7 +2455,7 @@ function renderCustomGraph(report, svgElement, direction) {
       : node.startsWith("topic:") && topicNodes.has(node)
         ? node.slice("topic:".length)
         : node;
-    const m = _measureNode(label, !!(meta && meta.icon));
+    const m = _measureNode(label, !!meta?.icon);
     if (!groupDomains && nodeDomain(node)) {
       // One more line for the domain, below the name.
       m.domain = nodeDomain(node);
@@ -2056,16 +2464,17 @@ function renderCustomGraph(report, svgElement, direction) {
     }
     // Main view: the version label sits bottom-right, beside the requires
     // badges on the bottom-left; keep both on the node.
-    const requiresCount = (nodeBadges.get(node) || { requires: [] }).requires.length;
+    const requiresCount = (nodeBadges.get(node) ?? { requires: [] }).requires.length;
     if (isMainView && requiresCount > 0) m.width = Math.max(m.width, requiresCount * 24 + 70);
     nodeMetrics.set(node, m);
     if (islandNodes.has(node)) continue;
     g.setNode(node, { label: node, width: m.width, height: m.height });
-    if (groupDomains && meta && meta.domain) {
+    if (groupDomains && meta?.domain) {
       g.setParent(node, `domain:${meta.domain}`);
     }
   }
 
+  /** @type {Map<string, number>} */
   const nodeRole = new Map();
   for (const node of allNodes) {
     const isC = clientNodes.has(node);
@@ -2096,6 +2505,7 @@ function renderCustomGraph(report, svgElement, direction) {
   const F = isLR ? "y" : "x";
   const R = isLR ? "x" : "y";
 
+  /** @type {Map<string, number>} */
   const nodeFOffsets = new Map(); // delta along flow axis
   for (const node of layoutNodes) {
     nodeFOffsets.set(node, 0);
@@ -2108,14 +2518,25 @@ function renderCustomGraph(report, svgElement, direction) {
   // both, Producers) side by side, each lane starting at the same offset on
   // every rank so the leftmost nodes line up. Positions are relative to the
   // block's own start; `mid` is where dagre had the block's centre.
+  /**
+   * One node on its rank; the role is 0, 1 or 2 and indexes the three lanes.
+   * @typedef {{ id: string, cf: number, width: number, role: number }} GraphRankUnit
+   */
+  /** @param {string[]} nodes */
   const packBlock = (nodes) => {
+    /** @type {Map<number, GraphRankUnit[]>} */
     const unitsByRank = new Map(); // rankR -> [{id, cf, width, role}]
     for (const node of nodes) {
       const nd = g.node(node);
       const key = Math.round(nd[R]);
       if (!unitsByRank.has(key)) unitsByRank.set(key, []);
       const w = isLR ? nd.height : nd.width;
-      unitsByRank.get(key).push({ id: node, cf: nd[F], width: w, role: nodeRole.get(node) });
+      /** @type {GraphRankUnit[]} */ (unitsByRank.get(key)).push({
+        id: node,
+        cf: nd[F],
+        width: w,
+        role: /** @type {number} */ (nodeRole.get(node)),
+      });
     }
 
     const maxGroupWidth = [0, 0, 0];
@@ -2125,16 +2546,20 @@ function renderCustomGraph(report, svgElement, direction) {
         if (a.role !== b.role) return a.role - b.role;
         return a.cf - b.cf;
       });
+      /** @type {GraphRankUnit[][]} */
       const roleGroups = [[], [], []];
-      units.forEach((u) => roleGroups[u.role].push(u));
+      units.forEach((u) => /** @type {GraphRankUnit[]} */ (roleGroups[u.role]).push(u));
       for (let i = 0; i < 3; i++) {
-        if (roleGroups[i].length > 0) {
-          const w =
-            roleGroups[i].reduce((acc, u) => acc + u.width, 0) + (roleGroups[i].length - 1) * GAP;
-          maxGroupWidth[i] = Math.max(maxGroupWidth[i], w);
+        const group = /** @type {GraphRankUnit[]} */ (roleGroups[i]);
+        if (group.length > 0) {
+          const w = group.reduce((acc, u) => acc + u.width, 0) + (group.length - 1) * GAP;
+          maxGroupWidth[i] = Math.max(/** @type {number} */ (maxGroupWidth[i]), w);
         }
       }
-      sumOldMid += (units[0].cf + units[units.length - 1].cf) / 2;
+      // A rank in the map has a unit at least.
+      const first = /** @type {GraphRankUnit} */ (units[0]);
+      const last = /** @type {GraphRankUnit} */ (units[units.length - 1]);
+      sumOldMid += (first.cf + last.cf) / 2;
     });
 
     // Lane starts from the widest lane of each role.
@@ -2142,21 +2567,25 @@ function renderCustomGraph(report, svgElement, direction) {
     const laneStart = [0, 0, 0];
     for (let i = 0; i < 3; i++) {
       laneStart[i] = currentX;
-      if (maxGroupWidth[i] > 0) {
-        currentX += maxGroupWidth[i];
+      const laneWidth = /** @type {number} */ (maxGroupWidth[i]);
+      if (laneWidth > 0) {
+        currentX += laneWidth;
         let hasRight = false;
-        for (let j = i + 1; j < 3; j++) if (maxGroupWidth[j] > 0) hasRight = true;
+        for (let j = i + 1; j < 3; j++)
+          if (/** @type {number} */ (maxGroupWidth[j]) > 0) hasRight = true;
         if (hasRight) currentX += GROUP_GAP;
       }
     }
 
+    /** @type {Map<string, number>} */
     const local = new Map();
     unitsByRank.forEach((units) => {
+      /** @type {GraphRankUnit[][]} */
       const roleGroups = [[], [], []];
-      units.forEach((u) => roleGroups[u.role].push(u));
+      units.forEach((u) => /** @type {GraphRankUnit[]} */ (roleGroups[u.role]).push(u));
       for (let i = 0; i < 3; i++) {
-        let cursor = laneStart[i];
-        roleGroups[i].forEach((u) => {
+        let cursor = /** @type {number} */ (laneStart[i]);
+        /** @type {GraphRankUnit[]} */ (roleGroups[i]).forEach((u) => {
           local.set(u.id, cursor + u.width / 2);
           cursor += u.width + GAP;
         });
@@ -2176,12 +2605,14 @@ function renderCustomGraph(report, svgElement, direction) {
   // a gap wide enough for two frames' padding; without domains there is one
   // block and the layout is the plain lane packing.
   const DOMAIN_FRAME_PADDING = gaps.framePadding;
+  /** @param {string} node */
   const blockOf = (node) => (groupDomains && nodeDomain(node) ? `domain:${nodeDomain(node)}` : "");
+  /** @type {Map<string, string[]>} */
   const blockNodes = new Map();
   for (const node of layoutNodes) {
     const key = blockOf(node);
     if (!blockNodes.has(key)) blockNodes.set(key, []);
-    blockNodes.get(key).push(node);
+    /** @type {string[]} */ (blockNodes.get(key)).push(node);
   }
   const blocks = [...blockNodes.entries()].map(([key, nodes]) => ({ key, ...packBlock(nodes) }));
   blocks.sort((a, b) => a.mid - b.mid || a.key.localeCompare(b.key));
@@ -2198,7 +2629,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   for (const node of layoutNodes) {
     const nd = g.node(node);
-    nd[F] += nodeFOffsets.get(node) || 0;
+    nd[F] += (nodeFOffsets.get(node) ?? 0) || 0;
   }
 
   // Re-calculate cluster bounds after compaction
@@ -2212,7 +2643,7 @@ function renderCustomGraph(report, svgElement, direction) {
           cMaxX = -Infinity,
           cMaxY = -Infinity;
         children.forEach((childId) => {
-          const child = g.node(childId);
+          const child = /** @type {dagre.Node | undefined} */ (g.node(childId));
           if (!child) return;
           const chw = child.width / 2;
           const chh = child.height / 2;
@@ -2234,6 +2665,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Recompute edge endpoints from final node positions. Anchor on the
   // rank-axis border of each node (top/bottom for TB, left/right for LR).
+  /** @param {dagre.Edge} e */
   const anchorEdge = (e) => {
     const edgeData = g.edge(e);
     const nv = g.node(e.v);
@@ -2262,11 +2694,21 @@ function renderCustomGraph(report, svgElement, direction) {
   // ── Islands: packed into the main graph's empty areas ─────────────
   // The main graph's extent and what occupies it — nodes, domain clusters and
   // the drawn edge curves — so an island never lands on any of them.
+  /**
+   * What `node` gives for a name the graph does not have, or for a cluster the layout gave no
+   * size.
+   * @typedef {(Omit<dagre.Node, "width"> & { width?: number }) | undefined} GraphMaybeNode
+   */
+  /**
+   * @param {string[]} ids
+   * @returns {GraphBox | null}
+   */
   const extentOf = (ids) => {
+    /** @type {GraphBox | null} */
     let box = null;
     ids.forEach((v) => {
-      const n = g.node(v);
-      if (!n || n.width === undefined) return;
+      const n = /** @type {GraphMaybeNode} */ (g.node(v));
+      if (n?.width === undefined) return;
       const b = {
         minX: n.x - n.width / 2,
         minY: n.y - n.height / 2,
@@ -2288,10 +2730,11 @@ function renderCustomGraph(report, svgElement, direction) {
   const overflowSide = graphOverflowSide(extentOf(g.nodes()), isLR);
   if (islands.length > 0) {
     const mainBox = extentOf(g.nodes());
+    /** @type {{ x0: number, y0: number, x1: number, y1: number }[]} */
     const obstacles = [];
     g.nodes().forEach((v) => {
-      const n = g.node(v);
-      if (!n || n.width === undefined) return;
+      const n = /** @type {GraphMaybeNode} */ (g.node(v));
+      if (n?.width === undefined) return;
       obstacles.push({
         x0: n.x - n.width / 2,
         y0: n.y - n.height / 2,
@@ -2300,7 +2743,7 @@ function renderCustomGraph(report, svgElement, direction) {
       });
     });
     g.edges().forEach((e) => {
-      const [p0, p1] = g.edge(e).points;
+      const [p0, p1] = /** @type {[dagre.Point, dagre.Point]} */ (g.edge(e).points);
       const { c1, c2 } = graphEdgeControls(p0, p1, F, R);
       for (let t = 0; t <= 1; t += 0.05) {
         const u = 1 - t;
@@ -2313,32 +2756,41 @@ function renderCustomGraph(report, svgElement, direction) {
     // the next, centred on each other.
     const ISLAND_GAP = 30;
     const ISLAND_RANK = isLR ? 90 : 70;
+    /**
+     * One of the two ranks of an island: its systems, or their resources.
+     * @typedef {object} GraphIslandRank
+     * @property {{ n: string, f: number, r: number }[]} sizes
+     * @property {number} span
+     * @property {number} depth
+     */
     const shapes = islands.map((nodes) => {
-      const ranks = [
-        nodes.filter((n) => !peripheralNodes.has(n)),
-        nodes.filter((n) => peripheralNodes.has(n)),
-      ].map((members) => {
-        const sizes = members.map((n) => {
-          const m = nodeMetrics.get(n);
-          return { n, f: isLR ? m.height : m.width, r: isLR ? m.width : m.height };
-        });
-        const span =
-          sizes.reduce((a, b) => a + b.f, 0) + Math.max(0, sizes.length - 1) * ISLAND_GAP;
-        const depth = Math.max(0, ...sizes.map((x) => x.r));
-        return { sizes, span, depth };
-      });
+      const ranks = /** @type {[GraphIslandRank, GraphIslandRank]} */ (
+        [
+          nodes.filter((n) => !peripheralNodes.has(n)),
+          nodes.filter((n) => peripheralNodes.has(n)),
+        ].map((members) => {
+          const sizes = members.map((n) => {
+            const m = /** @type {GraphNodeMetrics} */ (nodeMetrics.get(n));
+            return { n, f: isLR ? m.height : m.width, r: isLR ? m.width : m.height };
+          });
+          const span =
+            sizes.reduce((a, b) => a + b.f, 0) + Math.max(0, sizes.length - 1) * ISLAND_GAP;
+          const depth = Math.max(0, ...sizes.map((x) => x.r));
+          return { sizes, span, depth };
+        })
+      );
       const span = Math.max(ranks[0].span, ranks[1].span);
       const depth = ranks[0].depth + ISLAND_RANK + ranks[1].depth;
       return { ranks, span, depth, w: isLR ? depth : span, h: isLR ? span : depth };
     });
     const spots = graphPackIslands(mainBox, obstacles, shapes, overflowSide);
     shapes.forEach((shape, i) => {
-      const spot = spots[i];
+      const spot = /** @type {{ x: number, y: number }} */ (spots[i]);
       let rankStart = 0;
       shape.ranks.forEach((rank) => {
         let cursor = (shape.span - rank.span) / 2;
         rank.sizes.forEach(({ n, f }) => {
-          const m = nodeMetrics.get(n);
+          const m = /** @type {GraphNodeMetrics} */ (nodeMetrics.get(n));
           const along = rankStart + rank.depth / 2; // rank axis, centred on the rank
           const across = cursor + f / 2;
           g.setNode(n, {
@@ -2355,7 +2807,7 @@ function renderCustomGraph(report, svgElement, direction) {
     });
     islands.forEach((nodes) => {
       nodes.forEach((from) => {
-        (adjMap.get(from) || []).forEach((to) => {
+        (adjMap.get(from) ?? []).forEach((to) => {
           g.setEdge(from, to);
           anchorEdge({ v: from, w: to });
         });
@@ -2367,7 +2819,7 @@ function renderCustomGraph(report, svgElement, direction) {
   const unrequiredBox =
     unrequired.length > 0
       ? graphLayoutUnrequiredBox(
-          unrequired.map((p) => p.name).sort(),
+          unrequired.map((p) => p.name).sort(graphByCodeUnit),
           extentOf(g.nodes()),
           overflowSide,
         )
@@ -2379,8 +2831,8 @@ function renderCustomGraph(report, svgElement, direction) {
     maxX = -Infinity,
     maxY = -Infinity;
   g.nodes().forEach((v) => {
-    const node = g.node(v);
-    if (!node || node.width === undefined) return;
+    const node = /** @type {GraphMaybeNode} */ (g.node(v));
+    if (node?.width === undefined) return;
     const hw = node.width / 2;
     const hh = node.height / 2;
     minX = Math.min(minX, node.x - hw);
@@ -2418,26 +2870,30 @@ function renderCustomGraph(report, svgElement, direction) {
         Number.parseFloat(getComputedStyle(holder).paddingTop) -
         Number.parseFloat(getComputedStyle(holder).paddingBottom)
       : window.innerHeight - svgElement.getBoundingClientRect().top - 40;
-  svgElement.style.height = Math.max(availableH, 300) + "px";
+  svgElement.style.height = String(Math.max(availableH, 300)) + "px";
   const vw = svgElement.clientWidth;
   const vh = svgElement.clientHeight;
-  svgElement.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
+  svgElement.setAttribute("viewBox", `0 0 ${String(vw)} ${String(vh)}`);
 
   // The rainbow's colours, one per source of the drawn edges.
   const rainbowIndex = graphRainbowIndexes(g.edges().map((e) => e.v));
   const rainbowPalette = rainbow ? graphRainbowPalette(rainbowIndex.size) : [];
-  const rainbowColor = (name) => rainbowPalette[rainbowIndex.get(name)];
-  const rainbowMarker = (name) => `url(#arrow-rainbow-${rainbowIndex.get(name)})`;
+  // Asked for the source of a drawn edge only, which has its index and its colour.
+  /** @param {string} name */
+  const rainbowColor = (name) =>
+    /** @type {string} */ (rainbowPalette[/** @type {number} */ (rainbowIndex.get(name))]);
+  /** @param {string} name */
+  const rainbowMarker = (name) => `url(#arrow-rainbow-${String(rainbowIndex.get(name))})`;
 
   // Defs for arrowheads
   const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  [
+  /** @type {[string, string][]} */ ([
     ["arrow", "#94a3b8"],
     ["arrow-red", "#a855f7"],
     ["arrow-orange", "#f97316"],
     ["arrow-green", "#22c55e"],
-    ...rainbowPalette.map((color, i) => [`arrow-rainbow-${i}`, color]),
-  ].forEach(([id, color]) => {
+    ...rainbowPalette.map((color, i) => [`arrow-rainbow-${String(i)}`, color]),
+  ]).forEach(([id, color]) => {
     const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
     marker.setAttribute("id", id);
     marker.setAttribute("viewBox", "0 0 10 10");
@@ -2461,13 +2917,14 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // ── Render clusters ──────────────────────────────────────────────
   g.nodes().forEach((v) => {
-    const node = g.node(v);
+    // A cluster was given its domain as the label.
+    const node = /** @type {dagre.Node & { label: string }} */ (g.node(v));
     if (v.startsWith("domain:")) {
       const cluster = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      cluster.setAttribute("x", node.x - node.width / 2);
-      cluster.setAttribute("y", node.y - node.height / 2);
-      cluster.setAttribute("width", node.width);
-      cluster.setAttribute("height", node.height);
+      cluster.setAttribute("x", String(node.x - node.width / 2));
+      cluster.setAttribute("y", String(node.y - node.height / 2));
+      cluster.setAttribute("width", String(node.width));
+      cluster.setAttribute("height", String(node.height));
       cluster.setAttribute("rx", "12");
       cluster.setAttribute("ry", "12");
       cluster.dataset.domain = node.label;
@@ -2478,8 +2935,8 @@ function renderCustomGraph(report, svgElement, direction) {
       mainG.appendChild(cluster);
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", node.x - node.width / 2 + 10);
-      label.setAttribute("y", node.y - node.height / 2 + 17);
+      label.setAttribute("x", String(node.x - node.width / 2 + 10));
+      label.setAttribute("y", String(node.y - node.height / 2 + 17));
       label.dataset.domainLabel = node.label;
       label.setAttribute("fill", color.text);
       label.setAttribute("font-size", "12");
@@ -2498,10 +2955,10 @@ function renderCustomGraph(report, svgElement, direction) {
     boxG.setAttribute("id", "graph-unrequired-box");
     boxG.dataset.unrequiredBox = "1";
     const frame = document.createElementNS(ns, "rect");
-    frame.setAttribute("x", unrequiredBox.x);
-    frame.setAttribute("y", unrequiredBox.y);
-    frame.setAttribute("width", unrequiredBox.w);
-    frame.setAttribute("height", unrequiredBox.h);
+    frame.setAttribute("x", String(unrequiredBox.x));
+    frame.setAttribute("y", String(unrequiredBox.y));
+    frame.setAttribute("width", String(unrequiredBox.w));
+    frame.setAttribute("height", String(unrequiredBox.h));
     frame.setAttribute("rx", "12");
     frame.setAttribute("fill", "#f8fafc");
     frame.setAttribute("stroke", "#94a3b8");
@@ -2509,8 +2966,8 @@ function renderCustomGraph(report, svgElement, direction) {
     frame.setAttribute("stroke-dasharray", "6 4");
     boxG.appendChild(frame);
     const title = document.createElementNS(ns, "text");
-    title.setAttribute("x", unrequiredBox.x + 12);
-    title.setAttribute("y", unrequiredBox.y + 20);
+    title.setAttribute("x", String(unrequiredBox.x + 12));
+    title.setAttribute("y", String(unrequiredBox.y + 20));
     title.setAttribute("fill", "#64748b");
     title.setAttribute("font-size", "12");
     title.setAttribute("font-weight", "bold");
@@ -2524,10 +2981,10 @@ function renderCustomGraph(report, svgElement, direction) {
       const chipExternal = !!serviceMetaMap.get(chip.name)?.external;
       if (chipExternal) chipG.dataset.external = "1";
       const r = document.createElementNS(ns, "rect");
-      r.setAttribute("x", chip.x);
-      r.setAttribute("y", chip.y);
-      r.setAttribute("width", chip.w);
-      r.setAttribute("height", chip.h);
+      r.setAttribute("x", String(chip.x));
+      r.setAttribute("y", String(chip.y));
+      r.setAttribute("width", String(chip.w));
+      r.setAttribute("height", String(chip.h));
       r.setAttribute("rx", "6");
       r.setAttribute("fill", chipExternal ? "#e5e7eb" : "#e0e7ff");
       r.setAttribute("stroke", "#6366f1");
@@ -2535,8 +2992,8 @@ function renderCustomGraph(report, svgElement, direction) {
       chipG.appendChild(r);
       const maxChars = Math.floor((chip.w - 16) / 7);
       const t = document.createElementNS(ns, "text");
-      t.setAttribute("x", chip.x + chip.w / 2);
-      t.setAttribute("y", chip.y + chip.h / 2);
+      t.setAttribute("x", String(chip.x + chip.w / 2));
+      t.setAttribute("y", String(chip.y + chip.h / 2));
       t.setAttribute("text-anchor", "middle");
       t.setAttribute("dominant-baseline", "central");
       t.setAttribute("fill", "#3730a3");
@@ -2554,19 +3011,21 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   // ── Render edges ─────────────────────────────────────────────────
+  /** @type {Map<string, GraphEdgeElements>} */
   const edgeElements = new Map(); // "from-->to" -> { path, hitArea }
 
   g.edges().forEach((e) => {
     const edgeData = g.edge(e);
     const key = `${e.v}-->${e.w}`;
     const isCycle = cycleEdges.has(key);
-    const points = edgeData.points;
-    const p0 = points[0];
-    const p1 = points[points.length - 1];
+    // Every edge was given its two points by `anchorEdge`.
+    const points = /** @type {dagre.Point[]} */ (edgeData.points);
+    const p0 = /** @type {dagre.Point} */ (points[0]);
+    const p1 = /** @type {dagre.Point} */ (points[points.length - 1]);
 
     // Elegant cubic Bezier routing, rank-axis aware (see graphEdgeControls).
     const { c1, c2 } = graphEdgeControls(p0, p1, F, R);
-    const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`;
+    const d = `M ${String(p0.x)} ${String(p0.y)} C ${String(c1.x)} ${String(c1.y)}, ${String(c2.x)} ${String(c2.y)}, ${String(p1.x)} ${String(p1.y)}`;
 
     // Invisible wide hit area for hover
     const hitArea = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -2584,8 +3043,8 @@ function renderCustomGraph(report, svgElement, direction) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     const isBidirectionalPubSub = pubsubBidirectional.has(key);
-    const firstDep = (edgeLabels.get(key) || [])[0];
-    const hFlags = edgeHighlightFlags.get(firstDep && firstDep.flag_key ? firstDep.flag_key : key);
+    const firstDep = (edgeLabels.get(key) ?? [])[0];
+    const hFlags = edgeHighlightFlags.get((firstDep?.flag_key ?? "") || key);
     // One decision for colour, width and dash together: they were previously
     // set in separate passes, and the later pass overwrote the dash the
     // stale/dangling branches had just chosen.
@@ -2608,7 +3067,7 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       dashArray = "6 3";
       markerEnd = "url(#arrow-orange)";
-    } else if (hFlags && hFlags.dangling) {
+    } else if (hFlags?.dangling) {
       // The pinned version no longer exists (deleted); heals on re-provide.
       // Ranked above the messaging shapes below: those describe how an edge is
       // wired, this says the edge points at nothing. ADR-0005's "never
@@ -2618,7 +3077,7 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       dashArray = "2 5";
       markerEnd = "url(#arrow-orange)";
-    } else if (hFlags && hFlags.stale) {
+    } else if (hFlags?.stale) {
       // Main view: the pin was not refreshed since the staleness boundary.
       edgeColor = "#f59e0b";
       edgeWidth = "2";
@@ -2629,7 +3088,7 @@ function renderCustomGraph(report, svgElement, direction) {
       edgeWidth = "2";
       dashArray = "6 3";
       markerEnd = "";
-    } else if (hFlags && hFlags.conflict) {
+    } else if (hFlags?.conflict) {
       // Main view: the pin lags the producer's trunk version by a major.
       edgeColor = "#dc2626";
       edgeWidth = "3";
@@ -2654,12 +3113,12 @@ function renderCustomGraph(report, svgElement, direction) {
     // Independent highlight flags + base styling, so the Outdated /
     // Snapshot-pinned toggles can restyle and restore without a redraw. The
     // stale/dangling colors live in edgeColor above, so baseStroke keeps them.
-    path.dataset.outdated = hFlags && hFlags.outdated ? "1" : "0";
-    path.dataset.breakingOutdated = hFlags && hFlags.breakingOutdated ? "1" : "0";
-    path.dataset.snapshot = hFlags && hFlags.snapshot ? "1" : "0";
-    path.dataset.conflict = hFlags && hFlags.conflict ? "1" : "0";
-    path.dataset.stale = hFlags && hFlags.stale ? "1" : "0";
-    path.dataset.dangling = hFlags && hFlags.dangling ? "1" : "0";
+    path.dataset.outdated = hFlags?.outdated ? "1" : "0";
+    path.dataset.breakingOutdated = hFlags?.breakingOutdated ? "1" : "0";
+    path.dataset.snapshot = hFlags?.snapshot ? "1" : "0";
+    path.dataset.conflict = hFlags?.conflict ? "1" : "0";
+    path.dataset.stale = hFlags?.stale ? "1" : "0";
+    path.dataset.dangling = hFlags?.dangling ? "1" : "0";
     path.dataset.baseStroke = edgeColor;
     path.dataset.baseWidth = edgeWidth;
     if (dashArray) path.setAttribute("stroke-dasharray", dashArray);
@@ -2669,6 +3128,7 @@ function renderCustomGraph(report, svgElement, direction) {
   });
 
   // ── Render nodes ─────────────────────────────────────────────────
+  /** @type {Map<string, SVGGElement>} */
   const nodeElements = new Map(); // nodeName -> group element
 
   for (const node of allNodes) {
@@ -2677,7 +3137,7 @@ function renderCustomGraph(report, svgElement, direction) {
     const isService = serviceNodes.has(node);
 
     const isMissingService = missingServices.has(node);
-    const badges = nodeBadges.get(node) || { provides: [], requires: [] };
+    const badges = nodeBadges.get(node) ?? { provides: [], requires: [] };
 
     // Determine node colors
     let fill, stroke, textColor;
@@ -2747,10 +3207,10 @@ function renderCustomGraph(report, svgElement, direction) {
 
     // Draw standard rectangle
     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", cx - hw);
-    rect.setAttribute("y", cy - hh);
-    rect.setAttribute("width", nd.width);
-    rect.setAttribute("height", nd.height);
+    rect.setAttribute("x", String(cx - hw));
+    rect.setAttribute("y", String(cy - hh));
+    rect.setAttribute("width", String(nd.width));
+    rect.setAttribute("height", String(nd.height));
     rect.setAttribute("rx", "8");
     rect.setAttribute("ry", "8");
     rect.setAttribute("fill", fill);
@@ -2764,8 +3224,8 @@ function renderCustomGraph(report, svgElement, direction) {
     // Top-left "!" for a missing service.
     if (isMissingService) {
       const sym = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      sym.setAttribute("x", cx - hw + 8);
-      sym.setAttribute("y", cy - hh + 13);
+      sym.setAttribute("x", String(cx - hw + 8));
+      sym.setAttribute("y", String(cy - hh + 13));
       sym.setAttribute("font-size", "12");
       sym.setAttribute("font-weight", "bold");
       sym.setAttribute("fill", textColor);
@@ -2777,10 +3237,10 @@ function renderCustomGraph(report, svgElement, direction) {
     // Double border for "both" nodes
     if (isClient && isService && !isPeripheralNode) {
       const inner = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      inner.setAttribute("x", nd.x - nd.width / 2 + 4);
-      inner.setAttribute("y", nd.y - nd.height / 2 + 4);
-      inner.setAttribute("width", nd.width - 8);
-      inner.setAttribute("height", nd.height - 8);
+      inner.setAttribute("x", String(nd.x - nd.width / 2 + 4));
+      inner.setAttribute("y", String(nd.y - nd.height / 2 + 4));
+      inner.setAttribute("width", String(nd.width - 8));
+      inner.setAttribute("height", String(nd.height - 8));
       inner.setAttribute("rx", "5");
       inner.setAttribute("ry", "5");
       inner.setAttribute("fill", "none");
@@ -2790,7 +3250,7 @@ function renderCustomGraph(report, svgElement, direction) {
       group.appendChild(inner);
     }
 
-    const m = nodeMetrics.get(node);
+    const m = /** @type {GraphNodeMetrics} */ (nodeMetrics.get(node));
     const meta = serviceMetaMap.get(node);
     const lineH = 20;
     const totalTextH = m.lines.length * lineH;
@@ -2801,17 +3261,20 @@ function renderCustomGraph(report, svgElement, direction) {
       const color = graphDomainColor(m.domain);
       group.dataset.nodeDomain = m.domain;
       const edge = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      edge.setAttribute("x", cx - hw + 2);
-      edge.setAttribute("y", cy - hh + 6);
+      edge.setAttribute("x", String(cx - hw + 2));
+      edge.setAttribute("y", String(cy - hh + 6));
       edge.setAttribute("width", "4");
-      edge.setAttribute("height", Math.max(0, nd.height - 12));
+      edge.setAttribute("height", String(Math.max(0, nd.height - 12)));
       edge.setAttribute("rx", "2");
       edge.setAttribute("fill", color.border);
       edge.dataset.domainEdge = "1";
       group.appendChild(edge);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      line.setAttribute("x", nd.x);
-      line.setAttribute("y", nd.y + totalTextH / 2 + domainShift - GRAPH_DOMAIN_LINE_H / 2 + 2);
+      line.setAttribute("x", String(nd.x));
+      line.setAttribute(
+        "y",
+        String(nd.y + totalTextH / 2 + domainShift - GRAPH_DOMAIN_LINE_H / 2 + 2),
+      );
       line.setAttribute("text-anchor", "middle");
       line.setAttribute("dominant-baseline", "central");
       line.setAttribute("fill", color.text);
@@ -2822,24 +3285,24 @@ function renderCustomGraph(report, svgElement, direction) {
       line.textContent = m.domain;
       group.appendChild(line);
     }
-    const hasIcon = !!(meta && meta.icon);
+    const hasIcon = !!meta?.icon;
     const textXOffset = hasIcon ? 15 : 0;
 
     if (hasIcon) {
       const iconText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      iconText.setAttribute("x", nd.x - m.width / 2 + 20);
-      iconText.setAttribute("y", nd.y);
+      iconText.setAttribute("x", String(nd.x - m.width / 2 + 20));
+      iconText.setAttribute("y", String(nd.y));
       iconText.setAttribute("text-anchor", "middle");
       iconText.setAttribute("dominant-baseline", "central");
       iconText.setAttribute("font-size", "20");
-      iconText.textContent = meta.icon;
+      iconText.textContent = /** @type {string} */ (meta.icon);
       group.appendChild(iconText);
     }
 
     m.lines.forEach((line, i) => {
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", nd.x + textXOffset);
-      text.setAttribute("y", nd.y - totalTextH / 2 - domainShift + i * lineH + lineH / 2);
+      text.setAttribute("x", String(nd.x + textXOffset));
+      text.setAttribute("y", String(nd.y - totalTextH / 2 - domainShift + i * lineH + lineH / 2));
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("dominant-baseline", "central");
       text.setAttribute("fill", textColor);
@@ -2860,23 +3323,22 @@ function renderCustomGraph(report, svgElement, direction) {
     // Main view: label the producer with its trunk version.
     if (isMainView && trunkVersionMap) {
       const trunkV =
-        trunkVersionMap.get(`${node}|openapi`) ||
-        trunkVersionMap.get(`${node}|asyncapi`) ||
+        (trunkVersionMap.get(`${node}|openapi`) ?? "") ||
+        (trunkVersionMap.get(`${node}|asyncapi`) ?? "") ||
         trunkVersionMap.get(`${node}|proto`);
       if (trunkV) {
         const svcMeta = serviceMetaMap.get(node);
         const staleBefore = report.trunk_stale_before;
-        const newestTrunkStamp = ((svcMeta && svcMeta.versions) || [])
-          .filter((v) => v.trunk_provided_at)
-          .map((v) => v.trunk_provided_at)
-          .sort()
+        const newestTrunkStamp = (svcMeta?.versions ?? [])
+          .flatMap((v) => (v.trunk_provided_at ? [v.trunk_provided_at] : []))
+          .sort(graphByCodeUnit)
           .pop();
         const isStale = staleBefore && newestTrunkStamp && newestTrunkStamp < staleBefore;
         const vText = document.createElementNS("http://www.w3.org/2000/svg", "text");
         // Bottom-right when requires badges take the bottom-left.
         const besideBadges = badges.requires.length > 0;
-        vText.setAttribute("x", besideBadges ? nd.x + nd.width / 2 - 8 : nd.x);
-        vText.setAttribute("y", nd.y + nd.height / 2 - 7);
+        vText.setAttribute("x", String(besideBadges ? nd.x + nd.width / 2 - 8 : nd.x));
+        vText.setAttribute("y", String(nd.y + nd.height / 2 - 7));
         vText.setAttribute("text-anchor", besideBadges ? "end" : "middle");
         vText.setAttribute("fill", isStale ? "#f59e0b" : textColor);
         vText.setAttribute("font-size", "10");
@@ -2906,12 +3368,17 @@ function renderCustomGraph(report, svgElement, direction) {
   }
 
   // ── Tooltip ──────────────────────────────────────────────────────
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let tooltipHideTimer = null;
   // Hovering opens the panel only after the mouse has rested on a node or
   // edge for a while: a cursor crossing the graph must not pop panels along
   // its way. Once a panel is open, moving onto a neighbour switches at once.
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let tooltipShowTimer = null;
-  let tooltip = document.getElementById("graph-tooltip");
+  // Typed as present for the functions below, which run once it is: on the first draw the
+  // lookup finds nothing and the panel is made here.
+  let tooltip = /** @type {HTMLElement} */ (document.getElementById("graph-tooltip"));
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- On the first draw the panel does not exist yet, whatever the type above says.
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.id = "graph-tooltip";
@@ -2927,8 +3394,15 @@ function renderCustomGraph(report, svgElement, direction) {
       tooltipHideTimer = null;
     }
   };
-  tooltip.onmouseleave = () => hideTooltip();
+  tooltip.onmouseleave = () => {
+    hideTooltip();
+  };
 
+  /**
+   * @param {MouseEvent} e
+   * @param {string} from
+   * @param {string} to
+   */
   function showTooltip(e, from, to) {
     if (tooltipHideTimer) {
       clearTimeout(tooltipHideTimer);
@@ -2959,7 +3433,7 @@ function renderCustomGraph(report, svgElement, direction) {
               return `<div class="text-slate-300 text-[11px] py-1"><span class="font-mono text-indigo-400 font-bold">${_graphEscapeHtml(method)}</span> <span class="font-mono">${_graphEscapeHtml(path)}</span> <span class="text-slate-500">(nobody provides this channel yet)</span></div>`;
             }
 
-            const url = `/yaml.html?service=${encodeURIComponent(to)}&api_type=${encodeURIComponent(type)}&version=${encodeURIComponent(d.version || "")}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
+            const url = `/yaml.html?service=${encodeURIComponent(to)}&api_type=${encodeURIComponent(type)}&version=${encodeURIComponent((d.version ?? "") || "")}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
 
             let methodClass = "text-indigo-400";
             if (method === "POST" || method === "PUB") methodClass = "text-emerald-400";
@@ -2978,7 +3452,7 @@ function renderCustomGraph(report, svgElement, direction) {
                   <span class="font-mono text-[11px] ${methodClass} font-bold">${_graphEscapeHtml(method)}</span>
                   ${deprecatedBadge}
                 </div>
-                <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)} ${_graphEscapeHtml(String(d.version || ""))}${d.stability === "snapshot" ? ' <span class="text-amber-400 font-bold">SNAP</span>' : ""}</span>
+                <span class="text-[10px] text-slate-500 group-hover:text-indigo-300 transition-colors">${_graphEscapeHtml(type)} ${_graphEscapeHtml(String((d.version ?? "") || ""))}${d.stability === "snapshot" ? ' <span class="text-amber-400 font-bold">SNAP</span>' : ""}</span>
               </div>
               <div class="font-mono text-[11px] text-slate-300 truncate group-hover:text-white transition-colors" title="${_graphEscapeHtml(path)}">${_graphEscapeHtml(path)}</div>
               ${supersededBy ? `<div data-superseded class="text-[10px] text-rose-400 font-semibold">superseded by ${_graphEscapeHtml(supersededBy)} ga</div>` : ""}
@@ -2995,8 +3469,8 @@ function renderCustomGraph(report, svgElement, direction) {
     let x = e.clientX + 8;
     let y = e.clientY + 8;
 
-    tooltip.style.left = x + "px";
-    tooltip.style.top = y + "px";
+    tooltip.style.left = String(x) + "px";
+    tooltip.style.top = String(y) + "px";
 
     // Check for viewport overflow
     const rect = tooltip.getBoundingClientRect();
@@ -3007,13 +3481,18 @@ function renderCustomGraph(report, svgElement, direction) {
       y = e.clientY - rect.height - 4;
     }
 
-    tooltip.style.left = Math.max(10, x) + "px";
-    tooltip.style.top = Math.max(10, y) + "px";
+    tooltip.style.left = String(Math.max(10, x)) + "px";
+    tooltip.style.top = String(Math.max(10, y)) + "px";
     tooltip.style.opacity = "1";
   }
 
   // `member`: the scope producer behind an "(unrequired)" chip, whose panel
   // adds its version lines and when it was last provided.
+  /**
+   * @param {MouseEvent} e
+   * @param {string} name
+   * @param {GraphScopeProducer} [member]
+   */
   function showNodeTooltip(e, name, member) {
     if (tooltipHideTimer) {
       clearTimeout(tooltipHideTimer);
@@ -3027,8 +3506,8 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="text-[11px] text-slate-400 mt-1">Subscribed to in an AsyncAPI document, but no Producer publishes this channel yet.</div>
       `;
       tooltip.style.display = "block";
-      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
-      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.left = String(Math.max(10, e.clientX + 8)) + "px";
+      tooltip.style.top = String(Math.max(10, e.clientY + 8)) + "px";
       tooltip.style.opacity = "1";
       return;
     }
@@ -3037,11 +3516,12 @@ function renderCustomGraph(report, svgElement, direction) {
       const publishers = deps
         .filter((d) => d.topic_edge && d.service === name)
         .map((d) => d.client)
-        .sort();
+        .sort(graphByCodeUnit);
       const subscribers = deps
         .filter((d) => d.topic_edge && d.client === name)
         .map((d) => d.service)
-        .sort();
+        .sort(graphByCodeUnit);
+      /** @param {string[]} items */
       const list = (items) =>
         items.length
           ? items.map((n) => `<span class="font-mono">${_graphEscapeHtml(n)}</span>`).join(", ")
@@ -3053,8 +3533,8 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="text-[11px] text-slate-300" data-panel="subscribers">Subscribed by ${list(subscribers)}</div>
       `;
       tooltip.style.display = "block";
-      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
-      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.left = String(Math.max(10, e.clientX + 8)) + "px";
+      tooltip.style.top = String(Math.max(10, e.clientY + 8)) + "px";
       tooltip.style.opacity = "1";
       return;
     }
@@ -3063,15 +3543,15 @@ function renderCustomGraph(report, svgElement, direction) {
       const dependents = deps
         .filter((d) => d.peripheral && d.service === name)
         .map((d) => d.client)
-        .sort();
+        .sort(graphByCodeUnit);
       tooltip.innerHTML = `
         <div class="text-[10px] text-orange-400 font-bold uppercase tracking-wider mb-0.5">Missing component</div>
         <div class="font-bold text-white break-all">${_graphEscapeHtml(graphPeripheralLabel(name))}</div>
         <div class="text-[11px] text-slate-400 mt-1">Declared under dependsOn in the Backstage catalog-info of ${_graphEscapeHtml(dependents.join(", "))}, but no Sanshain system of that name provides or requires anything yet.</div>
       `;
       tooltip.style.display = "block";
-      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
-      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.left = String(Math.max(10, e.clientX + 8)) + "px";
+      tooltip.style.top = String(Math.max(10, e.clientY + 8)) + "px";
       tooltip.style.opacity = "1";
       return;
     }
@@ -3083,8 +3563,8 @@ function renderCustomGraph(report, svgElement, direction) {
         <div class="text-[11px] text-slate-400 mt-1">Outside Sanshain — declared in a system's Backstage catalog-info.yaml (dependsOn).</div>
       `;
       tooltip.style.display = "block";
-      tooltip.style.left = Math.max(10, e.clientX + 8) + "px";
-      tooltip.style.top = Math.max(10, e.clientY + 8) + "px";
+      tooltip.style.left = String(Math.max(10, e.clientX + 8)) + "px";
+      tooltip.style.top = String(Math.max(10, e.clientY + 8)) + "px";
       tooltip.style.opacity = "1";
       return;
     }
@@ -3092,7 +3572,7 @@ function renderCustomGraph(report, svgElement, direction) {
     // What the node provides and requires, as the badges show it — a chip's
     // producer has no edges, so it only provides its scoped lines.
     const badges = member
-      ? graphNodeBadges({}, []).get(name) || { provides: [], requires: [] }
+      ? (graphNodeBadges({}, []).get(name) ?? { provides: [], requires: [] })
       : nodeBadges.get(name);
     const lastProvided = member ? graphLastProvided(member.versions) : null;
     const memberLines = member
@@ -3101,8 +3581,8 @@ function renderCustomGraph(report, svgElement, direction) {
       : "";
     // Owner, description and link chips from the system's catalog-info
     // (#48), below the version lines; rides the scope payload.
-    const systems = (window.graphScopeData && window.graphScopeData.systems) || {};
-    const annotations = (window.graphScopeData && window.graphScopeData.system_annotations) || {};
+    const systems = window.graphScopeData?.systems ?? {};
+    const annotations = window.graphScopeData?.system_annotations ?? {};
     const contextBlock =
       systemContextHtml(systems[name], true) + annotationsHtml(annotations[name], true);
     const contextLines = contextBlock ? `<div class="mt-2">${contextBlock}</div>` : "";
@@ -3112,7 +3592,7 @@ function renderCustomGraph(report, svgElement, direction) {
     // node missing from it consumes without providing — sending it to
     // producers.html asks for a version line that does not exist and lands on
     // "Fetch error: 404".
-    const isProducer = (report?.services_detailed || []).some((s) => s.name === name);
+    const isProducer = (report.services_detailed ?? []).some((s) => s.name === name);
     const href = isProducer
       ? `/producers.html?service=${encodeURIComponent(name)}`
       : `/consumers.html?name=${encodeURIComponent(name)}`;
@@ -3139,15 +3619,15 @@ function renderCustomGraph(report, svgElement, direction) {
     // Position — overlap cursor by 2px so mouse can reach tooltip without gap
     let x = e.clientX + 8;
     let y = e.clientY + 8;
-    tooltip.style.left = x + "px";
-    tooltip.style.top = y + "px";
+    tooltip.style.left = String(x) + "px";
+    tooltip.style.top = String(y) + "px";
 
     const rect = tooltip.getBoundingClientRect();
     if (x + rect.width > window.innerWidth - 20) x = e.clientX - rect.width - 4;
     if (y + rect.height > window.innerHeight - 20) y = e.clientY - rect.height - 4;
 
-    tooltip.style.left = Math.max(10, x) + "px";
-    tooltip.style.top = Math.max(10, y) + "px";
+    tooltip.style.left = String(Math.max(10, x)) + "px";
+    tooltip.style.top = String(Math.max(10, y)) + "px";
     tooltip.style.opacity = "1";
   }
 
@@ -3158,6 +3638,10 @@ function renderCustomGraph(report, svgElement, direction) {
     }, 300);
   }
 
+  /**
+   * @param {(e: MouseEvent) => void} show
+   * @returns {(e: MouseEvent) => void}
+   */
   const hoverThen = (show) => (e) => {
     if (tooltipShowTimer) clearTimeout(tooltipShowTimer);
     if (tooltip.style.display === "block") {
@@ -3178,36 +3662,56 @@ function renderCustomGraph(report, svgElement, direction) {
   };
 
   // Edge hover
-  mainG.querySelectorAll(".edge-hit, .graph-edge").forEach((el) => {
+  /** @type {NodeListOf<SVGPathElement>} */ (
+    mainG.querySelectorAll(".edge-hit, .graph-edge")
+  ).forEach((el) => {
     el.addEventListener(
       "mouseenter",
-      hoverThen((e) => showTooltip(e, el.dataset.from, el.dataset.to)),
+      hoverThen((e) => {
+        showTooltip(
+          e,
+          /** @type {string} */ (el.dataset.from),
+          /** @type {string} */ (el.dataset.to),
+        );
+      }),
     );
     el.addEventListener("mouseleave", leave);
   });
 
   // Node hover
-  mainG.querySelectorAll(".graph-node").forEach((el) => {
+  /** @type {NodeListOf<SVGGElement>} */ (mainG.querySelectorAll(".graph-node")).forEach((el) => {
     el.addEventListener(
       "mouseenter",
-      hoverThen((e) => showNodeTooltip(e, el.dataset.node)),
+      hoverThen((e) => {
+        showNodeTooltip(e, /** @type {string} */ (el.dataset.node));
+      }),
     );
     el.addEventListener("mouseleave", leave);
   });
 
   // An "(unrequired)" chip opens the node panel on click.
-  mainG.querySelectorAll(".graph-unrequired-chip").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      showNodeTooltip(e, el.dataset.chip, unrequiredByName.get(el.dataset.chip));
-    });
-    el.addEventListener("mousedown", (e) => e.stopPropagation());
-    el.addEventListener("mouseleave", hideTooltip);
-  });
+  /** @type {NodeListOf<SVGGElement>} */ (mainG.querySelectorAll(".graph-unrequired-chip")).forEach(
+    (el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showNodeTooltip(
+          e,
+          /** @type {string} */ (el.dataset.chip),
+          unrequiredByName.get(/** @type {string} */ (el.dataset.chip)),
+        );
+      });
+      el.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+      });
+      el.addEventListener("mouseleave", hideTooltip);
+    },
+  );
 
   // ── Click-to-highlight ───────────────────────────────────────────
+  /** @type {string | null} */
   let highlighted = null;
 
+  /** @param {string} nodeName */
   function highlightNode(nodeName) {
     if (highlighted === nodeName) {
       clearHighlight();
@@ -3216,9 +3720,11 @@ function renderCustomGraph(report, svgElement, direction) {
     highlighted = nodeName;
 
     // Find connected nodes (direct neighbors)
+    /** @type {Set<string | undefined>} */
     const connected = new Set([nodeName]);
+    /** @type {Set<string>} */
     const connectedEdges = new Set();
-    for (const [key, labels] of edgeLabels) {
+    for (const [key] of edgeLabels) {
       const [from, to] = key.split("-->");
       if (from === nodeName || to === nodeName) {
         connected.add(from);
@@ -3251,10 +3757,10 @@ function renderCustomGraph(report, svgElement, direction) {
     });
   }
 
-  mainG.querySelectorAll(".graph-node").forEach((el) => {
+  /** @type {NodeListOf<SVGGElement>} */ (mainG.querySelectorAll(".graph-node")).forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
-      highlightNode(el.dataset.node);
+      highlightNode(/** @type {string} */ (el.dataset.node));
     });
   });
 
@@ -3298,7 +3804,10 @@ function renderCustomGraph(report, svgElement, direction) {
   fitToView();
 
   function updateTransform() {
-    mainG.setAttribute("transform", `translate(${panX},${panY}) scale(${scale})`);
+    mainG.setAttribute(
+      "transform",
+      `translate(${String(panX)},${String(panY)}) scale(${String(scale)})`,
+    );
   }
 
   svgElement.onwheel = (e) => {
@@ -3330,6 +3839,7 @@ function renderCustomGraph(report, svgElement, direction) {
   // A drag may leave the canvas, so moving and letting go are watched on the
   // window: the previous redraw's pair is taken off first.
   graphDetachPan();
+  /** @param {MouseEvent} e */
   const onMove = (e) => {
     if (!isPanning) return;
     const rect = svgElement.getBoundingClientRect();
@@ -3353,6 +3863,7 @@ function renderCustomGraph(report, svgElement, direction) {
 
 // The window handlers of the drawn graph's pan, so a redraw or the domain
 // view can take them off.
+/** @type {{ onMove: (e: MouseEvent) => void, onUp: () => void } | null} */
 let _graphPanHandlers = null;
 function graphDetachPan() {
   if (!_graphPanHandlers) return;
@@ -3365,8 +3876,12 @@ window.graphDetachPan = graphDetachPan;
 /**
  * Returns the SVG markup string for copy/download.
  */
+/**
+ * @param {Element} svgElement
+ * @returns {string}
+ */
 function getCustomGraphSVG(svgElement) {
-  const clone = svgElement.cloneNode(true);
+  const clone = /** @type {Element} */ (svgElement.cloneNode(true));
   if (!clone.getAttribute("xmlns")) {
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   }
@@ -3376,10 +3891,14 @@ function getCustomGraphSVG(svgElement) {
 /**
  * Exports the current graph to a PNG image.
  */
+/** @param {string} currentGraphMode */
 function exportToPng(currentGraphMode) {
+  /** @type {SVGSVGElement | null} */
   let svg;
   if (currentGraphMode === "custom") {
-    svg = document.getElementById("custom-graph");
+    svg = /** @type {SVGSVGElement | null} */ (
+      /** @type {unknown} */ (document.getElementById("custom-graph"))
+    );
   } else {
     const mermaidDiv = document.getElementById("mermaid-graph");
     svg = mermaidDiv ? mermaidDiv.querySelector("svg") : null;
@@ -3389,12 +3908,12 @@ function exportToPng(currentGraphMode) {
 
   // Exports carry their scope (ADR-0005): view, branch and instant.
   const view = window.graphStreamView || "dev";
-  let stamp = view === "branch" ? `branch ${window.graphBranchName}` : view;
+  let stamp = view === "branch" ? `branch ${String(window.graphBranchName)}` : view;
   if (window.graphTimelineAt) stamp += ` @ ${window.graphTimelineAt}`;
   const filename = `dependency_graph_${stamp.replace(/[^a-zA-Z0-9.@-]+/g, "_")}.png`;
 
   // Clone the SVG to avoid modifying the live one
-  const svgClone = svg.cloneNode(true);
+  const svgClone = /** @type {SVGSVGElement} */ (svg.cloneNode(true));
   const stampText = document.createElementNS("http://www.w3.org/2000/svg", "text");
   stampText.setAttribute("x", "8");
   stampText.setAttribute("y", "16");
@@ -3419,14 +3938,15 @@ function exportToPng(currentGraphMode) {
     height = bbox.height + 80;
 
     // Reset transform in clone
-    const cloneG = svgClone.querySelector("g");
-    cloneG.setAttribute("transform", `translate(${-bbox.x + 40}, ${-bbox.y + 40})`);
+    const cloneG = /** @type {SVGGElement} */ (svgClone.querySelector("g"));
+    cloneG.setAttribute("transform", `translate(${String(-bbox.x + 40)}, ${String(-bbox.y + 40)})`);
 
-    svgClone.setAttribute("width", width);
-    svgClone.setAttribute("height", height);
-    svgClone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svgClone.setAttribute("width", String(width));
+    svgClone.setAttribute("height", String(height));
+    svgClone.setAttribute("viewBox", `0 0 ${String(width)} ${String(height)}`);
   } else {
     // For Mermaid, use its own viewBox/dimensions
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-optional-chain -- Browsers have given no base value for an SVG without a viewBox, whatever the DOM types say.
     if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
       width = svg.viewBox.baseVal.width;
       height = svg.viewBox.baseVal.height;
@@ -3434,8 +3954,8 @@ function exportToPng(currentGraphMode) {
       width = svg.clientWidth || 800;
       height = svg.clientHeight || 600;
     }
-    svgClone.setAttribute("width", width);
-    svgClone.setAttribute("height", height);
+    svgClone.setAttribute("width", String(width));
+    svgClone.setAttribute("height", String(height));
   }
 
   // Dynamic scale factor for high resolution (extra huge for detailed export)
@@ -3471,7 +3991,7 @@ function exportToPng(currentGraphMode) {
   const canvas = document.createElement("canvas");
   canvas.width = width * factor;
   canvas.height = height * factor;
-  const ctx = canvas.getContext("2d");
+  const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
 
   // Fill background white
   ctx.fillStyle = "white";
@@ -3512,8 +4032,12 @@ function exportToPng(currentGraphMode) {
 window.exportToPng = exportToPng;
 
 // ── Debounced resize handler ────────────────────────────────────────
+/** @type {ReturnType<typeof setTimeout> | null} */
 let _graphResizeTimer = null;
 window.addEventListener("resize", () => {
-  clearTimeout(_graphResizeTimer);
-  _graphResizeTimer = setTimeout(() => redrawGraph(), 200);
+  // Before the first resize there is no timer: null clears nothing, as undefined does.
+  clearTimeout(/** @type {ReturnType<typeof setTimeout> | undefined} */ (_graphResizeTimer));
+  _graphResizeTimer = setTimeout(() => {
+    redrawGraph();
+  }, 200);
 });

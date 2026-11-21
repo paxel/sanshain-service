@@ -1,0 +1,168 @@
+# Accepted findings. The release and the weekly Security run (paxel/gates release-gate.yml)
+# fail on every open code-scanning alert, of any tool and severity, every open
+# secret-scanning alert, and every open SonarQube Cloud issue and hotspot to review that is not
+# listed here. Each entry says why the finding stays and
+# when the gate fails again: that is the review. Then fix it, or move the date with a reason.
+# Nothing is dismissed in GitHub or marked in SonarQube Cloud.
+#
+# # The three findings Scorecard has for every single-maintainer repository; the standard asks
+# for them here whether or not Scorecard reports them yet.
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CodeReviewID"
+ignoreUntil = 2027-02-18
+reason = """Single maintainer: GitHub forbids approving one's own pull request, so no merge \
+can carry a second person's approval. Every change goes through a pull request with green CI."""
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "CIIBestPracticesID"
+ignoreUntil = 2027-02-18
+reason = """Single maintainer: the OpenSSF Best Practices badge is a self-certification \
+questionnaire; the practices it asks for are checked by the gates themselves."""
+
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "BranchProtectionID"
+ignoreUntil = 2027-02-18
+reason = """Single maintainer: the ruleset blocks deletion and force-pushes and requires a \
+pull request with green CI, but no approval, since nobody else can give one. Scorecard scores \
+the missing approvers and stale-review dismissal, so it stays below maximal."""
+
+# Scorecard counts every advisory OSV knows for the lockfiles, the accepted ones too.
+[[IgnoredAlerts]]
+tool = "Scorecard"
+rule = "VulnerabilitiesID"
+ignoreUntil = 2027-02-18
+reason = """Scorecard reports RUSTSEC-2026-0459 (the SQLite bundled by libsqlite3-sys) and \
+RUSTSEC-2026-0440 (astral-tokio-tar is unmaintained). Both are accepted in osv-scanner.toml \
+with the reason the service is not exposed and why no update removes them; Scorecard does not \
+read that file. The OSV gate fails on any advisory that is not accepted there."""
+
+# CodeQL in the unit tests inside src/. Every finding below is in the file's `#[cfg(test)]`
+# module, which is not part of the released binary; tests/ and benches/ are kept out of the
+# analysis by .github/codeql.yml, a test module inside a source file cannot be.
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/hard-coded-cryptographic-value"
+path = "src/application/auth_service.rs"
+ignoreUntil = 2027-02-18
+reason = """The passwords are fixtures of the unit tests in this file's test module: they are \
+given to accounts of an in-memory repository that exists for one test. No shipped code path \
+reads them."""
+
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/hard-coded-cryptographic-value"
+path = "src/application/sign_in_service.rs"
+ignoreUntil = 2027-02-18
+reason = """The passwords are fixtures of the unit tests in this file's test module: they are \
+given to accounts of an in-memory repository that exists for one test. No shipped code path \
+reads them."""
+
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/hard-coded-cryptographic-value"
+path = "src/application/service_account_service.rs"
+ignoreUntil = 2027-02-18
+reason = """The passwords are fixtures of the unit tests in this file's test module: they are \
+given to accounts of an in-memory repository that exists for one test. No shipped code path \
+reads them."""
+
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/hard-coded-cryptographic-value"
+path = "src/infrastructure/local_auth_provider.rs"
+ignoreUntil = 2027-02-18
+reason = """The passwords are fixtures of the unit tests in this file's test module: they are \
+given to accounts of an in-memory repository that exists for one test. No shipped code path \
+reads them."""
+
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/hard-coded-cryptographic-value"
+path = "src/application/webhook_delivery.rs"
+ignoreUntil = 2027-02-18
+reason = """The keys are fixtures of the unit tests in this file's test module, which sign a \
+body with a known secret to compare the HMAC-SHA256 signature with a known value. A webhook's \
+real secret comes from its row in the database."""
+
+[[IgnoredAlerts]]
+tool = "CodeQL"
+rule = "rust/cleartext-logging"
+path = "src/application/service_account_service.rs"
+ignoreUntil = 2027-02-18
+reason = """The finding is the message of an assertion in the test module: it names which of \
+three fixed fixture passwords a service account was wrongly let in with. It runs in the unit \
+test only and prints no password of a user."""
+
+# SonarQube Cloud. These were silenced in sonar-project.properties
+# (sonar.issue.ignore.multicriteria) before the move to gates; they stand here now, one entry
+# per file, so a new file with the same finding is still reported.
+
+# Applied migrations: sqlx checks their checksums, so changing one breaks every database
+# that already ran it. The whole-table UPDATEs are deliberate backfills.
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "plsql:DeleteOrUpdateWithoutWhereCheck"
+path = "src/infrastructure/migrations/postgres/20240624000000_add_semver_to_spec_versions.sql"
+ignoreUntil = 2027-02-18
+reason = """An applied migration: sqlx checks its checksum, so changing the file breaks every \
+database that already ran it. The UPDATE without WHERE is a deliberate backfill of every row."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "plsql:DeleteOrUpdateWithoutWhereCheck"
+path = "src/infrastructure/migrations/sqlite/20240624000000_add_semver_to_spec_versions.sql"
+ignoreUntil = 2027-02-18
+reason = """An applied migration: sqlx checks its checksum, so changing the file breaks every \
+database that already ran it. The UPDATE without WHERE is a deliberate backfill of every row."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "plsql:DeleteOrUpdateWithoutWhereCheck"
+path = "src/infrastructure/migrations/postgres/20260810000000_denormalize_pin_participants.sql"
+ignoreUntil = 2027-02-18
+reason = """An applied migration: sqlx checks its checksum, so changing the file breaks every \
+database that already ran it. The UPDATE without WHERE is a deliberate backfill of every row."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "plsql:NullComparison"
+path = "src/infrastructure/migrations/postgres/20240626000000_fix_audit_types.sql"
+ignoreUntil = 2027-02-18
+reason = """An applied migration: sqlx checks its checksum, so changing the file breaks every \
+database that already ran it. The comparison stays as it was applied."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "plsql:NullComparison"
+path = "src/infrastructure/migrations/sqlite/20240626000000_fix_audit_types.sql"
+ignoreUntil = 2027-02-18
+reason = """An applied migration: sqlx checks its checksum, so changing the file breaks every \
+database that already ran it. The comparison stays as it was applied."""
+
+# The page scripts are classic scripts sharing globals declared in common.js and graph.js.
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "jssecurity:S6549"
+path = "scripts/build-site.js"
+ignoreUntil = 2027-02-18
+reason = """The local preview server resolves the requested path and refuses anything outside \
+the output directory before it touches the file system."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "shell:S5332"
+path = "scripts/record-walkthroughs.sh"
+ignoreUntil = 2027-02-18
+reason = """The http:// there is text being replaced in the recorded evidence; no request is \
+made to it."""
+
+[[IgnoredAlerts]]
+tool = "SonarQube Cloud"
+rule = "secrets:S2068"
+path = "scripts/record-walkthroughs.sh"
+ignoreUntil = 2027-02-18
+reason = """Throwaway accounts of the temporary instance the walkthrough recording starts; \
+the recorded evidence in the docs shows them on purpose."""

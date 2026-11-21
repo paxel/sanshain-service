@@ -1,150 +1,51 @@
-import globals from "globals";
+// The strict TypeScript lint config of the standard (paxel/gates configs/ts): typescript-eslint's
+// strictTypeChecked and stylisticTypeChecked with type information, over JavaScript that
+// tsconfig.json type-checks (allowJs, checkJs). There is no build step: the page scripts are
+// served as they are written.
+import eslint from "@eslint/js";
 import eslintConfigPrettier from "eslint-config-prettier";
+import tseslint from "typescript-eslint";
+import { defineConfig } from "eslint/config";
 
-export default [
+export default defineConfig(
   {
-    files: ["static/js/*.js", "static/js/pages/*.js"],
+    // Third-party bundles, generated files and build output are not ours to lint.
+    ignores: [
+      "node_modules/",
+      "target/",
+      "coverage/",
+      "build/",
+      "site-dist/",
+      "playwright-report/",
+      "test-results/",
+      "static/vendor/",
+      "static/css/",
+      "fuzz/",
+      "deploy/",
+    ],
+  },
+  eslint.configs.recommended,
+  tseslint.configs.strictTypeChecked,
+  tseslint.configs.stylisticTypeChecked,
+  {
     languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "script",
-      globals: {
-        ...globals.browser,
-        // External libraries loaded via <script> tags
-        dagre: "readonly",
-        Diff2Html: "readonly",
-        mermaid: "readonly",
-        marked: "readonly",
-        // Cross-file globals (common.js exports used by other files)
-        renderBanner: "readonly",
-        sanshainLogout: "readonly",
-        friendlyError: "readonly",
-        errorMessage: "readonly",
-        escapeHtml: "readonly",
-        personLabel: "readonly",
-        avatarHtml: "readonly",
-        externalTag: "readonly",
-        createPicker: "readonly",
-        byCodeUnit: "readonly",
-        escapeAttr: "readonly",
-        attrJson: "readonly",
-        setActionArgs: "readonly",
-        confirmDelete: "readonly",
-        confirmAction: "readonly",
-        safeHtml: "readonly",
-        togglePasswordVisibility: "readonly",
-        onSessionExpired: "readonly",
-        showLoader: "readonly",
-        hideLoader: "readonly",
-        apiCall: "readonly",
-        getSanshainToken: "readonly",
-        systemContextHtml: "readonly",
-        loadTicketUrlTemplate: "readonly",
-        originHtml: "readonly",
-        annotationsHtml: "readonly",
-        appendClearSystemInfo: "readonly",
-        ticketUrl: "readonly",
-        gateAllows: "readonly",
-        setGateUser: "readonly",
-        applyGates: "readonly",
-        // webhooks.js (#47)
-        renderWebhookPanel: "readonly",
-        // discovery.js globals
-        loadAllProducers: "readonly",
-        getMethodColor: "readonly",
-        renderPaginatedYaml: "readonly",
-        checkDiscoveryAuth: "readonly",
-        closeModal: "readonly",
-        // Cross-file page globals surfaced when inline <script> blocks were
-        // extracted to static/js/pages/. Each is
-        // defined in another script loaded on the same page; runtime scope is
-        // unchanged from when the code was inline.
-        allServices: "readonly",
-        canSeeAdminDashboard: "readonly",
-        compareSemver: "readonly",
-        csrfToken: "readonly",
-        exportToPng: "readonly",
-        fetchCsrfToken: "readonly",
-        fetchJSON: "readonly",
-        graphEdgeFlags: "readonly",
-        graphLatestGaMap: "readonly",
-        graphPeripheralLabel: "readonly",
-        graphNodeBadges: "readonly",
-        graphFetchScopeData: "readonly",
-        graphBadgeLine: "readonly",
-        hasPermission: "readonly",
-        latestGaVersion: "readonly",
-        loadTimeline: "readonly",
-        loadUserFavorites: "readonly",
-        userFavorites: "writable",
-        producerHasAnyEndpoints: "readonly",
-        promoteVersion: "readonly",
-        redrawGraph: "readonly",
-        renderFocusTags: "readonly",
-        mountDiffView: "readonly",
-        renderStructureView: "readonly",
-        endpointFilterFromUrl: "readonly",
-        endpointFilterMatches: "readonly",
-        endpointFilterActive: "readonly",
-        endpointFilterEmptyHtml: "readonly",
-        renderEndpointFilter: "readonly",
-        fetchVersionDiff: "readonly",
-        sanshainToken: "readonly",
-        stabilityBadge: "readonly",
-        toggleFavorite: "readonly",
-        updateHighlightButtons: "readonly",
-        // graph.js globals
-        lastGraphReport: "writable",
-        currentGraphMode: "writable",
-        currentGraphDirection: "writable",
-        renderGraph: "readonly",
-        getCustomGraphSVG: "readonly",
-        readGraphViewPref: "readonly",
-        writeGraphViewPref: "readonly",
-        graphFocusPicker: "writable",
-        setGraphRedrawMode: "readonly",
-        setStreamView: "readonly",
-        graphDefaultTimelineRange: "readonly",
-        graphIsTimelineDay: "readonly",
-        graphUtcDay: "readonly",
-        graphStepTimeline: "readonly",
-        graphDetectCycles: "readonly",
-        injectLoader: "readonly",
-        graphTrunkVersionMap: "readonly",
-        graphLayoutGaps: "readonly",
-        graphDomainColor: "readonly",
-        graphFitToView: "readonly",
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
-      "no-unused-vars": "off",
-      "no-undef": "error",
+      // The standard's config turns this off for TypeScript files, where the compiler reports
+      // an unknown name. With checkJs the compiler does the same for these JavaScript files
+      // (TS2304), from the declarations in types/ instead of a second list of globals here.
+      "no-undef": "off",
     },
   },
   {
-    // Documentation site build script and its tests: Node, ES modules.
-    files: ["scripts/build-site.js", "scripts/site/*.js", "tests/site/*.js"],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "module",
-      globals: { ...globals.node },
-    },
-    rules: {
-      "no-unused-vars": "error",
-      "no-undef": "error",
-    },
-  },
-  {
-    // Documentation site client script: browser, classic script.
-    files: ["site/assets/site.js"],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "script",
-      globals: { ...globals.browser },
-    },
-    rules: {
-      "no-unused-vars": "error",
-      "no-undef": "error",
-    },
+    // The page scripts and the documentation site's script are classic scripts: what one
+    // declares at the top level is a global for the scripts loaded after it on the same page.
+    files: ["static/js/**/*.js", "site/assets/*.js"],
+    languageOptions: { sourceType: "script" },
   },
   eslintConfigPrettier,
-];
+);

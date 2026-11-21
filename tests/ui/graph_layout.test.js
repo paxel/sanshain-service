@@ -2,15 +2,30 @@
 // hold their own nodes, the Topics switch draws a channel nobody requires,
 // and Rainbow gives every source its own colour, the catalog's dependsOn
 // lines included.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const P = "g10";
+/** @type {{ alpha: [string, string], beta: [string, string] }} */
 const DOMAINS = { alpha: [`${P}-a1`, `${P}-a2`], beta: [`${P}-b1`, `${P}-b2`] };
+/** @type {[string, string]} */
 const CONSUMERS = [`${P}-c1`, `${P}-c2`];
 const LONELY = `${P}-lonely`;
 const CHANNEL = `${P}.lonely.events`;
 
+/** @typedef {{ x0: number, y0: number, x1: number, y1: number }} Box These are the corners of a drawn element. */
+/** @typedef {Omit<DOMRect, "toJSON">} RectJson This is what `DOMRect.toJSON()` gives. */
+/**
+ * @typedef {object} DrawnDomain
+ * @property {string | null} stroke
+ * @property {string | null} fill
+ * @property {boolean} dashed
+ * @property {string | null} text
+ * @property {string | null} size
+ * @property {ReturnType<typeof graphDomainColor>} expected
+ */
+
+/** @param {string} title */
 const openapi = (title) =>
   [
     "openapi: 3.0.3",
@@ -30,9 +45,15 @@ test.beforeAll(async ({ request }) => {
   const login = await request.post("/auth/login", {
     data: { username: "root", password: adminPassword },
   });
-  const headers = { Authorization: `Bearer ${(await login.json()).token}` };
+  const headers = {
+    Authorization: `Bearer ${/** @type {{ token: string }} */ (await json(login)).token}`,
+  };
+  /**
+   * @param {import("@playwright/test").APIResponse} res
+   * @param {string} what
+   */
   const ok = async (res, what) => {
-    if (!res.ok()) throw new Error(`${what} failed: ${res.status()} ${await res.text()}`);
+    if (!res.ok()) throw new Error(`${what} failed: ${String(res.status())} ${await res.text()}`);
   };
   for (const [domain, producers] of Object.entries(DOMAINS)) {
     for (const name of producers) {
@@ -54,6 +75,7 @@ test.beforeAll(async ({ request }) => {
   }
   // Each consumer requires one producer of each domain, so dagre interleaves
   // the domains on the producers' rank.
+  /** @type {[string, string][]} */
   const pairs = [
     [CONSUMERS[0], DOMAINS.alpha[0]],
     [CONSUMERS[0], DOMAINS.beta[0]],
@@ -118,49 +140,83 @@ test.beforeAll(async ({ request }) => {
   );
 });
 
+/** @param {import("@playwright/test").Page} page */
 const openGraph = async (page) => {
   await page.route("**/api/sse/updates", (route) =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.reload();
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   await page.goto("/graph.html");
   await expect(page.locator("#custom-graph")).toBeVisible({ timeout: 10000 });
 };
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} name
+ */
 const node = (page, name) => page.locator(`#custom-graph g.graph-node[data-node="${name}"]`);
 
 test("domain frames do not overlap and hold their own nodes", async ({ page }) => {
   await openGraph(page);
   await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
   const layout = await page.evaluate(() => {
+    /** @param {Element} el */
     const rect = (el) => el.getBoundingClientRect();
+    /** @type {Record<string, Box>} */
     const frames = {};
-    document.querySelectorAll("#custom-graph rect[data-domain]").forEach((el) => {
+    /** @type {NodeListOf<SVGElement>} */ (
+      document.querySelectorAll("#custom-graph rect[data-domain]")
+    ).forEach((el) => {
       const r = rect(el);
-      frames[el.dataset.domain] = { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom };
+      frames[/** @type {string} */ (el.dataset.domain)] = {
+        x0: r.left,
+        y0: r.top,
+        x1: r.right,
+        y1: r.bottom,
+      };
     });
+    /** @type {Record<string, Box>} */
     const nodes = {};
-    document.querySelectorAll("#custom-graph g.graph-node").forEach((el) => {
+    /** @type {NodeListOf<SVGElement>} */ (
+      document.querySelectorAll("#custom-graph g.graph-node")
+    ).forEach((el) => {
       const r = rect(el);
-      nodes[el.dataset.node] = { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom };
+      nodes[/** @type {string} */ (el.dataset.node)] = {
+        x0: r.left,
+        y0: r.top,
+        x1: r.right,
+        y1: r.bottom,
+      };
     });
     return { frames, nodes };
   });
   const { alpha, beta } = layout.frames;
   expect(alpha && beta).toBeTruthy();
+  /**
+   * @param {Box} a
+   * @param {Box} b
+   */
   const overlap = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
-  expect(overlap(alpha, beta)).toBe(false);
+  expect(overlap(/** @type {Box} */ (alpha), /** @type {Box} */ (beta))).toBe(false);
+  /**
+   * @param {Box} n
+   * @param {Box} f
+   */
   const inside = (n, f) => n.x0 >= f.x0 && n.x1 <= f.x1 && n.y0 >= f.y0 && n.y1 <= f.y1;
   for (const [domain, producers] of Object.entries(DOMAINS)) {
-    const frame = layout.frames[domain];
-    for (const name of producers) expect(inside(layout.nodes[name], frame), name).toBe(true);
-    const other = layout.frames[domain === "alpha" ? "beta" : "alpha"];
-    for (const name of producers) expect(overlap(layout.nodes[name], other), name).toBe(false);
+    const frame = /** @type {Box} */ (layout.frames[domain]);
+    for (const name of producers)
+      expect(inside(/** @type {Box} */ (layout.nodes[name]), frame), name).toBe(true);
+    const other = /** @type {Box} */ (layout.frames[domain === "alpha" ? "beta" : "alpha"]);
+    for (const name of producers)
+      expect(overlap(/** @type {Box} */ (layout.nodes[name]), other), name).toBe(false);
   }
 });
 
@@ -168,10 +224,15 @@ test("a domain frame and its name are drawn in the domain's own colour", async (
   await openGraph(page);
   await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
   const drawn = await page.evaluate(() => {
+    /** @type {Record<string, DrawnDomain>} */
     const out = {};
     for (const domain of ["alpha", "beta"]) {
-      const frame = document.querySelector(`#custom-graph rect[data-domain="${domain}"]`);
-      const label = document.querySelector(`#custom-graph text[data-domain-label="${domain}"]`);
+      const frame = /** @type {Element} */ (
+        document.querySelector(`#custom-graph rect[data-domain="${domain}"]`)
+      );
+      const label = /** @type {Element} */ (
+        document.querySelector(`#custom-graph text[data-domain-label="${domain}"]`)
+      );
       out[domain] = {
         stroke: frame.getAttribute("stroke"),
         fill: frame.getAttribute("fill"),
@@ -182,7 +243,9 @@ test("a domain frame and its name are drawn in the domain's own colour", async (
       };
     }
     // The same name always gets the same colour, and no warning colour is used.
-    const again = window.graphDomainColor("alpha").border === out.alpha.expected.border;
+    const again =
+      window.graphDomainColor("alpha").border ===
+      /** @type {DrawnDomain} */ (out.alpha).expected.border;
     const warnings = ["#9333ea", "#dc2626", "#ea580c", "#d97706"];
     const clean = window.GRAPH_DOMAIN_PALETTE.every((c) => !warnings.includes(c.border));
     return { out, again, clean };
@@ -246,7 +309,11 @@ test("Rainbow gives every source its own colour, catalog lines included", async 
   await page.click("#graph-rainbow-toggle");
   await expect(page.locator("#custom-graph")).toHaveAttribute("data-rainbow", "1");
   const edges = await page.evaluate(() =>
-    [...document.querySelectorAll("#custom-graph path.graph-edge")].map((p) => ({
+    [
+      .../** @type {NodeListOf<SVGPathElement>} */ (
+        document.querySelectorAll("#custom-graph path.graph-edge")
+      ),
+    ].map((p) => ({
       from: p.dataset.from,
       type: p.dataset.edgeType,
       stroke: p.getAttribute("stroke"),
@@ -254,6 +321,7 @@ test("Rainbow gives every source its own colour, catalog lines included", async 
     })),
   );
   const coloured = edges.filter((e) => e.type === "normal" || e.type === "peripheral");
+  /** @type {Map<string | undefined, string | null>} */
   const bySource = new Map();
   for (const e of coloured) {
     if (bySource.has(e.from)) expect(bySource.get(e.from)).toBe(e.stroke);
@@ -261,7 +329,9 @@ test("Rainbow gives every source its own colour, catalog lines included", async 
   }
   // Every source its own colour.
   expect(new Set(bySource.values()).size).toBe(bySource.size);
-  const catalog = edges.find((e) => e.type === "peripheral" && e.from === CONSUMERS[0]);
+  const catalog = /** @type {(typeof edges)[number]} */ (
+    edges.find((e) => e.type === "peripheral" && e.from === CONSUMERS[0])
+  );
   expect(catalog.stroke).toBe(bySource.get(CONSUMERS[0]));
   expect(catalog.stroke).not.toBe("#64748b");
   expect(catalog.dash).toBe("4 3");
@@ -314,7 +384,13 @@ test("fullscreen hides the page, keeps the controls beside the graph and steps b
   await page.setViewportSize({ width: 1280, height: 720 });
   await openGraph(page);
   await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
-  const box = (sel) => page.locator(sel).evaluate((el) => el.getBoundingClientRect().toJSON());
+  /** @param {string} sel */
+  const box = (sel) =>
+    page.locator(sel).evaluate((el) => {
+      /** @type {unknown} */
+      const rect = el.getBoundingClientRect().toJSON();
+      return /** @type {RectJson} */ (rect);
+    });
 
   await page.locator("body").press("f");
   await expect(page.locator("body")).toHaveAttribute("data-graph-fs", "1");
@@ -406,7 +482,7 @@ test("z collapses the graph onto domains, counting and colouring the pins", asyn
     // Outdated colours only while its highlight is on.
     const off = window
       .graphCollapseDomains(report, flags, {})
-      .units.find((u) => u.id === "domain:pay").internalLevel;
+      .units.find((u) => u.id === "domain:pay")?.internalLevel;
     const { units, edges } = window.graphCollapseDomains(report, flags, { outdated: true });
     return {
       off,
@@ -449,10 +525,11 @@ test("redrawing the graph does not pile up window listeners", async ({ page }) =
   await openGraph(page);
   await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
   const cdp = await page.context().newCDPSession(page);
+  /** @param {string} type */
   const windowListeners = async (type) => {
     const { result } = await cdp.send("Runtime.evaluate", { expression: "window" });
     const { listeners } = await cdp.send("DOMDebugger.getEventListeners", {
-      objectId: result.objectId,
+      objectId: /** @type {string} */ (result.objectId),
     });
     return listeners.filter((l) => l.type === type).length;
   };
@@ -466,7 +543,9 @@ test("redrawing the graph does not pile up window listeners", async ({ page }) =
   // Panning still works after the redraws.
   const transform = () => page.locator("#custom-graph > g").first().getAttribute("transform");
   const start = await transform();
-  const box = await page.locator("#custom-graph").boundingBox();
+  const box = /** @type {{ x: number, y: number }} */ (
+    await page.locator("#custom-graph").boundingBox()
+  );
   await page.mouse.move(box.x + 50, box.y + 50);
   await page.mouse.down();
   await page.mouse.move(box.x + 150, box.y + 120);
@@ -487,10 +566,12 @@ test("a failed graph load shows its message as text, never as markup", async ({ 
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
   await page.goto("/account.html");
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
   await page.reload();
   await page.fill("#login-username", "root");
-  await page.fill("#login-password", adminPassword);
+  await page.fill("#login-password", /** @type {string} */ (adminPassword));
   await page.click('#login-panel button[type="submit"]');
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
   await page.goto("/graph.html");
@@ -509,7 +590,7 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
     const path = `/orders" onmouseover="alert(1)' x='<b>&`;
     const holder = document.createElement("div");
     holder.innerHTML = `<div title="${window._graphEscapeHtml(path)}">${window._graphEscapeHtml(path)}</div>`;
-    const element = holder.firstElementChild;
+    const element = /** @type {Element} */ (holder.firstElementChild);
     return {
       attributes: element.getAttributeNames(),
       title: element.getAttribute("title"),
@@ -518,4 +599,17 @@ test("a value escaped for the graph panel cannot leave its attribute", async ({ 
   });
   const path = `/orders" onmouseover="alert(1)' x='<b>&`;
   expect(result).toEqual({ attributes: ["title"], title: path, text: path });
+});
+
+test("an error while showing the graph reaches the page as text", async ({ page }) => {
+  await openGraph(page);
+  // Back and forward show the graph again; without its canvas the loader fails
+  // before it can report anything itself.
+  await page.evaluate(() => {
+    document.getElementById("custom-graph")?.remove();
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  const shown = page.locator("#mermaid-graph .text-red-500");
+  await expect(shown).toContainText("Error:", { timeout: 10000 });
+  await expect(shown.locator("*")).toHaveCount(0);
 });

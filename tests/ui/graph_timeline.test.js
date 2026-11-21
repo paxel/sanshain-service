@@ -1,11 +1,12 @@
 // The graph's timeline range and shareable links: the range fields, the
 // snapping slider, and the view, branch, range, instant and display switches
 // carried in the address.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 const BRANCH = "Timeline Link Branch";
 
+/** @param {import("@playwright/test").Page} page */
 async function signIn(page) {
   if (!adminPassword) {
     throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
@@ -18,6 +19,10 @@ async function signIn(page) {
   await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * @param {import("@playwright/test").Page} page
+ * @param {string} name
+ */
 const param = (page, name) => new URL(page.url()).searchParams.get(name);
 
 test.describe("Graph timeline and links", () => {
@@ -40,9 +45,20 @@ test.describe("Graph timeline and links", () => {
         stops: stops.map((s) => s.at),
         max,
         near: window.graphNearestStop(stops, 200000).at,
+        lastProvided: window.graphLastProvided(
+          ["2026-11-02", "2026-11-04", "2026-11-02", "2026-11-01"].map((day) => ({
+            api_type: "openapi",
+            version: "1.0.0",
+            stability: "stable",
+            last_provided_at: `${day}T00:00:00Z`,
+          })),
+        ),
+        neverProvided: window.graphLastProvided([]),
       };
     });
     expect(result.range).toEqual({ from: "2026-08-05", to: "2026-11-05" });
+    expect(result.lastProvided).toBe("2026-11-04T00:00:00Z");
+    expect(result.neverProvided).toBeNull();
     expect(result.days).toEqual([true, false, false, false]);
     expect(result.past).toEqual({ start: "2026-11-01T00:00:00Z", end: "2026-11-05T23:59:59Z" });
     expect(result.today).toEqual({ start: "2026-11-01T00:00:00Z", end: null });
@@ -61,7 +77,7 @@ test.describe("Graph timeline and links", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/admin/branches", {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: BRANCH },
@@ -176,7 +192,7 @@ test.describe("Graph timeline and links", () => {
     const login = await request.post("/auth/login", {
       data: { username: "root", password: adminPassword },
     });
-    const { token } = await login.json();
+    const { token } = /** @type {{ token: string }} */ (await json(login));
     await request.post("/admin/branches", {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: BRANCH },
@@ -192,8 +208,10 @@ test.describe("Graph timeline and links", () => {
         throw new Error("drawing failed");
       };
       window.redrawGraph = fail;
+      // eslint-disable-next-line @typescript-eslint/require-await -- The stub stays async so that its failure is a rejected promise, as the real function's would be.
       window.setTimelinePosition = async () => fail();
     });
+    /** @type {string[]} */
     const unhandled = [];
     page.on("pageerror", (error) => unhandled.push(error.message));
     const dialog = page.waitForEvent("dialog");

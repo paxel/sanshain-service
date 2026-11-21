@@ -1,14 +1,24 @@
+// What the pages, and the controls through the dispatcher in common.js, use by name.
+/* exported resetFilters, toggleDiff */
+
+/** @type {AuditLogView[]} */
 let timelineData = [];
 
 async function loadTimeline() {
   showLoader();
   try {
-    const from = document.getElementById("filter-from").value;
-    const to = document.getElementById("filter-to").value;
-    const type = document.getElementById("filter-type").value;
-    const service = document.getElementById("filter-service").value.trim();
-    const version = document.getElementById("filter-version").value.trim();
-    const stream = document.getElementById("filter-stream").value.trim();
+    const from = /** @type {HTMLInputElement} */ (document.getElementById("filter-from")).value;
+    const to = /** @type {HTMLInputElement} */ (document.getElementById("filter-to")).value;
+    const type = /** @type {HTMLSelectElement} */ (document.getElementById("filter-type")).value;
+    const service = /** @type {HTMLInputElement} */ (
+      document.getElementById("filter-service")
+    ).value.trim();
+    const version = /** @type {HTMLInputElement} */ (
+      document.getElementById("filter-version")
+    ).value.trim();
+    const stream = /** @type {HTMLInputElement} */ (
+      document.getElementById("filter-stream")
+    ).value.trim();
 
     let url = "/api/audit/timeline?limit=100";
     if (from) url += `&from_date=${from}`;
@@ -22,19 +32,20 @@ async function loadTimeline() {
     if (!res.ok) {
       throw new Error("Failed to fetch timeline");
     }
-    timelineData = await res.json();
+    timelineData = /** @type {AuditLogView[]} */ (await res.json());
     renderTimeline(timelineData);
   } catch (err) {
     console.error(err);
-    document.getElementById("audit-timeline").innerHTML =
-      `<div class="text-center py-20 text-red-500">Error loading timeline: ${escapeHtml(err.message)}</div>`;
+    /** @type {HTMLElement} */ (document.getElementById("audit-timeline")).innerHTML =
+      `<div class="text-center py-20 text-red-500">Error loading timeline: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   } finally {
     hideLoader();
   }
 }
 
+/** @param {AuditLogView[]} logs */
 function renderTimeline(logs) {
-  const container = document.getElementById("audit-timeline");
+  const container = /** @type {HTMLElement} */ (document.getElementById("audit-timeline"));
   if (logs.length === 0) {
     container.innerHTML =
       '<div class="text-center py-20 text-slate-400">No matching audit logs found.</div>';
@@ -78,7 +89,7 @@ function renderTimeline(logs) {
                         <div class="flex items-center flex-wrap gap-x-4 gap-y-2 flex-1">
                             <span class="text-[11px] font-mono text-slate-400 min-w-[100px]">${shortDate}</span>
                             <span class="px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider ${actionColor}">${escapeHtml(log.action)}</span>
-                            <span class="font-semibold text-sm text-slate-800" title="${escapeAttr(log.username)}">${escapeHtml(log.display_name || log.username)}</span>
+                            <span class="font-semibold text-sm text-slate-800" title="${escapeAttr(log.username)}">${escapeHtml((log.display_name ?? "") || log.username)}</span>
                             <div class="flex items-center gap-2">
                                 ${
                                   log.service
@@ -98,7 +109,7 @@ function renderTimeline(logs) {
                           log.diff
                             ? `
                             <button data-click="toggleDiff" data-click-args="${attrJson([log.id])}" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
-                                <svg id="diff-icon-${log.id}" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg id="diff-icon-${String(log.id)}" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                                 </svg>
                                 Changes
@@ -110,8 +121,8 @@ function renderTimeline(logs) {
                     ${
                       log.diff
                         ? `
-                        <div id="diff-container-${log.id}" class="hidden border-t border-slate-100 bg-slate-50">
-                            <div id="diff-content-${log.id}" class="diff-view text-xs"></div>
+                        <div id="diff-container-${String(log.id)}" class="hidden border-t border-slate-100 bg-slate-50">
+                            <div id="diff-content-${String(log.id)}" class="diff-view text-xs"></div>
                         </div>
                     `
                         : ""
@@ -123,10 +134,15 @@ function renderTimeline(logs) {
     .join("");
 }
 
+/** @param {number} id */
 function toggleDiff(id) {
-  const container = document.getElementById(`diff-container-${id}`);
-  const icon = document.getElementById(`diff-icon-${id}`);
-  const content = document.getElementById(`diff-content-${id}`);
+  const container = /** @type {HTMLElement} */ (
+    document.getElementById(`diff-container-${String(id)}`)
+  );
+  const icon = /** @type {HTMLElement} */ (document.getElementById(`diff-icon-${String(id)}`));
+  const content = /** @type {HTMLElement} */ (
+    document.getElementById(`diff-content-${String(id)}`)
+  );
 
   const isHidden = container.classList.contains("hidden");
 
@@ -142,11 +158,14 @@ function toggleDiff(id) {
   }
 }
 
+/** @param {number} id */
 function renderDiffContent(id) {
   const log = timelineData.find((v) => v.id === id);
-  if (!log || !log.diff) return;
+  if (!log?.diff) return;
 
-  const diffContent = document.getElementById(`diff-content-${id}`);
+  const diffContent = /** @type {HTMLElement} */ (
+    document.getElementById(`diff-content-${String(id)}`)
+  );
 
   try {
     const diffHtml = Diff2Html.html(log.diff, {
@@ -163,7 +182,7 @@ function renderDiffContent(id) {
 }
 
 function resetFilters() {
-  document.getElementById("audit-filters").reset();
+  /** @type {HTMLFormElement} */ (document.getElementById("audit-filters")).reset();
   void loadTimeline();
 }
 

@@ -26,67 +26,89 @@ import {
 import { buildSite, DEFAULT_CONTRACTS, readVersion } from "../../scripts/build-site.js";
 
 /** `text` as a literal inside a RegExp: every character with a meaning there is escaped. */
-const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const literal = (/** @type {string} */ text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** @typedef {import("../../scripts/site/reference.js").Schema} Schema */
+/** @typedef {import("../../scripts/site/reference.js").Operation} Operation */
+/** @typedef {ReturnType<typeof import("../../scripts/build-site.js").buildIndex>[number]} IndexedPage */
+/** @typedef {{ permission: string, scoped: string | null, apiTokens: boolean }} Guard */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const LIB_RS = fs.readFileSync(path.join(REPO_ROOT, "src/lib.rs"), "utf8");
 
 /** Paths and methods registered in create_app(), read the way src/lib.rs's contract tests read them. */
 function routerRoutes() {
+  /** @type {Map<string, Set<string>>} */
   const routes = new Map();
   for (const line of LIB_RS.split("\n")) {
     const m = /^\s*\.route\("([^"]+)",(.*)$/.exec(line);
     if (!m) continue;
-    const methods = routes.get(m[1]) || new Set();
-    for (const v of m[2].matchAll(/\b(get|post|put|patch|delete)\(/g)) methods.add(v[1]);
-    routes.set(m[1], methods);
+    const route = /** @type {string} */ (m[1]);
+    const rest = /** @type {string} */ (m[2]);
+    /** @type {Set<string>} */
+    const methods = routes.get(route) ?? new Set();
+    for (const v of rest.matchAll(/\b(get|post|put|patch|delete)\(/g)) {
+      methods.add(/** @type {string} */ (v[1]));
+    }
+    routes.set(route, methods);
   }
   return routes;
 }
 
-const snake = (camel) => camel.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+const snake = (/** @type {string} */ camel) =>
+  camel.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 
 /** The guard of every `METHOD /admin/...` route: permission, scope kind, and whether API tokens are admitted. */
 function routerGuards() {
+  /** @type {Map<string, Guard>} */
   const guards = new Map();
   for (const line of LIB_RS.split("\n")) {
     const m = /^\s*\.route\("(\/admin\/[^"]+)",(.*)$/.exec(line);
     if (!m) continue;
+    const route = /** @type {string} */ (m[1]);
+    const rest = /** @type {string} */ (m[2]);
     const g =
       /RouteGuard::(Authenticated|Global\(Permission::(\w+)\)|(Producer|Product)\(Permission::(\w+)\))/.exec(
-        m[2],
+        rest,
       );
-    assert.ok(g, `guard on ${m[1]}`);
+    assert.ok(g, `guard on ${route}`);
+    const permission = g[2] ?? g[4];
     const guard = {
-      permission: g[2] || g[4] ? snake(g[2] || g[4]) : "any signed-in caller",
-      scoped: g[3] || null,
-      apiTokens: m[2].includes("require_with_api_tokens"),
+      permission: permission ? snake(permission) : "any signed-in caller",
+      scoped: g[3] ?? null,
+      apiTokens: rest.includes("require_with_api_tokens"),
     };
-    for (const v of m[2].matchAll(/\b(get|post|put|patch|delete)\(/g)) {
-      guards.set(`${v[1]} ${m[1]}`, guard);
+    for (const v of rest.matchAll(/\b(get|post|put|patch|delete)\(/g)) {
+      const verb = /** @type {string} */ (v[1]);
+      guards.set(`${verb} ${route}`, guard);
     }
   }
   return guards;
 }
 
 /** The endpoint blocks of a built reference page: method, path, auth chips, permission, scope. */
+/** @param {string} html */
 function endpointBlocks(html) {
   return html
     .split('<section class="endpoint">')
     .slice(1)
     .map((section) => {
-      const head =
+      const head = /** @type {RegExpExecArray} */ (
         /<h3 id="[^"]+"><span class="method method-(\w+)">\w+<\/span> <code>([^<]+)<\/code>/.exec(
           section,
-        );
-      const auth = /<p class="endpoint-auth">([\s\S]*?)<\/p>/.exec(section)[1];
+        )
+      );
+      const authLine = /** @type {RegExpExecArray} */ (
+        /<p class="endpoint-auth">([\s\S]*?)<\/p>/.exec(section)
+      );
+      const auth = /** @type {string} */ (authLine[1]);
       const perm =
         /Permission: <code(?: class="gap")?>([^<]+)<\/code> · Scope: (?:<code class="gap">)?([^<]+?)(?:<\/code>)?$/.exec(
           auth,
         );
       return {
-        method: head[1],
-        path: head[2],
+        method: /** @type {string} */ (head[1]),
+        path: /** @type {string} */ (head[2]),
         chips: [...auth.matchAll(/<span class="chip">([^<]+)<\/span>/g)].map((c) => c[1]),
         permission: perm ? perm[1] : null,
         scope: perm ? perm[2] : null,
@@ -234,16 +256,21 @@ paths:
           description: ok
 `;
 
+/** @type {string} */
 let tmp;
+/** @type {string} */
 let fixtureFile;
+/** @type {string} */
 let realOut;
 
+/** @type {(name: string, text: string) => string} */
 const contractFile = (name, text) => {
   const file = path.join(tmp, name);
   fs.writeFileSync(file, text);
   return file;
 };
 
+/** @type {(file: string, extra?: Partial<Parameters<typeof renderContract>[1]>) => ReturnType<typeof renderContract>} */
 const render = (file, extra = {}) =>
   renderContract(loadContract(file), {
     title: "Fixture",
@@ -266,12 +293,12 @@ after(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const built = (rel) => fs.readFileSync(path.join(realOut, rel), "utf8");
+const built = (/** @type {string} */ rel) => fs.readFileSync(path.join(realOut, rel), "utf8");
 
 // ---------------------------------------------------------------------------
 // YAML subset reader
 
-test("yaml: mappings, sequences, scalars, quoting, flow collections and comments", () => {
+void test("yaml: mappings, sequences, scalars, quoting, flow collections and comments", () => {
   const doc = parseYaml(`# leading comment
 a: 1
 b: "two \\"quoted\\" \\u00e9"
@@ -330,8 +357,9 @@ url: http://localhost:3000
   });
 });
 
-test("yaml: block scalars keep or fold lines and honour chomping; plain scalars continue", () => {
-  const doc = parseYaml(`lit: |
+void test("yaml: block scalars keep or fold lines and honour chomping; plain scalars continue", () => {
+  const doc = /** @type {Record<string, unknown>} */ (
+    parseYaml(`lit: |
   line one
     indented
   line three
@@ -351,7 +379,8 @@ plain: first
   second
   third
 after: x
-`);
+`)
+  );
   assert.equal(doc.lit, "line one\n  indented\nline three\n");
   assert.equal(doc.fold, "joined by spaces\nnew paragraph");
   assert.equal(doc.keep, "kept\n\n");
@@ -360,7 +389,7 @@ after: x
   assert.equal(doc.after, "x");
 });
 
-test("yaml: errors name the file and line; constructs outside the subset are refused", () => {
+void test("yaml: errors name the file and line; constructs outside the subset are refused", () => {
   assert.throws(() => parseYaml("a: 1\n  b: 2\n", "x.yaml"), /x\.yaml:2: unexpected indentation/);
   assert.throws(() => parseYaml("a: 1\na: 2\n", "x.yaml"), /x\.yaml:2: duplicate key "a"/);
   assert.throws(
@@ -387,7 +416,7 @@ test("yaml: errors name the file and line; constructs outside the subset are ref
   assert.deepEqual(parseYaml("---\na: 1\n"), { a: 1 });
 });
 
-test("yaml: both contracts parse, and their paths and methods match the router", () => {
+void test("yaml: both contracts parse, and their paths and methods match the router", () => {
   const routes = routerRoutes();
   assert.ok(routes.size > 50, "the router was read");
   const api = loadContract(path.join(REPO_ROOT, "api.yaml"));
@@ -403,26 +432,29 @@ test("yaml: both contracts parse, and their paths and methods match the router",
   const adminRoutes = [...routes.keys()].filter((p) => p.startsWith("/admin/")).sort();
   assert.deepEqual(Object.keys(maintenance.doc.paths).sort(), adminRoutes);
   for (const { path: p, method } of operations(maintenance)) {
-    assert.ok(routes.get(p).has(method), `${method.toUpperCase()} ${p} is registered`);
+    assert.ok(routes.get(p)?.has(method), `${method.toUpperCase()} ${p} is registered`);
   }
   const maintenanceOps = operations(maintenance).length;
-  const adminMethods = adminRoutes.reduce((n, p) => n + routes.get(p).size, 0);
+  const adminMethods = adminRoutes.reduce((n, p) => {
+    const methods = /** @type {Set<string>} */ (routes.get(p));
+    return n + methods.size;
+  }, 0);
   assert.equal(maintenanceOps, adminMethods, "one operation per registered admin method");
 
   // api.yaml: every documented path is registered with that method.
   for (const { path: p, method } of operations(api)) {
     assert.ok(routes.has(p), `${p} is registered`);
-    assert.ok(routes.get(p).has(method), `${method.toUpperCase()} ${p} is registered`);
+    assert.ok(routes.get(p)?.has(method), `${method.toUpperCase()} ${p} is registered`);
   }
   assert.ok(operations(api).length >= 13);
-  assert.ok(Object.keys(api.doc.components.schemas).includes("ErrorBody"));
-  assert.ok(Object.keys(maintenance.doc.components.schemas).includes("ErrorBody"));
+  assert.ok(Object.keys(api.doc.components?.schemas ?? {}).includes("ErrorBody"));
+  assert.ok(Object.keys(maintenance.doc.components?.schemas ?? {}).includes("ErrorBody"));
 });
 
 // ---------------------------------------------------------------------------
 // Generator pieces
 
-test("markdown-lite: paragraphs, lists, inline code, strong, em and links", () => {
+void test("markdown-lite: paragraphs, lists, inline code, strong, em and links", () => {
   const html = markdownToHtml(
     "One **bold** *em* `a*b` <tag>.\n\nSee [guide](docs/x.md) and [web](https://e.org/).\n- item one\n  continued\n- item two\n\nTail.",
     { repoUrl: "https://github.com/x/y" },
@@ -436,15 +468,15 @@ test("markdown-lite: paragraphs, lists, inline code, strong, em and links", () =
   assert.equal(markdownToHtml(""), "");
 });
 
-test("schemas: type labels, property rows, derived examples and $ref resolution", () => {
+void test("schemas: type labels, property rows, derived examples and $ref resolution", () => {
   const contract = loadContract(fixtureFile);
-  const thing = contract.doc.components.schemas.Thing;
+  const thing = /** @type {Schema} */ (contract.doc.components?.schemas?.Thing);
   assert.equal(
     typeLabel(contract, { $ref: "#/components/schemas/Thing" }),
     '<a href="#schema-Thing">Thing</a>',
   );
-  assert.equal(typeLabel(contract, thing.properties.when), "string (date-time) | null");
-  assert.equal(typeLabel(contract, thing.properties.tags), "string[]");
+  assert.equal(typeLabel(contract, thing.properties?.when), "string (date-time) | null");
+  assert.equal(typeLabel(contract, thing.properties?.tags), "string[]");
   assert.equal(
     typeLabel(contract, { type: "object", additionalProperties: { type: "integer" } }),
     "map of integer",
@@ -468,9 +500,9 @@ test("schemas: type labels, property rows, derived examples and $ref resolution"
       ["parent", false],
     ],
   );
-  assert.match(rows[1].notes, /One of <code>big<\/code>, <code>small<\/code>/);
-  assert.match(rows[1].notes, /Default <code>&quot;big&quot;<\/code>/);
-  assert.equal(rows[6].type, '<a href="#schema-Stage">Stage</a>');
+  assert.match(rows[1]?.notes ?? "", /One of <code>big<\/code>, <code>small<\/code>/);
+  assert.match(rows[1]?.notes ?? "", /Default <code>&quot;big&quot;<\/code>/);
+  assert.equal(rows[6]?.type, '<a href="#schema-Stage">Stage</a>');
   assert.match(rows[6].notes, /Omitted means draft/);
   assert.match(rows[6].notes, /One of <code>draft<\/code>/);
 
@@ -484,7 +516,8 @@ test("schemas: type labels, property rows, derived examples and $ref resolution"
     stage: "draft",
     parent: {},
   });
-  assert.equal(resolveRef(contract, "#/components/schemas/Stage").enum[1], "final");
+  const stage = /** @type {Schema} */ (resolveRef(contract, "#/components/schemas/Stage"));
+  assert.equal(stage.enum?.[1], "final");
   assert.throws(
     () => resolveRef(contract, "#/components/schemas/Nope"),
     /fixture\.yaml: \$ref "#\/components\/schemas\/Nope" cannot be resolved/,
@@ -492,7 +525,7 @@ test("schemas: type labels, property rows, derived examples and $ref resolution"
   assert.throws(() => resolveRef(contract, "other.yaml#/x"), /not a local reference/);
 });
 
-test("a circular $ref through allOf fails naming the schema and the file", () => {
+void test("a circular $ref through allOf fails naming the schema and the file", () => {
   const file = contractFile(
     "loop.yaml",
     `openapi: "3.0.3"
@@ -520,7 +553,7 @@ components:
   assert.throws(() => render(file), /circular \$ref via allOf at A in loop\.yaml \(A → B → A\)/);
 });
 
-test("two paths or schemas that produce the same anchor fail the build naming both", () => {
+void test("two paths or schemas that produce the same anchor fail the build naming both", () => {
   const op = `
     get:
       responses:
@@ -547,9 +580,9 @@ test("two paths or schemas that produce the same anchor fail the build naming bo
   assert.match(render(schemas).body, /id="schema-Thing"[\s\S]*id="schema-thing"/);
 });
 
-test("authentication, permission and scope are read from the contract fields", () => {
+void test("authentication, permission and scope are read from the contract fields", () => {
   const contract = loadContract(fixtureFile);
-  const [get, del] = operations(contract).map((o) => o.op);
+  const [get, del] = /** @type {[Operation, Operation]} */ (operations(contract).map((o) => o.op));
   assert.deepEqual(authLabel(contract, get), ["session token"]);
   assert.deepEqual(authLabel(contract, { "x-auth": "none" }), ["none"]);
   assert.deepEqual(authLabel(contract, { "x-auth": "session-or-api-token" }), [
@@ -598,14 +631,15 @@ test("authentication, permission and scope are read from the contract fields", (
   );
 });
 
-test("the real api.yaml classifies exactly the catalog-changing routes as full-token-only", () => {
+void test("the real api.yaml classifies exactly the catalog-changing routes as full-token-only", () => {
   const contract = loadContract(path.join(REPO_ROOT, "api.yaml"));
+  /** @type {Record<string, string[]>} */
   const byLabel = {};
   for (const { path: p, method, op } of operations(contract)) {
-    for (const label of authLabel(contract, op)) (byLabel[label] ||= []).push(`${method} ${p}`);
+    for (const label of authLabel(contract, op)) (byLabel[label] ??= []).push(`${method} ${p}`);
   }
   // Mirrors write_api_routes_refuse_read_only_tokens in src/lib.rs.
-  assert.deepEqual(byLabel["session or API token (full)"].sort(), [
+  assert.deepEqual(byLabel["session or API token (full)"]?.sort(), [
     "get /require",
     "get /require/asyncapi",
     "get /require/grpc",
@@ -615,14 +649,14 @@ test("the real api.yaml classifies exactly the catalog-changing routes as full-t
     "post /require-bundle",
     "put /catalog/{systemname}",
   ]);
-  assert.deepEqual(byLabel.none.sort(), ["get /version", "post /validate"]);
-  assert.deepEqual(byLabel["session token"].sort(), [
+  assert.deepEqual(byLabel.none?.sort(), ["get /version", "post /validate"]);
+  assert.deepEqual(byLabel["session token"]?.sort(), [
     "delete /auth/tokens/{id}",
     "get /api/audit/timeline",
     "get /auth/tokens",
     "post /auth/tokens",
   ]);
-  assert.deepEqual(byLabel["session or API token (full or read-only)"].sort(), [
+  assert.deepEqual(byLabel["session or API token (full or read-only)"]?.sort(), [
     "get /api/sse/updates",
     "get /api/ws/updates",
     "get /endpoint-versions",
@@ -633,12 +667,13 @@ test("the real api.yaml classifies exactly the catalog-changing routes as full-t
   ]);
 });
 
-test("every /admin operation shows the permission and scope its router guard enforces", () => {
+void test("every /admin operation shows the permission and scope its router guard enforces", () => {
   const guards = routerGuards();
   assert.ok(guards.size > 100);
   // The promote route is guarded `Authenticated` in the router; the handler
   // itself applies the GA gate (`release_ga`), and the contract documents the
   // gate. Known and deliberate, so it is the one expected difference.
+  /** @type {Record<string, { permission: string, scope: string }>} */
   const exceptions = {
     "post /admin/producers/{name}/versions/{api_type}/{version}/promote": {
       permission: "release_ga",
@@ -651,7 +686,7 @@ test("every /admin operation shows the permission and scope its router guard enf
     const key = `${block.method} ${block.path}`;
     const guard = guards.get(key);
     assert.ok(guard, `${key} is routed`);
-    const expected = exceptions[key] || {
+    const expected = exceptions[key] ?? {
       permission: guard.permission,
       scope:
         guard.scoped === "Product"
@@ -672,11 +707,11 @@ test("every /admin operation shows the permission and scope its router guard enf
   }
 });
 
-test("a recorded example in the contract is shown verbatim instead of the derived placeholder", () => {
+void test("a recorded example in the contract is shown verbatim instead of the derived placeholder", () => {
   const { body } = render(fixtureFile);
   assert.match(
     body,
-    /Example 404 response \(recorded from a live instance\)<\/p>\n<pre class="example"><code class="language-json">\{\n  &quot;name&quot;: &quot;recorded-thing&quot;,\n  &quot;kind&quot;: &quot;small&quot;\n\}<\/code><\/pre>/,
+    /Example 404 response \(recorded from a live instance\)<\/p>\n<pre class="example"><code class="language-json">\{\n {2}&quot;name&quot;: &quot;recorded-thing&quot;,\n {2}&quot;kind&quot;: &quot;small&quot;\n\}<\/code><\/pre>/,
   );
   assert.match(body, /Example 200 response \(placeholder values derived from the schema\)/);
   const api = built("reference/api.html");
@@ -688,7 +723,7 @@ test("a recorded example in the contract is shown verbatim instead of the derive
   );
 });
 
-test("anchors are derived from method and path and stay stable; TOC groups by two segments", () => {
+void test("anchors are derived from method and path and stay stable; TOC groups by two segments", () => {
   assert.equal(
     pathSlug("/admin/webhooks/{id}/deliveries/{delivery_id}/redeliver"),
     "admin-webhooks-id-deliveries-delivery-id-redeliver",
@@ -703,7 +738,7 @@ test("anchors are derived from method and path and stay stable; TOC groups by tw
   assert.equal(pathGroup("/provide"), "/provide");
 });
 
-test("renderContract: a fixture contract renders parameters, body, responses, security and schemas", () => {
+void test("renderContract: a fixture contract renders parameters, body, responses, security and schemas", () => {
   const page = render(fixtureFile);
   assert.equal(page.track, "reference");
   const { body } = page;
@@ -744,7 +779,7 @@ test("renderContract: a fixture contract renders parameters, body, responses, se
   assert.match(body, /<ul><li>one continued<\/li><li>two<\/li><\/ul>/);
   assert.match(
     body,
-    /<tr><td><code>200<\/code><\/td><td><p>The thing\.<\/p><\/td><td><a href="#schema-Thing">Thing<\/a>\n<p class="example-caption">Example 200 response \(placeholder values derived from the schema\)<\/p>\n<pre class="example"><code class="language-json">\{\n  &quot;name&quot;: &quot;string&quot;,/,
+    /<tr><td><code>200<\/code><\/td><td><p>The thing\.<\/p><\/td><td><a href="#schema-Thing">Thing<\/a>\n<p class="example-caption">Example 200 response \(placeholder values derived from the schema\)<\/p>\n<pre class="example"><code class="language-json">\{\n {2}&quot;name&quot;: &quot;string&quot;,/,
   );
   assert.match(
     body,
@@ -773,7 +808,7 @@ test("renderContract: a fixture contract renders parameters, body, responses, se
   );
 });
 
-test("an administrative contract shows permission and scope columns and counts the gaps", () => {
+void test("an administrative contract shows permission and scope columns and counts the gaps", () => {
   const { body } = render(contractFile("admin.yaml", ADMIN_FIXTURE));
   assert.match(
     body,
@@ -807,11 +842,11 @@ test("an administrative contract shows permission and scope columns and counts t
   assert.doesNotMatch(clean, /gap/);
 });
 
-test("a contract that cannot be parsed or resolved fails the build with a clear message", () => {
+void test("a contract that cannot be parsed or resolved fails the build with a clear message", () => {
   const site = path.join(tmp, "site");
   fs.mkdirSync(site, { recursive: true });
   fs.writeFileSync(path.join(site, "index.html"), '<!-- page: title="Home" -->\n<p>x</p>');
-  const build = (file) =>
+  const build = (/** @type {string} */ file) =>
     buildSite({
       srcDir: site,
       outDir: path.join(tmp, "out"),
@@ -843,7 +878,7 @@ test("a contract that cannot be parsed or resolved fails the build with a clear 
 // ---------------------------------------------------------------------------
 // The real site build
 
-test("the real site build renders both references into the Reference track", () => {
+void test("the real site build renders both references into the Reference track", () => {
   assert.equal(DEFAULT_CONTRACTS.length, 2);
   assert.ok(
     !fs.existsSync(path.join(REPO_ROOT, "site/reference/api.html")),
@@ -854,9 +889,10 @@ test("the real site build renders both references into the Reference track", () 
   assert.match(api, /<title>REST API — Sanshain<\/title>/);
   assert.match(api, /<h1>REST API<\/h1>/);
   assert.match(api, /<p class="eyebrow track-eyebrow">Reference<\/p>/);
-  const contractVersion = fs
-    .readFileSync(path.join(REPO_ROOT, "api.yaml"), "utf8")
-    .match(/^ {2}version: "([^"]+)"/m)[1];
+  const versionLine = /^ {2}version: "([^"]+)"/m.exec(
+    fs.readFileSync(path.join(REPO_ROOT, "api.yaml"), "utf8"),
+  );
+  const contractVersion = /** @type {string} */ (versionLine?.[1]);
   assert.match(api, new RegExp(`version ${literal(contractVersion)}</span>`));
   assert.doesNotMatch(api, /gap-count/, "api.yaml has no permission gaps to count");
   // The representative path: anchor, chip, summary, security, body schema link and example, responses.
@@ -869,7 +905,7 @@ test("the real site build renders both references into the Reference track", () 
   assert.match(api, /<a href="#schema-ProvidePayload">ProvidePayload<\/a>/);
   assert.match(
     api,
-    /Example request body \(placeholder values derived from the schema\)<\/p>\n<pre class="example"><code class="language-json">\{\n  &quot;producername&quot;: &quot;string&quot;,[\s\S]*?&quot;stability&quot;: &quot;snapshot&quot;/,
+    /Example request body \(placeholder values derived from the schema\)<\/p>\n<pre class="example"><code class="language-json">\{\n {2}&quot;producername&quot;: &quot;string&quot;,[\s\S]*?&quot;stability&quot;: &quot;snapshot&quot;/,
   );
   assert.match(api, /<tr><td><code>409<\/code><\/td><td><p>Rejected by the version rules\./);
   assert.match(api, /<h3 id="get-require">/);
@@ -910,7 +946,7 @@ test("the real site build renders both references into the Reference track", () 
     mtoc,
     /<summary><code>\/admin\/producers<\/code> <span class="toc-count">\d+<\/span>/,
   );
-  assert.ok((mtoc.match(/<details>/g) || []).length >= 8, "collapsible groups");
+  assert.ok((mtoc.match(/<details>/g) ?? []).length >= 8, "collapsible groups");
 
   const nav = api.slice(api.indexOf('id="sidebar"'), api.indexOf("</nav>"));
   const labels = ["Reference", "Using the API", "REST API", "Maintenance API"].map((l) =>
@@ -929,9 +965,11 @@ test("the real site build renders both references into the Reference track", () 
   assert.match(usage, /href="api\.html#schema-ErrorBody"/);
 });
 
-test("the longest admin path sits in a heading with the wrap rule the stylesheet carries", () => {
+void test("the longest admin path sits in a heading with the wrap rule the stylesheet carries", () => {
   const maintenance = built("reference/maintenance.html");
-  const paths = [...maintenance.matchAll(/<h2 id="[^"]+"><code>([^<]+)<\/code>/g)].map((m) => m[1]);
+  const paths = [...maintenance.matchAll(/<h2 id="[^"]+"><code>([^<]+)<\/code>/g)].map(
+    (m) => /** @type {string} */ (m[1]),
+  );
   const longest = paths.reduce((a, b) => (b.length > a.length ? b : a), "");
   assert.ok(longest.length >= 60, `longest path is ${longest}`);
   assert.match(
@@ -948,18 +986,24 @@ test("the longest admin path sits in a heading with the wrap rule the stylesheet
   assert.match(css, /@media print \{[^}]*:root:root,\n {2}:root:root\[data-theme="dark"\] \{/);
 });
 
-test("the search index lists endpoints by path and summary and leaves the example JSON out", () => {
-  const index = JSON.parse(built("search-index.json"));
-  const apiEntry = index.find((p) => p.url === "reference/api.html");
+void test("the search index lists endpoints by path and summary and leaves the example JSON out", () => {
+  const index = /** @type {IndexedPage[]} */ (JSON.parse(built("search-index.json")));
+  const apiEntry = /** @type {IndexedPage} */ (index.find((p) => p.url === "reference/api.html"));
   assert.equal(apiEntry.track, "Reference");
-  const provide = apiEntry.headings.find((h) => h.id === "post-provide");
+  const provide = /** @type {IndexedPage["headings"][number]} */ (
+    apiEntry.headings.find((h) => h.id === "post-provide")
+  );
   assert.equal(provide.text, "POST /provide");
   assert.match(provide.body, /^Provide an OpenAPI specification under its declared version/);
   assert.doesNotMatch(provide.body, /"producername": "string"|"stability": "snapshot"/);
   assert.match(provide.body, /Example request body/, "the caption stays, the JSON goes");
-  const maintenanceEntry = index.find((p) => p.url === "reference/maintenance.html");
-  const redeliver = maintenanceEntry.headings.find(
-    (h) => h.id === "post-admin-webhooks-id-deliveries-delivery-id-redeliver",
+  const maintenanceEntry = /** @type {IndexedPage} */ (
+    index.find((p) => p.url === "reference/maintenance.html")
+  );
+  const redeliver = /** @type {IndexedPage["headings"][number]} */ (
+    maintenanceEntry.headings.find(
+      (h) => h.id === "post-admin-webhooks-id-deliveries-delivery-id-redeliver",
+    )
   );
   assert.equal(redeliver.text, "POST /admin/webhooks/{id}/deliveries/{delivery_id}/redeliver");
   assert.match(redeliver.body, /redeliver/i);

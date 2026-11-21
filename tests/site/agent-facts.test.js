@@ -13,27 +13,36 @@ const MAP = "docs/agents/service-facts.md";
 // Backticked repository paths: under a top-level directory of the repository,
 // or one of the root files the map names. Globs (`tests/*.rs`) are patterns,
 // not pointers, and are left out.
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function pointers(text) {
+  /** @type {Set<string>} */
   const found = new Set();
   const dirs = "src|docs|site|static|tests|scripts|templates|deploy|\\.github";
   const files =
     "CONTEXT\\.md|AGENTS\\.md|CHANGELOG\\.md|OLDER_CHANGES\\.md|api\\.yaml|maintenance\\.yaml";
   const pattern = new RegExp(`\`((?:(?:${dirs})/[^\`\\s]*)|(?:${files}))\``, "g");
   for (const match of text.matchAll(pattern)) {
-    if (!match[1].includes("*")) found.add(match[1]);
+    const pointer = /** @type {string} */ (match[1]);
+    if (!pointer.includes("*")) found.add(pointer);
   }
   return [...found];
 }
 
-test("every path the agents' fact map names exists", () => {
+void test("every path the agents' fact map names exists", () => {
   const text = fs.readFileSync(path.join(root, MAP), "utf8");
   const named = pointers(text);
-  assert.ok(named.length > 20, `expected the map to name its sources, found ${named.length}`);
+  assert.ok(
+    named.length > 20,
+    `expected the map to name its sources, found ${String(named.length)}`,
+  );
   const missing = named.filter((p) => !fs.existsSync(path.join(root, p)));
   assert.deepEqual(missing, [], `${MAP} points at paths that do not exist`);
 });
 
-test("the pointer reader finds paths and skips globs", () => {
+void test("the pointer reader finds paths and skips globs", () => {
   const sample = "see `src/lib.rs`, `CONTEXT.md`, `tests/*.rs` and `san_…`";
   assert.deepEqual(pointers(sample).sort(), ["CONTEXT.md", "src/lib.rs"]);
 });

@@ -4,11 +4,58 @@
 (function () {
   "use strict";
 
+  /**
+   * The browser APIs this script probes before it uses them: an older browser may lack them.
+   * @typedef {object} ProbedWindow
+   * @property {Window["matchMedia"]} [matchMedia]
+   * @property {Window["getSelection"]} [getSelection]
+   * @property {Partial<Pick<History, "pushState">>} [history]
+   */
+  /**
+   * @typedef {Omit<MediaQueryList, "addEventListener"> & {
+   *   addEventListener?: MediaQueryList["addEventListener"],
+   * }} ProbedMediaQueryList
+   */
+  /** @typedef {{ clipboard?: Partial<Pick<Clipboard, "writeText">> }} ProbedNavigator */
+  /** @typedef {Partial<Pick<Element, "closest">>} ProbedTarget An event target may lack `closest`. */
+  /** @typedef {{ hash?: boolean, focus?: boolean, replace?: boolean }} ShowOptions */
+  /**
+   * This is one page of `search-index.json`, as `buildIndex` in scripts/build-site.js writes it.
+   * @typedef {object} SearchPage
+   * @property {string} title
+   * @property {string} [track]
+   * @property {string} url
+   * @property {string} [summary]
+   * @property {string} [intro]
+   * @property {{ id: string, text: string, body?: string }[]} [headings]
+   */
+  /**
+   * @typedef {object} SearchHit
+   * @property {number} score
+   * @property {number} order
+   * @property {string} url
+   * @property {string} title
+   * @property {string} meta
+   * @property {string} snippet
+   */
+
   const root = document.documentElement;
-  const siteRoot = root.getAttribute("data-root") || "";
+  /**
+   * The text, or the fallback for a missing or an empty one: what `text || fallback` gives.
+   * Written without `??`, which is newer than the syntax this script is served in.
+   * @param {string | null | undefined} text
+   * @param {string} fallback
+   * @returns {string}
+   */
+  function textOr(text, fallback) {
+    return typeof text === "string" && text !== "" ? text : fallback;
+  }
+
+  const siteRoot = textOr(root.getAttribute("data-root"), "");
   const THEME_KEY = "sanshain-theme";
   const live = document.getElementById("live");
 
+  /** @param {string} text */
   function announce(text) {
     if (!live) return;
     live.textContent = "";
@@ -20,12 +67,15 @@
   // ---------- theme ----------
 
   const themeToggle = document.querySelector(".theme-toggle");
-  const darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  /** @type {ProbedMediaQueryList | null} */
+  const darkQuery = /** @type {ProbedWindow} */ (window).matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
 
   function effectiveTheme() {
     const chosen = root.getAttribute("data-theme");
     if (chosen === "light" || chosen === "dark") return chosen;
-    return darkQuery && darkQuery.matches ? "dark" : "light";
+    return (darkQuery ? darkQuery.matches : false) ? "dark" : "light";
   }
 
   function labelThemeToggle() {
@@ -34,6 +84,7 @@
     themeToggle.setAttribute("aria-label", "Switch to " + next + " theme");
   }
 
+  /** @param {string} theme */
   function setTheme(theme) {
     root.setAttribute("data-theme", theme);
     try {
@@ -48,31 +99,38 @@
     themeToggle.addEventListener("click", function () {
       setTheme(effectiveTheme() === "dark" ? "light" : "dark");
     });
-    if (darkQuery && darkQuery.addEventListener)
-      darkQuery.addEventListener("change", labelThemeToggle);
+    if (darkQuery) {
+      if (darkQuery.addEventListener) darkQuery.addEventListener("change", labelThemeToggle);
+    }
     labelThemeToggle();
   }
 
   // ---------- sidebar (narrow screens) ----------
 
-  const navToggle = document.querySelector(".nav-toggle");
+  const navToggle = /** @type {HTMLElement | null} */ (document.querySelector(".nav-toggle"));
   const sidebar = document.getElementById("sidebar");
 
   function sidebarIsOpen() {
-    return Boolean(sidebar && sidebar.classList.contains("is-open"));
+    return sidebar ? sidebar.classList.contains("is-open") : false;
   }
 
+  /** @returns {HTMLElement[]} */
   function sidebarFocusables() {
-    return [navToggle].concat(Array.prototype.slice.call(sidebar.querySelectorAll("a[href]")));
+    return [/** @type {HTMLElement} */ (navToggle)].concat(
+      /** @type {HTMLElement[]} */ (
+        Array.prototype.slice.call(/** @type {HTMLElement} */ (sidebar).querySelectorAll("a[href]"))
+      ),
+    );
   }
 
+  /** @param {boolean} open */
   function setSidebar(open) {
     if (!sidebar || !navToggle) return;
     sidebar.classList.toggle("is-open", open);
     navToggle.setAttribute("aria-expanded", String(open));
     navToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
     if (open) {
-      const first = sidebar.querySelector("a[href]");
+      const first = /** @type {HTMLElement | null} */ (sidebar.querySelector("a[href]"));
       if (first) first.focus();
     } else {
       navToggle.focus();
@@ -85,7 +143,8 @@
     });
     document.addEventListener("click", function (event) {
       if (!sidebarIsOpen()) return;
-      if (sidebar.contains(event.target) || navToggle.contains(event.target)) return;
+      const target = /** @type {Node | null} */ (event.target);
+      if (sidebar.contains(target) || navToggle.contains(target)) return;
       setSidebar(false);
     });
     document.addEventListener("keydown", function (event) {
@@ -98,8 +157,8 @@
       if (event.key !== "Tab") return;
       // Keep Tab inside the open panel (toggle button + its links).
       const focusables = sidebarFocusables();
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
+      const first = /** @type {HTMLElement} */ (focusables[0]);
+      const last = /** @type {HTMLElement} */ (focusables[focusables.length - 1]);
       if (event.shiftKey && document.activeElement === first) {
         last.focus();
         event.preventDefault();
@@ -118,17 +177,19 @@
 
   // ---------- copy link on heading anchors ----------
 
+  /** @param {Element} anchor */
   function selectHeadingText(anchor) {
     const heading = anchor.parentElement;
-    if (!heading || !window.getSelection) return;
+    if (!heading || !(/** @type {ProbedWindow} */ (window).getSelection)) return;
     const range = document.createRange();
     range.selectNodeContents(heading);
     range.setEndBefore(anchor);
-    const selection = window.getSelection();
+    const selection = /** @type {Selection} */ (window.getSelection());
     selection.removeAllRanges();
     selection.addRange(range);
   }
 
+  /** @param {Element} anchor */
   function flashCopied(anchor) {
     anchor.setAttribute("data-copied", "");
     announce("Link copied");
@@ -139,6 +200,10 @@
 
   // Without the async clipboard: select the URL in a scratch field and copy it;
   // if even that fails, leave the heading text selected for a manual copy.
+  /**
+   * @param {Element} anchor
+   * @param {string} url
+   */
   function copyThroughSelection(anchor, url) {
     const field = document.createElement("textarea");
     field.value = url;
@@ -146,8 +211,10 @@
     field.className = "sr-only";
     document.body.appendChild(field);
     field.select();
-    let copied = false;
+    /** @type {boolean} */
+    let copied;
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- This is the fallback for browsers without the async clipboard, which only have execCommand.
       copied = document.execCommand("copy");
     } catch {
       copied = false;
@@ -162,10 +229,13 @@
   }
 
   document.addEventListener("click", function (event) {
-    const anchor = event.target.closest && event.target.closest("a.anchor");
+    /** @type {ProbedTarget} */
+    const clicked = /** @type {ProbedTarget} */ (event.target);
+    const anchor = clicked.closest ? clicked.closest("a.anchor") : null;
     if (!anchor) return;
-    const url = window.location.href.split("#")[0] + anchor.getAttribute("href");
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    const url = String(window.location.href.split("#")[0]) + String(anchor.getAttribute("href"));
+    const clipboard = /** @type {ProbedNavigator} */ (navigator).clipboard;
+    if (clipboard ? clipboard.writeText : false) {
       navigator.clipboard.writeText(url).then(
         function () {
           flashCopied(anchor);
@@ -181,11 +251,14 @@
 
   // ---------- table of contents: mark the section in view ----------
 
-  const tocLinks = Array.prototype.slice.call(document.querySelectorAll(".toc a[href^='#']"));
+  const tocLinks = /** @type {Element[]} */ (
+    Array.prototype.slice.call(document.querySelectorAll(".toc a[href^='#']"))
+  );
   if (tocLinks.length && "IntersectionObserver" in window) {
+    /** @type {Record<string, Element>} */
     const byId = {};
     tocLinks.forEach(function (link) {
-      byId[link.getAttribute("href").slice(1)] = link;
+      byId[/** @type {string} */ (link.getAttribute("href")).slice(1)] = link;
     });
     const observer = new IntersectionObserver(
       function (entries) {
@@ -214,36 +287,52 @@
   // point in `data-graph` and the parts that changed in `data-graph-highlight`
   // (comma-separated). Without the script every step is simply visible.
 
-  const story = document.querySelector(".story");
-  const steps = story ? Array.prototype.slice.call(story.querySelectorAll(".step")) : [];
+  const story = /** @type {HTMLElement | null} */ (document.querySelector(".story"));
+  /** @type {HTMLElement[]} */
+  const steps = story
+    ? /** @type {HTMLElement[]} */ (Array.prototype.slice.call(story.querySelectorAll(".step")))
+    : [];
   if (steps.length) {
-    const graphParts = Array.prototype.slice.call(story.querySelectorAll(".story-graph [data-g]"));
-    const nav = story.querySelector(".stepper-nav");
-    const prev = nav ? nav.querySelector(".step-prev") : null;
-    const next = nav ? nav.querySelector(".step-next") : null;
+    const graphParts = /** @type {Element[]} */ (
+      Array.prototype.slice.call(
+        /** @type {HTMLElement} */ (story).querySelectorAll(".story-graph [data-g]"),
+      )
+    );
+    const nav = /** @type {HTMLElement} */ (story).querySelector(".stepper-nav");
+    const prev = /** @type {HTMLButtonElement | null} */ (
+      nav ? nav.querySelector(".step-prev") : null
+    );
+    const next = /** @type {HTMLButtonElement | null} */ (
+      nav ? nav.querySelector(".step-next") : null
+    );
     const counter = nav ? nav.querySelector(".step-counter") : null;
     const list = document.createElement("ol");
     list.className = "step-list";
     const listLinks = steps.map(function (step, i) {
       const li = document.createElement("li");
       const a = document.createElement("a");
-      a.href = "#step-" + (i + 1);
+      a.href = "#step-" + String(i + 1);
       const heading = step.querySelector("h2");
       a.textContent = heading
         ? heading.textContent
             .replace(/^\s*\d+\.\s*/, "")
             .replace(/#\s*$/, "")
             .trim()
-        : "Step " + (i + 1);
+        : "Step " + String(i + 1);
       li.appendChild(a);
       list.appendChild(li);
       return a;
     });
     if (nav) nav.insertAdjacentElement("afterend", list);
-    else story.insertBefore(list, steps[0]);
+    else
+      /** @type {HTMLElement} */ (story).insertBefore(list, /** @type {HTMLElement} */ (steps[0]));
 
     let current = -1;
 
+    /**
+     * @param {Element} step
+     * @param {string} attr
+     */
     function names(step, attr) {
       const value = step.getAttribute(attr);
       return value
@@ -255,8 +344,9 @@
 
     // Below the figure's minimum width it scrolls sideways: bring the first
     // highlighted part into view so the change is never off-screen.
+    /** @param {Element} part */
     function revealInFigure(part) {
-      const figure = story.querySelector(".story-graph");
+      const figure = /** @type {HTMLElement} */ (story).querySelector(".story-graph");
       if (!figure || figure.scrollWidth <= figure.clientWidth + 1) return;
       const box = part.getBoundingClientRect();
       const frame = figure.getBoundingClientRect();
@@ -264,26 +354,31 @@
       figure.scrollLeft += box.left - frame.left - (frame.width - box.width) / 2;
     }
 
+    /** @param {Element} step */
     function applyGraph(step) {
       const shown = names(step, "data-graph");
       const marked = names(step, "data-graph-highlight");
-      let first = null;
+      let first = /** @type {Element | null} */ (null);
       graphParts.forEach(function (part) {
-        const name = part.getAttribute("data-g");
-        part.classList.toggle("is-hidden", shown.indexOf(name) < 0);
-        const highlighted = marked.indexOf(name) >= 0;
+        const name = /** @type {string} */ (part.getAttribute("data-g"));
+        part.classList.toggle("is-hidden", !shown.includes(name));
+        const highlighted = marked.includes(name);
         part.classList.toggle("is-highlight", highlighted);
         if (highlighted && !first) first = part;
       });
-      const caption = story.querySelector(".story-graph figcaption");
+      const caption = /** @type {HTMLElement} */ (story).querySelector(".story-graph figcaption");
       if (caption && step.hasAttribute("data-graph-caption")) {
         caption.textContent = step.getAttribute("data-graph-caption");
       }
       if (first) revealInFigure(first);
     }
 
+    /**
+     * @param {number} index
+     * @param {ShowOptions} [options]
+     */
     function show(index, options) {
-      const opts = options || {};
+      const opts = typeof options === "object" ? options : {};
       if (index < 0 || index >= steps.length || index === current) return;
       current = index;
       steps.forEach(function (step, i) {
@@ -295,17 +390,19 @@
       });
       if (prev) prev.disabled = index === 0;
       if (next) next.disabled = index === steps.length - 1;
-      if (counter) counter.textContent = "Step " + (index + 1) + " of " + steps.length;
-      applyGraph(steps[index]);
+      if (counter)
+        counter.textContent = "Step " + String(index + 1) + " of " + String(steps.length);
+      applyGraph(/** @type {HTMLElement} */ (steps[index]));
       // Navigation pushes a history entry, so Back returns to the previous
       // step; the initial step and hash-driven changes only replace it.
-      if (opts.hash !== false && window.history && window.history.pushState) {
-        const url = "#step-" + (index + 1);
+      const history = /** @type {ProbedWindow} */ (window).history;
+      if (opts.hash !== false && (history ? history.pushState : false)) {
+        const url = "#step-" + String(index + 1);
         if (opts.replace) window.history.replaceState(null, "", url);
         else window.history.pushState(null, "", url);
       }
       if (opts.focus) {
-        const heading = steps[index].querySelector("h2");
+        const heading = /** @type {HTMLElement} */ (steps[index]).querySelector("h2");
         if (heading) {
           heading.setAttribute("tabindex", "-1");
           heading.focus({ preventScroll: true });
@@ -337,9 +434,11 @@
         show(current + 1, { focus: true });
       });
     list.addEventListener("click", function (event) {
-      const a = event.target.closest && event.target.closest("a[href^='#step-']");
+      /** @type {ProbedTarget} */
+      const clicked = /** @type {ProbedTarget} */ (event.target);
+      const a = clicked.closest ? clicked.closest("a[href^='#step-']") : null;
       if (!a) return;
-      show(Number(a.getAttribute("href").slice(6)) - 1, { focus: true });
+      show(Number(/** @type {string} */ (a.getAttribute("href")).slice(6)) - 1, { focus: true });
       event.preventDefault();
     });
     // The address changed by hand, by a link, or by Back/Forward.
@@ -355,9 +454,9 @@
     window.addEventListener("popstate", syncFromHash);
     // Arrow keys work while the focus is inside the story (a control, a step
     // heading), and never steal them from a field or a scrollable block.
-    story.addEventListener("keydown", function (event) {
+    /** @type {HTMLElement} */ (story).addEventListener("keydown", function (event) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const target = event.target;
+      const target = /** @type {HTMLElement | null} */ (event.target);
       const typing =
         target &&
         (target.tagName === "INPUT" ||
@@ -376,7 +475,7 @@
       event.preventDefault();
     });
 
-    story.classList.add("is-enhanced");
+    /** @type {HTMLElement} */ (story).classList.add("is-enhanced");
     const initial = stepFromHash();
     show(initial >= 0 ? initial : 0, { hash: initial >= 0, replace: true });
     if (initial >= 0) {
@@ -388,30 +487,35 @@
 
   // ---------- search ----------
 
-  const input = document.getElementById("search");
-  const results = document.getElementById("search-results");
-  if (!input || !results) return;
+  const inputElement = /** @type {HTMLInputElement | null} */ (document.getElementById("search"));
+  const resultsElement = document.getElementById("search-results");
+  if (!inputElement || !resultsElement) return;
+  // The functions below are hoisted, so they need names that were never null.
+  const input = inputElement;
+  const results = resultsElement;
 
+  /** @type {Promise<SearchPage[]> | null} */
   let indexPromise = null;
+  /** @type {Element[]} */
   let items = [];
   let active = -1;
 
   function loadIndex() {
-    if (!indexPromise) {
-      indexPromise = window
-        .fetch(siteRoot + "search-index.json")
-        .then(function (res) {
-          if (!res.ok) throw new Error("search index: HTTP " + res.status);
-          return res.json();
-        })
-        .catch(function (err) {
-          indexPromise = null; // retry on the next keystroke
-          throw err;
-        });
-    }
+    if (indexPromise) return indexPromise;
+    indexPromise = window
+      .fetch(siteRoot + "search-index.json")
+      .then(function (res) {
+        if (!res.ok) throw new Error("search index: HTTP " + String(res.status));
+        return /** @type {Promise<SearchPage[]>} */ (res.json());
+      })
+      .catch(function (/** @type {unknown} */ err) {
+        indexPromise = null; // retry on the next keystroke
+        throw err;
+      });
     return indexPromise;
   }
 
+  /** @param {string | number} text */
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, "&amp;")
@@ -420,10 +524,15 @@
       .replace(/"/g, "&quot;");
   }
 
+  /** @param {string} text */
   function escapeRegExp(text) {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  /**
+   * @param {string} text
+   * @param {string} query
+   */
   function highlight(text, query) {
     const re = new RegExp("(" + escapeRegExp(query) + ")", "ig");
     return text
@@ -434,6 +543,10 @@
       .join("");
   }
 
+  /**
+   * @param {string} text
+   * @param {string} query
+   */
   function snippet(text, query) {
     const at = text.toLowerCase().indexOf(query.toLowerCase());
     if (at < 0) return text.slice(0, 120);
@@ -443,33 +556,38 @@
   }
 
   // Heading matches outrank body matches; a page-title match outranks both.
+  /**
+   * @param {SearchPage[]} index
+   * @param {string} query
+   */
   function search(index, query) {
     const q = query.toLowerCase();
+    /** @type {SearchHit[]} */
     const found = [];
     index.forEach(function (page, pageNo) {
       const pageLabel = page.track ? page.track + " · " + page.title : page.title;
-      if (page.title.toLowerCase().indexOf(q) >= 0) {
+      if (page.title.toLowerCase().includes(q)) {
         found.push({
           score: 3,
           order: pageNo,
           url: page.url,
           title: page.title,
-          meta: page.track || "Page",
-          snippet: page.summary || page.intro || "",
+          meta: textOr(page.track, "Page"),
+          snippet: textOr(page.summary, textOr(page.intro, "")),
         });
-      } else if ((page.intro || "").toLowerCase().indexOf(q) >= 0) {
+      } else if (textOr(page.intro, "").toLowerCase().includes(q)) {
         found.push({
           score: 1,
           order: pageNo,
           url: page.url,
           title: page.title,
-          meta: page.track || "Page",
-          snippet: snippet(page.intro, query),
+          meta: textOr(page.track, "Page"),
+          snippet: snippet(/** @type {string} */ (page.intro), query),
         });
       }
-      (page.headings || []).forEach(function (h) {
-        const inHeading = h.text.toLowerCase().indexOf(q) >= 0;
-        const inBody = (h.body || "").toLowerCase().indexOf(q) >= 0;
+      (Array.isArray(page.headings) ? page.headings : []).forEach(function (h) {
+        const inHeading = h.text.toLowerCase().includes(q);
+        const inBody = textOr(h.body, "").toLowerCase().includes(q);
         if (!inHeading && !inBody) return;
         found.push({
           score: inHeading ? 2 : 1,
@@ -477,7 +595,7 @@
           url: page.url + "#" + h.id,
           title: h.text,
           meta: pageLabel,
-          snippet: snippet(h.body || "", query),
+          snippet: snippet(textOr(h.body, ""), query),
         });
       });
     });
@@ -496,27 +614,34 @@
     active = -1;
   }
 
+  /** @param {number} i */
   function setActive(i) {
     items.forEach(function (li, n) {
       li.setAttribute("aria-selected", String(n === i));
     });
     active = i;
     if (i >= 0) {
-      input.setAttribute("aria-activedescendant", items[i].id);
-      items[i].scrollIntoView({ block: "nearest" });
+      const item = /** @type {Element} */ (items[i]);
+      input.setAttribute("aria-activedescendant", item.id);
+      item.scrollIntoView({ block: "nearest" });
     } else {
       input.removeAttribute("aria-activedescendant");
     }
   }
 
+  /** @param {string} html */
   function open(html) {
     results.innerHTML = html;
     results.hidden = false;
     input.setAttribute("aria-expanded", "true");
-    items = Array.prototype.slice.call(results.querySelectorAll("li[role='option']"));
+    items = Array.from(results.querySelectorAll("li[role='option']"));
     active = -1;
   }
 
+  /**
+   * @param {SearchHit[]} hits
+   * @param {string} query
+   */
   function render(hits, query) {
     if (!hits.length) {
       open('<li class="search-empty" role="presentation">No matches</li>');
@@ -528,7 +653,7 @@
         .map(function (hit, i) {
           return (
             '<li id="search-hit-' +
-            i +
+            String(i) +
             '" role="option" aria-selected="false"><a href="' +
             escapeHtml(siteRoot + hit.url) +
             '"><span class="result-title">' +
@@ -544,7 +669,7 @@
         })
         .join(""),
     );
-    announce(hits.length + (hits.length === 1 ? " result" : " results"));
+    announce(String(hits.length) + (hits.length === 1 ? " result" : " results"));
   }
 
   let pending = 0;
@@ -586,19 +711,27 @@
       setActive((active - 1 + items.length) % items.length);
       event.preventDefault();
     } else if (event.key === "Enter" && items.length) {
-      const link = items[active >= 0 ? active : 0].querySelector("a");
+      const link = /** @type {Element} */ (items[active >= 0 ? active : 0]).querySelector("a");
       if (link) window.location.href = link.href;
       event.preventDefault();
     }
   });
 
   document.addEventListener("click", function (event) {
-    if (!results.hidden && !input.parentElement.contains(event.target)) close();
+    if (
+      !results.hidden &&
+      !(
+        /** @type {HTMLElement} */ (input.parentElement).contains(
+          /** @type {Node | null} */ (event.target),
+        )
+      )
+    )
+      close();
   });
 
   document.addEventListener("keydown", function (event) {
     if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
-    const target = event.target;
+    const target = /** @type {HTMLElement | null} */ (event.target);
     const typing =
       target &&
       (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
