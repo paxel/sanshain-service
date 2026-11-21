@@ -27,10 +27,10 @@ jobs:
   # package-lock.json: osv-scanner decided by gates' osv_gate.py. What is accepted stands in
   # the osv-scanner.toml beside each lockfile.
   vulns:
-    uses: paxel/gates/.github/workflows/vulns.yml@02a81ad45b815cbed94f9bb6841424a624e8155f # v1.2.0
+    uses: paxel/gates/.github/workflows/vulns.yml@385f7ac316aef261a56e46bfc1e3553fa2efaccd # v1.4.0
 
   rust:
-    uses: paxel/gates/.github/workflows/rust.yml@02a81ad45b815cbed94f9bb6841424a624e8155f # v1.2.0
+    uses: paxel/gates/.github/workflows/rust.yml@385f7ac316aef261a56e46bfc1e3553fa2efaccd # v1.4.0
     with:
       # The PostgreSQL tests start their database through testcontainers; the script pulls
       # the image once before the test binaries ask for it at the same moment.
@@ -43,7 +43,7 @@ jobs:
   # The JavaScript is plain JavaScript, type-checked by tsc (checkJs). The part is named
   # site: the gate's tests are the site tests, which measure the site build in scripts/.
   ts:
-    uses: paxel/gates/.github/workflows/ts.yml@02a81ad45b815cbed94f9bb6841424a624e8155f # v1.2.0
+    uses: paxel/gates/.github/workflows/ts.yml@385f7ac316aef261a56e46bfc1e3553fa2efaccd # v1.4.0
     with:
       packages: site .
 
@@ -178,7 +178,7 @@ jobs:
           path: coverage/ui.lcov
           if-no-files-found: error
       - name: The ui part holds its floor
-        uses: paxel/gates/actions/ratchet@02a81ad45b815cbed94f9bb6841424a624e8155f # v1.2.0
+        uses: paxel/gates/actions/ratchet@385f7ac316aef261a56e46bfc1e3553fa2efaccd # v1.4.0
         with:
           parts: ui
       - name: Upload Playwright report on failure
@@ -193,6 +193,6 @@ jobs:
   # coverage/ui.lcov from their artifacts (sonar-project.properties).
   sonar:
     needs: [rust, ts, ui]
-    uses: paxel/gates/.github/workflows/sonar.yml@02a81ad45b815cbed94f9bb6841424a624e8155f # v1.2.0
+    uses: paxel/gates/.github/workflows/sonar.yml@385f7ac316aef261a56e46bfc1e3553fa2efaccd # v1.4.0
     secrets:
       sonar-token: ${{ secrets.SQ_TOKEN }}
