@@ -166,3 +166,12 @@ path = "scripts/record-walkthroughs.sh"
 ignoreUntil = 2027-02-18
 reason = """Throwaway accounts of the temporary instance the walkthrough recording starts; \
 the recorded evidence in the docs shows them on purpose."""
+
+# GitHub reads Sanshain's own webhook signing secrets as Stripe's: both start with whsec_.
+[[IgnoredSecrets]]
+secret_type = "stripe_webhook_signing_secret"
+ignoreUntil = 2027-02-18
+reason = """Sanshain's own webhook signing secrets (whsec_), recorded in the documentation's \
+walkthrough evidence (site/evidence/operator/06-*) from the throwaway instance \
+scripts/record-walkthroughs.sh starts. Not Stripe secrets; that instance and its hooks no \
+longer exist."""
