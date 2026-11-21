@@ -286,7 +286,8 @@
   of a <a href="../start/glossary.html#product">Product</a>), the Circular
   layout, the protocol filters (OpenAPI, AsyncAPI, Proto), the <strong>Periphery</strong> switch for
   <a href="../start/glossary.html#peripheral-resource">peripheral resources</a> (remembered in the
-  browser; a link that hides protocols still decides it), and the
+  browser; a link that hides protocols still decides it; greyed out in the main and branch views
+  when their scope has none, since only catalog pushes from trunk builds reach main), and the
   <strong>Outdated</strong> and <strong>Snapshot-pinned</strong> highlights. A pin to a
   <a href="../start/glossary.html#superseded">superseded</a> snapshot counts as outdated, and
   hovering the edge says <code>superseded by X ga</code>.
@@ -296,9 +297,10 @@
   page's address, so a shared link shows the drawing its sender saw:
   <strong>Vertical</strong>/<strong>Horizontal</strong> pivots the flow, the density button steps
   through <strong>Normal</strong>, <strong>Compact</strong> (tighter gaps between nodes and ranks,
-  for an install whose graph has outgrown the screen) and <strong>Dense</strong> (nodes as they are,
-  with only room for the edges between them and little space in the domain frames, for a small
-  monitor), <strong>Rainbow</strong> gives every caller's plain arrows and catalog
+  for an install whose graph has outgrown the screen; a lower rank also moves less far along, so the
+  edges keep Normal's slope) and <strong>Dense</strong> (nodes as they are, with only room for the
+  edges between them and little space in the domain frames, every rank centred instead of moved
+  along, for a small monitor), <strong>Rainbow</strong> gives every caller's plain arrows and catalog
   <code>dependsOn</code> lines a colour of its own, so a fan-out can be followed through the
   crossings: the callers in the graph, sorted by name, take colours as far apart as the hues the
   warnings leave free (circular, missing, outdated and stale edges keep their warning colours), and
