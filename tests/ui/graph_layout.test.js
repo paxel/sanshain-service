@@ -613,3 +613,105 @@ test("an error while showing the graph reaches the page as text", async ({ page 
   await expect(shown).toContainText("Error:", { timeout: 10000 });
   await expect(shown.locator("*")).toHaveCount(0);
 });
+
+// Ungrouped, one block holds both roles: the Producers' rank starts right of
+// the Consumers' by their lane plus the role gap. Compact scales that shift by
+// its share of Normal's rank gap, so the edges keep their slope; Dense centres
+// every rank instead.
+test("the density scales how far a lower rank moves along", async ({ page }) => {
+  await openGraph(page);
+  // The catalog's resource sits on the Producers' rank too.
+  const producers = [...DOMAINS.alpha, ...DOMAINS.beta, `resource:default/${P}-db`];
+  /** @param {string} density */
+  const measure = async (density) => {
+    // Focused on this file's systems: the suites before it leave other
+    // consumers in the graph, whose names would widen the Consumers' lane.
+    const focus = [...CONSUMERS, ...DOMAINS.alpha, ...DOMAINS.beta].join(",");
+    await page.goto(`/graph.html?domains=node&density=${density}&focus=${focus}`);
+    await expect(page.locator("#custom-graph")).toHaveAttribute("data-density", density, {
+      timeout: 20000,
+    });
+    await expect(node(page, DOMAINS.beta[1])).toHaveCount(1, { timeout: 20000 });
+    return page.evaluate(
+      ({ consumers, producers, density }) => {
+        /** @param {string[]} names */
+        const span = (names) => {
+          const rects = names.map(
+            (name) =>
+              /** @type {Element} */ (
+                document.querySelector(`#custom-graph g.graph-node[data-node="${name}"] > rect`)
+              ),
+          );
+          const x0 = Math.min(...rects.map((r) => Number(r.getAttribute("x"))));
+          const x1 = Math.max(
+            ...rects.map((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width"))),
+          );
+          return { x0, x1, mid: (x0 + x1) / 2 };
+        };
+        return {
+          consumers: span(consumers),
+          producers: span(producers),
+          gaps: window.graphLayoutGaps(false, density),
+          normal: window.graphLayoutGaps(false, "normal"),
+        };
+      },
+      { consumers: CONSUMERS, producers, density },
+    );
+  };
+  for (const density of ["normal", "compact"]) {
+    const { consumers, producers: p, gaps, normal } = await measure(density);
+    const lane = consumers.x1 - consumers.x0 + gaps.groupGap;
+    const expected = (lane * gaps.ranksep) / normal.ranksep;
+    expect(Math.abs(p.x0 - consumers.x0 - expected), density).toBeLessThan(1);
+  }
+  const dense = await measure("dense");
+  expect(Math.abs(dense.producers.mid - dense.consumers.mid)).toBeLessThan(1);
+});
+
+// Last in this file: its trunk catalog push gives main a periphery the tests
+// above do not expect.
+test("Periphery is greyed out where the view has none and says why", async ({ page, request }) => {
+  const button = page.locator("#filter-periphery");
+  await openGraph(page);
+  // The fixture's catalog push is no trunk build: main had no periphery in 2020
+  // or now, the dev view shows it.
+  await expect(node(page, `resource:default/${P}-db`)).toHaveCount(1, { timeout: 20000 });
+  await expect(button).toBeEnabled();
+  await page.goto("/graph.html?view=main&at=2020-01-01T00:00:00Z");
+  await expect(button).toBeDisabled({ timeout: 10000 });
+  await expect(button).toHaveAttribute(
+    "title",
+    "No periphery in this view: catalog pushes reach main only from trunk builds",
+  );
+  await expect(button).toHaveClass(/opacity-50/);
+
+  const login = await request.post("/auth/login", {
+    data: { username: "root", password: adminPassword },
+  });
+  const res = await request.put(`/catalog/${CONSUMERS[1]}`, {
+    headers: {
+      Authorization: `Bearer ${/** @type {{ token: string }} */ (await json(login)).token}`,
+    },
+    data: {
+      trunk: true,
+      catalog_info_yaml: [
+        "apiVersion: backstage.io/v1alpha1",
+        "kind: Component",
+        "metadata:",
+        `  name: ${CONSUMERS[1]}`,
+        "spec:",
+        "  type: service",
+        "  dependsOn:",
+        `    - resource:${P}-trunk-db`,
+      ].join("\n"),
+    },
+  });
+  expect(res.ok()).toBe(true);
+  await page.goto("/graph.html?view=main");
+  await expect(node(page, `resource:default/${P}-trunk-db`)).toHaveCount(1, { timeout: 20000 });
+  await expect(button).toBeEnabled();
+  await expect(button).not.toHaveClass(/opacity-50/);
+  await expect(button).toHaveAttribute("title", /Backstage catalog-info\.yaml/);
+  await button.click();
+  await expect(node(page, `resource:default/${P}-trunk-db`)).toHaveCount(0);
+});

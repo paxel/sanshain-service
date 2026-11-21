@@ -550,7 +550,29 @@ window.applyGraphHighlights = applyGraphHighlights;
 
 // ── Redraw Coordinator ───────────────────────────────────────────────
 
+// The main and branch views draw only their scope's periphery, which trunk
+// catalog pushes fill. When that scope holds none, the Periphery button has
+// nothing to hide: it is greyed out and says why. `null` is the dev view or a
+// scope still loading, never greyed.
+const GRAPH_NO_PERIPHERY_TITLE =
+  "No periphery in this view: catalog pushes reach main only from trunk builds";
+function graphSyncPeripheryButton() {
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("filter-periphery"));
+  if (!btn) return;
+  btn.dataset.title ??= btn.title;
+  const empty =
+    window.graphStreamView !== "dev" &&
+    Array.isArray(window.graphScopePeriphery) &&
+    window.graphScopePeriphery.length === 0;
+  btn.disabled = empty;
+  btn.classList.toggle("opacity-50", empty);
+  btn.classList.toggle("cursor-not-allowed", empty);
+  btn.title = empty ? GRAPH_NO_PERIPHERY_TITLE : btn.dataset.title;
+}
+window.graphSyncPeripheryButton = graphSyncPeripheryButton;
+
 function redrawGraph() {
+  graphSyncPeripheryButton();
   if (typeof lastGraphReport === "undefined" || !lastGraphReport) return;
 
   const mode = typeof currentGraphMode !== "undefined" ? currentGraphMode : "custom";
@@ -2275,6 +2297,7 @@ function renderCustomGraph(report, svgElement, direction) {
     ? window.graphDensity
     : "normal";
   const gaps = graphLayoutGaps(isLR, density);
+  const normalGaps = graphLayoutGaps(isLR, "normal");
   svgElement.dataset.density = density;
   const rainbow = !!switches.rainbow;
   svgElement.dataset.rainbow = rainbow ? "1" : "0";
@@ -2516,7 +2539,8 @@ function renderCustomGraph(report, svgElement, direction) {
 
   // Step 1 — pack one block of nodes: per rank, the role lanes (Consumers,
   // both, Producers) side by side, each lane starting at the same offset on
-  // every rank so the leftmost nodes line up. Positions are relative to the
+  // every rank so the leftmost nodes line up (in Normal; the density scales
+  // that offset, see below). Positions are relative to the
   // block's own start; `mid` is where dagre had the block's centre.
   /**
    * One node on its rank; the role is 0, 1 or 2 and indexes the three lanes.
@@ -2577,23 +2601,49 @@ function renderCustomGraph(report, svgElement, direction) {
       }
     }
 
-    /** @type {Map<string, number>} */
-    const local = new Map();
+    // The lanes make each rank start further along than the one before it,
+    // by the width of the lanes to its left. Compact shrinks that shift by the
+    // share of Normal's rank gap it keeps, so the edges keep Normal's slope;
+    // Dense reserves no lane across ranks and centres each rank in the block.
+    // On one rank a lane still starts only after the one before it ends.
+    const laneShift = density === "dense" ? 0 : gaps.ranksep / normalGaps.ranksep;
+    /** @type {{ row: [string, number][], end: number }[]} */
+    const rows = [];
+    let width = 0;
     unitsByRank.forEach((units) => {
       /** @type {GraphRankUnit[][]} */
       const roleGroups = [[], [], []];
       units.forEach((u) => /** @type {GraphRankUnit[]} */ (roleGroups[u.role]).push(u));
+      /** @type {[string, number][]} */
+      const row = [];
+      /** @type {number | null} */
+      let end = null;
       for (let i = 0; i < 3; i++) {
-        let cursor = /** @type {number} */ (laneStart[i]);
-        /** @type {GraphRankUnit[]} */ (roleGroups[i]).forEach((u) => {
-          local.set(u.id, cursor + u.width / 2);
+        const group = /** @type {GraphRankUnit[]} */ (roleGroups[i]);
+        if (group.length === 0) continue;
+        const start = /** @type {number} */ (laneStart[i]) * laneShift;
+        /** @type {number} */
+        let cursor = end === null ? start : Math.max(start, end + GROUP_GAP);
+        group.forEach((u) => {
+          row.push([u.id, cursor + u.width / 2]);
           cursor += u.width + GAP;
         });
+        end = cursor - GAP;
       }
+      // A rank always holds at least one unit, so a lane has set `end`.
+      const rowEnd = end ?? 0;
+      rows.push({ row, end: rowEnd });
+      width = Math.max(width, rowEnd);
+    });
+    /** @type {Map<string, number>} */
+    const local = new Map();
+    rows.forEach(({ row, end }) => {
+      const centre = density === "dense" ? (width - end) / 2 : 0;
+      row.forEach(([id, cf]) => local.set(id, cf + centre));
     });
     return {
       local,
-      width: currentX,
+      width,
       mid: unitsByRank.size > 0 ? sumOldMid / unitsByRank.size : 0,
     };
   };
