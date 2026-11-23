@@ -202,9 +202,20 @@ function formatTimestamp(iso) {
   return iso ? iso.slice(0, 16).replace("T", " ") : "";
 }
 
+/**
+ * A diff of one version line named by the page's URL (`api_type`, `from`, `to`).
+ * @typedef {object} LineDiffLink
+ * @property {string} apiType
+ * @property {string} from
+ * @property {string} to
+ */
+
 // The version timeline: one list per API type, newest first.
-/** @param {string} serviceName */
-async function showProducerVersions(serviceName) {
+/**
+ * @param {string} serviceName
+ * @param {LineDiffLink | null} [diffLink] The diff a shared link opens.
+ */
+async function showProducerVersions(serviceName, diffLink = null) {
   hideLoader();
   const list = /** @type {HTMLElement} */ (document.getElementById("services-list"));
   const breadcrumb = /** @type {HTMLElement} */ (document.getElementById("service-breadcrumb"));
@@ -310,17 +321,32 @@ async function showProducerVersions(serviceName) {
   for (const apiType of orderedTypes) {
     const line = /** @type {ProducerVersionInfo[]} */ (lines.get(apiType));
     line.sort((a, b) => compareSemver(b.version, a.version)); // newest first
-    list.appendChild(renderVersionLine(serviceName, apiType, line));
+    const link = diffLink?.apiType === apiType ? diffLink : null;
+    list.appendChild(renderVersionLine(serviceName, apiType, line, link));
   }
+}
+
+/**
+ * The URL that shows this diff of a version line: the Producer page's own deep link.
+ * @param {string} serviceName
+ * @param {string} apiType
+ * @param {string} from
+ * @param {string} to
+ * @returns {string}
+ */
+function lineDiffUrl(serviceName, apiType, from, to) {
+  const params = new URLSearchParams({ service: serviceName, api_type: apiType, from, to });
+  return `${window.location.pathname}?${params.toString()}`;
 }
 
 /**
  * @param {string} serviceName
  * @param {string} apiType
  * @param {ProducerVersionInfo[]} line Newest first.
+ * @param {LineDiffLink | null} [diffLink] The diff a shared link opens in this line.
  * @returns {HTMLElement}
  */
-function renderVersionLine(serviceName, apiType, line) {
+function renderVersionLine(serviceName, apiType, line, diffLink = null) {
   const section = document.createElement("div");
   section.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
 
@@ -334,6 +360,8 @@ function renderVersionLine(serviceName, apiType, line) {
 
   // Diff control: any two versions of the line, defaulting to the two
   // newest (adjacent) entries.
+  /** @type {{ fromSel: HTMLSelectElement, toSel: HTMLSelectElement } | null} */
+  let pickers = null;
   if (line.length >= 2) {
     const diffCtl = document.createElement("div");
     diffCtl.className = "flex items-center gap-2 text-sm";
@@ -361,16 +389,42 @@ function renderVersionLine(serviceName, apiType, line) {
       "px-3 py-1 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700";
     diffBtn.textContent = "Diff";
     diffBtn.addEventListener("click", () => {
+      // The address bar names the diff, so the URL can be shared.
+      history.replaceState(
+        history.state,
+        "",
+        lineDiffUrl(serviceName, apiType, fromSel.value, toSel.value),
+      );
       void showLineDiff(serviceName, apiType, fromSel.value, toSel.value, diffOutput);
     });
     diffCtl.append(fromSel, arrow, toSel, diffBtn);
     header.appendChild(diffCtl);
+    pickers = { fromSel, toSel };
   }
   section.appendChild(header);
 
   const diffOutput = document.createElement("div");
   diffOutput.className = "mb-3 empty:mb-0";
   section.appendChild(diffOutput);
+
+  if (diffLink) {
+    // A shared link: show its diff. A version that is gone since (expired or
+    // deleted snapshot) leaves the picker on the two newest and says so.
+    const known = new Set(line.map((v) => v.version));
+    const gone = [diffLink.from, diffLink.to].filter(
+      (v, i, all) => !known.has(v) && all.indexOf(v) === i,
+    );
+    if (gone.length > 0) {
+      const notice = document.createElement("div");
+      notice.className = "stale-diff-link text-sm text-amber-700 italic";
+      notice.textContent = gone.map((v) => `Version ${v} no longer exists.`).join(" ");
+      diffOutput.appendChild(notice);
+    } else if (pickers) {
+      pickers.fromSel.value = diffLink.from;
+      pickers.toSel.value = diffLink.to;
+      void showLineDiff(serviceName, apiType, diffLink.from, diffLink.to, diffOutput);
+    }
+  }
 
   const entries = document.createElement("div");
   entries.className = "space-y-2";
@@ -856,8 +910,12 @@ async function handleDeepLink() {
   const version = params.get("version");
   const path = params.get("path");
   const method = params.get("method");
+  const from = params.get("from");
+  const to = params.get("to");
 
-  if (service && version && path && method) {
+  if (service && !version && from && to) {
+    await showProducerVersions(service, { apiType: apiType.toLowerCase(), from, to });
+  } else if (service && version && path && method) {
     window.location.href = `/yaml.html?service=${encodeURIComponent(service)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(version)}&path=${encodeURIComponent(path)}&method=${encodeURIComponent(method)}`;
   } else if (service && version) {
     await showVersionEndpoints(service, apiType, version);
