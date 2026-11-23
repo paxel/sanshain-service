@@ -3,8 +3,8 @@
   <code>cargo-sanshain</code> is the <code>cargo sanshain</code> subcommand, and
   <code>sanshain</code> is the Rust library behind it. Both are at 4.0.1 and live in
   <a href="https://github.com/paxel/sanshain-rs">paxel/sanshain-rs</a>. The two crates always share
-  one version number. Version 4.x speaks Sanshain Service 2.x. In the tables below, the Since column
-  gives the client version an option arrived in, as the repository's changelog names it.
+  one version number. Version 4.x speaks Sanshain Service 2.x. Under Options, the Since line of each
+  option gives the client version it arrived in, as the repository's changelog names it.
 </p>
 
 <h2 id="install">Install</h2>
@@ -92,227 +92,330 @@ cargo sanshain --best-effort require    # --best-effort may also follow the comm
 </p>
 
 <h2 id="options">Options</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Option</th>
-      <th>Environment</th>
-      <th>sanshain.yaml</th>
-      <th>Default</th>
-      <th>Since</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>—</td>
-      <td><code>SANSHAIN_URL</code></td>
-      <td><code>sanshainUrl</code></td>
-      <td>— (required)</td>
-      <td>2.0.0</td>
-      <td>Base URL of the instance; a trailing <code>/</code> is dropped.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td><code>SANSHAIN_TOKEN</code></td>
-      <td>—</td>
-      <td>no header</td>
-      <td>2.0.0</td>
-      <td>API token, sent as <code>Authorization: Bearer</code> on every request.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>serviceName</code></td>
-      <td>—</td>
-      <td>2.0.0</td>
-      <td>
-        The system's name on provide, require and catalog. Without it, every command warns and skips.
-      </td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provide</code>, <code>provides</code></td>
-      <td>—</td>
-      <td>2.0.0</td>
-      <td>
-        A single mapping or a list of spec entries; both may appear, and the single one counts first.
-        <a href="../sanshain-yaml.html#provides">The provides section</a>.
-      </td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provides[].file</code></td>
-      <td>— (required)</td>
-      <td>2.0.0</td>
-      <td>The spec file; its version is read by the server from the file.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provides[].retired</code></td>
-      <td><code>false</code></td>
-      <td>2.0.0</td>
-      <td>Retire the family instead of publishing.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provides[].apiType</code>, <code>requires[].apiType</code></td>
-      <td><code>openapi</code></td>
-      <td>—</td>
-      <td><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
-        means proto since 4.0.0; before, it was refused).</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td>
-        <code>requires[]</code>: <code>serviceName</code>, <code>version</code>,
-        <code>outputDirectory</code>, <code>endpoints[].method</code>, <code>endpoints[].path</code>
-      </td>
-      <td>— (all required)</td>
-      <td>2.0.0</td>
-      <td>
-        One dependency at an exact pin, with at least one endpoint.
-        <a href="../sanshain-yaml.html#requires">The requires section</a>.
-      </td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>requires[].format</code></td>
-      <td>—</td>
-      <td>3.0.0</td>
-      <td>Only <code>openapi</code>, and only with <code>apiType: asyncapi</code>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>catalogInfo</code></td>
-      <td>—</td>
-      <td>3.0.0</td>
-      <td>The Backstage <code>catalog-info.yaml</code> that <code>catalog</code> pushes.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>autoGa</code></td>
-      <td><code>false</code></td>
-      <td>4.0.0</td>
-      <td>GA whenever the build declares trunk or a tag.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>annotations</code></td>
-      <td>—</td>
-      <td>4.0.0</td>
-      <td>
-        Entries of <code>scope</code>, <code>name</code> and <code>value</code>, all strings; see
-        <a href="#annotations">Annotations</a>.
-      </td>
-    </tr>
-    <tr>
-      <td><code>--ga</code> (provide)</td>
-      <td><code>SANSHAIN_GA</code></td>
-      <td>—</td>
-      <td>snapshot</td>
-      <td>2.0.0</td>
-      <td>Publish as immutable GA.</td>
-    </tr>
-    <tr>
-      <td><code>--trunk</code></td>
-      <td><code>SANSHAIN_TRUNK</code></td>
-      <td>—</td>
-      <td>off</td>
-      <td>2.0.0</td>
-      <td>This build is trunk's and maintains the main graph.</td>
-    </tr>
-    <tr>
-      <td><code>--tag &lt;BRANCH&gt;</code></td>
-      <td><code>SANSHAIN_TAG</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>2.0.0</td>
-      <td>This build belongs to a sanshain-branch (release or hotfix).</td>
-    </tr>
-    <tr>
-      <td><code>--best-effort</code> (global)</td>
-      <td><code>SANSHAIN_BEST_EFFORT</code></td>
-      <td><code>bestEffort</code></td>
-      <td><code>false</code></td>
-      <td>3.0.0</td>
-      <td>Failed calls, and a missing or broken <code>sanshain.yaml</code>, become warnings, and the command exits 0.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td><code>SANSHAIN_STRICT</code></td>
-      <td><code>strict</code></td>
-      <td><code>false</code></td>
-      <td>3.0.0</td>
-      <td>Missing configuration and every Sanshain warning fail the command.</td>
-    </tr>
-    <tr>
-      <td><code>--build-url &lt;URL&gt;</code> (provide)</td>
-      <td><code>SANSHAIN_BUILD_URL</code></td>
-      <td>—</td>
-      <td>the runner's variable</td>
-      <td>3.1.0</td>
-      <td>Where this build ran.</td>
-    </tr>
-    <tr>
-      <td><code>--change-url &lt;URL&gt;</code> (provide)</td>
-      <td><code>SANSHAIN_CHANGE_URL</code></td>
-      <td>—</td>
-      <td>the runner's variable</td>
-      <td>3.1.0</td>
-      <td>The pull or merge request behind it.</td>
-    </tr>
-    <tr>
-      <td><code>--tickets &lt;IDS&gt;</code> (provide)</td>
-      <td><code>SANSHAIN_TICKETS</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>3.1.0</td>
-      <td>Ticket ids this build closes, comma-separated.</td>
-    </tr>
-    <tr>
-      <td><code>--note &lt;TEXT&gt;</code> (provide)</td>
-      <td><code>SANSHAIN_NOTE</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>3.1.0</td>
-      <td>One line of intent for this provide.</td>
-    </tr>
-    <tr>
-      <td><code>--set NAME=value</code> (repeatable)</td>
-      <td><code>SANSHAIN_SET_NAME</code></td>
-      <td>—</td>
-      <td>—</td>
-      <td>4.0.0</td>
-      <td>Fills the <code>{{NAME}}</code> placeholders of the annotations.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td>
-        <code>compression</code>, <code>clientName</code>, <code>force</code>,
-        <code>insecure</code>, <code>combine</code>; in a provides entry
-        <code>openApiFile</code>, <code>asyncApiFile</code>, <code>protoFile</code>,
-        <code>combine</code>
-      </td>
-      <td>—</td>
-      <td>—</td>
-      <td>
-        Accepted, ignored. Other clients know these fields; this one does not use them. In
-        particular, it never asks for gzip.
-      </td>
-    </tr>
-  </tbody>
-</table>
+<div class="options">
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>sanshainUrl</code></dd>
+      <dt>Default</dt>
+      <dd>— (required)</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">Base URL of the instance; a trailing <code>/</code> is dropped.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TOKEN</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>no header</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">API token, sent as <code>Authorization: Bearer</code> on every request.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>serviceName</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">The system's name on provide, require and catalog. Without it, every command warns and skips.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provide</code>, <code>provides</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">A single mapping or a list of spec entries; both may appear, and the single one counts first. <a href="../sanshain-yaml.html#provides">The provides section</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provides[].file</code></dd>
+      <dt>Default</dt>
+      <dd>— (required)</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">The spec file; its version is read by the server from the file.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provides[].retired</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">Retire the family instead of publishing.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provides[].apiType</code>, <code>requires[].apiType</code></dd>
+      <dt>Default</dt>
+      <dd><code>openapi</code></dd>
+      <dt>Since</dt>
+      <dd>—</dd>
+    </dl>
+    <p class="option-meaning"><code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code> means proto since 4.0.0; before, it was refused).</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[]</code>: <code>serviceName</code>, <code>version</code>, <code>outputDirectory</code>, <code>endpoints[].method</code>, <code>endpoints[].path</code></dd>
+      <dt>Default</dt>
+      <dd>— (all required)</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">One dependency at an exact pin, with at least one endpoint. <a href="../sanshain-yaml.html#requires">The requires section</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[].format</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>3.0.0</dd>
+    </dl>
+    <p class="option-meaning">Only <code>openapi</code>, and only with <code>apiType: asyncapi</code>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>catalogInfo</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>3.0.0</dd>
+    </dl>
+    <p class="option-meaning">The Backstage <code>catalog-info.yaml</code> that <code>catalog</code> pushes.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>autoGa</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>4.0.0</dd>
+    </dl>
+    <p class="option-meaning">GA whenever the build declares trunk or a tag.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>annotations</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>4.0.0</dd>
+    </dl>
+    <p class="option-meaning">Entries of <code>scope</code>, <code>name</code> and <code>value</code>, all strings; see <a href="#annotations">Annotations</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--ga</code> (provide)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_GA</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>snapshot</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">Publish as immutable GA.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--trunk</code></p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TRUNK</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>off</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">This build is trunk's and maintains the main graph.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--tag &lt;BRANCH&gt;</code></p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TAG</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">This build belongs to a sanshain-branch (release or hotfix).</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--best-effort</code> (global)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_BEST_EFFORT</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>bestEffort</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>3.0.0</dd>
+    </dl>
+    <p class="option-meaning">Failed calls, and a missing or broken <code>sanshain.yaml</code>, become warnings, and the command exits 0.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_STRICT</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>strict</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>3.0.0</dd>
+    </dl>
+    <p class="option-meaning">Missing configuration and every Sanshain warning fail the command.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--build-url &lt;URL&gt;</code> (provide)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_BUILD_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>the runner's variable</dd>
+      <dt>Since</dt>
+      <dd>3.1.0</dd>
+    </dl>
+    <p class="option-meaning">Where this build ran.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--change-url &lt;URL&gt;</code> (provide)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_CHANGE_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>the runner's variable</dd>
+      <dt>Since</dt>
+      <dd>3.1.0</dd>
+    </dl>
+    <p class="option-meaning">The pull or merge request behind it.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--tickets &lt;IDS&gt;</code> (provide)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TICKETS</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>3.1.0</dd>
+    </dl>
+    <p class="option-meaning">Ticket ids this build closes, comma-separated.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--note &lt;TEXT&gt;</code> (provide)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_NOTE</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>3.1.0</dd>
+    </dl>
+    <p class="option-meaning">One line of intent for this provide.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>--set NAME=value</code> (repeatable)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_SET_NAME</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>4.0.0</dd>
+    </dl>
+    <p class="option-meaning">Fills the <code>{{NAME}}</code> placeholders of the annotations.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>compression</code>, <code>clientName</code>, <code>force</code>, <code>insecure</code>, <code>combine</code>; in a provides entry <code>openApiFile</code>, <code>asyncApiFile</code>, <code>protoFile</code>, <code>combine</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>—</dd>
+    </dl>
+    <p class="option-meaning">Accepted, ignored. Other clients know these fields; this one does not use them. In particular, it never asks for gzip.</p>
+  </div>
+</div>
 <p>
   The changelog begins with 2.0.0, the release that added the library and the subcommand for
   Sanshain Service 2.x. Options marked 2.0.0 date from that first entry; 1.x is not covered. Where

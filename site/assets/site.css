@@ -1161,6 +1161,43 @@ h3:hover .anchor,
   margin: 0;
 }
 
+/* A client page's options: one block per option, its facts as a two-column list,
+   so long names and several versions per fact never squeeze a table column. */
+.options {
+  margin: 0 0 1.25rem;
+}
+
+.option {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.option-name {
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+
+.option-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 1rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.option-facts dt {
+  color: var(--muted);
+}
+
+.option-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.option-meaning {
+  margin: 0;
+}
+
 /* ---------- recorded walkthroughs: stepper, evidence, story graph (#57) ---------- */
 
 /* Without the script every step is visible in order and the controls stay

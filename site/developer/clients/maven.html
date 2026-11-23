@@ -3,8 +3,8 @@
   The Maven plugin <code>sanshain-maven-plugin</code> reads
   <a href="../sanshain-yaml.html"><code>sanshain.yaml</code></a> and runs provide, require and the
   catalog push as Maven goals. This page describes version <code>2.5.1</code>; the source is
-  <a href="https://github.com/paxel/sanshain-maven-plugin">paxel/sanshain-maven-plugin</a>. In the
-  option table, the Since column names the plugin version whose changelog entry introduced the
+  <a href="https://github.com/paxel/sanshain-maven-plugin">paxel/sanshain-maven-plugin</a>. Under
+  Options, the Since line of each option names the plugin version whose changelog entry introduced the
   option.
 </p>
 
@@ -98,308 +98,498 @@ mvn verify                      # runs the goals bound to initialize</code></pre
   field can only be set as a Maven property or in the plugin's <code>&lt;configuration&gt;</code>
   (element name in brackets).
 </p>
-<table>
-  <thead>
-    <tr>
-      <th>Option</th>
-      <th>Environment</th>
-      <th>sanshain.yaml</th>
-      <th>Default</th>
-      <th>Since</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>sanshain.url</code> (<code>sanshainUrl</code>)</td>
-      <td><code>SANSHAIN_URL</code></td>
-      <td><code>sanshainUrl</code></td>
-      <td><code>http://localhost:3000</code></td>
-      <td>0.2.1</td>
-      <td>P R C. The service URL; also from <a href="#settings-xml"><code>settings.xml</code></a>.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.token</code> (<code>token</code>)</td>
-      <td><code>SANSHAIN_TOKEN</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>0.2.1</td>
-      <td>P R C. The API token, sent as <code>Authorization: Bearer</code>; also the
-        <code>settings.xml</code> password. Never in the file.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.serverId</code> (<code>serverId</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>sanshain</code></td>
-      <td>0.2.1</td>
-      <td>P R C. The <code>settings.xml</code> server whose password and URL are read.</td>
-    </tr>
-    <tr>
-      <td><code>configFile</code> (<code>configFile</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>sanshain.yaml</code> in the project directory</td>
-      <td>0.2.1</td>
-      <td>P R C. Where the file is. Relative paths in it resolve against its own directory.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.service.name</code> (<code>serviceName</code>)</td>
-      <td><code>SANSHAIN_SERVICE_NAME</code>, alias <code>SANSHAIN_CLIENT_NAME</code></td>
-      <td><code>serviceName</code>, alias <code>clientName</code></td>
-      <td>none (required)</td>
-      <td>0.6.0 property, 1.0.0 <code>serviceName</code> and <code>SANSHAIN_SERVICE_NAME</code></td>
-      <td>P R C. The system's name: Producer on provide, Consumer on require, system on catalog.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.ga</code> (<code>ga</code>)</td>
-      <td><code>SANSHAIN_GA</code></td>
-      <td>—</td>
-      <td>unset: snapshot</td>
-      <td>2.0.0</td>
-      <td>P. <code>true</code> provides as GA, <code>false</code> as snapshot. See
-        <a href="#stability-and-streams">Stability and streams</a>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>autoGa</code></td>
-      <td><code>false</code></td>
-      <td>2.5.0</td>
-      <td>P. GA whenever the build declares trunk or a tag.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.trunk</code> (<code>trunk</code>)</td>
-      <td><code>SANSHAIN_TRUNK</code></td>
-      <td>—</td>
-      <td>off</td>
-      <td>2.1.0</td>
-      <td>P R C. This build is trunk's.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.tag</code> (<code>tag</code>)</td>
-      <td><code>SANSHAIN_TAG</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>2.1.0</td>
-      <td>P R. This build belongs to the named sanshain-branch. Catalog accepts it but never sends a tag.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.compression</code> (<code>compression</code>)</td>
-      <td><code>SANSHAIN_COMPRESSION</code></td>
-      <td><code>compression</code></td>
-      <td><code>true</code></td>
-      <td>0.2.1</td>
-      <td>P R C. Gzip request bodies (<code>Content-Encoding: gzip</code>) and ask for gzip answers.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.insecure</code> (<code>insecure</code>)</td>
-      <td><code>SANSHAIN_INSECURE</code></td>
-      <td><code>insecure</code></td>
-      <td><code>false</code></td>
-      <td>0.7.0</td>
-      <td>P R C. Skip TLS certificate and hostname checks; warns
-        <code>SSL certificate validation is disabled (insecure=true)</code>.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.bestEffort</code> (<code>bestEffort</code>)</td>
-      <td><code>SANSHAIN_BEST_EFFORT</code></td>
-      <td><code>bestEffort</code></td>
-      <td><code>false</code></td>
-      <td>1.8.0 property, 1.0.0 field and variable</td>
-      <td>P R C. A failed call warns instead of failing the build.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.strict</code> (<code>strict</code>)</td>
-      <td>—</td>
-      <td><code>strict</code></td>
-      <td>off</td>
-      <td>1.5.0 property, 2.2.0 field</td>
-      <td>P R C. Missing configuration, unknown fields, warnings fail the build.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.combine</code> (<code>combine</code>)</td>
-      <td><code>SANSHAIN_COMBINE</code></td>
-      <td><code>combine</code>, also per <code>provides</code> entry</td>
-      <td><code>true</code></td>
-      <td>1.9.0</td>
-      <td>P. Inline local <code>$ref</code>s and proto imports before upload. See
-        <a href="#combining">Combining</a>.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.dry.run</code> (<code>dryRun</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>false</code></td>
-      <td>0.6.0</td>
-      <td>P R C. Check without storing; catalog sends nothing.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.skip</code> (<code>skip</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>false</code></td>
-      <td>0.4.0</td>
-      <td>P R C. Skip every goal.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.provide.skip</code> (<code>skipProvide</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>false</code></td>
-      <td>0.4.0</td>
-      <td>P. Skip provide only.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.require.skip</code> (<code>skipRequire</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>false</code></td>
-      <td>0.4.0</td>
-      <td>R. Skip require only. Catalog has no skip of its own.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.openapi.file</code> (<code>openApiFile</code>)</td>
-      <td>—</td>
-      <td>—</td>
-      <td><code>target/openapi.yaml</code> in the project directory</td>
-      <td>0.6.0</td>
-      <td>P. The OpenAPI file provided when the file configures no provide.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.buildUrl</code> (<code>buildUrl</code>)</td>
-      <td><code>SANSHAIN_BUILD_URL</code></td>
-      <td>—</td>
-      <td>the runner's build URL</td>
-      <td>2.4.0</td>
-      <td>P. Origin: where the build ran.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.changeUrl</code> (<code>changeUrl</code>)</td>
-      <td><code>SANSHAIN_CHANGE_URL</code></td>
-      <td>—</td>
-      <td>the runner's pull or merge request</td>
-      <td>2.4.0</td>
-      <td>P. Origin: the change behind the build.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.tickets</code> (<code>tickets</code>)</td>
-      <td><code>SANSHAIN_TICKETS</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>2.4.0</td>
-      <td>P. Origin: ticket ids, comma-separated.</td>
-    </tr>
-    <tr>
-      <td><code>sanshain.note</code> (<code>note</code>)</td>
-      <td><code>SANSHAIN_NOTE</code></td>
-      <td>—</td>
-      <td>none</td>
-      <td>2.4.0</td>
-      <td>P. Origin: one line of intent.</td>
-    </tr>
-    <tr>
-      <td><code>-DNAME=value</code></td>
-      <td><code>SANSHAIN_SET_NAME</code></td>
-      <td><code>annotations</code></td>
-      <td>entry left out</td>
-      <td>2.5.0</td>
-      <td>P R C. Fills the placeholder <code>{{NAME}}</code>. See <a href="#annotations">Annotations</a>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>catalogInfo</code></td>
-      <td>none</td>
-      <td>2.2.0</td>
-      <td>C. Path of the Backstage <code>catalog-info.yaml</code>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provides[].file</code>, <code>provides[].apiType</code></td>
-      <td><code>apiType: openapi</code></td>
-      <td>1.0.0</td>
-      <td>P. A spec to provide; <code>apiType</code> is <code>openapi</code>, <code>asyncapi</code> or
-        <code>proto</code> (<code>grpc</code> means proto).</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provides[].retired</code></td>
-      <td><code>false</code></td>
-      <td>2.1.0</td>
-      <td>P. Retire the family instead of uploading.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provide.openApiFile</code></td>
-      <td>none</td>
-      <td>0.2.1</td>
-      <td>P. Single-block form: an OpenAPI file.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provide.asyncApiFile</code>, <code>provide.protoFile</code></td>
-      <td>none</td>
-      <td>1.0.0</td>
-      <td>P. Single-block form: an AsyncAPI or proto file.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>provide.file</code>, <code>provide.apiType</code>, <code>provide.combine</code>,
-        <code>provide.retired</code></td>
-      <td>as in <code>provides</code></td>
-      <td>—</td>
-      <td>P. The single block takes the same fields as a <code>provides</code> entry.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>requires[].serviceName</code>, <code>outputDirectory</code>,
-        <code>endpoints[].method</code>, <code>endpoints[].path</code></td>
-      <td><code>outputDirectory</code>: <code>target/generated-sources/sanshain</code></td>
-      <td>0.2.1</td>
-      <td>R. The Producer, where to write, and what to require.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>requires[].version</code></td>
-      <td>none (required)</td>
-      <td>2.0.0</td>
-      <td>R. The exact <a href="../../start/glossary.html#pin">pin</a>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>requires[].apiType</code></td>
-      <td><code>openapi</code></td>
-      <td>1.0.0</td>
-      <td>R. <code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code>
-        means proto).</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>requires[].format</code></td>
-      <td>native</td>
-      <td>2.2.0</td>
-      <td>R. Only <code>openapi</code>, only with <code>apiType: asyncapi</code>.</td>
-    </tr>
-    <tr>
-      <td>—</td>
-      <td>—</td>
-      <td><code>force</code></td>
-      <td>—</td>
-      <td>—</td>
-      <td>Accepted, ignored (another client's field).</td>
-    </tr>
-  </tbody>
-</table>
+<div class="options">
+  <div class="option">
+    <p class="option-name"><code>sanshain.url</code> (<code>sanshainUrl</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>sanshainUrl</code></dd>
+      <dt>Default</dt>
+      <dd><code>http://localhost:3000</code></dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P R C. The service URL; also from <a href="#settings-xml"><code>settings.xml</code></a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.token</code> (<code>token</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TOKEN</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P R C. The API token, sent as <code>Authorization: Bearer</code>; also the <code>settings.xml</code> password. Never in the file.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.serverId</code> (<code>serverId</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>sanshain</code></dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P R C. The <code>settings.xml</code> server whose password and URL are read.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>configFile</code> (<code>configFile</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>sanshain.yaml</code> in the project directory</dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P R C. Where the file is. Relative paths in it resolve against its own directory.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.service.name</code> (<code>serviceName</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_SERVICE_NAME</code>, alias <code>SANSHAIN_CLIENT_NAME</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>serviceName</code>, alias <code>clientName</code></dd>
+      <dt>Default</dt>
+      <dd>none (required)</dd>
+      <dt>Since</dt>
+      <dd>0.6.0 property, 1.0.0 <code>serviceName</code> and <code>SANSHAIN_SERVICE_NAME</code></dd>
+    </dl>
+    <p class="option-meaning">P R C. The system's name: Producer on provide, Consumer on require, system on catalog.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.ga</code> (<code>ga</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_GA</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>unset: snapshot</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">P. <code>true</code> provides as GA, <code>false</code> as snapshot. See <a href="#stability-and-streams">Stability and streams</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>autoGa</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>2.5.0</dd>
+    </dl>
+    <p class="option-meaning">P. GA whenever the build declares trunk or a tag.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.trunk</code> (<code>trunk</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TRUNK</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>off</dd>
+      <dt>Since</dt>
+      <dd>2.1.0</dd>
+    </dl>
+    <p class="option-meaning">P R C. This build is trunk's.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.tag</code> (<code>tag</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TAG</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>2.1.0</dd>
+    </dl>
+    <p class="option-meaning">P R. This build belongs to the named sanshain-branch. Catalog accepts it but never sends a tag.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.compression</code> (<code>compression</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_COMPRESSION</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>compression</code></dd>
+      <dt>Default</dt>
+      <dd><code>true</code></dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P R C. Gzip request bodies (<code>Content-Encoding: gzip</code>) and ask for gzip answers.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.insecure</code> (<code>insecure</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_INSECURE</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>insecure</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>0.7.0</dd>
+    </dl>
+    <p class="option-meaning">P R C. Skip TLS certificate and hostname checks; warns <code>SSL certificate validation is disabled (insecure=true)</code>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.bestEffort</code> (<code>bestEffort</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_BEST_EFFORT</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>bestEffort</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>1.8.0 property, 1.0.0 field and variable</dd>
+    </dl>
+    <p class="option-meaning">P R C. A failed call warns instead of failing the build.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.strict</code> (<code>strict</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>strict</code></dd>
+      <dt>Default</dt>
+      <dd>off</dd>
+      <dt>Since</dt>
+      <dd>1.5.0 property, 2.2.0 field</dd>
+    </dl>
+    <p class="option-meaning">P R C. Missing configuration, unknown fields, warnings fail the build.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.combine</code> (<code>combine</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_COMBINE</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>combine</code>, also per <code>provides</code> entry</dd>
+      <dt>Default</dt>
+      <dd><code>true</code></dd>
+      <dt>Since</dt>
+      <dd>1.9.0</dd>
+    </dl>
+    <p class="option-meaning">P. Inline local <code>$ref</code>s and proto imports before upload. See <a href="#combining">Combining</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.dry.run</code> (<code>dryRun</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>0.6.0</dd>
+    </dl>
+    <p class="option-meaning">P R C. Check without storing; catalog sends nothing.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.skip</code> (<code>skip</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>0.4.0</dd>
+    </dl>
+    <p class="option-meaning">P R C. Skip every goal.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.provide.skip</code> (<code>skipProvide</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>0.4.0</dd>
+    </dl>
+    <p class="option-meaning">P. Skip provide only.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.require.skip</code> (<code>skipRequire</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>0.4.0</dd>
+    </dl>
+    <p class="option-meaning">R. Skip require only. Catalog has no skip of its own.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.openapi.file</code> (<code>openApiFile</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd><code>target/openapi.yaml</code> in the project directory</dd>
+      <dt>Since</dt>
+      <dd>0.6.0</dd>
+    </dl>
+    <p class="option-meaning">P. The OpenAPI file provided when the file configures no provide.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.buildUrl</code> (<code>buildUrl</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_BUILD_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>the runner's build URL</dd>
+      <dt>Since</dt>
+      <dd>2.4.0</dd>
+    </dl>
+    <p class="option-meaning">P. Origin: where the build ran.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.changeUrl</code> (<code>changeUrl</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_CHANGE_URL</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>the runner's pull or merge request</dd>
+      <dt>Since</dt>
+      <dd>2.4.0</dd>
+    </dl>
+    <p class="option-meaning">P. Origin: the change behind the build.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.tickets</code> (<code>tickets</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_TICKETS</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>2.4.0</dd>
+    </dl>
+    <p class="option-meaning">P. Origin: ticket ids, comma-separated.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>sanshain.note</code> (<code>note</code>)</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_NOTE</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd>—</dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>2.4.0</dd>
+    </dl>
+    <p class="option-meaning">P. Origin: one line of intent.</p>
+  </div>
+  <div class="option">
+    <p class="option-name"><code>-DNAME=value</code></p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd><code>SANSHAIN_SET_NAME</code></dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>annotations</code></dd>
+      <dt>Default</dt>
+      <dd>entry left out</dd>
+      <dt>Since</dt>
+      <dd>2.5.0</dd>
+    </dl>
+    <p class="option-meaning">P R C. Fills the placeholder <code>{{NAME}}</code>. See <a href="#annotations">Annotations</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>catalogInfo</code></dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>2.2.0</dd>
+    </dl>
+    <p class="option-meaning">C. Path of the Backstage <code>catalog-info.yaml</code>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provides[].file</code>, <code>provides[].apiType</code></dd>
+      <dt>Default</dt>
+      <dd><code>apiType: openapi</code></dd>
+      <dt>Since</dt>
+      <dd>1.0.0</dd>
+    </dl>
+    <p class="option-meaning">P. A spec to provide; <code>apiType</code> is <code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code> means proto).</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provides[].retired</code></dd>
+      <dt>Default</dt>
+      <dd><code>false</code></dd>
+      <dt>Since</dt>
+      <dd>2.1.0</dd>
+    </dl>
+    <p class="option-meaning">P. Retire the family instead of uploading.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provide.openApiFile</code></dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">P. Single-block form: an OpenAPI file.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provide.asyncApiFile</code>, <code>provide.protoFile</code></dd>
+      <dt>Default</dt>
+      <dd>none</dd>
+      <dt>Since</dt>
+      <dd>1.0.0</dd>
+    </dl>
+    <p class="option-meaning">P. Single-block form: an AsyncAPI or proto file.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>provide.file</code>, <code>provide.apiType</code>, <code>provide.combine</code>, <code>provide.retired</code></dd>
+      <dt>Default</dt>
+      <dd>as in <code>provides</code></dd>
+      <dt>Since</dt>
+      <dd>—</dd>
+    </dl>
+    <p class="option-meaning">P. The single block takes the same fields as a <code>provides</code> entry.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[].serviceName</code>, <code>outputDirectory</code>, <code>endpoints[].method</code>, <code>endpoints[].path</code></dd>
+      <dt>Default</dt>
+      <dd><code>outputDirectory</code>: <code>target/generated-sources/sanshain</code></dd>
+      <dt>Since</dt>
+      <dd>0.2.1</dd>
+    </dl>
+    <p class="option-meaning">R. The Producer, where to write, and what to require.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[].version</code></dd>
+      <dt>Default</dt>
+      <dd>none (required)</dd>
+      <dt>Since</dt>
+      <dd>2.0.0</dd>
+    </dl>
+    <p class="option-meaning">R. The exact <a href="../../start/glossary.html#pin">pin</a>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[].apiType</code></dd>
+      <dt>Default</dt>
+      <dd><code>openapi</code></dd>
+      <dt>Since</dt>
+      <dd>1.0.0</dd>
+    </dl>
+    <p class="option-meaning">R. <code>openapi</code>, <code>asyncapi</code> or <code>proto</code> (<code>grpc</code> means proto).</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>requires[].format</code></dd>
+      <dt>Default</dt>
+      <dd>native</dd>
+      <dt>Since</dt>
+      <dd>2.2.0</dd>
+    </dl>
+    <p class="option-meaning">R. Only <code>openapi</code>, only with <code>apiType: asyncapi</code>.</p>
+  </div>
+  <div class="option">
+    <p class="option-name">—</p>
+    <dl class="option-facts">
+      <dt>Environment</dt>
+      <dd>—</dd>
+      <dt>sanshain.yaml</dt>
+      <dd><code>force</code></dd>
+      <dt>Default</dt>
+      <dd>—</dd>
+      <dt>Since</dt>
+      <dd>—</dd>
+    </dl>
+    <p class="option-meaning">Accepted, ignored (another client's field).</p>
+  </div>
+</div>
 <p>
   The changelog begins with 0.2.1; options marked 0.2.1 were there before it begins. The changelog
   does not name <code>force</code> or the single block's <code>file</code>, <code>apiType</code>,

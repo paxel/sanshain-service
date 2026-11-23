@@ -1301,6 +1301,40 @@ test.describe("Diff views", () => {
     await expect(view.locator('.diff-line[data-diff="add"]')).toHaveCount(1);
   });
 
+  test("Producers page: the line diff has a URL that opens it again", async ({ page }) => {
+    await login(page);
+    await page.goto(`/producers.html?service=${WS}`);
+    await page.getByRole("button", { name: "Diff", exact: true }).click();
+    await expect(page.locator(".diff-view")).toBeVisible({ timeout: 20000 });
+    const shared = new URL(page.url());
+    expect(Object.fromEntries(shared.searchParams)).toEqual({
+      service: WS,
+      api_type: "openapi",
+      from: "1.0.0",
+      to: "1.1.0",
+    });
+
+    await page.goto("/producers.html");
+    await page.goto(`${shared.pathname}${shared.search}`);
+    const view = page.locator(".diff-view");
+    await expect(view.locator('.diff-row:not([data-diff="ctx"])').first()).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(view).toContainText("1.0.0 → 1.1.0");
+  });
+
+  test("Producers page: a diff link to a version that is gone says so", async ({ page }) => {
+    await login(page);
+    await page.goto(`/producers.html?service=${WS}&api_type=openapi&from=0.9.0&to=1.1.0`);
+    await expect(page.locator(".stale-diff-link")).toHaveText("Version 0.9.0 no longer exists.", {
+      timeout: 20000,
+    });
+    await expect(page.locator(".diff-view")).toHaveCount(0);
+    const pickers = page.locator('select:has(option[value="1.0.0"])');
+    await expect(pickers.nth(0)).toHaveValue("1.0.0");
+    await expect(pickers.nth(1)).toHaveValue("1.1.0");
+  });
+
   test("narrow screens are always unified, without a layout switch", async ({ page }) => {
     await login(page);
     await page.evaluate(() => {
