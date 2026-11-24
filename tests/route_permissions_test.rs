@@ -240,6 +240,27 @@ async fn an_administrator_still_reaches_every_admin_surface() {
     }
 }
 
+/// san-1018: removing a Consumer's dependencies on a Producer needs
+/// `manage_consumers`; an admin reaches the handler, which answers 404 when
+/// there is nothing to remove.
+#[tokio::test]
+async fn removing_consumer_dependencies_needs_manage_consumers() {
+    let w = world().await;
+    let uri = "/admin/consumers/shop/dependencies/orders";
+    assert_eq!(
+        status(&w.app, "DELETE", uri, &w.plain).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status(&w.app, "DELETE", uri, &w.user_manager).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status(&w.app, "DELETE", uri, &w.admin).await,
+        StatusCode::NOT_FOUND
+    );
+}
+
 /// The whole point of the permission model: a partial administrator exists.
 #[tokio::test]
 async fn a_user_manager_reaches_user_administration_and_nothing_else() {

@@ -9,7 +9,9 @@ use super::now_iso;
 use super::spec_service::resolve_stream;
 use super::webhook_service as webhooks;
 use crate::domain::models::*;
-use crate::domain::ports::{RecordDependencyParams, RecordTrunkPinParams, SpecRepository};
+use crate::domain::ports::{
+    DropConsumerDependencies, RecordDependencyParams, RecordTrunkPinParams, SpecRepository,
+};
 use crate::{asyncapi, openapi};
 use std::collections::HashSet;
 
@@ -424,7 +426,26 @@ async fn record_pins(
             .collect();
         match tag_branch_id {
             Some(branch_id) => repo.record_branch_pins(branch_id, pins).await?,
-            None => repo.record_trunk_pins(pins).await?,
+            None => {
+                repo.record_trunk_pins(pins).await?;
+                // san-1018: a trunk require or bundle is the Consumer's whole
+                // set of endpoints on this Producer's API family; every other
+                // dependency on it is dead, in the dev and the main graph.
+                let keep: Vec<(String, String)> = normalized
+                    .iter()
+                    .cloned()
+                    .zip(endpoints.iter().map(|(_, method)| method.clone()))
+                    .collect();
+                repo.drop_consumer_dependencies(DropConsumerDependencies {
+                    consumer: consumername,
+                    producer: producername,
+                    api_type: Some(entry.api_type),
+                    keep_version_id: Some(entry.id),
+                    keep: &keep,
+                    now_iso: &now,
+                })
+                .await?;
+            }
         }
     }
     Ok(())

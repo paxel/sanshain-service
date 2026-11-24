@@ -1,7 +1,8 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
-    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    DropConsumerDependencies, EndpointMap, NewApiToken, NewAuditLog, NewWebhook,
+    RecordDependencyParams, RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository,
+    UpsertSpecVersion,
 };
 use crate::infrastructure::postgres_repository::PostgresSpecRepository;
 use crate::infrastructure::sqlite_repository::SqliteSpecRepository;
@@ -895,6 +896,13 @@ impl SpecRepository for DatabaseRepo {
 
     async fn remove_service_tag(&self, service_id: i64, tag: &str) -> Result<(), RepositoryError> {
         delegate!(self, remove_service_tag(service_id, tag))
+    }
+
+    async fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> Result<u64, RepositoryError> {
+        delegate!(self, drop_consumer_dependencies(drop))
     }
 
     async fn close_trunk_pins_for_service_api(

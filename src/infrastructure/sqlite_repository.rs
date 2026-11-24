@@ -93,8 +93,9 @@ use super::webhook_rows::{
 };
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
-    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    DropConsumerDependencies, EndpointMap, NewApiToken, NewAuditLog, NewWebhook,
+    RecordDependencyParams, RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository,
+    UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -3668,6 +3669,58 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> Result<u64, RepositoryError> {
+        let keep = serde_json::to_string(drop.keep)
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let api_type = drop.api_type.as_ref().map(ApiType::as_str);
+        let mut tx = self.write_tx().await?;
+        let dev = sqlx::query(
+            "DELETE FROM dependencies \
+             WHERE client_id = (SELECT id FROM clients WHERE name = ?) \
+               AND spec_version_id IN (SELECT v.id FROM spec_versions v \
+                   JOIN services s ON s.id = v.service_id WHERE s.name = ?) \
+               AND (? IS NULL OR api_type = ?) \
+               AND NOT (spec_version_id IS ? AND EXISTS (SELECT 1 FROM json_each(?) k \
+                   WHERE json_extract(k.value, '$[0]') = dependencies.normalized_path \
+                     AND json_extract(k.value, '$[1]') = dependencies.method))",
+        )
+        .bind(drop.consumer)
+        .bind(drop.producer)
+        .bind(api_type)
+        .bind(api_type)
+        .bind(drop.keep_version_id)
+        .bind(&keep)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let trunk = sqlx::query(
+            "UPDATE trunk_dependencies SET valid_to = ? \
+             WHERE valid_to IS NULL \
+               AND client_id = (SELECT id FROM clients WHERE name = ?) \
+               AND service_id = (SELECT id FROM services WHERE name = ?) \
+               AND (? IS NULL OR api_type = ?) \
+               AND NOT EXISTS (SELECT 1 FROM json_each(?) k \
+                   WHERE json_extract(k.value, '$[0]') = trunk_dependencies.normalized_path \
+                     AND json_extract(k.value, '$[1]') = trunk_dependencies.method)",
+        )
+        .bind(drop.now_iso)
+        .bind(drop.consumer)
+        .bind(drop.producer)
+        .bind(api_type)
+        .bind(api_type)
+        .bind(&keep)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(dev.rows_affected().saturating_add(trunk.rows_affected()))
     }
 
     async fn close_trunk_pins_for_service_api(

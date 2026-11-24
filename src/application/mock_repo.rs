@@ -1,7 +1,8 @@
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
-    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    DropConsumerDependencies, EndpointMap, NewApiToken, NewAuditLog, NewWebhook,
+    RecordDependencyParams, RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository,
+    UpsertSpecVersion,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, PoisonError};
@@ -3105,6 +3106,73 @@ impl SpecRepository for MockRepo {
             tags.retain(|t| t != tag);
         }
         Ok(())
+    }
+
+    async fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> Result<u64, RepositoryError> {
+        let Some(client_id) = self
+            .clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(drop.consumer)
+            .copied()
+        else {
+            return Ok(0);
+        };
+        let Some(service_id) = self
+            .services
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(drop.producer)
+            .copied()
+        else {
+            return Ok(0);
+        };
+        let version_ids: Vec<i64> = self
+            .spec_versions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|v| v.service_id == service_id)
+            .map(|v| v.id)
+            .collect();
+        let kept = |path: &str, method: &str| {
+            drop.keep
+                .iter()
+                .any(|(p, m)| p.as_str() == path && m.as_str() == method)
+        };
+        let family = |api_type: ApiType| drop.api_type.is_none_or(|a| a == api_type);
+        let mut deps = self
+            .dependencies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let before = deps.len();
+        deps.retain(|d| {
+            !(d.client_id == client_id
+                && version_ids.contains(&d.spec_version_id)
+                && family(d.api_type)
+                && !(Some(d.spec_version_id) == drop.keep_version_id
+                    && kept(&d.normalized_path, &d.method)))
+        });
+        let mut n = u64::try_from(before.saturating_sub(deps.len())).unwrap_or(u64::MAX);
+        let mut pins = self
+            .trunk_pins
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for p in pins.iter_mut() {
+            if p.valid_to.is_none()
+                && p.client_id == client_id
+                && p.service_id == service_id
+                && family(p.api_type)
+                && !kept(&p.normalized_path, &p.method)
+            {
+                p.valid_to = Some(drop.now_iso.to_string());
+                n = n.saturating_add(1);
+            }
+        }
+        Ok(n)
     }
 
     async fn close_trunk_pins_for_service_api(

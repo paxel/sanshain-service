@@ -1,5 +1,5 @@
 use crate::domain::models::*;
-use crate::domain::ports::SpecRepository;
+use crate::domain::ports::{DropConsumerDependencies, SpecRepository};
 use chrono::Utc;
 use tracing::instrument;
 
@@ -239,6 +239,35 @@ pub async fn delete_consumer(repo: &impl SpecRepository, name: &str) -> Result<b
         super::catalog_service::close_catalog_of_departed(repo, &[name.to_string()]).await?;
     }
     Ok(deleted)
+}
+
+/// Remove every dependency of a Consumer on one Producer, in the dev graph
+/// and the main graph (san-1018): for a Producer the Consumer no longer
+/// requires, which no later require replaces. Trunk pins are closed, so the
+/// timeline keeps them. Answers how many dependencies were removed; `NotFound`
+/// when the Consumer holds none on that Producer.
+pub async fn remove_consumer_dependencies(
+    repo: &impl SpecRepository,
+    consumer: &str,
+    producer: &str,
+) -> Result<u64, AppError> {
+    let now = super::now_iso();
+    let removed = repo
+        .drop_consumer_dependencies(DropConsumerDependencies {
+            consumer,
+            producer,
+            api_type: None,
+            keep_version_id: None,
+            keep: &[],
+            now_iso: &now,
+        })
+        .await?;
+    if removed == 0 {
+        return Err(AppError::NotFound(format!(
+            "Consumer '{consumer}' has no dependency on '{producer}'"
+        )));
+    }
+    Ok(removed)
 }
 
 pub async fn list_producers(repo: &impl SpecRepository) -> Result<Vec<String>, AppError> {

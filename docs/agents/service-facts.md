@@ -150,6 +150,11 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   current version" (`trunk_member_versions`). Stale after half `trunk_max_age_days` (90), closed
   after it. All graph writes append-only (`valid_from`/`valid_to`), so main and branches have a
   timeline; history is never deleted.
+- A trunk require/bundle to P replaces the Consumer's other dependencies on P's API type (san-1018):
+  other trunk pins closed, other dev edges (any version) deleted; plain/tag/failed/dry run replace
+  nothing. One `sanshain.yaml` per Consumer. Dropped Producer: `DELETE
+  /admin/consumers/{name}/dependencies/{producer}` (`manage_consumers`, audited
+  `REMOVE_CONSUMER_DEPENDENCIES`), Remove button on the Consumer page.
 - Unknown tag, or trunk + tag: succeeds, dev only, `Sanshain-Warning` (ADR-0005 amendment).
   Branches never auto-created.
 - Sanshain-branch: named copy of main (or another branch) at an instant (retroactive allowed),

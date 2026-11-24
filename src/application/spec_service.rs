@@ -252,20 +252,9 @@ fn parse_spec_endpoints_inner(
                 );
                 AppError::BadRequest(e)
             })?;
-            let sub_count = all_specs.iter().filter(|s| s.operation == "SUB").count();
-            if sub_count > 0 {
-                let sub_channels: Vec<&str> = all_specs
-                    .iter()
-                    .filter(|s| s.operation == "SUB")
-                    .map(|s| s.channel.as_str())
-                    .collect();
-                tracing::warn!(
-                    "Skipping {} SUB operation(s) for service '{}': subscribe channels {:?} are not stored via /provide. Declare them as 'requires' in sanshain.yaml instead.",
-                    sub_count,
-                    producername,
-                    sub_channels
-                );
-            }
+            // SUB operations are not endpoints of the version: they are
+            // harvested as consumer edges and reported in the provide
+            // response (ADR-0006), so they are left out here without a log.
             Ok(all_specs
                 .into_iter()
                 .filter(|s| s.operation == "PUB")
@@ -825,6 +814,44 @@ mod tests {
         classify_change, diff_endpoints, ga_baseline, propose_free, propose_free_minor,
     };
     use crate::application::mock_repo::MockRepo;
+
+    /// A log sink for one test: everything a subscriber writes lands here.
+    #[derive(Clone, Default)]
+    struct LogSink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    // san-1017: subscribe operations are harvested (ADR-0006), not skipped
+    // with a warning — splitting keeps only the PUB endpoints and logs nothing.
+    #[test]
+    fn asyncapi_subscribe_operations_are_left_out_without_a_log() {
+        let doc = "asyncapi: 2.6.0\ninfo:\n  title: T\n  version: 1.0.0\nchannels:\n  orders.created:\n    publish:\n      message:\n        name: OrderCreated\n        payload:\n          type: object\n  payments.done:\n    subscribe:\n      message:\n        name: PaymentDone\n        payload:\n          type: object\n";
+        let sink = LogSink::default();
+        let writer = sink.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(move || writer.clone())
+            .finish();
+        let endpoints = tracing::subscriber::with_default(subscriber, || {
+            parse_spec_endpoints(ApiType::AsyncApi, doc, "orders")
+        })
+        .unwrap();
+        let ids: Vec<(&str, &str)> = endpoints
+            .iter()
+            .map(|e| (e.method.as_str(), e.path.as_str()))
+            .collect();
+        assert_eq!(ids, vec![("PUB", "orders.created")]);
+        let logged = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(logged, "");
+    }
 
     // The blocking-pool wrapper must give the same verdict as the sync
     // validator, for both a valid and an invalid document.

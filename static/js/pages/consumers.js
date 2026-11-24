@@ -243,7 +243,10 @@ async function showClientDependencies(clientName) {
                   <span class="font-mono text-sm text-slate-700">${escapeHtml(group.version)}</span>
                   ${stabilityBadge(group.stability)}
               </div>
-              <button type="button" data-view-producer class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">View version →</button>`;
+              <div class="flex items-center gap-3">
+                  <button type="button" data-remove-dependencies class="text-xs font-semibold text-rose-600 hover:text-rose-800" title="Remove every dependency of this Consumer on this Producer">Remove</button>
+                  <button type="button" data-view-producer class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">View version →</button>
+              </div>`;
       /** @type {HTMLElement} */ (header.querySelector("[data-group-service]")).textContent =
         group.service;
       /** @type {HTMLElement} */ (header.querySelector("[data-view-producer]")).addEventListener(
@@ -252,6 +255,14 @@ async function showClientDependencies(clientName) {
           window.location.href = `/producers.html?service=${encodeURIComponent(group.service)}&api_type=${encodeURIComponent(/** @type {string} */ (group.api_type))}&version=${encodeURIComponent(group.version)}`;
         },
       );
+      // san-1018: a Producer the Consumer no longer requires gets no require
+      // that would replace its dependencies; this removes all of them, every
+      // version and API type. The server decides who may (manage_consumers).
+      /** @type {HTMLElement} */ (
+        header.querySelector("[data-remove-dependencies]")
+      ).addEventListener("click", () => {
+        void removeDependencies(clientName, group.service);
+      });
       section.appendChild(header);
 
       const rows = document.createElement("div");
@@ -323,6 +334,28 @@ async function showClientDependencies(clientName) {
     hideLoader();
     list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
+}
+
+/**
+ * Remove every dependency of a Consumer on one Producer, after a confirmation,
+ * then show the Consumer again.
+ * @param {string} clientName
+ * @param {string} producer
+ */
+async function removeDependencies(clientName, producer) {
+  const sure = confirm(
+    `Remove every dependency of '${clientName}' on '${producer}', in the dev and the main graph? A later require records it again.`,
+  );
+  if (!sure) return;
+  const res = await apiCall(
+    `/admin/consumers/${encodeURIComponent(clientName)}/dependencies/${encodeURIComponent(producer)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    alert("Could not remove the dependencies: " + (await errorMessage(res)));
+    return;
+  }
+  await showClientDependencies(clientName);
 }
 
 /** @type {HTMLInputElement} */ (document.getElementById("client-search")).addEventListener(

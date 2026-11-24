@@ -24,7 +24,9 @@
     <a href="../start/glossary.html#trunk">trunk</a>'s current version, shown as a badge on the
     Producer page; a trunk require records the pin in the append-only trunk store, last write per
     endpoint wins, which is what the main graph reads. Re-running an unchanged trunk build is
-    exactly what keeps trunk fresh.
+    exactly what keeps trunk fresh. A trunk require or bundle is also the Consumer's whole set of
+    endpoints on that Producer and API type: every other dependency the Consumer holds there, in
+    the main graph and the dev graph, ends with it (see below).
   </li>
   <li>
     <strong><code>tag: "&lt;branch&gt;"</code></strong
@@ -63,6 +65,29 @@ Sanshain-Warning: trunk and tag are mutually exclusive - this build was recorded
   independent of the dev window). Entries past half the TTL are highlighted as stale in the main
   view (the amber dashed edge); past the TTL they leave the current main graph. They stay in
   history: the TTL closes an entry, it never deletes it.
+</p>
+
+<h2 id="replaced">A trunk require replaces what it no longer names</h2>
+<p>
+  A Consumer that drops an endpoint, or moves to another version, does not wait for the TTL. Each
+  trunk require or bundle to a Producer is read as the Consumer's complete set of endpoints on that
+  Producer's API type: a single require leaves only its endpoint alive, a bundle only its endpoints.
+  The Consumer's other trunk pins there are closed (the timeline keeps them) and its other dev
+  edges there, at any version, are removed. Requires without <code>trunk</code>, tagged requires,
+  failed requires and dry runs replace nothing, and other Producers and API types are untouched.
+</p>
+<p>
+  This reads the requires of one <code>sanshain.yaml</code>: keep one file per Consumer, and one
+  requires entry per Producer and API type. Two files under the same <code>serviceName</code>, or two
+  entries for the same Producer and API type at different versions, replace each other's
+  dependencies on every trunk build.
+</p>
+<p>
+  A Producer the Consumer no longer requires at all gets no require that could replace its
+  dependencies. Remove them on the Consumer page: <strong>Remove</strong> on the Producer's group
+  (<code>DELETE /admin/consumers/{name}/dependencies/{producer}</code>, needs
+  <code>manage_consumers</code>) removes every dependency of the Consumer on that Producer, in both
+  graphs, and is audited. Sanshain-branch copies are not touched.
 </p>
 
 <h2>The timeline</h2>

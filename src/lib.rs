@@ -204,6 +204,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}", get(admin::admin_get_consumer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/consumers/{name}/dependencies/{producer}", delete(admin::admin_remove_consumer_dependencies).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/settings/registration", post(admin::set_registration_enabled).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))

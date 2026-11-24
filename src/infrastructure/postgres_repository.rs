@@ -94,8 +94,9 @@ use super::webhook_rows::{
 };
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
-    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    DropConsumerDependencies, EndpointMap, NewApiToken, NewAuditLog, NewWebhook,
+    RecordDependencyParams, RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository,
+    UpsertSpecVersion,
 };
 
 struct ApiTokenRow {
@@ -3670,6 +3671,64 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(())
+    }
+
+    async fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> Result<u64, RepositoryError> {
+        let (paths, methods): (Vec<&str>, Vec<&str>) = drop
+            .keep
+            .iter()
+            .map(|(p, m)| (p.as_str(), m.as_str()))
+            .unzip();
+        let api_type = drop.api_type.as_ref().map(ApiType::as_str);
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let dev = sqlx::query(
+            "DELETE FROM dependencies d \
+             WHERE d.client_id = (SELECT id FROM clients WHERE name = $1) \
+               AND d.spec_version_id IN (SELECT v.id FROM spec_versions v \
+                   JOIN services s ON s.id = v.service_id WHERE s.name = $2) \
+               AND ($3::text IS NULL OR d.api_type = $3) \
+               AND NOT (d.spec_version_id IS NOT DISTINCT FROM $4::bigint AND EXISTS ( \
+                   SELECT 1 FROM UNNEST($5::text[], $6::text[]) AS k(p, m) \
+                   WHERE k.p = d.normalized_path AND k.m = d.method))",
+        )
+        .bind(drop.consumer)
+        .bind(drop.producer)
+        .bind(api_type)
+        .bind(drop.keep_version_id)
+        .bind(&paths)
+        .bind(&methods)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let trunk = sqlx::query(
+            "UPDATE trunk_dependencies t SET valid_to = $1 \
+             WHERE t.valid_to IS NULL \
+               AND t.client_id = (SELECT id FROM clients WHERE name = $2) \
+               AND t.service_id = (SELECT id FROM services WHERE name = $3) \
+               AND ($4::text IS NULL OR t.api_type = $4) \
+               AND NOT EXISTS (SELECT 1 FROM UNNEST($5::text[], $6::text[]) AS k(p, m) \
+                   WHERE k.p = t.normalized_path AND k.m = t.method)",
+        )
+        .bind(drop.now_iso)
+        .bind(drop.consumer)
+        .bind(drop.producer)
+        .bind(api_type)
+        .bind(&paths)
+        .bind(&methods)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(dev.rows_affected().saturating_add(trunk.rows_affected()))
     }
 
     async fn close_trunk_pins_for_service_api(

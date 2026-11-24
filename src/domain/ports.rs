@@ -146,6 +146,22 @@ pub struct RecordTrunkPinParams<'a> {
     pub now_iso: &'a str,
 }
 
+/// The dependencies of one Consumer on one Producer to drop (san-1018), in
+/// the dev graph (rows deleted) and the main graph (open trunk pins closed,
+/// the closed rows stay as timeline). `api_type` narrows it to one API
+/// family. `keep` names the endpoints `(normalized_path, method)` that stay:
+/// in the dev graph only at `keep_version_id`, in the main graph at any
+/// version (a trunk pin's version moves when it is recorded). An empty
+/// `keep` drops all of them.
+pub struct DropConsumerDependencies<'a> {
+    pub consumer: &'a str,
+    pub producer: &'a str,
+    pub api_type: Option<ApiType>,
+    pub keep_version_id: Option<i64>,
+    pub keep: &'a [(String, String)],
+    pub now_iso: &'a str,
+}
+
 pub type EndpointDetails = (i64, String, bool);
 pub type EndpointMap = HashMap<(String, String), EndpointDetails>;
 
@@ -428,6 +444,14 @@ pub trait SpecRepository: Send + Sync {
         &self,
         pins: Vec<RecordTrunkPinParams<'_>>,
     ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
+    /// Drop a Consumer's dependencies on one Producer (san-1018), see
+    /// [`DropConsumerDependencies`]. Returns how many dev rows were deleted
+    /// plus how many trunk pins were closed.
+    fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> impl Future<Output = Result<u64, RepositoryError>> + Send;
 
     /// The current trunk pin set — one entry per open record, joined to
     /// client/service names. The main graph's edges.
