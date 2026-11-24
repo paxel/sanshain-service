@@ -565,6 +565,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/dependencies/{producer}:
+    delete:
+      summary: "Delete: consumers/name/dependencies/producer"
+      x-permission: manage_consumers
+      x-scope: global
+      description: |
+        Requires the `manage_consumers` permission.
+
+        Removes every dependency of the Consumer on one Producer, every API
+        type and endpoint, in the dev graph and the main graph (san-1018):
+        for a Producer the Consumer no longer requires. Trunk pins are closed,
+        so the timeline keeps them; sanshain-branch copies are untouched.
+        Answers `{"consumer", "producer", "removed"}`, audited as
+        `REMOVE_CONSUMER_DEPENDENCIES`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: producer
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: The Consumer holds no dependency on that Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/endpoint-versions:
     get:
       summary: "Read: endpoint-versions"

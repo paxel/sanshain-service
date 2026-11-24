@@ -522,6 +522,30 @@ pub async fn admin_delete_consumer(
     }
 }
 
+pub async fn admin_remove_consumer_dependencies(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Path((name, producer)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let removed = services::remove_consumer_dependencies(&state.repo, &name, &producer).await?;
+    let _ = state.spec_updated_tx.send(());
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "REMOVE_CONSUMER_DEPENDENCIES",
+            details: &format!("Removed the dependencies of '{name}' on '{producer}' ({removed})"),
+            service: Some(&producer),
+            action_type: Some("WRITE"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(
+        json!({ "consumer": name, "producer": producer, "removed": removed }),
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct EnabledRequest {
     pub enabled: bool,

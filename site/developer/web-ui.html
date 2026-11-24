@@ -222,7 +222,10 @@
   Producer the Consumer currently requires, and are managed by a maintainer of the Producer of the
   same name or by an administrator. The endpoints carry their summaries and have the same filter as
   a Producer's version, with only the <strong>Deprecated</strong> chip; a group with no matching
-  endpoint is hidden.
+  endpoint is hidden. <strong>Remove</strong> on a group removes every dependency of the Consumer on
+  that Producer, in the dev and the main graph, for a Producer it no longer requires (needs
+  <code>manage_consumers</code>; see
+  <a href="release-graphs.html#replaced">a trunk require replaces what it no longer names</a>).
 </p>
 <figure class="screenshot">
   <img

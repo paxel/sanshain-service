@@ -7,8 +7,9 @@ use moka::future::Cache;
 
 use crate::domain::models::*;
 use crate::domain::ports::{
-    EndpointMap, NewApiToken, NewAuditLog, NewWebhook, RecordDependencyParams,
-    RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository, UpsertSpecVersion,
+    DropConsumerDependencies, EndpointMap, NewApiToken, NewAuditLog, NewWebhook,
+    RecordDependencyParams, RecordTrunkPinParams, RepositoryError, RewriteSpecText, SpecRepository,
+    UpsertSpecVersion,
 };
 use crate::infrastructure::database::DatabaseRepo;
 
@@ -1721,6 +1722,18 @@ impl SpecRepository for CachedSpecRepository {
             self.report_cache.invalidate_all();
         }
         Ok(())
+    }
+
+    async fn drop_consumer_dependencies(
+        &self,
+        drop: DropConsumerDependencies<'_>,
+    ) -> Result<u64, RepositoryError> {
+        let n = self.inner.drop_consumer_dependencies(drop).await?;
+        // Dev and trunk edges both ride the report payload.
+        if !self.is_disabled() {
+            self.report_cache.invalidate_all();
+        }
+        Ok(n)
     }
 
     async fn close_trunk_pins_for_service_api(

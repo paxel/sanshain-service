@@ -337,6 +337,13 @@ requires:
   >; an entry with one endpoint becomes <code>GET /require</code> (or
   <code>/require/asyncapi</code>, <code>/require/grpc</code>).
 </p>
+<p>
+  On a trunk build each of those calls is the project's whole set of endpoints on that Producer and
+  API type: dependencies the file no longer names there end with the next trunk build (<a
+    href="release-graphs.html#replaced"
+    >a trunk require replaces what it no longer names</a
+  >). So keep one <code>sanshain.yaml</code> per Consumer and one entry per Producer and API type.
+</p>
 <table>
   <thead>
     <tr>
