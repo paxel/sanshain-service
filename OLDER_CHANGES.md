@@ -3,6 +3,18 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
+## [2.15.0] - 2026-11-23
+
+### Added
+- A version diff on the Producers page has its own URL: the address bar names it once it is shown, and a link to a version that no longer exists says so ([san-1014](https://github.com/paxel/sanshain-service/issues/121)).
+
+### Changed
+- The complete example on the sanshain.yaml page shows `autoGa: false` and what `true` does ([san-1015](https://github.com/paxel/sanshain-service/issues/122)).
+- The client pages list their options as one block per option, with environment variable, sanshain.yaml field, default and version beneath the name, instead of a six-column table ([san-1016](https://github.com/paxel/sanshain-service/issues/123)).
+
+### Security
+- Updated `cookie` to 0.18.3 (RUSTSEC-2026-0594, private cookie nonces can repeat in processes that fork) and `url` to 2.5.9 (RUSTSEC-2026-0592, stack overflow in `Url::origin()` on nested `blob:` URLs).
+
 ## [2.14.0] - 2026-11-21
 
 ### Added
