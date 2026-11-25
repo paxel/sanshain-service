@@ -9,8 +9,8 @@ use super::spec_service::{
     content_hash, extract_spec_version, normalize_spec_text, parse_spec_endpoints, resolve_stream,
 };
 use super::version_rules::{
-    check_compatibility, classify_change, diff_endpoints, ga_baseline, propose_free,
-    propose_free_minor,
+    check_compatibility, classify_change, diff_endpoints, ga_baseline, highest_ga_in_major,
+    propose_version,
 };
 use super::webhook_service as webhooks;
 use crate::asyncapi;
@@ -564,8 +564,23 @@ async fn provide_spec_inner(
             let old_content = repo.get_spec_content(entry.id).await?.unwrap_or_default();
             let changes =
                 diff_endpoints(&repo.get_endpoints_for_version(entry.id).await?, &endpoints);
-            let impact = classify_change(api_type, &old_content, content, changes.inserts);
-            let proposed = propose_free(&line, version.increment(impact));
+            // The level is read against the highest GA of the major, the one
+            // the proposal lands above; that is the entry itself unless a
+            // newer GA of the major exists.
+            let impact = match highest_ga_in_major(&line, version).filter(|g| g.id != entry.id) {
+                Some(newest) => {
+                    let newest_content =
+                        repo.get_spec_content(newest.id).await?.unwrap_or_default();
+                    let inserts = diff_endpoints(
+                        &repo.get_endpoints_for_version(newest.id).await?,
+                        &endpoints,
+                    )
+                    .inserts;
+                    classify_change(api_type, &newest_content, content, inserts)
+                }
+                None => classify_change(api_type, &old_content, content, changes.inserts),
+            };
+            let proposed = propose_version(&line, version, impact);
             // Bytes differ but no endpoint the splitter sees changed: the
             // difference is almost certainly whitespace or comments (line
             // endings and a BOM were normalized away above) — name that, or
@@ -634,7 +649,7 @@ async fn provide_spec_inner(
             if !entry.provided_by.is_empty()
                 && username.is_some_and(|actor| actor != entry.provided_by) =>
         {
-            let proposed = propose_free_minor(&line, version);
+            let proposed = propose_version(&line, version, Impact::Minor);
             let message = format!(
                 "version {} of {} '{}' is a snapshot provided by '{}' — only they may change it; publish your work as {} instead, or ask an administrator to delete the snapshot",
                 version,
@@ -675,10 +690,7 @@ async fn provide_spec_inner(
         && let Some(baseline_content) = repo.get_spec_content(baseline.id).await?
         && let Err(reason) = check_compatibility(api_type, &baseline_content, content)
     {
-        let proposed = propose_free(
-            &line,
-            SemVer::new(baseline.version.major.saturating_add(1), 0, 0),
-        );
+        let proposed = propose_version(&line, version, Impact::Major);
         let message = format!(
             "version {} of {} '{}' is breaking relative to GA {} but does not bump the major — publish as {} instead: {}",
             version,

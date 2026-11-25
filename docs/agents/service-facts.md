@@ -26,13 +26,16 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 ## Version rules (provide)
 
 - Snapshot: overwritable only by the user who last provided it; anyone else's different content
-  is `409 snapshot_owned` (next free minor proposed); identical bytes from anyone are a no-op.
+  is `409 snapshot_owned` (a minor proposed); identical bytes from anyone are a no-op.
   (ADR-0003 still says last-writer-wins; the code and site changed that.) Never compat-checked.
   Expires when neither provided nor required for `snapshot_max_age_days` (30, 0 disables).
 - GA: immutable; identical bytes no-op; different = `409 immutable_ga` + `proposed_version`. A GA
   claims its number forever (`409 snapshot_on_ga`). GA of a snapshot number = promotion in place
   (`promoted: true`; byte-identical keeps the snapshot's provider). Needs `release_ga`
   (`releaser` role), also for no-ops: `403 ga_requires_releaser`.
+- Proposal (san-1020, `propose_version` in `version_rules.rs`): one minor above the highest version
+  of the major (level read against the highest GA of the major); breaking = highest major of the
+  line + 1; never a patch. Same rule for all four refusals that propose.
 - Mislabel check: GA breaking vs. the highest GA below without a major bump =
   `409 breaking_without_major`. Removing an element deprecated in the previous GA is not breaking;
   the marker must sit on the removed element (no whole-spec switch).

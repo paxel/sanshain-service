@@ -811,7 +811,7 @@ mod tests {
     use super::*;
     // These exercise the pure version-rule helpers (now in version_rules).
     use super::super::version_rules::{
-        classify_change, diff_endpoints, ga_baseline, propose_free, propose_free_minor,
+        classify_change, diff_endpoints, ga_baseline, highest_ga_in_major, propose_version,
     };
     use crate::application::mock_repo::MockRepo;
 
@@ -1029,36 +1029,58 @@ mod tests {
     }
 
     #[test]
-    fn propose_free_skips_taken_numbers() {
+    fn propose_version_lands_above_the_highest_of_the_major() {
         let line = vec![
             meta("1.2.0", Stability::Ga),
             meta("1.3.0", Stability::Snapshot),
+            meta("1.5.0", Stability::Ga),
+            meta("3.0.0", Stability::Ga),
         ];
+        let v = |s: &str| -> SemVer { s.parse().unwrap() };
+        // Additive and shape-identical alike: a minor above 1.5.0, never a
+        // patch, never a gap, never the 3.x line.
         assert_eq!(
-            propose_free(&line, "1.3.0".parse().unwrap()).to_string(),
-            "1.3.1"
+            propose_version(&line, v("1.2.0"), Impact::Minor).to_string(),
+            "1.6.0"
         );
         assert_eq!(
-            propose_free(&line, "2.0.0".parse().unwrap()).to_string(),
-            "2.0.0"
+            propose_version(&line, v("1.2.0"), Impact::Patch).to_string(),
+            "1.6.0"
+        );
+        assert_eq!(
+            propose_version(&line, v("1.3.0"), Impact::None).to_string(),
+            "1.6.0"
+        );
+        // Breaking: the highest major of the whole line, plus one.
+        assert_eq!(
+            propose_version(&line, v("1.2.0"), Impact::Major).to_string(),
+            "4.0.0"
+        );
+        // A major the line does not have yet starts from the version itself.
+        assert_eq!(
+            propose_version(&line, v("5.0.0"), Impact::Minor).to_string(),
+            "5.1.0"
+        );
+        assert_eq!(
+            propose_version(&line, v("5.0.0"), Impact::Major).to_string(),
+            "6.0.0"
         );
     }
 
     #[test]
-    fn propose_free_minor_skips_taken_minors() {
+    fn highest_ga_in_major_ignores_snapshots_and_other_majors() {
         let line = vec![
-            meta("1.3.0", Stability::Snapshot),
-            meta("1.4.0", Stability::Ga),
-            meta("1.5.0", Stability::Snapshot),
+            meta("1.2.0", Stability::Ga),
+            meta("1.5.0", Stability::Ga),
+            meta("1.6.0", Stability::Snapshot),
+            meta("2.0.0", Stability::Ga),
         ];
+        let v = |s: &str| -> SemVer { s.parse().unwrap() };
         assert_eq!(
-            propose_free_minor(&line, "1.3.0".parse().unwrap()).to_string(),
-            "1.6.0"
+            highest_ga_in_major(&line, v("1.2.0")).map(|m| m.version.to_string()),
+            Some("1.5.0".to_string())
         );
-        assert_eq!(
-            propose_free_minor(&line, "2.0.0".parse().unwrap()).to_string(),
-            "2.1.0"
-        );
+        assert!(highest_ga_in_major(&line, v("3.0.0")).is_none());
     }
 
     #[test]

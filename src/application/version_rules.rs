@@ -9,7 +9,7 @@
 use crate::asyncapi;
 use crate::domain::models::*;
 use crate::openapi;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Whole-document backward-compatibility verdict for one API type.
 pub fn check_compatibility(api_type: ApiType, old: &str, new: &str) -> Result<(), String> {
@@ -20,29 +20,42 @@ pub fn check_compatibility(api_type: ApiType, old: &str, new: &str) -> Result<()
     }
 }
 
-/// The smallest version at or above `candidate` that no entry of `line` uses.
-///
-/// Rejections propose a next version; proposing a number that is itself taken
-/// would send the Producer straight into the next rejection.
-pub(crate) fn propose_free(line: &[SpecVersionMeta], candidate: SemVer) -> SemVer {
-    let taken: HashSet<SemVer> = line.iter().map(|v| v.version).collect();
-    let mut proposal = candidate;
-    while taken.contains(&proposal) {
-        proposal = proposal.increment(Impact::Patch);
+/// The number a refusal proposes instead of `version` (san-1020): the highest
+/// version of `version`'s major in `line` (or `version` itself when higher),
+/// bumped by one minor; a breaking change goes to the highest major of the
+/// whole line plus one. Never a patch: an assistant publishes the proposal as
+/// it is, and a patch rarely says what changed. Landing above everything in
+/// the major keeps the proposal out of gaps left by older lines of work, and
+/// staying in the major keeps a maintenance line from being sent to a major
+/// whose GA it would break.
+pub(crate) fn propose_version(line: &[SpecVersionMeta], version: SemVer, impact: Impact) -> SemVer {
+    if impact == Impact::Major {
+        let highest_major = line
+            .iter()
+            .map(|v| v.version.major)
+            .fold(version.major, u32::max);
+        return SemVer::new(highest_major.saturating_add(1), 0, 0);
     }
-    proposal
+    let highest_in_major = line
+        .iter()
+        .map(|v| v.version)
+        .filter(|v| v.major == version.major)
+        .fold(version, SemVer::max);
+    highest_in_major.increment(Impact::Minor)
 }
 
-/// The next free minor above `version`: the number to send a second line of
-/// work to when the one it picked already belongs to someone else. Minors,
-/// not patches, because parallel lines of work are minors in practice.
-pub(crate) fn propose_free_minor(line: &[SpecVersionMeta], version: SemVer) -> SemVer {
-    let taken: HashSet<SemVer> = line.iter().map(|v| v.version).collect();
-    let mut proposal = version.increment(Impact::Minor);
-    while taken.contains(&proposal) {
-        proposal = proposal.increment(Impact::Minor);
-    }
-    proposal
+/// The GA the level of a proposal is classified against: the highest GA of
+/// `version`'s major. The proposal lands above it, so a change that is
+/// additive against the conflicting entry but drops what that GA added is
+/// classified as breaking, not sent into `breaking_without_major`.
+pub(crate) fn highest_ga_in_major(
+    line: &[SpecVersionMeta],
+    version: SemVer,
+) -> Option<SpecVersionMeta> {
+    line.iter()
+        .filter(|v| v.stability == Stability::Ga && v.version.major == version.major)
+        .max_by_key(|v| v.version)
+        .cloned()
 }
 
 /// Classify the change between two documents for the bump proposal:
