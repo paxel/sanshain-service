@@ -291,7 +291,7 @@ async function statisticsLoadTab() {
   statisticsPanels.clear();
   statisticsTableViews.clear();
   const renderer = STATISTICS_RENDERERS.get(statisticsTab);
-  if (!renderer) {
+  if (typeof renderer !== "function") {
     body.innerHTML = '<p class="text-slate-500 col-span-2">This tab has no data yet.</p>';
     return;
   }
