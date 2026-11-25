@@ -39,6 +39,10 @@ pub enum Permission {
     /// Publish a version with `stability: ga` — a fresh GA, a promotion, or an
     /// idempotent GA re-provide. Snapshots need no permission; releasing does.
     ReleaseGa,
+    /// Read the statistics page: aggregated counts of the landscape, the
+    /// activity per owner, versions, branches and access, never a person's
+    /// name and never a single audit entry (san-1021).
+    ViewStatistics,
 }
 
 impl Permission {
@@ -58,6 +62,7 @@ impl Permission {
         Permission::ViewObservability,
         Permission::RunDestructiveOperations,
         Permission::ReleaseGa,
+        Permission::ViewStatistics,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -72,6 +77,7 @@ impl Permission {
             Permission::ViewObservability => "view_observability",
             Permission::RunDestructiveOperations => "run_destructive_operations",
             Permission::ReleaseGa => "release_ga",
+            Permission::ViewStatistics => "view_statistics",
         }
     }
 
@@ -96,6 +102,9 @@ pub enum Role {
     Viewer,
     Maintainer,
     Releaser,
+    /// Reads the statistics page and nothing else: the role for architects
+    /// and management (san-1021).
+    ReportViewer,
 }
 
 impl Role {
@@ -105,14 +114,20 @@ impl Role {
         Role::Viewer,
         Role::Maintainer,
         Role::Releaser,
+        Role::ReportViewer,
     ];
 
     /// Roles that may be granted instance-wide.
     ///
     /// `Maintainer` is excluded deliberately — it means nothing without the set
     /// of Producers it is over, so it is assigned as a scope, not granted.
-    pub const GLOBALLY_GRANTABLE: &'static [Role] =
-        &[Role::Admin, Role::UserManager, Role::Viewer, Role::Releaser];
+    pub const GLOBALLY_GRANTABLE: &'static [Role] = &[
+        Role::Admin,
+        Role::UserManager,
+        Role::Viewer,
+        Role::Releaser,
+        Role::ReportViewer,
+    ];
 
     /// Roles only an admin (or root) may grant, revoke, or move on or off a
     /// group. `Admin` because it is self-escalation to everything;
@@ -128,6 +143,7 @@ impl Role {
             Role::Viewer => "viewer",
             Role::Maintainer => "maintainer",
             Role::Releaser => "releaser",
+            Role::ReportViewer => "report_viewer",
         }
     }
 
@@ -147,6 +163,7 @@ impl Role {
             Role::Viewer => &[Permission::ViewAudit, Permission::ViewObservability],
             Role::Maintainer => &[Permission::ManageProducers],
             Role::Releaser => &[Permission::ReleaseGa],
+            Role::ReportViewer => &[Permission::ViewStatistics],
         }
     }
 
@@ -291,7 +308,7 @@ mod tests {
         for name in &names {
             assert_eq!(Permission::parse(name).map(|p| p.as_str()), Some(*name));
         }
-        assert_eq!(Permission::ALL.len(), 10);
+        assert_eq!(Permission::ALL.len(), 11);
     }
 
     #[test]
@@ -398,6 +415,22 @@ mod tests {
         assert!(actor.has_permission(Permission::ViewAudit));
         assert!(!actor.has_permission(Permission::ManageProducers));
         assert_eq!(actor.effective_permissions().len(), 4);
+    }
+
+    #[test]
+    fn the_report_viewer_bundle_is_exactly_view_statistics() {
+        assert_eq!(
+            Role::ReportViewer.permissions(),
+            &[Permission::ViewStatistics]
+        );
+        assert_eq!(Role::parse("report_viewer"), Some(Role::ReportViewer));
+        assert_eq!(
+            Permission::parse("view_statistics"),
+            Some(Permission::ViewStatistics)
+        );
+        assert!(Role::GLOBALLY_GRANTABLE.contains(&Role::ReportViewer));
+        assert!(!Role::ADMIN_GUARDED.contains(&Role::ReportViewer));
+        assert!(Role::Admin.grants(Permission::ViewStatistics));
     }
 
     #[test]

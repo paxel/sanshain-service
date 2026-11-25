@@ -234,9 +234,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   or `read_only` (read_only refused on provide/require/catalog). `/admin/*` takes sessions only
   (API token → 401), except the SQLite backup download (full token). User managers issue tokens
   for service accounts (`for_user`).
-- Ten permissions: manage_users, manage_roles, manage_producers, manage_consumers, view_audit,
+- Eleven permissions: manage_users, manage_roles, manage_producers, manage_consumers, view_audit,
   manage_settings, manage_auth_config, view_observability, run_destructive_operations,
-  release_ga. Fixed roles: admin, user_manager, viewer, releaser, maintainer (Producer-scoped
+  release_ga, view_statistics (san-1021). Fixed roles: admin, user_manager, viewer, releaser,
+  report_viewer (only view_statistics), maintainer (Producer-scoped
   assignment, never global). admin/releaser grants are admin-guarded. Root = `SANSHAIN_ROOT_USERS`
   (config, unrevocable, holds future permissions too).
 - Groups: native or LDAP (by DN, membership read live, cached
