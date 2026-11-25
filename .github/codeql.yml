@@ -1,7 +1,7 @@
 # What CodeQL leaves out (paxel/gates codeql.yml, input config-file).
 #
 # static/vendor holds minified third-party libraries served as they are (dagre, diff2html,
-# marked, mermaid): upstream's code. node_modules and site-dist are installed and built
+# echarts, mermaid): upstream's code. node_modules and site-dist are installed and built
 # output, absent in a fresh checkout and named for a local run.
 #
 # tests and benches are test code: the passwords, tokens and keys there are fixtures of
