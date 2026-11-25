@@ -3,7 +3,7 @@
 This file contains historical changelog entries for the Sanshain Service.
 For recent changes, see [CHANGELOG.md](CHANGELOG.md).
 
-## [2.16.0]
+## [2.16.0] - 2026-11-25
 
 ### Added
 - A Remove button on a Producer group of the Consumer page removes every dependency of that Consumer on that Producer, in the dev and the main graph ([san-1018](https://github.com/paxel/sanshain-service/issues/129)).
