@@ -1348,7 +1348,7 @@ async fn review_spec_checks_the_line_as_a_dry_run_without_the_releaser_role() {
     assert_eq!(review["validation"]["version"], "1.1.0");
     assert_eq!(review["version_rules"]["accepted"], false);
     assert_eq!(review["version_rules"]["rule"], "immutable_ga");
-    assert_eq!(review["version_rules"]["proposed_version"], "1.1.1");
+    assert_eq!(review["version_rules"]["proposed_version"], "1.2.0");
     assert_eq!(review["version_rules"]["requires_role"], "releaser");
     assert_eq!(
         review["version_rules"]["line"]["existing"]["stability"],

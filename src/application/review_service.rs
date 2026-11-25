@@ -499,7 +499,7 @@ mod tests {
         let rules = review.version_rules.unwrap();
         assert!(!rules.accepted);
         assert_eq!(rules.rule, Some("immutable_ga"));
-        assert_eq!(rules.proposed_version, Some(SemVer::new(1, 0, 1)));
+        assert_eq!(rules.proposed_version, Some(SemVer::new(1, 1, 0)));
         assert_eq!(
             rules.line.existing,
             Some(ExistingVersion {

@@ -438,8 +438,8 @@ async fn ga_with_different_content_is_rejected_with_a_free_proposed_version() {
     assert_eq!(status, StatusCode::CONFLICT);
     let message = body["error"].as_str().unwrap();
     assert!(message.contains("immutable"), "got: {message}");
-    // Compatible rewording → patch bump proposal, and 1.0.1 is free.
-    assert_eq!(body["proposed_version"], "1.0.1");
+    // Compatible rewording → a minor above the highest of the major (san-1020).
+    assert_eq!(body["proposed_version"], "1.1.0");
 }
 
 #[tokio::test]
@@ -733,7 +733,7 @@ async fn snapshot_for_a_ga_number_is_rejected_forever() {
         message.contains("can never carry a snapshot again"),
         "got: {message}"
     );
-    assert_eq!(body["proposed_version"], "1.0.1");
+    assert_eq!(body["proposed_version"], "1.1.0");
 }
 
 // ---------------------------------------------------------------------------
