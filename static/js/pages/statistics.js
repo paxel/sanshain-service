@@ -487,6 +487,7 @@ function initStatistics(user) {
 function initStatisticsPage() {
   void checkDiscoveryAuth((user) => {
     initStatistics(user);
+    hideLoader();
   });
 }
 if (document.readyState === "loading") {
