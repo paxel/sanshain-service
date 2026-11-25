@@ -166,7 +166,7 @@ function catalogDraw() {
   const selects = CATALOG_FILTERS.map((key) => {
     const current = catalogParam(key);
     const options = [...(values[key] ?? [])]
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .map(
         (v) =>
           `<option value="${escapeAttr(v)}"${v === current ? " selected" : ""}>${escapeHtml(v)}</option>`,
