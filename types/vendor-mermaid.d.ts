@@ -1,4 +1,4 @@
-// mermaid 11.16.1 (`static/vendor/mermaid-11.16.1.min.js`): only the members the page scripts
+// mermaid 12.3.0 (`static/vendor/mermaid-12.3.0.min.js`): only the members the page scripts
 // call. This file has no import or export, which keeps the declaration global.
 
 declare const mermaid: {
