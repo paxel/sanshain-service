@@ -122,6 +122,74 @@ async fn world() -> World {
     }
 }
 
+/// Status and JSON body of a call.
+#[cfg(test)]
+async fn call(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+        .header("Content-Type", "application/json")
+        .body(body.map_or_else(Body::empty, |b| Body::from(b.to_string())))
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// A trunk provide of a one-endpoint spec by [`PERSON`], over HTTP so the
+/// audit log has it.
+#[cfg(test)]
+async fn provide(w: &World, producer: &str, version: &str) {
+    let spec = format!(
+        "openapi: 3.0.0\ninfo: {{ title: T, version: {version} }}\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": {{ description: ok }}\n"
+    );
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/provide",
+        &w.plain,
+        Some(serde_json::json!({
+            "producername": producer,
+            "stability": "snapshot",
+            "trunk": true,
+            "openapi_yaml": spec,
+        })),
+    )
+    .await;
+    assert!(status.is_success(), "provide {producer}: {status} {body}");
+}
+
+/// A trunk require of `/a` by [`PERSON`].
+#[cfg(test)]
+async fn require(w: &World, consumer: &str, producer: &str, version: &str) {
+    let uri = format!(
+        "/require?consumername={consumer}&producername={producer}&version={version}&path=/a&method=GET&trunk=true"
+    );
+    let (status, body) = call(&w.app, "GET", &uri, &w.plain, None).await;
+    assert!(status.is_success(), "require: {status} {body}");
+}
+
+/// No answer may carry a person's name.
+#[cfg(test)]
+fn assert_no_person(body: &Value) {
+    let text = body.to_string();
+    assert!(!text.contains(PERSON), "a person's name leaked: {text}");
+}
+
 /// Status and JSON body of a GET.
 #[cfg(test)]
 async fn get(app: &axum::Router, uri: &str, token: &str) -> (StatusCode, Value) {
@@ -172,5 +240,51 @@ async fn a_broken_range_is_a_bad_request() {
             .unwrap_or_default()
             .contains("before it starts"),
         "{body}"
+    );
+}
+
+#[tokio::test]
+async fn landscape_counts_what_exists_and_what_is_active() {
+    let w = world().await;
+    provide(&w, "orders", "1.0.0").await;
+    provide(&w, "billing", "1.0.0").await;
+    require(&w, "shop", "orders", "1.0.0").await;
+    let (status, body) = get(&w.app, "/admin/statistics/landscape", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["tab"], "landscape");
+    let data = &body["data"];
+    assert_eq!(data["producers"], serde_json::json!(["billing", "orders"]));
+    assert_eq!(data["consumers"], serde_json::json!(["shop"]));
+    assert_eq!(
+        data["active_in_range"],
+        serde_json::json!(["billing", "orders", "shop"])
+    );
+    assert_eq!(
+        data["on_main"],
+        serde_json::json!(["billing", "orders", "shop"])
+    );
+    assert_eq!(
+        data["api_types"],
+        serde_json::json!([{ "label": "openapi", "count": 2 }])
+    );
+    assert_eq!(
+        data["flows"],
+        serde_json::json!([{ "from": "no domain", "to": "no domain", "pairs": 1 }])
+    );
+    assert_eq!(data["domains"][0]["name"], "no domain");
+    assert_eq!(data["capped_months"], serde_json::json!([]));
+    assert_no_person(&body);
+
+    // A range in the past has no activity, the rest stays.
+    let (_, old) = get(
+        &w.app,
+        "/admin/statistics/landscape?from=2020-01-01&to=2020-01-31",
+        &w.report_viewer,
+    )
+    .await;
+    assert_eq!(old["data"]["active_in_range"], serde_json::json!([]));
+    assert_eq!(
+        old["data"]["producers"],
+        serde_json::json!(["billing", "orders"])
     );
 }

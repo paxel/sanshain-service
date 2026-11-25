@@ -51,3 +51,30 @@ test("an unknown tab in the URL falls back to Landscape", async ({ page }) => {
   await page.goto("/reports.html?tab=nope");
   await expect(page.locator("#statistics-tab-landscape")).toHaveAttribute("aria-selected", "true");
 });
+
+test("Landscape shows its panels and exports CSV, SVG and PNG", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=landscape");
+  const panel = page.locator("#statistics-panel-landscape-counts");
+  await expect(panel).toContainText("What exists");
+  await expect(panel).toContainText("For architects and management");
+  await expect(panel.locator("svg").first()).toBeVisible();
+  await expect(page.locator("#statistics-panel-landscape-active")).toBeVisible();
+  await expect(page.locator("#statistics-panel-landscape-api-types")).toBeVisible();
+  await expect(page.locator("#statistics-panel-landscape-groups")).toBeVisible();
+
+  const csv = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "CSV" }).click();
+  const csvFile = await csv;
+  expect(csvFile.suggestedFilename()).toMatch(/^sanshain-landscape-counts-.*\.csv$/);
+  const text = await (await csvFile.createReadStream()).toArray();
+  expect(Buffer.concat(text).toString()).toMatch(/^Kind,Count\r\nProducers,\d+/);
+
+  const svg = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "SVG" }).click();
+  expect((await svg).suggestedFilename()).toMatch(/\.svg$/);
+
+  const png = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "PNG" }).click();
+  expect((await png).suggestedFilename()).toMatch(/\.png$/);
+});

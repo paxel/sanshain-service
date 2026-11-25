@@ -2,13 +2,17 @@
 //! aggregated by the application layer so no person's name leaves it.
 
 use crate::AppState;
-use crate::application::statistics_service::{StatisticsRange, StatisticsTab};
+use crate::application::statistics_service::{
+    self as statistics, StatisticsAnswer, StatisticsRange, StatisticsTab,
+};
 use crate::domain::models::AppError;
 use axum::{
+    Json,
     extract::{Path, Query, State},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Deserialize)]
 pub struct StatisticsQuery {
@@ -18,7 +22,7 @@ pub struct StatisticsQuery {
 
 /// `GET /admin/statistics/{tab}?from=YYYY-MM-DD&to=YYYY-MM-DD`.
 pub async fn admin_statistics(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(tab): Path<String>,
     Query(query): Query<StatisticsQuery>,
 ) -> Result<Response, AppError> {
@@ -27,6 +31,17 @@ pub async fn admin_statistics(
     let Some(tab) = StatisticsTab::parse(&tab) else {
         return Err(AppError::NotFound(format!("no statistics tab '{tab}'")));
     };
-    tracing::debug!(?range, ?tab, "statistics");
-    match tab {}
+    let repo = &state.repo;
+    Ok(match tab {
+        StatisticsTab::Landscape => answer(tab, range, statistics::landscape(repo, range).await?),
+    })
+}
+
+fn answer<T: Serialize>(tab: StatisticsTab, range: StatisticsRange, data: T) -> Response {
+    Json(StatisticsAnswer {
+        tab: tab.as_str(),
+        range,
+        data,
+    })
+    .into_response()
 }
