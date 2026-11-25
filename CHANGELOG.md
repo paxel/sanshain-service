@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Statistics, Versions and releases tab: versions created over time as GA or snapshot, promotions, versions per Producer, retired API families, Outdated and Snapshot-pinned Consumers, and deprecated endpoints still required ([san-1024](https://github.com/paxel/sanshain-service/issues/137)).
 - Statistics, Tags and branches tab: the sanshain-branches with their cut date and member versions, and the builds per stream (dev, trunk, tag) over time and per tag ([san-1025](https://github.com/paxel/sanshain-service/issues/138)).
 - Statistics, Users and access tab: users per role, users waiting for approval, groups by source, API tokens by scope and the sign-in mode, as counts without names ([san-1026](https://github.com/paxel/sanshain-service/issues/139)).
+- Statistics, Catalog tab: documentation of the data, a sheet per system with what it provides (with the Origin of the latest version), what it consumes, who consumes it, its owner, domain, Products, tags, links and Annotations; filters by owner, domain, Product and tag, Print for one sheet and Print all filtered, one sheet per page ([san-1027](https://github.com/paxel/sanshain-service/issues/140)).
 
 ### Changed
 - The Reports page and its nav link need `view_statistics`; signed-in users without it no longer see them ([san-1021](https://github.com/paxel/sanshain-service/issues/134)).

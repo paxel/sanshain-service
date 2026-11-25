@@ -7,8 +7,8 @@
 //! counted per system and rolled up to the system's Backstage owner.
 
 use crate::domain::models::{
-    ApiType, AppError, AuditLogFilter, MemberTrack, PeripheryTrack, SemVer, Stability,
-    SystemContext,
+    Annotation, ApiType, AppError, AuditLogFilter, MemberTrack, PeripheryTrack, SemVer, Stability,
+    SystemContext, SystemLink, VersionOrigin,
 };
 use crate::domain::ports::SpecRepository;
 use chrono::{Datelike, Days, Months, NaiveDate};
@@ -75,6 +75,7 @@ pub enum StatisticsTab {
     Versions,
     Branches,
     Access,
+    Catalog,
 }
 
 impl StatisticsTab {
@@ -86,6 +87,7 @@ impl StatisticsTab {
             "versions" => Some(StatisticsTab::Versions),
             "branches" => Some(StatisticsTab::Branches),
             "access" => Some(StatisticsTab::Access),
+            "catalog" => Some(StatisticsTab::Catalog),
             _ => None,
         }
     }
@@ -97,6 +99,7 @@ impl StatisticsTab {
             StatisticsTab::Versions => "versions",
             StatisticsTab::Branches => "branches",
             StatisticsTab::Access => "access",
+            StatisticsTab::Catalog => "catalog",
         }
     }
 }
@@ -937,6 +940,191 @@ pub async fn access(repo: &impl SpecRepository, now: &str) -> Result<Access, App
         tokens: static_labels(tokens),
         expired_tokens,
     })
+}
+
+/// One version line a system provides, on its Catalog sheet.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProvidedLine {
+    pub api_type: &'static str,
+    pub versions: usize,
+    pub latest: String,
+    pub latest_ga: Option<String>,
+    /// The Origin of the latest version: build, change, tickets, note.
+    pub origin: Option<VersionOrigin>,
+}
+
+/// One dependency on a Catalog sheet: the other system, the API type and the
+/// Pin, with how many endpoints it covers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SheetDependency {
+    pub system: String,
+    pub api_type: &'static str,
+    pub version: String,
+    pub endpoints: usize,
+}
+
+/// The Catalog sheet of one system (san-1027): both roles on one page. The
+/// last provider of a version is a person and is left out.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SystemSheet {
+    pub name: String,
+    pub owner: String,
+    pub domain: String,
+    pub products: Vec<String>,
+    pub tags: Vec<String>,
+    pub description: Option<String>,
+    pub source_location: Option<String>,
+    pub links: Vec<SystemLink>,
+    pub annotations: Vec<Annotation>,
+    pub external: bool,
+    pub provides: Vec<ProvidedLine>,
+    pub consumes: Vec<SheetDependency>,
+    pub consumed_by: Vec<SheetDependency>,
+}
+
+/// The Catalog tab: a sheet per system, sorted by name.
+#[derive(Debug, Clone, Serialize)]
+pub struct Catalog {
+    pub systems: Vec<SystemSheet>,
+}
+
+type DependencyKey = (String, String, ApiType, SemVer);
+
+/// A version line while it is summed up: versions, latest, latest GA, and the
+/// id of the latest.
+type LineTally = (usize, SemVer, Option<SemVer>, i64);
+
+fn sheet_dependencies(
+    pairs: &BTreeMap<DependencyKey, usize>,
+    system: &str,
+    consumer_side: bool,
+) -> Vec<SheetDependency> {
+    pairs
+        .iter()
+        .filter(|((client, service, _, _), _)| {
+            if consumer_side {
+                client == system
+            } else {
+                service == system
+            }
+        })
+        .map(
+            |((client, service, api_type, version), endpoints)| SheetDependency {
+                system: if consumer_side {
+                    service.clone()
+                } else {
+                    client.clone()
+                },
+                api_type: api_type.as_str(),
+                version: version.to_string(),
+                endpoints: *endpoints,
+            },
+        )
+        .collect()
+}
+
+/// The Catalog tab: every Producer and Consumer with its sheet.
+pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
+    let producers = repo.list_producers_detailed().await?;
+    let consumers = repo.list_consumers().await?;
+    let contexts = repo.list_system_contexts().await?;
+    let annotations = repo.list_system_annotations().await?;
+    let origins = repo.list_version_origins().await?;
+    let mut products_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for product in repo.list_products().await? {
+        for member in product.members {
+            products_of
+                .entry(member.system)
+                .or_default()
+                .push(product.name.clone());
+        }
+    }
+
+    // (producer, api type) -> (versions, latest, latest GA, id of latest)
+    let mut lines: BTreeMap<(String, ApiType), LineTally> = BTreeMap::new();
+    for (producer, meta, _) in repo.list_all_spec_versions().await? {
+        let line =
+            lines
+                .entry((producer, meta.api_type))
+                .or_insert((0, meta.version, None, meta.id));
+        line.0 = line.0.saturating_add(1);
+        if meta.version >= line.1 {
+            line.1 = meta.version;
+            line.3 = meta.id;
+        }
+        if meta.stability == Stability::Ga && line.2.is_none_or(|g| meta.version > g) {
+            line.2 = Some(meta.version);
+        }
+    }
+
+    let report = repo.get_report().await?;
+    let mut pairs: BTreeMap<DependencyKey, usize> = BTreeMap::new();
+    for dep in &report.dependency_graph {
+        bump(
+            pairs
+                .entry((
+                    dep.client.clone(),
+                    dep.service.clone(),
+                    dep.api_type,
+                    dep.version,
+                ))
+                .or_insert(0),
+        );
+    }
+
+    let mut domain_of: BTreeMap<String, (String, bool)> = BTreeMap::new();
+    for p in &producers {
+        let domain = p
+            .domain
+            .clone()
+            .filter(|d| !d.trim().is_empty())
+            .unwrap_or_else(|| NO_DOMAIN.to_string());
+        domain_of.insert(p.name.clone(), (domain, p.external));
+    }
+    let names: BTreeSet<String> = producers
+        .iter()
+        .map(|p| p.name.clone())
+        .chain(consumers)
+        .collect();
+    let systems = names
+        .into_iter()
+        .map(|name| {
+            let context = contexts.get(&name).cloned().unwrap_or_default();
+            let (domain, external) = domain_of
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| (NO_DOMAIN.to_string(), false));
+            let provides = lines
+                .iter()
+                .filter(|((producer, _), _)| *producer == name)
+                .map(
+                    |((_, api_type), (versions, latest, latest_ga, id))| ProvidedLine {
+                        api_type: api_type.as_str(),
+                        versions: *versions,
+                        latest: latest.to_string(),
+                        latest_ga: latest_ga.map(|g| g.to_string()),
+                        origin: origins.get(id).cloned(),
+                    },
+                )
+                .collect();
+            SystemSheet {
+                owner: owner_of(&contexts, &name),
+                domain,
+                products: products_of.get(&name).cloned().unwrap_or_default(),
+                tags: context.tags,
+                description: context.description,
+                source_location: context.source_location,
+                links: context.links,
+                annotations: annotations.get(&name).cloned().unwrap_or_default(),
+                external,
+                provides,
+                consumes: sheet_dependencies(&pairs, &name, true),
+                consumed_by: sheet_dependencies(&pairs, &name, false),
+                name,
+            }
+        })
+        .collect();
+    Ok(Catalog { systems })
 }
 
 #[cfg(test)]

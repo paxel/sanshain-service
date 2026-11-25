@@ -545,3 +545,36 @@ async fn access_counts_roles_and_tokens_without_names() {
     assert!(data["sign_in_mode"].is_string());
     assert_no_person(&body);
 }
+
+#[tokio::test]
+async fn the_catalog_has_a_sheet_per_system_with_both_roles() {
+    let w = world().await;
+    push_owner(&w, "orders", "group:payments").await;
+    provide(&w, "orders", "1.0.0").await;
+    provide(&w, "shop", "1.0.0").await;
+    require(&w, "shop", "orders", "1.0.0").await;
+    let (status, body) = get(&w.app, "/admin/statistics/catalog", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let systems = body["data"]["systems"].as_array().expect("systems");
+    let names: Vec<&str> = systems
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["orders", "shop"]);
+    let orders = &systems[0];
+    assert_eq!(orders["owner"], "payments");
+    assert_eq!(orders["tags"], serde_json::json!(["web"]));
+    assert_eq!(orders["provides"][0]["api_type"], "openapi");
+    assert_eq!(orders["provides"][0]["latest"], "1.0.0");
+    assert_eq!(orders["provides"][0]["latest_ga"], Value::Null);
+    assert_eq!(
+        orders["consumed_by"],
+        serde_json::json!([{ "system": "shop", "api_type": "openapi", "version": "1.0.0", "endpoints": 1 }])
+    );
+    // shop is both: it provides and it consumes.
+    let shop = &systems[1];
+    assert_eq!(shop["owner"], "no owner");
+    assert_eq!(shop["provides"][0]["latest"], "1.0.0");
+    assert_eq!(shop["consumes"][0]["system"], "orders");
+    assert_no_person(&body);
+}

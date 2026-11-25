@@ -179,4 +179,18 @@ body[data-graph-fs] #graph-url-notice {
   .statistics-sheet {
     break-before: page;
   }
+  body.print-catalog-all main > * {
+    display: none !important;
+  }
+  body.print-catalog-all main > #statistics-root,
+  body.print-catalog-all #statistics-body,
+  body.print-catalog-all #statistics-panel-catalog-systems,
+  body.print-catalog-all #catalog-root,
+  body.print-catalog-all #catalog-print-sheets {
+    display: block !important;
+  }
+  body.print-catalog-all #statistics-panel-catalog-systems > :not(#catalog-root),
+  body.print-catalog-all #catalog-root > :not(#catalog-print-sheets) {
+    display: none !important;
+  }
 }

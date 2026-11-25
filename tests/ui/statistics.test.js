@@ -123,3 +123,25 @@ test("Users and access shows counts only", async ({ page }) => {
   }
   await expect(page.locator("#statistics-body")).not.toContainText("root");
 });
+
+test("the Catalog lists systems, filters them and opens a sheet from the URL", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=catalog");
+  const panel = page.locator("#statistics-panel-catalog-systems");
+  await expect(panel).toContainText("Catalog");
+  await expect(page.locator("#catalog-root")).toContainText("Pick a system");
+  const first = page.locator("#catalog-root button[data-click='catalogOpen']").first();
+  if ((await first.count()) > 0) {
+    const name = (await first.textContent())?.trim() ?? "";
+    await first.click();
+    await expect(page).toHaveURL(new RegExp(`system=${encodeURIComponent(name)}`));
+    await expect(page.locator("#catalog-sheet article")).toContainText(name);
+    await page.reload();
+    await expect(page.locator("#catalog-sheet article")).toContainText(name);
+  }
+  await page.selectOption("#catalog-filter-owner", { index: 0 });
+  await expect(page.locator("#catalog-print-all")).toContainText("Print all filtered");
+  const csv = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "CSV" }).click();
+  expect((await csv).suggestedFilename()).toMatch(/^sanshain-catalog-systems-.*\.csv$/);
+});

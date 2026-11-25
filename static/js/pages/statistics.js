@@ -20,6 +20,7 @@
  *   table?: StatisticsTable,
  *   html?: string,
  *   wide?: boolean,
+ *   hideTable?: boolean,
  * }} StatisticsPanel
  * @typedef {(data: any, range: StatisticsRangeValue) => StatisticsPanel[]} StatisticsRenderer
  */
@@ -153,7 +154,7 @@ function statisticsPanelHtml(panel) {
     panel.chart ? button("statisticsExportPng", "PNG") : "",
     button("statisticsPrintPanel", "Print"),
   ].join("");
-  const table = panel.table ? statisticsTableHtml(panel.table) : "";
+  const table = panel.table && !panel.hideTable ? statisticsTableHtml(panel.table) : "";
   const chart = panel.chart
     ? `<div id="statistics-chart-${escapeAttr(panel.id)}" class="w-full" style="height:${String(panel.chartHeight ?? 320)}px"></div>`
     : "";
