@@ -288,3 +288,94 @@ async fn landscape_counts_what_exists_and_what_is_active() {
         serde_json::json!(["billing", "orders"])
     );
 }
+
+/// A catalog push naming `owner` for `system`.
+#[cfg(test)]
+async fn push_owner(w: &World, system: &str, owner: &str) {
+    let yaml = format!(
+        "apiVersion: backstage.io/v1alpha1\nkind: Component\nmetadata:\n  name: {system}\n  tags: [web]\nspec:\n  type: service\n  owner: {owner}\n"
+    );
+    let (status, body) = call(
+        &w.app,
+        "PUT",
+        &format!("/catalog/{system}"),
+        &w.plain,
+        Some(serde_json::json!({ "catalog_info_yaml": yaml, "trunk": true })),
+    )
+    .await;
+    assert!(status.is_success(), "catalog {system}: {status} {body}");
+}
+
+#[tokio::test]
+async fn activity_counts_calls_per_owner_and_never_names_a_person() {
+    let w = world().await;
+    push_owner(&w, "orders", "group:payments").await;
+    push_owner(&w, "shop", &format!("user:{PERSON}")).await;
+    provide(&w, "orders", "1.0.0").await;
+    require(&w, "shop", "orders", "1.0.0").await;
+    require(&w, "shop", "orders", "1.0.0").await;
+    // A refusal: different content under the admin's own snapshot is fine, so
+    // the refusal comes from another user changing PERSON's snapshot.
+    let changed = "openapi: 3.0.0\ninfo: { title: T, version: 1.0.0 }\npaths:\n  /b:\n    get:\n      responses:\n        \"200\": { description: ok }\n";
+    let (status, _) = call(
+        &w.app,
+        "POST",
+        "/provide",
+        &w.admin,
+        Some(serde_json::json!({
+            "producername": "orders",
+            "stability": "snapshot",
+            "openapi_yaml": changed,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (status, body) = get(&w.app, "/admin/statistics/activity", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let data = &body["data"];
+    assert_eq!(data["periods"]["bucket"], "day");
+    assert_eq!(data["periods"]["starts"].as_array().map(Vec::len), Some(90));
+    let total = |label: &str| -> u64 {
+        data["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["label"] == label)
+            .unwrap()["counts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_u64().unwrap())
+            .sum()
+    };
+    assert_eq!(total("Provides"), 1);
+    assert_eq!(total("Requires"), 2);
+    assert_eq!(total("Catalog pushes"), 2);
+    let refused: u64 = data["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_u64().unwrap())
+        .sum();
+    assert_eq!(refused, 1);
+    assert_eq!(
+        data["owners"],
+        serde_json::json!([
+            { "owner": "no owner", "provides": 0, "requires": 2, "catalog_pushes": 1, "refusals": 0 },
+            { "owner": "payments", "provides": 1, "requires": 0, "catalog_pushes": 1, "refusals": 1 },
+        ])
+    );
+    assert_eq!(data["top_systems"][0]["system"], "shop");
+    assert_eq!(data["top_systems"][0]["calls"], 3);
+    assert_no_person(&body);
+
+    // Twelve months are counted per week.
+    let (_, year) = get(
+        &w.app,
+        "/admin/statistics/activity?from=2026-01-01&to=2026-12-31",
+        &w.report_viewer,
+    )
+    .await;
+    assert_eq!(year["data"]["periods"]["bucket"], "week");
+}

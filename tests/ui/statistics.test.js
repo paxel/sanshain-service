@@ -78,3 +78,16 @@ test("Landscape shows its panels and exports CSV, SVG and PNG", async ({ page })
   await panel.getByRole("button", { name: "PNG" }).click();
   expect((await png).suggestedFilename()).toMatch(/\.png$/);
 });
+
+test("Activity shows calls over time, per owner, the busiest systems and refusals", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=activity");
+  for (const id of ["activity-calls", "activity-owners", "activity-top", "activity-refusals"]) {
+    await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
+  }
+  await expect(page.locator("#statistics-panel-activity-calls")).toContainText("per day");
+  await page.selectOption("#statistics-preset", "365");
+  await expect(page.locator("#statistics-panel-activity-calls")).toContainText("per week starting");
+});

@@ -70,6 +70,7 @@ impl StatisticsRange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatisticsTab {
     Landscape,
+    Activity,
 }
 
 impl StatisticsTab {
@@ -77,6 +78,7 @@ impl StatisticsTab {
     pub fn parse(raw: &str) -> Option<StatisticsTab> {
         match raw {
             "landscape" => Some(StatisticsTab::Landscape),
+            "activity" => Some(StatisticsTab::Activity),
             _ => None,
         }
     }
@@ -84,6 +86,7 @@ impl StatisticsTab {
     pub fn as_str(self) -> &'static str {
         match self {
             StatisticsTab::Landscape => "landscape",
+            StatisticsTab::Activity => "activity",
         }
     }
 }
@@ -384,6 +387,198 @@ pub struct StatisticsAnswer<T: Serialize> {
     pub data: T,
 }
 
+/// A range longer than this many days is counted per week, not per day.
+pub const DAILY_UP_TO_DAYS: usize = 92;
+
+/// The periods of a range: its days, or the Mondays of its weeks when the
+/// range is long.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Periods {
+    /// `day` or `week`.
+    pub bucket: &'static str,
+    /// The first day of each period, `YYYY-MM-DD`.
+    pub starts: Vec<String>,
+    #[serde(skip)]
+    first_days: Vec<NaiveDate>,
+}
+
+impl Periods {
+    pub fn of(range: StatisticsRange) -> Periods {
+        let days = range.days();
+        let weekly = days.len() > DAILY_UP_TO_DAYS;
+        let mut first_days: Vec<NaiveDate> = Vec::new();
+        for day in days {
+            let start = if weekly { week_start(day) } else { day };
+            if first_days.last() != Some(&start) {
+                first_days.push(start);
+            }
+        }
+        Periods {
+            bucket: if weekly { "week" } else { "day" },
+            starts: first_days
+                .iter()
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .collect(),
+            first_days,
+        }
+    }
+
+    /// The index of the period `day` falls into.
+    pub fn index(&self, day: NaiveDate) -> Option<usize> {
+        let start = if self.bucket == "week" {
+            week_start(day)
+        } else {
+            day
+        };
+        self.first_days.binary_search(&start).ok()
+    }
+
+    pub fn len(&self) -> usize {
+        self.first_days.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first_days.is_empty()
+    }
+}
+
+/// The Monday of `day`'s week.
+fn week_start(day: NaiveDate) -> NaiveDate {
+    day.checked_sub_days(Days::new(u64::from(day.weekday().num_days_from_monday())))
+        .unwrap_or(day)
+}
+
+/// A count per period.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Series {
+    pub label: String,
+    pub counts: Vec<usize>,
+}
+
+/// What one owner's systems did in the range.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct OwnerActivity {
+    pub owner: String,
+    pub provides: usize,
+    pub requires: usize,
+    pub catalog_pushes: usize,
+    pub refusals: usize,
+}
+
+/// The calls of one system in the range.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SystemCalls {
+    pub system: String,
+    pub owner: String,
+    pub calls: usize,
+}
+
+/// The Activity tab (san-1023): what the teams did, counted, never named.
+#[derive(Debug, Clone, Serialize)]
+pub struct Activity {
+    pub periods: Periods,
+    /// Provides, requires and catalog pushes per period.
+    pub calls: Vec<Series>,
+    /// Refused provides per period.
+    pub refusals: Vec<usize>,
+    pub owners: Vec<OwnerActivity>,
+    /// The systems with the most calls, at most [`TOP_SYSTEMS`].
+    pub top_systems: Vec<SystemCalls>,
+    pub capped_months: Vec<String>,
+}
+
+/// How many systems the top list shows.
+pub const TOP_SYSTEMS: usize = 15;
+
+fn bump(n: &mut usize) {
+    *n = n.saturating_add(1);
+}
+
+/// The Activity tab for `range`.
+pub async fn activity(
+    repo: &impl SpecRepository,
+    range: StatisticsRange,
+) -> Result<Activity, AppError> {
+    let contexts = repo.list_system_contexts().await?;
+    let scan = scan_audit(repo, range).await?;
+    let periods = Periods::of(range);
+    let labels = [
+        ("PROVIDE_SPEC", "Provides"),
+        ("REQUIRE_SPEC", "Requires"),
+        ("CATALOG_PUSHED", "Catalog pushes"),
+    ];
+    let mut calls: Vec<Series> = labels
+        .iter()
+        .map(|(_, label)| Series {
+            label: (*label).to_string(),
+            counts: vec![0; periods.len()],
+        })
+        .collect();
+    let mut refusals = vec![0usize; periods.len()];
+    let mut owners: BTreeMap<String, OwnerActivity> = BTreeMap::new();
+    let mut systems: BTreeMap<String, usize> = BTreeMap::new();
+    for entry in &scan.entries {
+        let Some(period) = periods.index(entry.day) else {
+            continue;
+        };
+        let owner = entry
+            .system
+            .as_deref()
+            .map_or_else(|| NO_OWNER.to_string(), |s| owner_of(&contexts, s));
+        let line = owners
+            .entry(owner.clone())
+            .or_insert_with(|| OwnerActivity {
+                owner,
+                ..Default::default()
+            });
+        if entry.action == "VERSION_REJECTED" {
+            if let Some(n) = refusals.get_mut(period) {
+                bump(n);
+            }
+            bump(&mut line.refusals);
+            continue;
+        }
+        let Some(series) = labels
+            .iter()
+            .position(|(action, _)| *action == entry.action)
+            .and_then(|i| calls.get_mut(i))
+        else {
+            continue;
+        };
+        if let Some(n) = series.counts.get_mut(period) {
+            bump(n);
+        }
+        match entry.action.as_str() {
+            "PROVIDE_SPEC" => bump(&mut line.provides),
+            "REQUIRE_SPEC" => bump(&mut line.requires),
+            _ => bump(&mut line.catalog_pushes),
+        }
+        if let Some(system) = &entry.system {
+            bump(systems.entry(system.clone()).or_insert(0));
+        }
+    }
+    let mut top: Vec<SystemCalls> = systems
+        .into_iter()
+        .map(|(system, calls)| SystemCalls {
+            owner: owner_of(&contexts, &system),
+            system,
+            calls,
+        })
+        .collect();
+    top.sort_by(|a, b| b.calls.cmp(&a.calls).then_with(|| a.system.cmp(&b.system)));
+    top.truncate(TOP_SYSTEMS);
+    // Owners that only exist because a refusal or call named nothing stay;
+    // owners with nothing at all never got an entry.
+    Ok(Activity {
+        periods,
+        calls,
+        refusals,
+        owners: owners.into_values().collect(),
+        top_systems: top,
+        capped_months: scan.capped_months,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +625,28 @@ mod tests {
             StatisticsTab::parse("landscape").map(StatisticsTab::as_str),
             Some("landscape")
         );
+    }
+
+    #[test]
+    fn a_short_range_counts_days_and_a_long_one_weeks() {
+        let short = Periods::of(
+            StatisticsRange::parse(Some("2026-11-01"), Some("2026-11-30"), d("2026-11-30"))
+                .unwrap(),
+        );
+        assert_eq!(short.bucket, "day");
+        assert_eq!(short.len(), 30);
+        assert_eq!(short.index(d("2026-11-03")), Some(2));
+        assert_eq!(short.index(d("2026-12-01")), None);
+        let long = Periods::of(
+            StatisticsRange::parse(Some("2026-01-01"), Some("2026-12-31"), d("2026-12-31"))
+                .unwrap(),
+        );
+        assert_eq!(long.bucket, "week");
+        // 2026-01-01 is a Thursday: its week starts on Monday 2025-12-29.
+        assert_eq!(long.starts.first().map(String::as_str), Some("2025-12-29"));
+        assert_eq!(long.index(d("2026-01-04")), Some(0));
+        assert_eq!(long.index(d("2026-01-05")), Some(1));
+        assert!(!long.is_empty());
     }
 
     #[test]
