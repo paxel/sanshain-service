@@ -39,10 +39,11 @@ const STATISTICS_TABS = [
 ];
 
 /**
- * The renderer of each tab, filled by the tab's own script.
- * @type {Record<string, StatisticsRenderer>}
+ * The renderer of each tab, filled by the tab's own script. A Map, so a tab
+ * name from the URL can only ever find a renderer that was registered.
+ * @type {Map<string, StatisticsRenderer>}
  */
-const STATISTICS_RENDERERS = {};
+const STATISTICS_RENDERERS = new Map();
 
 /** The range presets, in days, today included. */
 const STATISTICS_PRESETS = [30, 90, 365];
@@ -289,7 +290,7 @@ async function statisticsLoadTab() {
   statisticsCharts.clear();
   statisticsPanels.clear();
   statisticsTableViews.clear();
-  const renderer = STATISTICS_RENDERERS[statisticsTab];
+  const renderer = STATISTICS_RENDERERS.get(statisticsTab);
   if (!renderer) {
     body.innerHTML = '<p class="text-slate-500 col-span-2">This tab has no data yet.</p>';
     return;
@@ -317,6 +318,7 @@ async function statisticsLoadTab() {
 
 /** @param {string} tab */
 function statisticsSelectTab(tab) {
+  if (!STATISTICS_TABS.some((t) => t.id === tab)) return;
   statisticsTab = tab;
   statisticsWriteUrl();
   statisticsRedraw();

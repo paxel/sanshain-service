@@ -55,7 +55,7 @@ function statisticsOutgoing(connections) {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
-STATISTICS_RENDERERS.landscape = (/** @type {StatisticsLandscape} */ data) => {
+STATISTICS_RENDERERS.set("landscape", (/** @type {StatisticsLandscape} */ data) => {
   const systems = [...new Set([...data.producers, ...data.consumers])].sort();
   const active = new Set(data.active_in_range);
   const onMain = new Set(data.on_main);
@@ -220,4 +220,4 @@ STATISTICS_RENDERERS.landscape = (/** @type {StatisticsLandscape} */ data) => {
     },
   ];
   return panels;
-};
+});

@@ -9,7 +9,7 @@
  * }} StatisticsAccess
  */
 
-STATISTICS_RENDERERS.access = (/** @type {StatisticsAccess} */ data) => {
+STATISTICS_RENDERERS.set("access", (/** @type {StatisticsAccess} */ data) => {
   /** @type {StatisticsLabelCount[]} */
   const overview = [
     { label: "Users", count: data.users },
@@ -70,4 +70,4 @@ STATISTICS_RENDERERS.access = (/** @type {StatisticsAccess} */ data) => {
     },
   ];
   return panels;
-};
+});

@@ -11,7 +11,7 @@
  * }} StatisticsBranches
  */
 
-STATISTICS_RENDERERS.branches = (/** @type {StatisticsBranches} */ data) => {
+STATISTICS_RENDERERS.set("branches", (/** @type {StatisticsBranches} */ data) => {
   const per = data.periods.bucket === "week" ? "week starting" : "day";
   /** @type {StatisticsPanel[]} */
   const panels = [
@@ -58,4 +58,4 @@ STATISTICS_RENDERERS.branches = (/** @type {StatisticsBranches} */ data) => {
     },
   ];
   return panels;
-};
+});

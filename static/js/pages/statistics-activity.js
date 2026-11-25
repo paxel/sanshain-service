@@ -31,7 +31,7 @@ function statisticsTimeChart(periods, series) {
   };
 }
 
-STATISTICS_RENDERERS.activity = (/** @type {StatisticsActivity} */ data) => {
+STATISTICS_RENDERERS.set("activity", (/** @type {StatisticsActivity} */ data) => {
   const per = data.periods.bucket === "week" ? "week starting" : "day";
   const capped = statisticsCappedNote(data.capped_months);
   /** @type {StatisticsPanel[]} */
@@ -109,4 +109,4 @@ STATISTICS_RENDERERS.activity = (/** @type {StatisticsActivity} */ data) => {
     },
   ];
   return panels;
-};
+});

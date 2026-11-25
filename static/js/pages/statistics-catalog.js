@@ -238,7 +238,7 @@ function catalogPrintAll() {
   window.print();
 }
 
-STATISTICS_RENDERERS.catalog = (/** @type {{ systems: CatalogSheet[] }} */ data) => {
+STATISTICS_RENDERERS.set("catalog", (/** @type {{ systems: CatalogSheet[] }} */ data) => {
   catalogSystems = data.systems;
   // The panel's own markup is drawn once it is in the page.
   setTimeout(catalogDraw, 0);
@@ -277,4 +277,4 @@ STATISTICS_RENDERERS.catalog = (/** @type {{ systems: CatalogSheet[] }} */ data)
     },
   ];
   return panels;
-};
+});

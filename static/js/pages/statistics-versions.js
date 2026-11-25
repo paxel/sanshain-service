@@ -16,7 +16,7 @@
  * }} StatisticsVersions
  */
 
-STATISTICS_RENDERERS.versions = (/** @type {StatisticsVersions} */ data) => {
+STATISTICS_RENDERERS.set("versions", (/** @type {StatisticsVersions} */ data) => {
   const per = data.periods.bucket === "week" ? "week starting" : "day";
   const outdated = data.pins.filter((p) => p.state === "outdated").length;
   const snapshotPinned = data.pins.length - outdated;
@@ -124,4 +124,4 @@ STATISTICS_RENDERERS.versions = (/** @type {StatisticsVersions} */ data) => {
     },
   ];
   return panels;
-};
+});
