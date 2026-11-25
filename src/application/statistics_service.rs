@@ -74,6 +74,7 @@ pub enum StatisticsTab {
     Activity,
     Versions,
     Branches,
+    Access,
 }
 
 impl StatisticsTab {
@@ -84,6 +85,7 @@ impl StatisticsTab {
             "activity" => Some(StatisticsTab::Activity),
             "versions" => Some(StatisticsTab::Versions),
             "branches" => Some(StatisticsTab::Branches),
+            "access" => Some(StatisticsTab::Access),
             _ => None,
         }
     }
@@ -94,6 +96,7 @@ impl StatisticsTab {
             StatisticsTab::Activity => "activity",
             StatisticsTab::Versions => "versions",
             StatisticsTab::Branches => "branches",
+            StatisticsTab::Access => "access",
         }
     }
 }
@@ -848,6 +851,91 @@ pub async fn branches(
             .map(|(label, count)| LabelCount { label, count })
             .collect(),
         capped_months: scan.capped_months,
+    })
+}
+
+/// The Users and access tab (san-1026): counts only, no names, not even of
+/// groups.
+#[derive(Debug, Clone, Serialize)]
+pub struct Access {
+    pub sign_in_mode: &'static str,
+    pub users: usize,
+    pub pending_approval: usize,
+    /// Users per stored role (direct or through a group); `no role` for
+    /// users without one.
+    pub roles: Vec<LabelCount>,
+    /// Groups per source (`native`, `ldap`).
+    pub groups: Vec<LabelCount>,
+    /// Native group memberships, summed over the groups.
+    pub group_memberships: usize,
+    /// Unexpired API tokens per scope.
+    pub tokens: Vec<LabelCount>,
+    pub expired_tokens: usize,
+}
+
+/// The label of users without any role.
+pub const NO_ROLE: &str = "no role";
+
+/// The Users and access tab, as of `now` (RFC 3339).
+pub async fn access(repo: &impl SpecRepository, now: &str) -> Result<Access, AppError> {
+    let users = repo.list_users().await?;
+    let mut roles: BTreeMap<String, usize> = BTreeMap::new();
+    let mut tokens: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut expired_tokens = 0usize;
+    let mut pending = 0usize;
+    for user in &users {
+        if !user.approved {
+            bump(&mut pending);
+        }
+        let held: BTreeSet<String> = repo
+            .effective_stored_roles(user.id)
+            .await?
+            .into_iter()
+            .collect();
+        if held.is_empty() {
+            bump(roles.entry(NO_ROLE.to_string()).or_insert(0));
+        }
+        for role in held {
+            bump(roles.entry(role).or_insert(0));
+        }
+        for token in repo.list_api_tokens(user.id).await? {
+            if token.expires_at.as_str() <= now {
+                bump(&mut expired_tokens);
+            } else {
+                bump(tokens.entry(token.scope.as_str()).or_insert(0));
+            }
+        }
+    }
+    let mut groups: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut memberships = 0usize;
+    for group in repo.list_groups().await? {
+        bump(groups.entry(group.source.as_str()).or_insert(0));
+        memberships = memberships.saturating_add(repo.list_group_member_ids(group.id).await?.len());
+    }
+    let labels = |m: BTreeMap<String, usize>| {
+        m.into_iter()
+            .map(|(label, count)| LabelCount { label, count })
+            .collect::<Vec<_>>()
+    };
+    let static_labels = |m: BTreeMap<&'static str, usize>| {
+        m.into_iter()
+            .map(|(label, count)| LabelCount {
+                label: label.to_string(),
+                count,
+            })
+            .collect::<Vec<_>>()
+    };
+    Ok(Access {
+        sign_in_mode: crate::application::auth_service::get_auth_mode(repo)
+            .await?
+            .as_str(),
+        users: users.len(),
+        pending_approval: pending,
+        roles: labels(roles),
+        groups: static_labels(groups),
+        group_memberships: memberships,
+        tokens: static_labels(tokens),
+        expired_tokens,
     })
 }
 

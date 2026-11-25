@@ -511,3 +511,37 @@ async fn branches_list_the_cuts_and_count_builds_per_stream() {
     assert!(!body.to_string().contains("\"admin\""), "{body}");
     assert_no_person(&body);
 }
+
+#[tokio::test]
+async fn access_counts_roles_and_tokens_without_names() {
+    let w = world().await;
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/tokens",
+        &w.plain,
+        Some(serde_json::json!({ "name": format!("{PERSON}-ci"), "scope": "read_only", "expires_in_days": 30 })),
+    )
+    .await;
+    assert!(status.is_success(), "token: {status} {body}");
+    let (status, body) = get(&w.app, "/admin/statistics/access", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let data = &body["data"];
+    assert_eq!(data["users"], 4);
+    assert_eq!(data["pending_approval"], 0);
+    assert_eq!(
+        data["roles"],
+        serde_json::json!([
+            { "label": "admin", "count": 1 },
+            { "label": "no role", "count": 1 },
+            { "label": "report_viewer", "count": 1 },
+            { "label": "viewer", "count": 1 },
+        ])
+    );
+    assert_eq!(
+        data["tokens"],
+        serde_json::json!([{ "label": "read_only", "count": 1 }])
+    );
+    assert!(data["sign_in_mode"].is_string());
+    assert_no_person(&body);
+}

@@ -114,3 +114,12 @@ test("Tags and branches shows its panels", async ({ page }) => {
     await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
   }
 });
+
+test("Users and access shows counts only", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=access");
+  for (const id of ["access-overview", "access-roles", "access-groups", "access-tokens"]) {
+    await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
+  }
+  await expect(page.locator("#statistics-body")).not.toContainText("root");
+});

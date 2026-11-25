@@ -37,6 +37,11 @@ pub async fn admin_statistics(
         StatisticsTab::Activity => answer(tab, range, statistics::activity(repo, range).await?),
         StatisticsTab::Versions => answer(tab, range, statistics::versions(repo, range).await?),
         StatisticsTab::Branches => answer(tab, range, statistics::branches(repo, range).await?),
+        StatisticsTab::Access => answer(
+            tab,
+            range,
+            statistics::access(repo, &chrono::Utc::now().to_rfc3339()).await?,
+        ),
     })
 }
 
