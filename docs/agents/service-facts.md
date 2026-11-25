@@ -283,6 +283,16 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Code: `src/presentation/mcp.rs`, `src/presentation/mcp/tools.rs`,
   `src/application/mcp_service.rs`. Source: `site/developer/mcp.html`.
 
+## Statistics (2.17.0)
+
+- `/reports.html` = statistics page, needs `view_statistics` (`admin`, `report_viewer`); nav link
+  gated. Tabs landscape, activity, versions, branches, access, catalog: `GET
+  /admin/statistics/{tab}?from&to` (`YYYY-MM-DD`, default last 90 days). Aggregated on the server:
+  no person's name, no single audit entry; activity per system rolled up to its Backstage owner.
+  Panels export CSV/SVG/PNG/Print (ECharts 6.1.0 vendored, SVG renderer).
+- Code: `src/application/statistics_service.rs`, `src/presentation/handlers/statistics.rs`,
+  `static/js/pages/statistics.js`. Source: `site/developer/web-ui.html` (Reports).
+
 ## Administration and operations
 
 - Admin page tabs: Sign-in, Users, General. Retention pass every `CLEANUP_INTERVAL_SECS`:

@@ -611,6 +611,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/statistics/{tab}:
+    get:
+      summary: "Read: statistics/tab"
+      x-permission: view_statistics
+      x-scope: global
+      description: |
+        Requires the `view_statistics` permission (roles `admin` and
+        `report_viewer`).
+
+        The data of one tab of the statistics page (san-1021): counts and
+        lists aggregated on the server. No answer carries a person's name or
+        a single audit entry; activity is counted per system and rolled up
+        to its Backstage owner. Answers `{"tab", "range": {"from", "to"},
+        "data"}`; the shape of `data` belongs to the tab.
+      parameters:
+        - name: tab
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: First day, `YYYY-MM-DD` (UTC). Default 89 days before `to`.
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Last day, `YYYY-MM-DD` (UTC). Default today.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: A date that is not one, or a range that ends before it starts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such tab.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/endpoint-versions:
     get:
       summary: "Read: endpoint-versions"

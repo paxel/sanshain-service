@@ -430,7 +430,23 @@
 
 <h2>Reports</h2>
 <p>
-  <code>/reports.html</code> offers the Producer isolation report and the full dependency report
+  <code>/reports.html</code> is the statistics page, for architects, management and maintainers.
+  It needs the <code>view_statistics</code> permission (role <code>report_viewer</code>, or
+  <code>admin</code>); the Reports link shows only to who holds it. One tab per topic: Landscape,
+  Activity, Versions and releases, Tags and branches, Users and access, and Catalog. Each panel
+  names its audience. One range for the page: the last 30 days, 90 days (the default), 12 months,
+  or from–to. The address carries the tab and the range, so <strong>Copy link</strong> shares
+  exactly what is on the screen.
+</p>
+<p>
+  Each panel has its own exports: <strong>CSV</strong> for its data, <strong>SVG</strong> and
+  <strong>PNG</strong> for its chart (for slides), and <strong>Print</strong>, which prints that
+  panel alone; printing the page leaves out the header and the controls. The numbers are counted on
+  the server and carry no person's name: activity is counted per system and rolled up to its
+  Backstage owner. The data is <code>GET /admin/statistics/{tab}?from=&amp;to=</code>.
+</p>
+<p>
+  Below the statistics, the page offers the Producer isolation report and the full dependency report
   (every provided and required endpoint with each dependency's pinned version). Both take a
   <a href="../start/glossary.html#report-scope">graph scope</a>: <code>dev</code>,
   <code>main</code> or a sanshain-branch, the latter two optionally at an instant, so a

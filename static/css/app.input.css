@@ -156,3 +156,27 @@ body[data-graph-fs] #graph-url-notice {
   left: 50%;
   transform: translateX(-50%);
 }
+
+/*
+  Printing from the statistics page (san-1021): the page prints without its
+  banner, controls and export buttons; a panel's own Print button prints that
+  panel alone, and a Catalog sheet starts on a page of its own.
+*/
+@media print {
+  #site-banner,
+  #site-footer,
+  .statistics-controls {
+    display: none !important;
+  }
+  body.print-one-panel main section.statistics-panel:not(.print-this),
+  body.print-one-panel #report-section {
+    display: none !important;
+  }
+  .statistics-panel {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+  .statistics-sheet {
+    break-before: page;
+  }
+}
