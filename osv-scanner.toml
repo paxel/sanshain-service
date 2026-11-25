@@ -87,3 +87,13 @@ license.ignore = true
 effectiveUntil = 2027-02-18
 reason = """A dependency of minimatch under the same Blue Oak Model License 1.0.0, installed \
 with eslint for linting only."""
+
+# Comes with the Tailwind CLI, which builds the stylesheet; not served, not in the image.
+[[PackageOverrides]]
+name = "graceful-fs"
+ecosystem = "npm"
+license.ignore = true
+effectiveUntil = 2027-02-18
+reason = """graceful-fs moved to the Blue Oak Model License 1.0.0 with 4.2.12, a permissive \
+licence that asks only for the licence text or a link to it to travel with copies. It comes \
+through @tailwindcss/cli (enhanced-resolve) and is installed to build static/css/app.css only."""
