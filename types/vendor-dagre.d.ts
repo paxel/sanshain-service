@@ -1,4 +1,4 @@
-// dagre 1.1.4 (`static/vendor/dagre-1.1.4.min.js`), the layout library of the dependency
+// dagre 3.1.3 (`static/vendor/dagre-3.1.3.min.js`), the layout library of the dependency
 // graph: only the members the page scripts call. This file has no import or export, which
 // keeps the declaration global.
 

@@ -429,6 +429,33 @@ async fn identical_content_reprovide_is_a_no_op_for_both_stabilities() {
 // Rule 5: GA immutability, with a machine-readable remedy.
 // ---------------------------------------------------------------------------
 
+/// san-1020: the level of a proposal is read against the highest GA of the
+/// major, the version the proposal lands above. A build on 1.2.0 that lacks
+/// what 1.5.0 added would break 1.5.0's Consumers at 1.6.0, so the proposal
+/// is the next major, not a minor that runs into `breaking_without_major`.
+#[tokio::test]
+async fn a_proposal_is_classified_against_the_highest_ga_of_the_major() {
+    let ctx = setup().await;
+    provide(&ctx, "svc", "ga", &spec_users_only("1.2.0")).await;
+    let (status, _) = provide(&ctx, "svc", "ga", &spec_two_endpoints("1.5.0")).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+
+    let reworded = spec_users_only("1.2.0").replace("description: OK", "description: Fine");
+    let (status, body) = provide(&ctx, "svc", "ga", &reworded).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(
+        body["error"].as_str().unwrap().contains("immutable"),
+        "{body}"
+    );
+    assert_eq!(body["proposed_version"], "2.0.0");
+
+    // Against the conflicting entry alone the change is cosmetic: without a
+    // newer GA in the major the proposal is a minor above the highest.
+    provide(&ctx, "solo", "ga", &spec_users_only("1.2.0")).await;
+    let (_, body) = provide(&ctx, "solo", "ga", &reworded).await;
+    assert_eq!(body["proposed_version"], "1.3.0");
+}
+
 #[tokio::test]
 async fn ga_with_different_content_is_rejected_with_a_free_proposed_version() {
     let ctx = setup().await;
@@ -438,8 +465,8 @@ async fn ga_with_different_content_is_rejected_with_a_free_proposed_version() {
     assert_eq!(status, StatusCode::CONFLICT);
     let message = body["error"].as_str().unwrap();
     assert!(message.contains("immutable"), "got: {message}");
-    // Compatible rewording → patch bump proposal, and 1.0.1 is free.
-    assert_eq!(body["proposed_version"], "1.0.1");
+    // Compatible rewording → a minor above the highest of the major (san-1020).
+    assert_eq!(body["proposed_version"], "1.1.0");
 }
 
 #[tokio::test]
@@ -733,7 +760,7 @@ async fn snapshot_for_a_ga_number_is_rejected_forever() {
         message.contains("can never carry a snapshot again"),
         "got: {message}"
     );
-    assert_eq!(body["proposed_version"], "1.0.1");
+    assert_eq!(body["proposed_version"], "1.1.0");
 }
 
 // ---------------------------------------------------------------------------

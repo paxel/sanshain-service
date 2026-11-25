@@ -45,7 +45,7 @@
           ${link("/consumers.html", "Consumers")}
           ${link("/products.html", "Products")}
           ${link("/graph.html", "Graph")}
-          ${link("/reports.html", "Reports")}
+          ${gated("nav-reports-link", "/reports.html", "Reports")}
           ${gated("nav-audit-link", "/audit.html", "Audit")}
           ${link("/observability.html", "Observability")}
           ${gated("nav-admin-link", "/admin.html", "Admin")}

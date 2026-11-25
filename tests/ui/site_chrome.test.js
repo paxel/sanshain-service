@@ -16,7 +16,7 @@ const PAGES = [
   ["/observability.html", false],
   ["/admin.html", false],
 ];
-const OPEN_LINKS = ["Producers", "Consumers", "Products", "Graph", "Reports", "Observability"];
+const OPEN_LINKS = ["Producers", "Consumers", "Products", "Graph", "Observability"];
 
 /** @param {import("@playwright/test").Page} page */
 async function signIn(page) {
@@ -61,9 +61,12 @@ test("the gated links show only once someone may follow them", async ({ page }) 
   }
   await expect(page.locator("#nav-admin-link")).toBeHidden();
   await expect(page.locator("#nav-audit-link")).toBeHidden();
+  // Reports need view_statistics (san-1021).
+  await expect(page.locator("#nav-reports-link")).toBeHidden();
 
   await signIn(page);
   await page.goto("/producers.html");
   await expect(page.locator("#nav-admin-link")).toBeVisible({ timeout: 10000 });
   await expect(page.locator("#nav-audit-link")).toBeVisible();
+  await expect(page.locator("#nav-reports-link")).toBeVisible();
 });

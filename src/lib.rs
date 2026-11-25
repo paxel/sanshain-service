@@ -34,7 +34,7 @@ use domain::models::LogEntry;
 use domain::permissions::Permission;
 use infrastructure::cached_repository::CachedSpecRepository;
 
-pub use presentation::handlers::{admin, api, auth, pages, products, roles, webhooks};
+pub use presentation::handlers::{admin, api, auth, pages, products, roles, statistics, webhooks};
 pub use presentation::middleware::{
     LogCaptureLayer, RouteGuard, api_auth, api_auth_write, authenticated_auth, require,
     require_with_api_tokens, validate_csrf,
@@ -205,6 +205,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}/dependencies/{producer}", delete(admin::admin_remove_consumer_dependencies).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
+        .route("/admin/statistics/{tab}", get(statistics::admin_statistics).layer(require(state.clone(), RouteGuard::Global(Permission::ViewStatistics))))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/endpoint-versions", get(admin::admin_get_endpoint_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/settings/registration", post(admin::set_registration_enabled).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))

@@ -134,7 +134,7 @@
   <dt id="snapshot">Snapshot</dt>
   <dd>
     A version in its mutable state: re-providing it overwrites it (the user who last provided it may
-    change it, anyone else's different content is refused with the next free minor proposed, every
+    change it, anyone else's different content is refused with a minor above the highest of the major proposed, every
     overwrite audited), it is never compatibility-checked, and it expires once neither provided nor
     required for the snapshot window.
   </dd>
@@ -154,9 +154,9 @@
 
   <dt id="proposed-version">Proposed version</dt>
   <dd>
-    The <code>proposed_version</code> field of a <code>409</code> that refused a provide: the next
-    free number of the line, bumped by what actually changed (breaking: major, additive: minor,
-    shape-identical: patch). Set it in the spec file and republish.
+    The <code>proposed_version</code> field of a <code>409</code> that refused a provide: one minor
+    above the highest version of the same major, or, for a breaking change, the highest major of
+    the line plus one. Never a patch. Set it in the spec file and republish.
   </dd>
 
   <dt id="breaking-change">Breaking change</dt>

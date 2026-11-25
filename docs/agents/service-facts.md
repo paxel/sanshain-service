@@ -26,13 +26,16 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 ## Version rules (provide)
 
 - Snapshot: overwritable only by the user who last provided it; anyone else's different content
-  is `409 snapshot_owned` (next free minor proposed); identical bytes from anyone are a no-op.
+  is `409 snapshot_owned` (a minor proposed); identical bytes from anyone are a no-op.
   (ADR-0003 still says last-writer-wins; the code and site changed that.) Never compat-checked.
   Expires when neither provided nor required for `snapshot_max_age_days` (30, 0 disables).
 - GA: immutable; identical bytes no-op; different = `409 immutable_ga` + `proposed_version`. A GA
   claims its number forever (`409 snapshot_on_ga`). GA of a snapshot number = promotion in place
   (`promoted: true`; byte-identical keeps the snapshot's provider). Needs `release_ga`
   (`releaser` role), also for no-ops: `403 ga_requires_releaser`.
+- Proposal (san-1020, `propose_version` in `version_rules.rs`): one minor above the highest version
+  of the major (level read against the highest GA of the major); breaking = highest major of the
+  line + 1; never a patch. Same rule for all four refusals that propose.
 - Mislabel check: GA breaking vs. the highest GA below without a major bump =
   `409 breaking_without_major`. Removing an element deprecated in the previous GA is not breaking;
   the marker must sit on the removed element (no whole-spec switch).
@@ -231,9 +234,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   or `read_only` (read_only refused on provide/require/catalog). `/admin/*` takes sessions only
   (API token → 401), except the SQLite backup download (full token). User managers issue tokens
   for service accounts (`for_user`).
-- Ten permissions: manage_users, manage_roles, manage_producers, manage_consumers, view_audit,
+- Eleven permissions: manage_users, manage_roles, manage_producers, manage_consumers, view_audit,
   manage_settings, manage_auth_config, view_observability, run_destructive_operations,
-  release_ga. Fixed roles: admin, user_manager, viewer, releaser, maintainer (Producer-scoped
+  release_ga, view_statistics (san-1021). Fixed roles: admin, user_manager, viewer, releaser,
+  report_viewer (only view_statistics), maintainer (Producer-scoped
   assignment, never global). admin/releaser grants are admin-guarded. Root = `SANSHAIN_ROOT_USERS`
   (config, unrevocable, holds future permissions too).
 - Groups: native or LDAP (by DN, membership read live, cached
@@ -278,6 +282,16 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   previous GA, also under a major), missing_summary. Code: `src/application/review_service.rs`.
 - Code: `src/presentation/mcp.rs`, `src/presentation/mcp/tools.rs`,
   `src/application/mcp_service.rs`. Source: `site/developer/mcp.html`.
+
+## Statistics (2.17.0)
+
+- `/reports.html` = statistics page, needs `view_statistics` (`admin`, `report_viewer`); nav link
+  gated. Tabs landscape, activity, versions, branches, access, catalog: `GET
+  /admin/statistics/{tab}?from&to` (`YYYY-MM-DD`, default last 90 days). Aggregated on the server:
+  no person's name, no single audit entry; activity per system rolled up to its Backstage owner.
+  Panels export CSV/SVG/PNG/Print (ECharts 6.1.0 vendored, SVG renderer).
+- Code: `src/application/statistics_service.rs`, `src/presentation/handlers/statistics.rs`,
+  `static/js/pages/statistics.js`. Source: `site/developer/web-ui.html` (Reports).
 
 ## Administration and operations
 

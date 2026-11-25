@@ -91,8 +91,8 @@ window.addEventListener("sanshain-update", () => {
 });
 
 function initReports() {
-  void checkDiscoveryAuth(() => {
-    showReports();
+  void checkDiscoveryAuth((user) => {
+    if (initStatistics(user)) showReports();
   });
 }
 if (document.readyState === "loading") {

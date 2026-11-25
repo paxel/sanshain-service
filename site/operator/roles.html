@@ -1,4 +1,4 @@
-<!-- page: title="Roles and permissions" track="operator" order=4 summary="The ten permissions and the five roles that bundle them, how routes are guarded, the admin-guarded roles, maintainers as a scope over Producers, Product Maintainers over a Product's member list, groups mirrored from the directory, and what token scopes mean to an operator." -->
+<!-- page: title="Roles and permissions" track="operator" order=4 summary="The eleven permissions and the six roles that bundle them, how routes are guarded, the admin-guarded roles, maintainers as a scope over Producers, Product Maintainers over a Product's member list, groups mirrored from the directory, and what token scopes mean to an operator." -->
 <p class="lede">
   Authorisation is expressed in <a href="../start/glossary.html#permission">permissions</a>, the
   unit every check tests. <a href="../start/glossary.html#role">Roles</a> are fixed bundles of
@@ -90,10 +90,18 @@
       </td>
       <td><code>admin</code>, <code>releaser</code></td>
     </tr>
+    <tr>
+      <td><code>view_statistics</code></td>
+      <td>
+        Read the statistics page (Reports): counts of the landscape, activity per owner, versions,
+        branches and access, and the Catalog sheets. No person's name and no single audit entry.
+      </td>
+      <td><code>admin</code>, <code>report_viewer</code></td>
+    </tr>
   </tbody>
 </table>
 <p>
-  Root holds all ten and any permission a later release adds. <code>GET /admin/roles</code> returns
+  Root holds all eleven and any permission a later release adds. <code>GET /admin/roles</code> returns
   this catalogue; <code>GET /auth/me</code> returns the caller's effective permissions, which is
   what the web UI gates on.
 </p>
@@ -138,6 +146,11 @@
       <td><code>releaser</code></td>
       <td><code>release_ga</code>.</td>
       <td>Instance-wide; admin-guarded.</td>
+    </tr>
+    <tr>
+      <td><code>report_viewer</code></td>
+      <td><code>view_statistics</code>.</td>
+      <td>Instance-wide.</td>
     </tr>
   </tbody>
 </table>

@@ -634,7 +634,7 @@ async fn the_role_catalogue_reports_what_each_role_confers() {
     assert_eq!(status, StatusCode::OK);
 
     let roles = body["roles"].as_array().expect("roles array");
-    assert_eq!(roles.len(), 5);
+    assert_eq!(roles.len(), 6);
 
     let releaser = roles
         .iter()
@@ -667,6 +667,17 @@ async fn the_role_catalogue_reports_what_each_role_confers() {
         .find(|r| r["role"] == "maintainer")
         .expect("maintainer listed");
     assert_eq!(maintainer["globally_grantable"], false);
+
+    let report_viewer = roles
+        .iter()
+        .find(|r| r["role"] == "report_viewer")
+        .expect("report_viewer listed");
+    assert_eq!(report_viewer["globally_grantable"], true);
+    assert_eq!(
+        report_viewer["permissions"],
+        serde_json::json!(["view_statistics"]),
+        "the report_viewer bundle is exactly view_statistics"
+    );
 }
 
 #[tokio::test]

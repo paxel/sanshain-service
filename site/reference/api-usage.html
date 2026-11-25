@@ -162,8 +162,8 @@
   Errors raised by the application (<code>AppError</code>) answer JSON in the shape of
   <a href="api.html#schema-ErrorBody"><code>ErrorBody</code></a
   >: <code>error</code> carries the human-readable message, <code>proposed_version</code> appears
-  only on a <code>409</code> from the version rules and is the next free version to publish as
-  instead. Not every refusal reaches the application; the exceptions are listed with their status
+  only on a <code>409</code> from the version rules and is the version to publish as instead: one
+  minor above the highest version of the major, or the next major for a breaking change. Not every refusal reaches the application; the exceptions are listed with their status
   below.
 </p>
 <pre><code class="language-json">{ "error": "GA version 1.2.0 exists with different content", "proposed_version": "1.3.0" }</code></pre>

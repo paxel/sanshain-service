@@ -243,10 +243,12 @@ function updateBannerAuth(user) {
   // so a user manager sees the dashboard without being offered the audit
   // timeline they would be refused.
   const auditLink = document.getElementById("nav-audit-link");
+  const reportsLink = document.getElementById("nav-reports-link");
   /** @type {[HTMLElement | null, () => boolean][]} */
   const gatedLinks = [
     [adminLink, () => canSeeAdminDashboard(user)],
     [auditLink, () => hasPermission(user, "view_audit")],
+    [reportsLink, () => hasPermission(user, "view_statistics")],
   ];
   if (!usernameEl || !logoutEl || !signinEl) return;
 

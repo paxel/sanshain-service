@@ -17,6 +17,7 @@ pub mod service_account_service;
 pub mod setup_service;
 pub mod sign_in_service;
 pub mod spec_service;
+pub mod statistics_service;
 pub mod structure_service;
 pub mod text_diff;
 pub mod version_rules;
