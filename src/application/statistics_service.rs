@@ -251,7 +251,61 @@ pub struct Landscape {
     /// Version lines (Producer × API type) per API type.
     pub api_types: Vec<LabelCount>,
     pub flows: Vec<Flow>,
+    /// Who talks to whom (san-1028, the former isolation report): an
+    /// AsyncAPI dependency puts both sides on `KAFKA`.
+    pub isolation: Vec<Connection>,
+    /// Every recorded dependency (san-1028, the former full dependency
+    /// report), dev graph.
+    pub dependencies: Vec<DependencyRow>,
     pub capped_months: Vec<String>,
+}
+
+/// One connection of the isolation view.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct Connection {
+    pub source: String,
+    pub target: String,
+    pub protocol: &'static str,
+}
+
+/// One dependency: a Consumer's Pin on one endpoint of a Producer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DependencyRow {
+    pub consumer: String,
+    pub producer: String,
+    pub api_type: &'static str,
+    pub version: String,
+    pub stability: &'static str,
+    pub method: String,
+    pub path: String,
+}
+
+/// The connections of the isolation view: a Consumer of an OpenAPI or
+/// proto Producer talks to it over https; both sides of an AsyncAPI
+/// dependency talk to `KAFKA`.
+fn isolation(report: &crate::domain::models::DependencyReport) -> Vec<Connection> {
+    let mut set: BTreeSet<Connection> = BTreeSet::new();
+    for dep in &report.dependency_graph {
+        match dep.api_type {
+            ApiType::AsyncApi => {
+                for side in [&dep.client, &dep.service] {
+                    set.insert(Connection {
+                        source: side.clone(),
+                        target: "KAFKA".to_string(),
+                        protocol: "https",
+                    });
+                }
+            }
+            ApiType::OpenApi | ApiType::Proto => {
+                set.insert(Connection {
+                    source: dep.client.clone(),
+                    target: dep.service.clone(),
+                    protocol: "https",
+                });
+            }
+        }
+    }
+    set.into_iter().collect()
 }
 
 /// The domain label of a system without one.
@@ -387,6 +441,20 @@ pub async fn landscape(
         flows: flows
             .into_iter()
             .map(|((from, to), pairs)| Flow { from, to, pairs })
+            .collect(),
+        isolation: isolation(&report),
+        dependencies: report
+            .dependency_graph
+            .iter()
+            .map(|d| DependencyRow {
+                consumer: d.client.clone(),
+                producer: d.service.clone(),
+                api_type: d.api_type.as_str(),
+                version: d.version.to_string(),
+                stability: d.stability.as_str(),
+                method: d.method.clone(),
+                path: d.path.clone(),
+            })
             .collect(),
         capped_months: scan.capped_months,
     })

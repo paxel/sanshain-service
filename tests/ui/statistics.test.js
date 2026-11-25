@@ -145,3 +145,23 @@ test("the Catalog lists systems, filters them and opens a sheet from the URL", a
   await panel.getByRole("button", { name: "CSV" }).click();
   expect((await csv).suggestedFilename()).toMatch(/^sanshain-catalog-systems-.*\.csv$/);
 });
+
+test("the former reports are Landscape panels: isolation sorts, dependencies filter", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=landscape");
+  await expect(page.locator("#reports-grid")).toHaveCount(0);
+  const isolation = page.locator("#statistics-panel-landscape-isolation");
+  await expect(isolation).toContainText("Producer isolation");
+  await isolation.getByRole("button", { name: /System/ }).click();
+  const deps = page.locator("#statistics-panel-landscape-dependencies");
+  await expect(deps).toContainText("Every dependency");
+  await page.fill("#statistics-filter-landscape-dependencies", "no-such-system-anywhere");
+  await expect(deps).toContainText("Nothing in this range.");
+  const csv = page.waitForEvent("download");
+  await deps.getByRole("button", { name: "CSV" }).click();
+  const file = await csv;
+  const text = Buffer.concat(await (await file.createReadStream()).toArray()).toString();
+  expect(text).toBe("Consumer,Producer,API type,Pin,Stability,Method,Path\r\n");
+});

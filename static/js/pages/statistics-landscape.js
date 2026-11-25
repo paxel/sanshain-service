@@ -11,6 +11,8 @@
  *   active_in_range: string[], on_main: string[],
  *   api_types: StatisticsLabelCount[],
  *   flows: { from: string, to: string, pairs: number }[],
+ *   isolation: { source: string, target: string, protocol: string }[],
+ *   dependencies: { consumer: string, producer: string, api_type: string, version: string, stability: string, method: string, path: string }[],
  *   capped_months: string[],
  * }} StatisticsLandscape
  */
@@ -37,6 +39,20 @@ function statisticsBarChart(items) {
       { type: "bar", data: items.map((i) => i.count), label: { show: true, position: "right" } },
     ],
   };
+}
+
+/**
+ * How many systems each system talks to, most first.
+ * @param {{ source: string }[]} connections
+ * @returns {StatisticsLabelCount[]}
+ */
+function statisticsOutgoing(connections) {
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  for (const c of connections) counts.set(c.source, (counts.get(c.source) ?? 0) + 1);
+  return [...counts]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 STATISTICS_RENDERERS.landscape = (/** @type {StatisticsLandscape} */ data) => {
@@ -152,6 +168,41 @@ STATISTICS_RENDERERS.landscape = (/** @type {StatisticsLandscape} */ data) => {
       table: {
         columns: ["Consumer domain", "Producer domain", "Pairs"],
         rows: data.flows.map((f) => [f.from, f.to, f.pairs]),
+      },
+    },
+    {
+      id: "landscape-isolation",
+      title: "Producer isolation",
+      audience: "architects",
+      note: "who talks to whom; AsyncAPI goes through KAFKA",
+      wide: true,
+      sortable: true,
+      chart: statisticsBarChart(statisticsOutgoing(data.isolation)),
+      chartHeight: Math.max(200, 40 + new Set(data.isolation.map((c) => c.source)).size * 24),
+      table: {
+        columns: ["System", "Talks to", "Protocol"],
+        rows: data.isolation.map((c) => [c.source, c.target, c.protocol]),
+      },
+    },
+    {
+      id: "landscape-dependencies",
+      title: "Every dependency",
+      audience: "architects and maintainers",
+      note: "each Consumer's Pin on each endpoint, dev graph",
+      wide: true,
+      sortable: true,
+      filterable: true,
+      table: {
+        columns: ["Consumer", "Producer", "API type", "Pin", "Stability", "Method", "Path"],
+        rows: data.dependencies.map((d) => [
+          d.consumer,
+          d.producer,
+          d.api_type,
+          d.version,
+          d.stability,
+          d.method,
+          d.path,
+        ]),
       },
     },
     {

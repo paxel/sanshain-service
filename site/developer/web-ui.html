@@ -446,31 +446,15 @@
   Backstage owner. The data is <code>GET /admin/statistics/{tab}?from=&amp;to=</code>.
 </p>
 <p>
-  Below the statistics, the page offers the Producer isolation report and the full dependency report
-  (every provided and required endpoint with each dependency's pinned version). Both take a
-  <a href="../start/glossary.html#report-scope">graph scope</a>: <code>dev</code>,
-  <code>main</code> or a sanshain-branch, the latter two optionally at an instant, so a
-  release-scoped report describes what production is. The viewer copies the report as Markdown or
-  downloads it. The same data is <code>GET /report</code>, <code>/report/markdown</code> and
-  <code>/report/isolation</code> with <code>?scope=main[@instant]</code> or
-  <code>?scope=&lt;branch&gt;[@instant]</code>; a read-only token may read them.
+  The former Producer isolation report and full dependency report are panels of Landscape:
+  <strong>Producer isolation</strong> (who talks to whom, AsyncAPI through <code>KAFKA</code>) with
+  sortable columns, and <strong>Every dependency</strong> (each Consumer's Pin on each endpoint)
+  with sortable columns and a filter; CSV exports what the filter shows. Both read the dev graph.
+  The same data for any <a href="../start/glossary.html#report-scope">graph scope</a> stays
+  <code>GET /report</code>, <code>/report/markdown</code> and <code>/report/isolation</code> with
+  <code>?scope=main[@instant]</code> or <code>?scope=&lt;branch&gt;[@instant]</code>; a read-only
+  token may read them.
 </p>
-<figure class="screenshot">
-  <img
-    src="../assets/images/reports.png"
-    alt="The reports page: the graph scope selector, the Producer isolation report and the full dependency report cards"
-    loading="lazy"
-  />
-  <figcaption>The reports page.</figcaption>
-</figure>
-<figure class="screenshot">
-  <img
-    src="../assets/images/report_scope_crop.png"
-    alt="The report scope selector offering dev, main and the branches"
-    loading="lazy"
-  />
-  <figcaption>The scope selector on the reports page.</figcaption>
-</figure>
 
 <h2>The audit timeline</h2>
 <p>

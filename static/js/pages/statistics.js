@@ -4,7 +4,8 @@
 // shows the same numbers. The data is aggregated on the server; no answer
 // carries a person's name.
 
-/* exported STATISTICS_RENDERERS, statisticsSelectTab, statisticsSelectPreset, statisticsSelectCustom, statisticsCopyLink, statisticsExportCsv, statisticsExportSvg, statisticsExportPng, statisticsPrintPanel, initStatistics */
+/* exported statisticsSortTable, statisticsFilterTable */
+/* exported STATISTICS_RENDERERS, statisticsSelectTab, statisticsSelectPreset, statisticsSelectCustom, statisticsCopyLink, statisticsExportCsv, statisticsExportSvg, statisticsExportPng, statisticsPrintPanel */
 
 /**
  * @typedef {{ id: string, label: string }} StatisticsTabInfo
@@ -21,6 +22,8 @@
  *   html?: string,
  *   wide?: boolean,
  *   hideTable?: boolean,
+ *   sortable?: boolean,
+ *   filterable?: boolean,
  * }} StatisticsPanel
  * @typedef {(data: any, range: StatisticsRangeValue) => StatisticsPanel[]} StatisticsRenderer
  */
@@ -48,6 +51,12 @@ const STATISTICS_PRESETS = [30, 90, 365];
 const statisticsCharts = new Map();
 /** @type {Map<string, StatisticsPanel>} */
 const statisticsPanels = new Map();
+/**
+ * How each sortable or filterable table is shown: sort column, direction,
+ * filter text.
+ * @type {Map<string, { column: number, descending: boolean, filter: string }>}
+ */
+const statisticsTableViews = new Map();
 /** @type {StatisticsRangeValue} */
 let statisticsRange = { from: "", to: "" };
 let statisticsTab = "landscape";
@@ -154,7 +163,15 @@ function statisticsPanelHtml(panel) {
     panel.chart ? button("statisticsExportPng", "PNG") : "",
     button("statisticsPrintPanel", "Print"),
   ].join("");
-  const table = panel.table && !panel.hideTable ? statisticsTableHtml(panel.table) : "";
+  const filter = panel.filterable
+    ? `<input type="search" id="statistics-filter-${escapeAttr(panel.id)}" placeholder="Filter…" aria-label="Filter"
+        data-input="statisticsFilterTable" data-input-args='${attrJson([panel.id, "$value"])}'
+        class="statistics-controls mt-2 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm" />`
+    : "";
+  const table =
+    panel.table && !panel.hideTable
+      ? `${filter}<div id="statistics-table-${escapeAttr(panel.id)}">${statisticsTableHtml(statisticsViewTable(panel), panel.sortable ? panel.id : null)}</div>`
+      : "";
   const chart = panel.chart
     ? `<div id="statistics-chart-${escapeAttr(panel.id)}" class="w-full" style="height:${String(panel.chartHeight ?? 320)}px"></div>`
     : "";
@@ -175,15 +192,80 @@ function statisticsPanelHtml(panel) {
 }
 
 /**
- * A plain table of a panel's data, numbers right-aligned.
- * @param {StatisticsTable} table
+ * The panel's table as it is shown: filtered by the filter text, sorted by
+ * the chosen column.
+ * @param {StatisticsPanel} panel
+ * @returns {StatisticsTable}
  */
-function statisticsTableHtml(table) {
+function statisticsViewTable(panel) {
+  const table = panel.table ?? { columns: [], rows: [] };
+  const view = statisticsTableViews.get(panel.id);
+  if (!view) return table;
+  const needle = view.filter.trim().toLowerCase();
+  let rows = needle
+    ? table.rows.filter((r) => r.some((v) => String(v).toLowerCase().includes(needle)))
+    : [...table.rows];
+  if (view.column >= 0) {
+    const c = view.column;
+    rows = rows.sort((a, b) => {
+      const x = a[c] ?? "";
+      const y = b[c] ?? "";
+      const order =
+        typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      return view.descending ? -order : order;
+    });
+  }
+  return { columns: table.columns, rows };
+}
+
+/**
+ * @param {string} id
+ * @param {number} column
+ */
+function statisticsSortTable(id, column) {
+  const view = statisticsTableViews.get(id) ?? { column: -1, descending: false, filter: "" };
+  view.descending = view.column === column ? !view.descending : false;
+  view.column = column;
+  statisticsTableViews.set(id, view);
+  statisticsRedrawTable(id);
+}
+
+/**
+ * @param {string} id
+ * @param {string} text
+ */
+function statisticsFilterTable(id, text) {
+  const view = statisticsTableViews.get(id) ?? { column: -1, descending: false, filter: "" };
+  view.filter = text;
+  statisticsTableViews.set(id, view);
+  statisticsRedrawTable(id);
+}
+
+/** @param {string} id */
+function statisticsRedrawTable(id) {
+  const panel = statisticsPanels.get(id);
+  const target = document.getElementById(`statistics-table-${id}`);
+  if (!panel || !target) return;
+  target.innerHTML = statisticsTableHtml(statisticsViewTable(panel), panel.sortable ? id : null);
+}
+
+/**
+ * A plain table of a panel's data, numbers right-aligned; with `sortId`, the
+ * column heads sort it.
+ * @param {StatisticsTable} table
+ * @param {string | null} [sortId]
+ */
+function statisticsTableHtml(table, sortId = null) {
   if (table.rows.length === 0) {
     return '<p class="text-sm text-slate-400 py-2">Nothing in this range.</p>';
   }
   const head = table.columns
-    .map((c) => `<th class="text-left font-semibold px-2 py-1">${escapeHtml(c)}</th>`)
+    .map((c, i) =>
+      sortId
+        ? `<th class="text-left font-semibold px-2 py-1"><button type="button" data-click="statisticsSortTable"
+            data-click-args='${attrJson([sortId, i])}' class="hover:text-slate-800">${escapeHtml(c)} ↕</button></th>`
+        : `<th class="text-left font-semibold px-2 py-1">${escapeHtml(c)}</th>`,
+    )
     .join("");
   const body = table.rows
     .map(
@@ -206,6 +288,7 @@ async function statisticsLoadTab() {
   for (const chart of statisticsCharts.values()) chart.dispose();
   statisticsCharts.clear();
   statisticsPanels.clear();
+  statisticsTableViews.clear();
   const renderer = STATISTICS_RENDERERS[statisticsTab];
   if (!renderer) {
     body.innerHTML = '<p class="text-slate-500 col-span-2">This tab has no data yet.</p>';
@@ -315,8 +398,9 @@ function statisticsCsv(table) {
 function statisticsExportCsv(id) {
   const panel = statisticsPanels.get(id);
   if (!panel?.table) return;
+  // What is shown: filtered and sorted.
   statisticsDownload(
-    new Blob([statisticsCsv(panel.table)], { type: "text/csv;charset=utf-8" }),
+    new Blob([statisticsCsv(statisticsViewTable(panel))], { type: "text/csv;charset=utf-8" }),
     statisticsFileName(id, "csv"),
   );
 }
@@ -398,4 +482,15 @@ function initStatistics(user) {
   statisticsWriteUrl();
   statisticsRedraw();
   return true;
+}
+
+function initStatisticsPage() {
+  void checkDiscoveryAuth((user) => {
+    initStatistics(user);
+  });
+}
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initStatisticsPage);
+} else {
+  initStatisticsPage();
 }

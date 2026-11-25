@@ -272,6 +272,18 @@ async fn landscape_counts_what_exists_and_what_is_active() {
         serde_json::json!([{ "from": "no domain", "to": "no domain", "pairs": 1 }])
     );
     assert_eq!(data["domains"][0]["name"], "no domain");
+    // san-1028: the former isolation and full dependency reports.
+    assert_eq!(
+        data["isolation"],
+        serde_json::json!([{ "source": "shop", "target": "orders", "protocol": "https" }])
+    );
+    assert_eq!(
+        data["dependencies"],
+        serde_json::json!([{
+            "consumer": "shop", "producer": "orders", "api_type": "openapi", "version": "1.0.0",
+            "stability": "snapshot", "method": "GET", "path": "/a"
+        }])
+    );
     assert_eq!(data["capped_months"], serde_json::json!([]));
     assert_no_person(&body);
 
