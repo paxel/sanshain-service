@@ -1,7 +1,7 @@
 // san-1021: the statistics page on /reports.html: its tabs, the range in the
 // URL, the share link, and the exports of each panel. The tab tickets add
 // their panels below.
-import { test, expect } from "./fixtures.js";
+import { test, expect, json } from "./fixtures.js";
 
 const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 
@@ -124,23 +124,79 @@ test("Users and access shows counts only", async ({ page }) => {
   await expect(page.locator("#statistics-body")).not.toContainText("root");
 });
 
-test("the Catalog lists systems, filters them and opens a sheet from the URL", async ({ page }) => {
+test("the Catalog lists systems, filters them and opens a sheet from the URL", async ({
+  page,
+  request,
+}) => {
+  const stamp = Date.now().toString(36);
+  const producer = `catalog-api-${stamp}`;
+  const consumer = `catalog-app-${stamp}`;
+  const login = await request.post("/auth/login", {
+    data: { username: "root", password: adminPassword },
+  });
+  const { token } = /** @type {{ token: string }} */ (await json(login));
+  const headers = { Authorization: `Bearer ${token}` };
+  const spec = [
+    "openapi: 3.0.0",
+    "info:",
+    `  title: ${producer}`,
+    "  version: 1.0.0",
+    "paths:",
+    "  /items:",
+    "    get:",
+    "      responses:",
+    "        '200': { description: ok }",
+  ].join("\n");
+  const provided = await request.post("/provide", {
+    headers,
+    data: { producername: producer, stability: "ga", openapi_yaml: spec },
+  });
+  expect(provided.ok(), await provided.text()).toBeTruthy();
+  const required = await request.get("/require", {
+    headers,
+    params: {
+      consumername: consumer,
+      producername: producer,
+      version: "1.0.0",
+      path: "/items",
+      method: "GET",
+    },
+  });
+  expect(required.ok(), await required.text()).toBeTruthy();
+
   await signIn(page);
   await page.goto("/reports.html?tab=catalog");
   const panel = page.locator("#statistics-panel-catalog-systems");
-  await expect(panel).toContainText("Catalog");
   await expect(page.locator("#catalog-root")).toContainText("Pick a system");
-  const first = page.locator("#catalog-root button[data-click='catalogOpen']").first();
-  if ((await first.count()) > 0) {
-    const name = (await first.textContent())?.trim() ?? "";
-    await first.click();
-    await expect(page).toHaveURL(new RegExp(`system=${encodeURIComponent(name)}`));
-    await expect(page.locator("#catalog-sheet article")).toContainText(name);
-    await page.reload();
-    await expect(page.locator("#catalog-sheet article")).toContainText(name);
-  }
-  await page.selectOption("#catalog-filter-owner", { index: 0 });
-  await expect(page.locator("#catalog-print-all")).toContainText("Print all filtered");
+  await page.selectOption("#catalog-filter-domain", "no domain");
+  await expect(page).toHaveURL(/domain=no(\+|%20)domain/);
+  await page
+    .locator("#catalog-root button[data-click='catalogOpen']", { hasText: consumer })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`system=${consumer}`));
+  const sheet = page.locator("#catalog-sheet article");
+  await expect(sheet).toContainText(consumer);
+  await expect(sheet).toContainText(producer);
+  await page.reload();
+  await expect(page.locator("#catalog-sheet article")).toContainText(producer);
+  await expect(page.locator("#catalog-filter-domain")).toHaveValue("no domain");
+
+  // Both print paths go through window.print.
+  await page.evaluate(() => {
+    const counter = /** @type {Window & { printed: number }} */ (/** @type {unknown} */ (window));
+    counter.printed = 0;
+    window.print = () => {
+      counter.printed += 1;
+    };
+  });
+  await page.click("#catalog-print-all");
+  expect(await page.locator("#catalog-print-sheets article").count()).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Print sheet" }).click();
+  const printed = await page.evaluate(
+    () => /** @type {Window & { printed: number }} */ (/** @type {unknown} */ (window)).printed,
+  );
+  expect(printed).toBe(2);
+
   const csv = page.waitForEvent("download");
   await panel.getByRole("button", { name: "CSV" }).click();
   expect((await csv).suggestedFilename()).toMatch(/^sanshain-catalog-systems-.*\.csv$/);
