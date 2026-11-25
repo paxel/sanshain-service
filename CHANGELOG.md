@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A statistics page on Reports, with one tab per topic, one time range for the page (30 days, 90 days, 12 months or from–to) carried in the shareable URL, and CSV, SVG, PNG and Print on every panel; it needs the new `view_statistics` permission, held by `admin` and the new role `report_viewer` ([san-1021](https://github.com/paxel/sanshain-service/issues/134)).
 - Statistics, Landscape tab: counts and member lists of Producers, Consumers, Products, domains, Backstage tags and Peripheral Resources, systems active in the range against systems on main, the API type mix, a sankey of the dependencies between domains, and the External Producers ([san-1022](https://github.com/paxel/sanshain-service/issues/135)).
 - Statistics, Activity tab: provides, requires and catalog pushes over time and per owner (the system's Backstage owner, never a person), the busiest systems, and refused provides over time ([san-1023](https://github.com/paxel/sanshain-service/issues/136)).
+- Statistics, Versions and releases tab: versions created over time as GA or snapshot, promotions, versions per Producer, retired API families, Outdated and Snapshot-pinned Consumers, and deprecated endpoints still required ([san-1024](https://github.com/paxel/sanshain-service/issues/137)).
 
 ### Changed
 - The Reports page and its nav link need `view_statistics`; signed-in users without it no longer see them ([san-1021](https://github.com/paxel/sanshain-service/issues/134)).

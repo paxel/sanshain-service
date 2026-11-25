@@ -379,3 +379,77 @@ async fn activity_counts_calls_per_owner_and_never_names_a_person() {
     .await;
     assert_eq!(year["data"]["periods"]["bucket"], "week");
 }
+
+/// A provide of the one-endpoint spec at `version` with `stability`.
+#[cfg(test)]
+async fn provide_as(w: &World, token: &str, producer: &str, version: &str, stability: &str) {
+    let spec = format!(
+        "openapi: 3.0.0\ninfo: {{ title: T, version: {version} }}\npaths:\n  /a:\n    get:\n      responses:\n        \"200\": {{ description: ok }}\n"
+    );
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/provide",
+        token,
+        Some(serde_json::json!({
+            "producername": producer,
+            "stability": stability,
+            "trunk": true,
+            "openapi_yaml": spec,
+        })),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "provide {producer} {version}: {status} {body}"
+    );
+}
+
+#[tokio::test]
+async fn versions_count_releases_and_flag_outdated_and_snapshot_pins() {
+    let w = world().await;
+    provide_as(&w, &w.admin, "orders", "1.0.0", "ga").await;
+    provide_as(&w, &w.admin, "orders", "1.1.0", "ga").await;
+    provide_as(&w, &w.plain, "orders", "1.2.0", "snapshot").await;
+    require(&w, "shop", "orders", "1.0.0").await;
+    require(&w, "cart", "orders", "1.2.0").await;
+    require(&w, "web", "orders", "1.1.0").await;
+    // A promotion: the same bytes as PERSON's snapshot, released.
+    provide_as(&w, &w.plain, "billing", "1.0.0", "snapshot").await;
+    provide_as(&w, &w.admin, "billing", "1.0.0", "ga").await;
+
+    let (status, body) = get(&w.app, "/admin/statistics/versions", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let data = &body["data"];
+    let sum = |v: &Value| -> u64 {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_u64().unwrap())
+            .sum()
+    };
+    assert_eq!(
+        sum(&data["created"][0]["counts"]),
+        3,
+        "GA now: orders 1.0.0, 1.1.0, billing 1.0.0"
+    );
+    assert_eq!(data["created"][0]["label"], "GA");
+    assert_eq!(sum(&data["created"][1]["counts"]), 1);
+    assert_eq!(sum(&data["promotions"]), 1);
+    assert_eq!(
+        data["per_producer"],
+        serde_json::json!([
+            { "producer": "billing", "ga": 1, "snapshot": 0 },
+            { "producer": "orders", "ga": 2, "snapshot": 1 },
+        ])
+    );
+    assert_eq!(
+        data["pins"],
+        serde_json::json!([
+            { "consumer": "cart", "producer": "orders", "api_type": "openapi", "pin": "1.2.0", "latest_ga": "1.1.0", "state": "snapshot-pinned" },
+            { "consumer": "shop", "producer": "orders", "api_type": "openapi", "pin": "1.0.0", "latest_ga": "1.1.0", "state": "outdated" },
+        ])
+    );
+    assert_eq!(data["deprecated_required"], serde_json::json!([]));
+    assert_no_person(&body);
+}

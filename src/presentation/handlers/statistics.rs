@@ -35,6 +35,7 @@ pub async fn admin_statistics(
     Ok(match tab {
         StatisticsTab::Landscape => answer(tab, range, statistics::landscape(repo, range).await?),
         StatisticsTab::Activity => answer(tab, range, statistics::activity(repo, range).await?),
+        StatisticsTab::Versions => answer(tab, range, statistics::versions(repo, range).await?),
     })
 }
 

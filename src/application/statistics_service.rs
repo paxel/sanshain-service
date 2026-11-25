@@ -7,7 +7,8 @@
 //! counted per system and rolled up to the system's Backstage owner.
 
 use crate::domain::models::{
-    ApiType, AppError, AuditLogFilter, MemberTrack, PeripheryTrack, SystemContext,
+    ApiType, AppError, AuditLogFilter, MemberTrack, PeripheryTrack, SemVer, Stability,
+    SystemContext,
 };
 use crate::domain::ports::SpecRepository;
 use chrono::{Datelike, Days, Months, NaiveDate};
@@ -71,6 +72,7 @@ impl StatisticsRange {
 pub enum StatisticsTab {
     Landscape,
     Activity,
+    Versions,
 }
 
 impl StatisticsTab {
@@ -79,6 +81,7 @@ impl StatisticsTab {
         match raw {
             "landscape" => Some(StatisticsTab::Landscape),
             "activity" => Some(StatisticsTab::Activity),
+            "versions" => Some(StatisticsTab::Versions),
             _ => None,
         }
     }
@@ -87,6 +90,7 @@ impl StatisticsTab {
         match self {
             StatisticsTab::Landscape => "landscape",
             StatisticsTab::Activity => "activity",
+            StatisticsTab::Versions => "versions",
         }
     }
 }
@@ -575,6 +579,185 @@ pub async fn activity(
         refusals,
         owners: owners.into_values().collect(),
         top_systems: top,
+        capped_months: scan.capped_months,
+    })
+}
+
+/// The versions of one Producer, as they stand now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProducerVersions {
+    pub producer: String,
+    pub ga: usize,
+    pub snapshot: usize,
+}
+
+/// A Consumer's Pin that is Outdated or Snapshot-pinned (`CONTEXT.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PinState {
+    pub consumer: String,
+    pub producer: String,
+    pub api_type: &'static str,
+    pub pin: String,
+    /// The latest GA of the line, when it has one.
+    pub latest_ga: Option<String>,
+    /// `outdated` or `snapshot-pinned`.
+    pub state: &'static str,
+}
+
+/// An endpoint that is deprecated and still required.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeprecatedRequired {
+    pub consumer: String,
+    pub producer: String,
+    pub version: String,
+    pub method: String,
+    pub path: String,
+}
+
+/// The Versions and releases tab (san-1024).
+#[derive(Debug, Clone, Serialize)]
+pub struct Versions {
+    pub periods: Periods,
+    /// Versions created per period, by their stability now.
+    pub created: Vec<Series>,
+    /// Promotions of a snapshot to GA per period.
+    pub promotions: Vec<usize>,
+    pub per_producer: Vec<ProducerVersions>,
+    /// Producers whose API family was retired in the range, with how often.
+    pub retired: Vec<LabelCount>,
+    pub pins: Vec<PinState>,
+    pub deprecated_required: Vec<DeprecatedRequired>,
+    pub capped_months: Vec<String>,
+}
+
+/// The Versions and releases tab for `range`.
+pub async fn versions(
+    repo: &impl SpecRepository,
+    range: StatisticsRange,
+) -> Result<Versions, AppError> {
+    let periods = Periods::of(range);
+    let mut ga_created = vec![0usize; periods.len()];
+    let mut snapshot_created = vec![0usize; periods.len()];
+    let mut per_producer: BTreeMap<String, ProducerVersions> = BTreeMap::new();
+    let mut latest_ga: BTreeMap<(String, ApiType), SemVer> = BTreeMap::new();
+    for (producer, meta, _) in repo.list_all_spec_versions().await? {
+        let line = per_producer
+            .entry(producer.clone())
+            .or_insert_with(|| ProducerVersions {
+                producer: producer.clone(),
+                ga: 0,
+                snapshot: 0,
+            });
+        let is_ga = meta.stability == Stability::Ga;
+        if is_ga {
+            bump(&mut line.ga);
+            let latest = latest_ga
+                .entry((producer, meta.api_type))
+                .or_insert(meta.version);
+            if meta.version > *latest {
+                *latest = meta.version;
+            }
+        } else {
+            bump(&mut line.snapshot);
+        }
+        let created = meta
+            .created_at
+            .get(..10)
+            .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+        if let Some(i) = created.and_then(|d| periods.index(d)) {
+            let counts = if is_ga {
+                &mut ga_created
+            } else {
+                &mut snapshot_created
+            };
+            if let Some(n) = counts.get_mut(i) {
+                bump(n);
+            }
+        }
+    }
+
+    let scan = scan_audit(repo, range).await?;
+    let mut promotions = vec![0usize; periods.len()];
+    let mut retired: BTreeMap<String, usize> = BTreeMap::new();
+    for entry in &scan.entries {
+        match entry.action.as_str() {
+            "VERSION_PROMOTED" => {
+                if let Some(n) = periods.index(entry.day).and_then(|i| promotions.get_mut(i)) {
+                    bump(n);
+                }
+            }
+            "RETIRE_PROTOCOL" => {
+                if let Some(system) = &entry.system {
+                    bump(retired.entry(system.clone()).or_insert(0));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let report = repo.get_report().await?;
+    let mut pins: BTreeSet<(String, String, ApiType, SemVer, bool)> = BTreeSet::new();
+    let mut deprecated_required = Vec::new();
+    for dep in &report.dependency_graph {
+        pins.insert((
+            dep.client.clone(),
+            dep.service.clone(),
+            dep.api_type,
+            dep.version,
+            dep.stability == Stability::Snapshot,
+        ));
+        if dep.deprecated {
+            deprecated_required.push(DeprecatedRequired {
+                consumer: dep.client.clone(),
+                producer: dep.service.clone(),
+                version: dep.version.to_string(),
+                method: dep.method.clone(),
+                path: dep.path.clone(),
+            });
+        }
+    }
+    let pins = pins
+        .into_iter()
+        .filter_map(|(consumer, producer, api_type, version, snapshot)| {
+            let latest = latest_ga.get(&(producer.clone(), api_type)).copied();
+            let state = if snapshot {
+                "snapshot-pinned"
+            } else if latest.is_some_and(|l| version < l) {
+                "outdated"
+            } else {
+                return None;
+            };
+            Some(PinState {
+                consumer,
+                producer,
+                api_type: api_type.as_str(),
+                pin: version.to_string(),
+                latest_ga: latest.map(|l| l.to_string()),
+                state,
+            })
+        })
+        .collect();
+
+    Ok(Versions {
+        periods,
+        created: vec![
+            Series {
+                label: "GA".to_string(),
+                counts: ga_created,
+            },
+            Series {
+                label: "Snapshot".to_string(),
+                counts: snapshot_created,
+            },
+        ],
+        promotions,
+        per_producer: per_producer.into_values().collect(),
+        retired: retired
+            .into_iter()
+            .map(|(label, count)| LabelCount { label, count })
+            .collect(),
+        pins,
+        deprecated_required,
         capped_months: scan.capped_months,
     })
 }

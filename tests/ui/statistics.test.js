@@ -91,3 +91,18 @@ test("Activity shows calls over time, per owner, the busiest systems and refusal
   await page.selectOption("#statistics-preset", "365");
   await expect(page.locator("#statistics-panel-activity-calls")).toContainText("per week starting");
 });
+
+test("Versions and releases shows its panels", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=versions");
+  for (const id of [
+    "versions-created",
+    "versions-promotions",
+    "versions-per-producer",
+    "versions-pins",
+    "versions-deprecated",
+    "versions-retired",
+  ]) {
+    await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
+  }
+});
