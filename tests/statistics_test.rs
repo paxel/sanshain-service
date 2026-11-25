@@ -323,6 +323,16 @@ async fn activity_counts_calls_per_owner_and_never_names_a_person() {
     let w = world().await;
     push_owner(&w, "orders", "group:payments").await;
     push_owner(&w, "shop", &format!("user:{PERSON}")).await;
+    // An audit entry that is no call: it must not add an owner row.
+    let (status, _) = call(
+        &w.app,
+        "POST",
+        "/tokens",
+        &w.admin,
+        Some(serde_json::json!({ "name": "ci", "expires_in_days": 30 })),
+    )
+    .await;
+    assert!(status.is_success());
     provide(&w, "orders", "1.0.0").await;
     require(&w, "shop", "orders", "1.0.0").await;
     require(&w, "shop", "orders", "1.0.0").await;

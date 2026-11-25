@@ -19,6 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// included.
 pub const DEFAULT_RANGE_DAYS: u64 = 90;
 
+/// The longest range a statistics answer covers: two years. The audit log
+/// is read month by month, so an unbounded range would be an unbounded read.
+pub const MAX_RANGE_DAYS: i64 = 731;
+
 /// The days a statistics answer covers, both ends included, in UTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct StatisticsRange {
@@ -53,6 +57,11 @@ impl StatisticsRange {
         if from > to {
             return Err(AppError::BadRequest(format!(
                 "the range ends ({to}) before it starts ({from})"
+            )));
+        }
+        if to.signed_duration_since(from).num_days() >= MAX_RANGE_DAYS {
+            return Err(AppError::BadRequest(format!(
+                "the range covers at most {MAX_RANGE_DAYS} days"
             )));
         }
         Ok(StatisticsRange { from, to })
@@ -602,6 +611,11 @@ pub async fn activity(
         let Some(period) = periods.index(entry.day) else {
             continue;
         };
+        let counted = entry.action == "VERSION_REJECTED"
+            || labels.iter().any(|(action, _)| *action == entry.action);
+        if !counted {
+            continue;
+        }
         let owner = entry
             .system
             .as_deref()
@@ -648,8 +662,6 @@ pub async fn activity(
         .collect();
     top.sort_by(|a, b| b.calls.cmp(&a.calls).then_with(|| a.system.cmp(&b.system)));
     top.truncate(TOP_SYSTEMS);
-    // Owners that only exist because a refusal or call named nothing stay;
-    // owners with nothing at all never got an entry.
     Ok(Activity {
         periods,
         calls,
@@ -1228,6 +1240,13 @@ mod tests {
             StatisticsRange::parse(Some("2026-02-01"), Some("2026-01-01"), d("2026-11-25")),
             Err(AppError::BadRequest(m)) if m.contains("before it starts")
         ));
+        assert!(matches!(
+            StatisticsRange::parse(Some("0002-01-01"), Some("2026-01-01"), d("2026-11-25")),
+            Err(AppError::BadRequest(m)) if m.contains("at most 731 days")
+        ));
+        assert!(
+            StatisticsRange::parse(Some("2025-01-01"), Some("2026-12-31"), d("2026-11-25")).is_ok()
+        );
         assert!(matches!(
             StatisticsRange::parse(Some("yesterday"), None, d("2026-11-25")),
             Err(AppError::BadRequest(m)) if m.contains("from must be a date")
