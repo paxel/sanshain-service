@@ -67,23 +67,24 @@ paths:
         for an existing snapshot version replaces it wholesale when it comes
         from the user who last provided it (the audit trail still names
         every overwrite). Different content from anyone else is rejected 409
-        (`snapshot_owned`) naming the provider and proposing the next free
-        minor, so two developers who picked the same number cannot break each
+        (`snapshot_owned`) naming the provider and proposing one minor above
+        the highest version of the major, so two developers who picked the same number cannot break each
         other's Consumer builds; CI rebuilding what its developer provided
         sends identical bytes and stays a no-op. An administrator deletes the
         snapshot to free the number.
 
         **GA is immutable**: a Provide for an existing GA version with
-        different content is rejected 409 with `proposed_version` — the next
-        free number, bumped by what actually changed (breaking → major,
-        additive → minor, shape-identical → patch). A GA Provide for a version
+        different content is rejected 409 with `proposed_version`: one minor
+        above the highest version of the same major, or the highest major of
+        the line plus one when the change is breaking against the highest GA
+        of the major. A patch is never proposed. A GA Provide for a version
         that exists as a snapshot **promotes** it in place. A snapshot Provide
         for a version that has gone GA is rejected — a released number can
         never carry a snapshot again.
 
         **Semver honesty**: a GA Provide whose changes relative to the highest
         GA below it are breaking without a major bump is rejected 409 with the
-        correct `proposed_version`. Snapshots are never compatibility-checked.
+        highest major of the line plus one as `proposed_version`. Snapshots are never compatibility-checked.
       requestBody:
         required: true
         content:
@@ -1367,7 +1368,9 @@ components:
         proposed_version:
           type: string
           description: |
-            The next free version the Producer should publish as instead.
+            The version the Producer should publish as instead: one minor
+            above the highest version of the major, or the next major for a
+            breaking change; never a patch.
             Present only on a 409 refusing a Provide by the version rules.
 
     ApiTokenScope:
