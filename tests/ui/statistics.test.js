@@ -106,3 +106,11 @@ test("Versions and releases shows its panels", async ({ page }) => {
     await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
   }
 });
+
+test("Tags and branches shows its panels", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/reports.html?tab=branches");
+  for (const id of ["branches-builds", "branches-list", "branches-tags"]) {
+    await expect(page.locator(`#statistics-panel-${id}`)).toBeVisible();
+  }
+});

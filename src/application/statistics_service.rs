@@ -73,6 +73,7 @@ pub enum StatisticsTab {
     Landscape,
     Activity,
     Versions,
+    Branches,
 }
 
 impl StatisticsTab {
@@ -82,6 +83,7 @@ impl StatisticsTab {
             "landscape" => Some(StatisticsTab::Landscape),
             "activity" => Some(StatisticsTab::Activity),
             "versions" => Some(StatisticsTab::Versions),
+            "branches" => Some(StatisticsTab::Branches),
             _ => None,
         }
     }
@@ -91,6 +93,7 @@ impl StatisticsTab {
             StatisticsTab::Landscape => "landscape",
             StatisticsTab::Activity => "activity",
             StatisticsTab::Versions => "versions",
+            StatisticsTab::Branches => "branches",
         }
     }
 }
@@ -758,6 +761,92 @@ pub async fn versions(
             .collect(),
         pins,
         deprecated_required,
+        capped_months: scan.capped_months,
+    })
+}
+
+/// One sanshain-branch: when it was cut and what it holds. Who cut it is a
+/// person and is left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchSummary {
+    pub name: String,
+    pub cut_at: String,
+    pub as_of: String,
+    pub source: String,
+    pub members: usize,
+}
+
+/// The Tags and branches tab (san-1025).
+#[derive(Debug, Clone, Serialize)]
+pub struct Branches {
+    pub branches: Vec<BranchSummary>,
+    pub periods: Periods,
+    /// Provides and requires per period, per stream: dev, trunk, tag.
+    pub builds: Vec<Series>,
+    /// Builds per tag (sanshain-branch name) in the range.
+    pub per_tag: Vec<LabelCount>,
+    pub capped_months: Vec<String>,
+}
+
+/// The Tags and branches tab for `range`.
+pub async fn branches(
+    repo: &impl SpecRepository,
+    range: StatisticsRange,
+) -> Result<Branches, AppError> {
+    let mut list = Vec::new();
+    for branch in repo.list_branches().await? {
+        let members = repo
+            .list_member_versions(MemberTrack::Branch(branch.id), None)
+            .await?
+            .len();
+        list.push(BranchSummary {
+            name: branch.name,
+            cut_at: branch.created_at,
+            as_of: branch.as_of,
+            source: branch.source,
+            members,
+        });
+    }
+    list.sort_by(|a, b| b.cut_at.cmp(&a.cut_at).then_with(|| a.name.cmp(&b.name)));
+
+    let periods = Periods::of(range);
+    let streams = ["dev", "trunk", "tag"];
+    let mut builds: Vec<Series> = streams
+        .iter()
+        .map(|label| Series {
+            label: (*label).to_string(),
+            counts: vec![0; periods.len()],
+        })
+        .collect();
+    let mut per_tag: BTreeMap<String, usize> = BTreeMap::new();
+    let scan = scan_audit(repo, range).await?;
+    for entry in &scan.entries {
+        if entry.action != "PROVIDE_SPEC" && entry.action != "REQUIRE_SPEC" {
+            continue;
+        }
+        let stream = match entry.stream.as_deref() {
+            None | Some("") => 0,
+            Some("trunk") => 1,
+            Some(tag) => {
+                bump(per_tag.entry(tag.to_string()).or_insert(0));
+                2
+            }
+        };
+        if let Some(n) = periods
+            .index(entry.day)
+            .and_then(|i| builds.get_mut(stream).and_then(|s| s.counts.get_mut(i)))
+        {
+            bump(n);
+        }
+    }
+    Ok(Branches {
+        branches: list,
+        periods,
+        builds,
+        per_tag: per_tag
+            .into_iter()
+            .map(|(label, count)| LabelCount { label, count })
+            .collect(),
         capped_months: scan.capped_months,
     })
 }

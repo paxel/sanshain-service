@@ -453,3 +453,61 @@ async fn versions_count_releases_and_flag_outdated_and_snapshot_pins() {
     assert_eq!(data["deprecated_required"], serde_json::json!([]));
     assert_no_person(&body);
 }
+
+#[tokio::test]
+async fn branches_list_the_cuts_and_count_builds_per_stream() {
+    let w = world().await;
+    provide(&w, "orders", "1.0.0").await;
+    let (status, body) = call(
+        &w.app,
+        "POST",
+        "/admin/branches",
+        &w.admin,
+        Some(serde_json::json!({ "name": "rel-1" })),
+    )
+    .await;
+    assert!(status.is_success(), "branch: {status} {body}");
+    // A dev require and a tag require.
+    let (status, _) = call(
+        &w.app,
+        "GET",
+        "/require?consumername=shop&producername=orders&version=1.0.0&path=/a&method=GET",
+        &w.plain,
+        None,
+    )
+    .await;
+    assert!(status.is_success());
+    let (status, _) = call(
+        &w.app,
+        "GET",
+        "/require?consumername=shop&producername=orders&version=1.0.0&path=/a&method=GET&tag=rel-1",
+        &w.plain,
+        None,
+    )
+    .await;
+    assert!(status.is_success());
+
+    let (status, body) = get(&w.app, "/admin/statistics/branches", &w.report_viewer).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let data = &body["data"];
+    assert_eq!(data["branches"][0]["name"], "rel-1");
+    assert_eq!(data["branches"][0]["source"], "trunk");
+    assert!(data["branches"][0]["members"].is_u64());
+    let sum = |i: usize| -> u64 {
+        data["builds"][i]["counts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_u64().unwrap())
+            .sum()
+    };
+    assert_eq!(data["builds"][0]["label"], "dev");
+    assert_eq!((sum(0), sum(1), sum(2)), (1, 1, 1));
+    assert_eq!(
+        data["per_tag"],
+        serde_json::json!([{ "label": "rel-1", "count": 1 }])
+    );
+    // Who cut the branch is a person and is not part of the answer.
+    assert!(!body.to_string().contains("\"admin\""), "{body}");
+    assert_no_person(&body);
+}

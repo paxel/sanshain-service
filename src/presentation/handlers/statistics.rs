@@ -36,6 +36,7 @@ pub async fn admin_statistics(
         StatisticsTab::Landscape => answer(tab, range, statistics::landscape(repo, range).await?),
         StatisticsTab::Activity => answer(tab, range, statistics::activity(repo, range).await?),
         StatisticsTab::Versions => answer(tab, range, statistics::versions(repo, range).await?),
+        StatisticsTab::Branches => answer(tab, range, statistics::branches(repo, range).await?),
     })
 }
 
