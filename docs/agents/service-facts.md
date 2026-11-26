@@ -75,6 +75,11 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Matching: OpenAPI path + verb (parameter names, double/trailing slashes normalized); AsyncAPI
   channel (2.x key, 3.x address) + `PUB`/`SUB`; proto fully qualified service + rpc
   (case-sensitive).
+- Require-set versions (san-1032): `requires_hash` (query / bundle body, ≤128 alnum) on a trunk or
+  tag require numbers the hash per Consumer (1, 2, …, first sight) and keeps the Pins under it
+  (`require_sets`, `require_set_pins`; deleted with the Consumer). Strips: `GET
+  /admin/consumers/{name}/require-sets`, `/admin/producers/{name}/pinned-by?scope=`
+  (`src/application/version_strip_service.rs`, `static/js/version-strip.js`).
 - Code: `src/application/require_service.rs`. Source: `site/developer/sanshain-yaml.html`.
 
 ## Origin (why a version exists)

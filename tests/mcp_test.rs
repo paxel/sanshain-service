@@ -172,6 +172,7 @@ async fn seed_with(mcp: McpConfig) -> Seed {
             trunk: true,
             tag: None,
             format: services::RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await

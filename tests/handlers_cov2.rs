@@ -990,6 +990,7 @@ async fn nuke_producers_and_consumers_require_exact_confirmation() {
             trunk: false,
             tag: None,
             format: sanshain_service::application::require_service::RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await
@@ -1160,6 +1161,7 @@ async fn report_markdown_and_isolation_render_the_seeded_producer() {
             trunk: false,
             tag: None,
             format: sanshain_service::application::require_service::RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await

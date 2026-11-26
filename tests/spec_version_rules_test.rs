@@ -2402,3 +2402,86 @@ async fn versions_name_their_endpoint_changes_and_requires_get_free_moves() {
     assert_eq!(newer[1]["version"], "2.0.0");
     assert_eq!(newer[1]["endpoints"][0]["change"], "removed");
 }
+
+/// san-1032: a trunk or tag require that sends the hash of the `requires`
+/// section numbers it per Consumer; a plain require numbers nothing. The
+/// Producer strip counts who pins each version in a scope.
+#[tokio::test]
+async fn require_sets_are_numbered_from_trunk_requires_and_strips_count_pins() {
+    let ctx = setup().await;
+    for spec in [spec_two_endpoints("1.0.0"), spec_two_endpoints("1.1.0")] {
+        let (status, _) = provide(&ctx, "svc", "ga", &spec).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+    let get = |uri: String| {
+        let ctx = &ctx;
+        async move {
+            let (status, headers, body) = send(ctx, "GET", &uri, None, &[]).await;
+            (status, headers, body)
+        }
+    };
+    let req = |consumer: &str, version: &str, extra: &str| {
+        format!(
+            "/require?consumername={consumer}&producername=svc&version={version}&path=/users&method=GET{extra}"
+        )
+    };
+    // Plain dev require with a hash: nothing numbered.
+    let (status, _, _) = get(req("web", "1.0.0", "&requires_hash=aaa")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, body) = get("/admin/consumers/web/require-sets".to_string()).await;
+    assert_eq!(as_json(&body), json!([]));
+    // Trunk requires: the first hash is #1, a new one #2, an old one stays #1.
+    get(req("web", "1.0.0", "&requires_hash=aaa&trunk=true")).await;
+    get(req("web", "1.1.0", "&requires_hash=bbb&trunk=true")).await;
+    get(req("web", "1.0.0", "&requires_hash=aaa&trunk=true")).await;
+    let (status, _, body) = get("/admin/consumers/web/require-sets".to_string()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sets = as_json(&body);
+    assert_eq!(sets.as_array().unwrap().len(), 2);
+    assert_eq!(sets[0]["number"], 1);
+    assert_eq!(
+        sets[0]["pins"],
+        json!([{"producer": "svc", "api_type": "openapi", "version": "1.0.0"}])
+    );
+    assert_eq!(sets[1]["number"], 2);
+    assert_eq!(sets[1]["pins"][0]["version"], "1.1.0");
+    // A malformed hash is refused by name.
+    let (status, _, body) = get(req("web", "1.0.0", "&requires_hash=not-ok&trunk=true")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("requires_hash"), "{body}");
+
+    // The Producer strip: main counts trunk pins (web moved to 1.1.0 then
+    // back to 1.0.0, its last trunk pin wins); dev counts all activity.
+    get(req("app", "1.1.0", "")).await;
+    let (status, _, body) = get("/admin/producers/svc/pinned-by?scope=main".to_string()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let bars = as_json(&body);
+    let bar = |v: &str| {
+        bars.as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["version"] == v)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(bar("1.0.0")["consumers"], json!(["web"]));
+    assert_eq!(bar("1.1.0")["consumers"], json!([]), "a zero bar");
+    assert_eq!(bar("1.1.0")["stability"], "ga");
+    let (_, _, body) = get("/admin/producers/svc/pinned-by?scope=dev".to_string()).await;
+    let dev = as_json(&body);
+    let app_pins = dev
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["version"] == "1.1.0")
+        .unwrap()["consumers"]
+        .clone();
+    assert!(
+        app_pins.as_array().unwrap().contains(&json!("app")),
+        "{dev}"
+    );
+    let (status, _, _) =
+        get("/admin/producers/svc/pinned-by?scope=dev@2026-01-01T00:00:00Z".to_string()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+

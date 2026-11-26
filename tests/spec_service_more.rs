@@ -164,6 +164,7 @@ async fn require_bundle_with_no_endpoints_is_a_bad_request() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     let res = require_service::require_bundle_dry_run(&repo, params).await;
     match res {
@@ -203,6 +204,7 @@ async fn require_bundle_missing_endpoints_are_gone_and_listed() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     let res = require_service::require_bundle_dry_run(&repo, params).await;
     match res {
@@ -230,6 +232,7 @@ async fn require_unknown_producer_or_version_is_not_found() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     match require_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => assert!(msg.contains("unknown"), "{msg}"),
@@ -248,6 +251,7 @@ async fn require_unknown_producer_or_version_is_not_found() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     match require_service::require_endpoint_dry_run(&repo, params).await {
         Err(AppError::NotFound(msg)) => {
@@ -284,6 +288,7 @@ async fn require_absent_endpoint_of_an_existing_version_is_gone() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     match require_service::require_endpoint(&repo, params).await {
         Err(AppError::Gone(msg)) => {
@@ -321,6 +326,7 @@ async fn successful_require_records_the_pin_and_touches_last_required() {
         trunk: false,
         tag: None,
         format: sanshain_service::application::require_service::RequireFormat::Native,
+        requires_hash: None,
     };
     let res = require_service::require_endpoint(&repo, params)
         .await

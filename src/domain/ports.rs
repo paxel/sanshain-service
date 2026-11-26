@@ -410,6 +410,23 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError>> + Send;
 
+    /// Record a Pin under a Consumer's require-set hash (san-1032): a hash
+    /// seen for the first time gets the Consumer's next number. Returns the
+    /// number.
+    fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> impl Future<Output = Result<i64, RepositoryError>> + Send;
+
+    /// A Consumer's require-set versions, ascending, each with its Pins.
+    fn list_require_sets(
+        &self,
+        consumer: &str,
+    ) -> impl Future<Output = Result<Vec<RequireSet>, RepositoryError>> + Send;
+
     /// Store a system's annotations per name, the latest call winning.
     fn upsert_system_annotations(
         &self,

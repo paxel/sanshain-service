@@ -153,6 +153,20 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_version_annotations())
     }
 
+    async fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> Result<i64, RepositoryError> {
+        delegate!(self, record_require_set(consumer, hash, pin, now_iso))
+    }
+
+    async fn list_require_sets(&self, consumer: &str) -> Result<Vec<RequireSet>, RepositoryError> {
+        delegate!(self, list_require_sets(consumer))
+    }
+
     async fn upsert_system_annotations(
         &self,
         system: &str,

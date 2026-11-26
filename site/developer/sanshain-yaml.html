@@ -406,6 +406,30 @@ requires:
   >), and a bundle names the missing endpoints.
 </p>
 
+<h3 id="require-set-versions">Versions of the require set</h3>
+<p>
+  A Producer's versions come from its spec. A Consumer's come from this section (Sanshain Service
+  2.18.0): every require sends <code>requires_hash</code>, a hash the client computes over each
+  entry's <code>serviceName</code>, <code>version</code>, <code>apiType</code> and
+  <code>endpoints</code>, sorted (<code>outputDirectory</code> and <code>format</code> change files,
+  not the set). Sanshain numbers each new hash of a Consumer 1, 2, 3, … in the order it first sees
+  them, from trunk and tag requires only; a plain dev require, a dry run or a failed require numbers
+  nothing. Nothing is written by hand, so the number changes exactly when a Pin or an endpoint
+  changes. The Consumer page shows each number with the Pins that arrived under it:
+</p>
+<pre><code># version 3 of shop's require set: orders moved from 2.3.0 to 2.5.0
+requires:
+  - serviceName: orders
+    version: 2.5.0
+    endpoints: [{ method: GET, path: /orders }]
+  - serviceName: billing
+    version: 1.0.0
+    endpoints: [{ method: POST, path: /invoices }]</code></pre>
+<p>
+  The hash is at most 128 letters and digits. A service before 2.18.0 refuses the parameter
+  (<code>400</code> on <code>GET /require</code>, <code>422</code> on the bundle).
+</p>
+
 <h3>Payload schemas as OpenAPI (<code>format: openapi</code>)</h3>
 <p>
   A Consumer whose code generator only speaks OpenAPI can ask for the message payloads of an

@@ -256,6 +256,13 @@ async function showProducerVersions(serviceName, diffLink = null) {
   }
   list.innerHTML = "";
 
+  // san-1032: who pins which version, on top.
+  const strip = document.createElement("div");
+  strip.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+  strip.dataset.versionStrip = "producer";
+  list.appendChild(strip);
+  void renderProducerStrip(serviceName, strip);
+
   // Owner, description, repository and links from the Producer's
   // catalog-info (#48), under the title. Optional: the page reads without it.
   try {

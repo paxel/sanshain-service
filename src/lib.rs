@@ -182,6 +182,9 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
         // san-1031: what each version changed, endpoint by endpoint.
+        // san-1032: the version strips of the Producer and Consumer pages.
+        .route("/admin/producers/{name}/pinned-by", get(admin::admin_producer_pinned_by).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/consumers/{name}/require-sets", get(admin::admin_consumer_require_sets).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/endpoint-changes", get(admin::admin_producer_endpoint_changes).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/blame", get(admin::admin_blame_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/structure", get(admin::admin_structure_version).layer(require(state.clone(), RouteGuard::Authenticated)))

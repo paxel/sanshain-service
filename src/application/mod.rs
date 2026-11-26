@@ -23,6 +23,7 @@ pub mod statistics_service;
 pub mod structure_service;
 pub mod text_diff;
 pub mod version_rules;
+pub mod version_strip_service;
 pub mod webhook_delivery;
 pub mod webhook_service;
 

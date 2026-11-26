@@ -146,6 +146,7 @@ async fn pin_consumer(repo: &SqliteSpecRepository, consumer: &str, producer: &st
             trunk: false,
             tag: None,
             format: sanshain_service::application::require_service::RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await

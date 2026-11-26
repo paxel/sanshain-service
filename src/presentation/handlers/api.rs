@@ -594,6 +594,9 @@ pub struct RequireQuery {
     /// `{scope: "system", name, value}`, the body field's shape in a query.
     #[serde(default)]
     pub annotations: Option<String>,
+    /// The client's hash of the Consumer's `requires` section (san-1032).
+    #[serde(default)]
+    pub requires_hash: Option<String>,
 }
 
 /// The `annotations` query parameter of a GET require: the JSON array the
@@ -697,6 +700,7 @@ async fn require_common(
         trunk: query.trunk,
         tag: query.tag.as_deref(),
         format,
+        requires_hash: query.requires_hash.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
@@ -790,6 +794,9 @@ pub struct RequireBundleRequest {
     /// Annotations (#91) of the requiring Consumer, `scope: system` only.
     #[serde(default)]
     pub annotations: Vec<AnnotationEntry>,
+    /// See `RequireQuery::requires_hash`.
+    #[serde(default)]
+    pub requires_hash: Option<String>,
 }
 
 /// Query parameters of `POST /require-bundle`. Not `deny_unknown_fields`:
@@ -827,6 +834,7 @@ pub async fn require_bundle(
         trunk: payload.trunk,
         tag: payload.tag.as_deref(),
         format,
+        requires_hash: payload.requires_hash.as_deref(),
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?

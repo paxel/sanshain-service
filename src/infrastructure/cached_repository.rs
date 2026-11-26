@@ -591,6 +591,22 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_version_annotations().await
     }
 
+    async fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> Result<i64, RepositoryError> {
+        self.inner
+            .record_require_set(consumer, hash, pin, now_iso)
+            .await
+    }
+
+    async fn list_require_sets(&self, consumer: &str) -> Result<Vec<RequireSet>, RepositoryError> {
+        self.inner.list_require_sets(consumer).await
+    }
+
     async fn upsert_system_annotations(
         &self,
         system: &str,

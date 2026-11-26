@@ -91,3 +91,58 @@ test("a version shows its endpoint changes and a Consumer its free move", async 
   await expect(moves.locator('[data-move-version="2.0.0"]')).toContainText("removed");
   await expect(moves.locator('[data-move-version="1.1.0"]')).toContainText("free move");
 });
+
+// san-1032: the strips on top of the Producer and Consumer pages.
+test("the strips show who pins which version and what each require set holds", async ({
+  page,
+  request,
+}) => {
+  const stamp = Date.now().toString(36);
+  const producer = `strip-api-${stamp}`;
+  const consumer = `strip-app-${stamp}`;
+  const login = await request.post("/auth/login", {
+    data: { username: "root", password: adminPassword },
+  });
+  const { token } = /** @type {{ token: string }} */ (await json(login));
+  const headers = { Authorization: `Bearer ${token}` };
+  for (const openapi_yaml of [spec("1.0.0"), spec("1.1.0")]) {
+    const res = await request.post("/provide", {
+      headers,
+      data: { producername: producer, stability: "ga", openapi_yaml, trunk: true },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  }
+  for (const [version, hash] of [
+    ["1.0.0", "aaa"],
+    ["1.1.0", "bbb"],
+  ]) {
+    const res = await request.get("/require", {
+      headers,
+      params: {
+        consumername: consumer,
+        producername: producer,
+        version: /** @type {string} */ (version),
+        path: "/users",
+        method: "GET",
+        trunk: "true",
+        requires_hash: /** @type {string} */ (hash),
+      },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  }
+
+  await signIn(page);
+  await page.goto(`/consumers.html?name=${consumer}`);
+  const strip = page.locator('[data-version-strip="consumer"]');
+  await expect(strip.locator('[data-require-set="1"]')).toContainText(`${producer} 1.0.0`, {
+    timeout: 10000,
+  });
+  await expect(strip.locator('[data-require-set="2"]')).toContainText(`${producer} 1.1.0`);
+
+  await page.goto(`/producers.html?service=${producer}`);
+  const bars = page.locator('[data-version-strip="producer"]');
+  await expect(bars).toHaveAttribute("data-strip-bars", "2", { timeout: 10000 });
+  await expect(bars.locator("svg").first()).toBeVisible();
+  await bars.locator("[data-strip-scope]").selectOption("dev");
+  await expect(bars).toHaveAttribute("data-strip-bars", "2");
+});

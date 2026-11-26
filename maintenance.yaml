@@ -565,6 +565,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/require-sets:
+    get:
+      summary: "Read: consumers/name/require-sets"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The Consumer's require-set versions (san-1032), ascending:
+        `[{number, first_seen_at, pins: [{producer, api_type, version}]}]`. A version is one hash of
+        the `requires` section of its `sanshain.yaml`, sent by the client with trunk and tag
+        requires; the Pins are those that arrived under it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/consumers/{name}/moves:
     get:
       summary: "Read: consumers/name/moves"
@@ -1652,6 +1685,51 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Producer not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/pinned-by:
+    get:
+      summary: "Read: producers/name/pinned-by"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per version of the Producer's lines (san-1032), the Consumers that pin it in `scope`
+        (`main` default of the page, `dev`, `<branch>`, each `@<rfc3339>` except dev, the report
+        selector grammar): `[{api_type, version, stability, consumers}]`; a version nobody pins
+        has `consumers: []`, a pinned version the line no longer has `stability: null`. Without
+        `scope` the dev graph. 404 for an unknown Producer or branch.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: An unreadable scope (`dev@…`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
           content:
             application/json:
               schema:

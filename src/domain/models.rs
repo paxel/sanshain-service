@@ -1646,6 +1646,25 @@ pub struct ConsumerEndpointInfo {
     pub deprecated: bool,
 }
 
+/// A version of a Consumer's require set (san-1032): the `requires` section
+/// of its `sanshain.yaml`, hashed by the client. Sanshain numbers each new
+/// hash of a Consumer 1, 2, 3, … in order of first sight, from trunk and tag
+/// requires only, and keeps the Pins that arrived under it.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct RequireSet {
+    pub number: i64,
+    pub first_seen_at: String,
+    pub pins: Vec<RequireSetPin>,
+}
+
+/// One Pin that arrived under a require-set version.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RequireSetPin {
+    pub producer: String,
+    pub api_type: ApiType,
+    pub version: SemVer,
+}
+
 /// One version-line entry as listed on a Producer, UI- and wire-facing.
 #[derive(Serialize, Clone, Debug)]
 pub struct ProducerVersionInfo {

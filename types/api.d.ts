@@ -168,3 +168,18 @@ interface PinMoves {
   newer: { version: string; stability: string; endpoints: EndpointMove[]; free: boolean }[];
   proposal: { version: string; stability: string; deprecated: EndpointRef[] } | null;
 }
+
+/** `PinnedVersion` in `src/application/version_strip_service.rs` (san-1032). */
+interface PinnedVersion {
+  api_type: string;
+  version: string;
+  stability: string | null;
+  consumers: string[];
+}
+
+/** `RequireSet` in `src/domain/models.rs` (san-1032). */
+interface RequireSet {
+  number: number;
+  first_seen_at: string;
+  pins: { producer: string; api_type: string; version: string }[];
+}

@@ -57,6 +57,34 @@ pub async fn admin_list_consumer_endpoints(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct PinnedByQuery {
+    pub scope: Option<String>,
+}
+
+/// Per version of a Producer, the Consumers that pin it in a graph scope
+/// (san-1032): the Producer page's strip.
+pub async fn admin_producer_pinned_by(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<PinnedByQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
+    Ok(Json(
+        services::producer_pinned_by(&state.repo, &name, scope).await?,
+    ))
+}
+
+/// A Consumer's require-set versions with their Pins (san-1032).
+pub async fn admin_consumer_require_sets(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::consumer_require_sets(&state.repo, &name).await?,
+    ))
+}
+
 /// Per Pin, the newer versions with this Consumer's endpoints and the free
 /// move (san-1031).
 pub async fn admin_consumer_moves(

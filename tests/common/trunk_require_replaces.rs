@@ -60,6 +60,7 @@ async fn require_one(
             trunk,
             tag: None,
             format: RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await
@@ -82,6 +83,7 @@ async fn require_bundle(repo: &impl SpecRepository, producer: &str, paths: &[&st
             trunk,
             tag: None,
             format: RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await
@@ -157,6 +159,7 @@ pub async fn trunk_requires_replace_the_dependencies_on_their_producer(repo: &im
             trunk: false,
             tag: None,
             format: RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await

@@ -312,6 +312,17 @@ paths:
         version serves every endpoint this Consumer requires of the Pin in the
         same shape, `X-Sanshain-Upgrade` names it (2.18.0): a free move.
       parameters:
+        - name: requires_hash
+          in: query
+          required: false
+          schema: { type: string, maxLength: 128, pattern: "^[A-Za-z0-9]+$" }
+          description: |
+            The client's hash of the Consumer's `requires` section of
+            `sanshain.yaml` (2.18.0). A trunk or tag require records its Pin
+            under the Consumer's require-set version for that hash; a new hash
+            gets the Consumer's next number (1, 2, 3, …). A plain dev require,
+            a dry run or a failed require numbers nothing. Services before
+            2.18.0 answer `400` naming the parameter.
         - name: annotations
           in: query
           required: false
@@ -1881,6 +1892,10 @@ components:
         tag:
           type: string
           description: See `tag` on `/require`.
+        requires_hash:
+          type: string
+          maxLength: 128
+          description: See `requires_hash` on `/require`. Services before 2.18.0 answer `422` naming the field.
         annotations:
           type: array
           items:

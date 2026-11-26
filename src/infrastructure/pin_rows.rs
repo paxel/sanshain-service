@@ -167,3 +167,38 @@ pub(crate) fn links_json(
 ) -> Result<String, RepositoryError> {
     serde_json::to_string(&context.links).map_err(|e| RepositoryError::Internal(e.to_string()))
 }
+
+/// `(number, first_seen_at, producer, api_type, version)` — one require set
+/// LEFT JOINed with one of its Pins (san-1032), shared by both engines.
+pub(crate) type RequireSetRow = (i64, String, Option<String>, Option<String>, Option<String>);
+
+/// Rows ordered by number into require sets, each with its Pins.
+pub(crate) fn require_sets_from_rows(
+    rows: Vec<RequireSetRow>,
+) -> Result<Vec<crate::domain::models::RequireSet>, RepositoryError> {
+    use crate::domain::models::{ApiType, RequireSet, RequireSetPin, SemVer};
+    use std::str::FromStr;
+    let mut sets: Vec<RequireSet> = Vec::new();
+    for (number, first_seen_at, producer, api_type, version) in rows {
+        if sets.last().is_none_or(|s| s.number != number) {
+            sets.push(RequireSet {
+                number,
+                first_seen_at,
+                pins: Vec::new(),
+            });
+        }
+        if let (Some(producer), Some(api_type), Some(version), Some(set)) =
+            (producer, api_type, version, sets.last_mut())
+        {
+            let version = SemVer::from_str(&version).map_err(|e| {
+                RepositoryError::Internal(format!("require set pin version '{version}': {e}"))
+            })?;
+            set.pins.push(RequireSetPin {
+                producer,
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                version,
+            });
+        }
+    }
+    Ok(sets)
+}

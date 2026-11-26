@@ -16,4 +16,5 @@ pub use super::spec_service::*;
 pub use super::structure_service::*;
 pub use super::text_diff::*;
 pub use super::version_rules::*;
+pub use super::version_strip_service::*;
 pub use crate::domain::models::AppError;

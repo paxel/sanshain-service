@@ -148,6 +148,13 @@ async function showClientDependencies(clientName) {
       clientName;
     list.appendChild(breadcrumb);
 
+    // san-1032: what each version of the require set requires, on top.
+    const strip = document.createElement("div");
+    strip.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+    strip.dataset.versionStrip = "consumer";
+    list.appendChild(strip);
+    void renderConsumerStrip(clientName, strip);
+
     // Owner, description, repository and links from the Consumer's
     // catalog-info (#48), under the title. Optional: the page reads without it.
     try {

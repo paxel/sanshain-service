@@ -83,7 +83,8 @@ fn hash_session_token(token: &str) -> String {
 }
 
 use super::pin_rows::{
-    PinRow, SystemContextRow, VersionOriginRow, links_json, periphery_track_key, pin_row_to_info,
+    PinRow, RequireSetRow, SystemContextRow, VersionOriginRow, links_json,
+    periphery_track_key, pin_row_to_info, require_sets_from_rows,
     system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
 use super::product_rows::{ProductMemberRow, ProductRow, import_plan, products_from_rows};
@@ -684,6 +685,63 @@ impl SpecRepository for SqliteSpecRepository {
             out.entry(id).or_default().push(Annotation { name, value });
         }
         Ok(out)
+    }
+
+    async fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> Result<i64, RepositoryError> {
+        let mut tx = self.write_tx().await?;
+        sqlx::query(
+            "INSERT INTO require_sets (consumer, hash, number, first_seen_at) \
+             SELECT ?, ?, COALESCE(MAX(number), 0) + 1, ? FROM require_sets WHERE consumer = ? \
+             ON CONFLICT (consumer, hash) DO NOTHING",
+        )
+        .bind(consumer)
+        .bind(hash)
+        .bind(now_iso)
+        .bind(consumer)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let (id, number): (i64, i64) =
+            sqlx::query_as("SELECT id, number FROM require_sets WHERE consumer = ? AND hash = ?")
+                .bind(consumer)
+                .bind(hash)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO require_set_pins (set_id, producer, api_type, version) \
+             VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        )
+        .bind(id)
+        .bind(&pin.producer)
+        .bind(pin.api_type.as_str())
+        .bind(pin.version.to_string())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(number)
+    }
+
+    async fn list_require_sets(&self, consumer: &str) -> Result<Vec<RequireSet>, RepositoryError> {
+        let rows: Vec<RequireSetRow> = sqlx::query_as(
+            "SELECT s.number, s.first_seen_at, p.producer, p.api_type, p.version \
+             FROM require_sets s LEFT JOIN require_set_pins p ON p.set_id = s.id \
+             WHERE s.consumer = ? ORDER BY s.number, p.producer, p.api_type, p.version",
+        )
+        .bind(consumer)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        require_sets_from_rows(rows)
     }
 
     async fn upsert_system_annotations(
@@ -1886,6 +1944,14 @@ impl SpecRepository for SqliteSpecRepository {
     }
 
     async fn delete_all_clients(&self) -> Result<u64, RepositoryError> {
+        sqlx::query("DELETE FROM require_set_pins")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM dependencies")
             .execute(&self.pool)
             .await
@@ -2025,6 +2091,14 @@ impl SpecRepository for SqliteSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_set_pins")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2188,6 +2262,18 @@ impl SpecRepository for SqliteSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
+        sqlx::query(
+            "DELETE FROM require_set_pins WHERE set_id IN (SELECT id FROM require_sets WHERE consumer = ?)",
+        )
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets WHERE consumer = ?")
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM clients WHERE id = ?")
             .bind(client_id)
             .execute(&self.pool)
