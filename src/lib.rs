@@ -225,6 +225,9 @@ pub fn create_app(state: AppState) -> Router {
         // The ticket URL template is set under settings (ManageSettings) and read by every
         // signed-in user from its own path: the pages link ticket ids with it.
         .route("/admin/settings/ticket-url-template", post(admin::set_ticket_url_template).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        // san-1029: the branch naming patterns, and a test of patterns not yet saved.
+        .route("/admin/settings/branch-rules", get(admin::get_branch_rules).post(admin::set_branch_rules).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/branch-rules/test", post(admin::test_branch_rules).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/ticket-url-template", get(admin::get_ticket_url_template).layer(require(state.clone(), RouteGuard::Authenticated)))
         // The harmless settings as values for everyone signed in; changing each stays behind ManageSettings.
         .route("/admin/instance-settings", get(admin::get_instance_settings).layer(require(state.clone(), RouteGuard::Authenticated)))

@@ -564,12 +564,13 @@ impl SpecRepository for PostgresSpecRepository {
         }
         sqlx::query(
             "INSERT INTO spec_version_origin \
-                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at, git_branch, git_target_branch) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
                  ON CONFLICT (spec_version_id) DO UPDATE SET \
                    build_url = EXCLUDED.build_url, change_url = EXCLUDED.change_url, \
                    tickets_json = EXCLUDED.tickets_json, note = EXCLUDED.note, \
-                   trunk_build = EXCLUDED.trunk_build, updated_at = EXCLUDED.updated_at",
+                   trunk_build = EXCLUDED.trunk_build, updated_at = EXCLUDED.updated_at, \
+                   git_branch = EXCLUDED.git_branch, git_target_branch = EXCLUDED.git_target_branch",
         )
         .bind(spec_version_id)
         .bind(origin.build_url.as_deref())
@@ -578,6 +579,8 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(origin.note.as_deref())
         .bind(origin.trunk_build)
         .bind(now_iso)
+        .bind(origin.git_branch.as_deref())
+        .bind(origin.git_target_branch.as_deref())
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -589,7 +592,7 @@ impl SpecRepository for PostgresSpecRepository {
         spec_version_id: i64,
     ) -> Result<Option<VersionOrigin>, RepositoryError> {
         let row: Option<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin WHERE spec_version_id = $1",
         )
         .bind(spec_version_id)
@@ -602,7 +605,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
         let rows: Vec<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin",
         )
         .fetch_all(&self.pool)

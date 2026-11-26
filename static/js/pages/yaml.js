@@ -63,6 +63,8 @@ function originText(origin) {
   if (!origin) return "";
   const parts = [];
   if (origin.note) parts.push(origin.note);
+  const branch = originBranchText(origin);
+  if (branch) parts.push(`branch: ${branch}`);
   if (origin.change_url) parts.push(`change: ${origin.change_url}`);
   if (origin.build_url && origin.trunk_build) parts.push(`build: ${origin.build_url}`);
   if (origin.tickets?.length) parts.push(`tickets: ${origin.tickets.join(", ")}`);

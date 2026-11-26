@@ -849,6 +849,52 @@ pub async fn set_ticket_url_template(
     Ok(Json(json!({ "template": template })))
 }
 
+/// The branch rules (san-1029): the naming patterns that read a version's
+/// git branch.
+pub async fn get_branch_rules(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::get_branch_rules(&state.repo).await?))
+}
+
+pub async fn set_branch_rules(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<services::BranchRules>,
+) -> Result<impl IntoResponse, AppError> {
+    let rules = services::set_branch_rules(&state.repo, &payload).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_BRANCH_RULES",
+            details: &format!("Set {} branch naming patterns", rules.patterns.len()),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(rules))
+}
+
+#[derive(Deserialize)]
+pub struct BranchRulesTestPayload {
+    #[serde(flatten)]
+    pub rules: services::BranchRules,
+    pub branch: String,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+/// What the given rules, saved or not, read from a sample branch.
+pub async fn test_branch_rules(
+    Json(payload): Json<BranchRulesTestPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    let reading =
+        services::test_branch_rules(&payload.rules, &payload.branch, payload.target.as_deref())?;
+    Ok(Json(json!({ "reading": reading })))
+}
+
 pub async fn get_snapshot_max_age(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -1669,6 +1715,7 @@ pub async fn get_instance_settings(
         "dependency_max_age_days": services::get_dependency_max_age_days(&state.repo).await?,
         "trunk_max_age_days": services::get_trunk_max_age_days(&state.repo).await?,
         "ticket_url_template": services::get_ticket_url_template(&state.repo).await?,
+        "branch_rules": services::get_branch_rules(&state.repo).await?,
         "cache": {
             "enabled": stats.enabled,
             "memory_limit_mb": stats.memory_limit_mb,

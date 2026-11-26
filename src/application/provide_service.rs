@@ -232,8 +232,10 @@ async fn record_version_rejection(
 /// With nothing stored, the new origin is taken. A trunk build's origin over
 /// a branch build's takes over only the build link, which the branch build's
 /// Jenkins job deletes after the merge, and fills empty fields; the change
-/// link, tickets and note from the branch build stay. Anything else leaves the
-/// stored origin alone. `None` means: write nothing.
+/// link, tickets and note from the branch build stay. The git branch
+/// (san-1029) is the one the version was born on: a re-provide only fills an
+/// empty one. Anything else leaves the stored origin alone. `None` means:
+/// write nothing.
 fn origin_for_identical_provide(
     stored: Option<VersionOrigin>,
     incoming: &VersionOrigin,
@@ -255,7 +257,22 @@ fn origin_for_identical_provide(
             },
             note: stored.note.or_else(|| incoming.note.clone()),
             trunk_build: true,
+            git_branch: stored.git_branch.or_else(|| incoming.git_branch.clone()),
+            git_target_branch: stored
+                .git_target_branch
+                .or_else(|| incoming.git_target_branch.clone()),
+            branch_reading: None,
         }),
+        Some(stored) if stored.git_branch.is_none() && incoming.git_branch.is_some() => {
+            Some(VersionOrigin {
+                git_branch: incoming.git_branch.clone(),
+                git_target_branch: stored
+                    .git_target_branch
+                    .clone()
+                    .or_else(|| incoming.git_target_branch.clone()),
+                ..stored
+            })
+        }
         Some(_) => None,
     }
 }
@@ -1042,6 +1059,13 @@ async fn plan_provide_events(
         _ => None,
     };
     let mut events = Vec::new();
+    // The branch reading (san-1029) travels with the origin, as on the pages.
+    let mut origin = facts.origin.clone();
+    if !published_to.is_empty() {
+        super::git_branch_service::compiled_branch_rules(repo)
+            .await?
+            .read_origin(&mut origin);
+    }
     let published = webhooks::version_published_data(&webhooks::VersionPublished {
         producer: facts.producername,
         api_type: facts.api_type,
@@ -1051,7 +1075,7 @@ async fn plan_provide_events(
         stream: facts.stream,
         actor: facts.username,
         compatibility,
-        origin: facts.origin,
+        origin: &origin,
         annotations: facts.annotations,
     });
     events.extend(webhooks::event_for(
@@ -1288,7 +1312,46 @@ mod tests {
             tickets: Vec::new(),
             note: None,
             trunk_build,
+            ..VersionOrigin::default()
         }
+    }
+
+    #[test]
+    fn a_re_provide_keeps_the_branch_the_version_was_born_on() {
+        let born = VersionOrigin {
+            git_branch: Some("feature/master/login".to_string()),
+            ..origin(Some("https://ci/branch/9"), None, false)
+        };
+        let trunk = VersionOrigin {
+            git_branch: Some("master".to_string()),
+            ..origin(Some("https://ci/main/41"), None, false)
+        };
+        let merged = origin_for_identical_provide(Some(born.clone()), &trunk, true).unwrap();
+        assert_eq!(merged.git_branch.as_deref(), Some("feature/master/login"));
+        assert_eq!(merged.build_url.as_deref(), Some("https://ci/main/41"));
+        // A plain re-provide from another branch writes nothing.
+        assert_eq!(
+            origin_for_identical_provide(Some(born), &trunk, false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_re_provide_fills_an_empty_branch_and_keeps_the_rest() {
+        let stored = VersionOrigin {
+            note: Some("laptop".to_string()),
+            ..origin(None, Some("https://git/pr/3"), false)
+        };
+        let incoming = VersionOrigin {
+            git_branch: Some("feature/master/login".to_string()),
+            git_target_branch: Some("master".to_string()),
+            ..origin(Some("https://ci/branch/9"), None, false)
+        };
+        let merged = origin_for_identical_provide(Some(stored), &incoming, false).unwrap();
+        assert_eq!(merged.git_branch.as_deref(), Some("feature/master/login"));
+        assert_eq!(merged.git_target_branch.as_deref(), Some("master"));
+        assert_eq!(merged.note.as_deref(), Some("laptop"));
+        assert_eq!(merged.build_url, None, "only the branch is filled");
     }
 
     #[test]

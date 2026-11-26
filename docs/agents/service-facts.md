@@ -13,7 +13,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   in each role. Tables say `services` (Producer) and `clients` (Consumer); only the repository
   layer uses those words. Wire names `producername`/`consumername` only (1.x aliases refused).
 - Tooling = software calling Sanshain for a system (our five clients below, curl). Never "client" in
-  domain text, never a domain entity. Sanshain never sees git; clients never read git.
+  domain text, never a domain entity. Sanshain never sees git; clients read git only for the
+  branch name, as a last resort (ADR-0003 amendment).
 - Version: strict `MAJOR.MINOR.PATCH` from the spec (`info.version`; proto: mandatory
   `// sanshain-version:` comment, 400 when missing or conflicting). Never assigned by Sanshain.
   Version line = one Producer × one API type.
@@ -70,7 +71,13 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 ## Origin (why a version exists)
 
 - Only provides carry an Origin: `build_url`, `change_url` (PR/MR), `tickets` (≤20 ids),
-  `note` (one line ≤200). Requires and catalog pushes carry none.
+  `note` (one line ≤200), `git_branch`/`git_target_branch` (2.18.0, ≤255, no whitespace; not
+  `branch`, the refused 1.x field). Requires and catalog pushes carry none.
+- Branch (san-1029): information only, never changes serving or rules. Kept from the version's
+  birth (a no-op re-provide only fills an empty one). Admin's naming patterns (`branch_rules`
+  setting: regexes with groups `kind`/`target`, `/admin/settings/branch-rules[/test]`,
+  `manage_settings`) are read when shown (`branch_reading`, never stored); the runner's target
+  wins. Code: `src/application/git_branch_service.rs`.
 - It comes from the pipeline, never from a person. Clients fill the two URLs from runner
   variables: GitHub Actions (run URL; PR URL on `refs/pull/<n>/…`), GitLab CI (`CI_JOB_URL`; MR
   URL in MR pipelines), Jenkins (`BUILD_URL`; `CHANGE_URL` on multibranch PR builds). Bitbucket

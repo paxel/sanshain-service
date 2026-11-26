@@ -3161,7 +3161,7 @@ paths:
 
         The harmless instance settings as values, for the admin page to show to someone who may
         see but not change them: `auto_approve_users`, `snapshot_max_age_days`,
-        `dependency_max_age_days`, `trunk_max_age_days`, `ticket_url_template` and `cache`
+        `dependency_max_age_days`, `trunk_max_age_days`, `ticket_url_template`, `branch_rules` and `cache`
         (`enabled`, `memory_limit_mb`, `memory_used_mb`, `entry_count`, `hit_count`, `miss_count`,
         `hit_rate`). Changing each stays behind `manage_settings`; the auth configuration, the
         webhook allow-list and the database are not included.
@@ -3209,6 +3209,97 @@ paths:
           description: Success.
         "400":
           description: Not an absolute http(s) URL with `{id}`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/branch-rules:
+    get:
+      summary: "Read: settings/branch-rules"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        The branch naming patterns (san-1029): `{"patterns": ["^(?<kind>feature|bugfix)/(?<target>release/[^/]+|main|master)/"]}`.
+        Each is a regular expression with the named groups `kind` and `target`; the first that
+        matches a version's git branch reads it, whenever the origin is shown.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/branch-rules"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        Replace the branch naming patterns: at most 20, each at most 500 characters, a regular
+        expression naming a `kind` or a `target` group; blank ones are dropped. Audited as
+        `SET_BRANCH_RULES`.
+      responses:
+        "200":
+          description: The stored rules.
+        "400":
+          description: A pattern that does not compile or names neither group, by position.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/branch-rules/test:
+    post:
+      summary: "Create or run: settings/branch-rules/test"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        What the given rules, saved or not, read from a sample branch:
+        `{"patterns": [...], "branch": "feature/master/login", "target": null}` answers
+        `{"reading": {"kind": "feature", "target": "master"}}`, or `{"reading": null}` when
+        nothing matches. A given `target` stands for the runner's pull request target and wins
+        over the pattern's. Stores nothing.
+      responses:
+        "200":
+          description: The reading.
+        "400":
+          description: Invalid rules or no branch.
           content:
             application/json:
               schema:

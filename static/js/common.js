@@ -5,7 +5,7 @@
 /* exported personLabel, externalTag, byCodeUnit, renderBanner, sanshainLogout, friendlyError */
 /* exported escapeAttr, attrJson, setActionArgs, confirmDelete, promoteVersion */
 /* exported reloadClearingInstance, dismissReloadBanner, togglePasswordVisibility */
-/* exported systemContextHtml, loadTicketUrlTemplate, originHtml, annotationsHtml */
+/* exported systemContextHtml, loadTicketUrlTemplate, originHtml, originBranchText, annotationsHtml */
 /* exported appendClearSystemInfo, storeSanshainToken, forgetCsrfToken */
 
 /**
@@ -1204,6 +1204,20 @@ function ticketUrl(template, id) {
   return template ? template.replaceAll("{id}", encodeURIComponent(id)) : null;
 }
 
+// The branch of an origin as "branch → target" (san-1029); the target is
+// the runner's pull request target, else what the naming patterns read.
+// Empty string when the build named no branch.
+/**
+ * @param {VersionOrigin | null | undefined} origin
+ * @returns {string}
+ */
+function originBranchText(origin) {
+  const branch = origin?.git_branch;
+  const target = origin?.branch_reading?.target ?? origin?.git_target_branch;
+  if (!branch) return target ? `→ ${target}` : "";
+  return target ? `${branch} → ${target}` : branch;
+}
+
 // A version's origin (what the providing build said about why): the note,
 // then chips for the build, the change and each ticket. Empty string when
 // the build said nothing.
@@ -1229,6 +1243,14 @@ function originHtml(origin, template, dark) {
     );
   }
   const chips = [];
+  // san-1029: the branch the version was born on, "branch → target" when a
+  // target is known (the runner's, else what the naming patterns read).
+  const branchLabel = originBranchText(origin);
+  if (branchLabel) {
+    chips.push(
+      `<span data-origin-branch class="px-2 py-0.5 rounded-full text-[11px] font-mono ${plain}">${escapeHtml(branchLabel)}</span>`,
+    );
+  }
   // Only the trunk build's link: branch builds are deleted after the merge.
   if (origin.build_url && origin.trunk_build) {
     chips.push(linkChip(origin.build_url, "build", "build", chip));

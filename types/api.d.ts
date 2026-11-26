@@ -59,6 +59,10 @@ interface VersionOrigin {
   tickets?: string[] | null;
   note?: string | null;
   trunk_build?: boolean;
+  git_branch?: string | null;
+  git_target_branch?: string | null;
+  /** What the branch naming patterns read, computed when shown (san-1029). */
+  branch_reading?: { kind?: string | null; target?: string | null } | null;
 }
 
 /** `Annotation` in `src/domain/models.rs`. */

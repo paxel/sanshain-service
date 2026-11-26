@@ -84,3 +84,17 @@ the version part of the artifact itself, deletes the inference and most of the m
 - ADR 0001 and ADR 0002 are superseded: 0001's branch-authority model has no branches to govern
   (its `Absent`-is-deliberate and reads-create-nothing insights live on here), and 0002's held
   specs have no review flow to feed.
+
+## Amendment (2.18.0): the git branch comes back as information
+
+Builds may name the git branch they ran on, and the branch a pull or merge request merges into,
+as part of the version's origin (`git_branch`, `git_target_branch`). Sanshain still never sees
+git and still never resolves anything by branch: the branch is shown, read by the
+administrator's naming patterns, and used to propose version numbers; it never changes what a
+require serves, never creates entities and never relaxes a version rule. The guarantee this ADR
+bought, that what is served depends only on the Pin, is unchanged.
+
+The rule "clients never read git" narrows to "clients read git only for the branch name, as a
+last resort": a client takes its flag, then `SANSHAIN_BRANCH`, then the runner's variables, and
+only then `git rev-parse --abbrev-ref HEAD`. A detached HEAD or no `git` gives no branch.
+

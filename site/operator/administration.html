@@ -29,7 +29,7 @@
   described in <a href="roles.html">Roles and permissions</a>, and every route behind it is in the
   generated <a href="../reference/maintenance.html">Maintenance API</a> with its guard. General, top
   to bottom: In-Memory Cache, Database Configuration, Sanshain-Branches, Webhooks, Trunk Data TTL,
-  Snapshot Cleanup, Ticket Links, Dependency Cleanup, Provide a Spec for a Producer, Producers,
+  Snapshot Cleanup, Ticket Links, Branch Names, Dependency Cleanup, Provide a Spec for a Producer, Producers,
   Consumers, Danger Zone; Sign-in: Authentication; Users: Users, Groups, Maintainers. Administrative
   routes accept session tokens only, so a script that administers logs in first (<code
     >POST /auth/login</code
@@ -277,6 +277,20 @@
     with it; empty shows them as plain text (<code>GET /admin/ticket-url-template</code> for every
     signed-in user, <code>POST /admin/settings/ticket-url-template</code> audited as
     <code>SET_TICKET_URL_TEMPLATE</code>).
+  </li>
+  <li id="branch-names">
+    <strong>Branch Names</strong> (2.18.0): how the company names its git branches, as regular
+    expressions with the named groups <code>kind</code> and <code>target</code>, one per line; the
+    first that matches a version's branch reads it. With
+    <code>^(?&lt;kind&gt;feature|bugfix|hotfix)/(?&lt;target&gt;release/[^/]+|main|master)/</code>,
+    a snapshot built on <code>feature/master/login</code> shows
+    <code>feature/master/login → master</code>, and <code>bugfix/release/2.1/npe</code> shows its
+    target <code>release/2.1</code>. A runner's pull request target wins over the pattern's. The
+    patterns are read whenever a version is shown, so a fix to a pattern also reads old versions.
+    <strong>Test</strong> asks the service what a sample branch gives, before anything is saved
+    (<code>GET</code>/<code>POST /admin/settings/branch-rules</code>, audited as
+    <code>SET_BRANCH_RULES</code>; <code>POST /admin/settings/branch-rules/test</code>; at most 20
+    patterns of at most 500 characters).
   </li>
   <li>
     <strong>In-Memory Cache</strong>: the memory bound at runtime, hit rate, entries and memory

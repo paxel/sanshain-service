@@ -1109,7 +1109,7 @@ pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
     let consumers = repo.list_consumers().await?;
     let contexts = repo.list_system_contexts().await?;
     let annotations = repo.list_system_annotations().await?;
-    let origins = repo.list_version_origins().await?;
+    let origins = super::git_branch_service::list_read_version_origins(repo).await?;
     let mut products_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for product in repo.list_products().await? {
         for member in product.members {

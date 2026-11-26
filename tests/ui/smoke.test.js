@@ -462,6 +462,86 @@ test.describe("One-click promote", () => {
   });
 });
 
+// san-1029: a version shows the git branch it was built from, and the Branch
+// Names setting reads where it merges to.
+test.describe("Branch names", () => {
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+  const SERVICE = "branch-fixture";
+  const SPEC = [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Branch Fixture",
+    "  version: 1.0.0",
+    "paths:",
+    "  /branches:",
+    "    get:",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "",
+  ].join("\n");
+
+  test("the admin tests and saves a pattern, and the version row shows branch and target", async ({
+    page,
+    request,
+  }) => {
+    if (!adminPassword) {
+      throw new Error("INITIAL_ADMIN_PASSWORD environment variable is required for tests");
+    }
+    const login = await request.post("/auth/login", {
+      data: { username: "root", password: adminPassword },
+    });
+    const { token } = /** @type {{ token: string }} */ (await json(login));
+    const provided = await request.post("/provide", {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        producername: SERVICE,
+        stability: "snapshot",
+        openapi_yaml: SPEC,
+        git_branch: "feature/master/login",
+      },
+    });
+    expect(provided.ok(), await provided.text()).toBeTruthy();
+
+    await page.goto("/account.html");
+    await page.waitForSelector("#login-username", { state: "visible" });
+    await page.fill('input[id="login-username"]', "root");
+    await page.fill('input[id="login-password"]', adminPassword);
+    await page.click('#login-panel button[type="submit"]');
+    await expect(page.locator("#dashboard")).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/admin.html");
+    await expect(page.locator("#branch-rules-section")).toBeVisible({ timeout: 10000 });
+    await page.fill(
+      "#branch-rules-patterns",
+      "^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/",
+    );
+    await page.fill("#branch-rules-sample", "bugfix/release/2.1/npe");
+    await page.click('[data-click="testBranchRules"]');
+    await expect(page.locator("#branch-rules-test-result")).toHaveText(
+      "kind: bugfix · target: release/2.1",
+    );
+    await page.fill("#branch-rules-sample", "wip");
+    await page.click('[data-click="testBranchRules"]');
+    await expect(page.locator("#branch-rules-test-result")).toHaveText("no pattern matches");
+    await page.click('[data-click="saveBranchRules"]');
+    await expect(page.locator("#branch-rules-result")).toHaveText("✓ Saved");
+    await page.reload();
+    await expect(page.locator("#branch-rules-patterns")).toHaveValue(/\(\?<kind>feature/);
+
+    // A bad pattern is refused by position.
+    await page.fill("#branch-rules-patterns", "(");
+    await page.click('[data-click="saveBranchRules"]');
+    await expect(page.locator("#branch-rules-result")).toContainText("branch pattern 1");
+
+    await page.goto(`/producers.html?service=${SERVICE}`);
+    const card = page.locator(".endpoint-card", { hasText: "1.0.0" });
+    await expect(card.locator("[data-origin-branch]")).toHaveText("feature/master/login → master", {
+      timeout: 10000,
+    });
+  });
+});
+
 test.describe("Snapshot cleanup settings", () => {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
 

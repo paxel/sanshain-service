@@ -66,6 +66,13 @@ pub struct ProvideRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -394,6 +401,9 @@ pub async fn provide(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },
@@ -430,6 +440,13 @@ pub struct ProvideAsyncApiRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -462,6 +479,9 @@ pub async fn provide_asyncapi(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },
@@ -498,6 +518,13 @@ pub struct ProvideProtoRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -530,6 +557,9 @@ pub async fn provide_proto(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },

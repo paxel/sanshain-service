@@ -7,6 +7,7 @@ pub mod branch_service;
 pub mod catalog_service;
 pub mod dashboard_service;
 pub mod directory_roles;
+pub mod git_branch_service;
 pub mod mcp_service;
 pub mod product_service;
 pub mod provide_service;

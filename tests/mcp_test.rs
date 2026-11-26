@@ -516,7 +516,7 @@ async fn list_services_and_describe_service_answer_the_catalog() {
     assert!(v1["last_provided_at"].is_string());
     assert_eq!(
         v1["origin"],
-        json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false})
+        json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false, "git_branch": null, "git_target_branch": null})
     );
     let endpoints = d["endpoints"].as_array().unwrap();
     assert_eq!(

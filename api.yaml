@@ -1517,6 +1517,23 @@ components:
           type: string
           nullable: true
           description: One line of intent, at most 200 characters.
+        git_branch:
+          type: string
+          nullable: true
+          description: |
+            The git branch this build ran on (2.18.0), at most 255 characters
+            without whitespace. Part of the origin, information only: it never
+            changes what a require serves. The version keeps the branch it was
+            born on; a no-op re-provide only fills an empty one. The admin's
+            branch naming patterns read its kind and target when it is shown.
+            Not `branch`, which stays the refused 1.x field. Services before
+            2.18.0 answer `422` naming the field.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: |
+            On a pull or merge request build, the branch it merges into (2.18.0);
+            wins over what the naming patterns read. Same bounds as `git_branch`.
         annotations:
           type: array
           items:
@@ -1589,6 +1606,14 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        git_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_branch`.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_target_branch`.
         annotations:
           type: array
           items:
@@ -1649,6 +1674,14 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        git_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_branch`.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_target_branch`.
         annotations:
           type: array
           items:
@@ -1949,6 +1982,25 @@ components:
         note:
           type: string
           nullable: true
+        git_branch:
+          type: string
+          nullable: true
+          description: The git branch the version was born on (2.18.0).
+        git_target_branch:
+          type: string
+          nullable: true
+          description: The pull or merge request target the build named (2.18.0).
+        branch_reading:
+          type: object
+          nullable: true
+          description: |
+            What the instance's branch naming patterns read from `git_branch`
+            (2.18.0), computed when shown: `kind` and `target` (the runner's
+            target when there was one, else the pattern's). Absent when
+            nothing was read.
+          properties:
+            kind: { type: string, nullable: true }
+            target: { type: string, nullable: true }
     ProducerVersionInfo:
       type: object
       required:

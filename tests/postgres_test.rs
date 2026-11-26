@@ -1077,6 +1077,9 @@ async fn test_postgres_version_origin_set_get_list_and_swept_with_its_version() 
         tickets: vec!["ORD-7".to_string()],
         note: Some("why".to_string()),
         trunk_build: true,
+        git_branch: Some("feature/master/login".to_string()),
+        git_target_branch: Some("master".to_string()),
+        branch_reading: None,
     };
     repo.set_version_origin(id, &origin, "2026-01-01T00:00:00Z")
         .await

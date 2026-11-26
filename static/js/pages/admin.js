@@ -7,6 +7,7 @@
 /* exported onSessionExpired, saveWebhookAllowedHosts, downloadDatabaseSnapshot, saveCacheConfig */
 /* exported clearCache, saveTrunkMaxAge, triggerTrunkCleanup, saveSnapshotMaxAge */
 /* exported saveTicketUrlTemplate, triggerSnapshotCleanup, saveDependencyMaxAge */
+/* exported saveBranchRules, testBranchRules */
 /* exported triggerDependencyCleanup, toggleRegistration, toggleAutoApproveUsers, toggleGravatar */
 /* exported toggleDetailedErrors, grantRole, revokeRole, createGroup, removeGroupMember */
 /* exported addGroupRole, toggleUserChip, renameServiceAccount, approveUser, pasteSpecSubmit */
@@ -219,6 +220,7 @@ async function loadAll() {
   void loadTrunkMaxAge();
   void loadSnapshotMaxAge();
   void loadTicketUrlTemplateSetting();
+  void loadBranchRules();
   void loadDependencyMaxAge();
   void loadServices();
   void loadClients();
@@ -631,6 +633,68 @@ async function saveTicketUrlTemplate() {
     setTimeout(() => (result.textContent = ""), 5000);
   } catch {
     // Nothing was saved, and the result line stays empty.
+  }
+}
+
+// --- Branch names (san-1029) ---
+// The patterns live in the instance settings, readable by every signed-in
+// user; saving and testing stay behind manage_settings.
+
+/** The patterns of the textarea, one per line, blank lines dropped. */
+function branchRulesPatterns() {
+  return /** @type {HTMLTextAreaElement} */ (document.getElementById("branch-rules-patterns")).value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+async function loadBranchRules() {
+  const settings = await instanceSettings();
+  const field = /** @type {HTMLTextAreaElement | null} */ (
+    document.getElementById("branch-rules-patterns")
+  );
+  if (field) field.value = (settings?.branch_rules?.patterns ?? []).join("\n");
+}
+
+async function saveBranchRules() {
+  const result = /** @type {HTMLElement} */ (document.getElementById("branch-rules-result"));
+  try {
+    const res = await apiCall("/admin/settings/branch-rules", {
+      method: "POST",
+      body: { patterns: branchRulesPatterns() },
+    });
+    result.textContent = res.ok ? "✓ Saved" : "✗ " + (await errorMessage(res));
+    setTimeout(() => (result.textContent = ""), 5000);
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
+}
+
+// The service reads the sample, not the browser: its regular expressions
+// are the ones that read the versions.
+async function testBranchRules() {
+  const result = /** @type {HTMLElement} */ (document.getElementById("branch-rules-test-result"));
+  const branch = /** @type {HTMLInputElement} */ (
+    document.getElementById("branch-rules-sample")
+  ).value.trim();
+  try {
+    const res = await apiCall("/admin/settings/branch-rules/test", {
+      method: "POST",
+      body: { patterns: branchRulesPatterns(), branch },
+    });
+    if (!res.ok) {
+      result.textContent = "✗ " + (await errorMessage(res));
+      return;
+    }
+    const { reading } =
+      /** @type {{ reading: { kind?: string | null, target?: string | null } | null }} */ (
+        await res.json()
+      );
+    result.textContent = reading
+      ? `kind: ${reading.kind ?? "–"} · target: ${reading.target ?? "–"}`
+      : "no pattern matches";
+  } catch {
+    // The result line stays as it was.
   }
 }
 

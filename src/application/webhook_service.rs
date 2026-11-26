@@ -1327,6 +1327,7 @@ mod tests {
                 tickets: vec!["ORD-7".to_string()],
                 note: Some("Ship v2".to_string()),
                 trunk_build: false,
+                ..VersionOrigin::default()
             },
             annotations: &[Annotation {
                 name: "requirements".to_string(),

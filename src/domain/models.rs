@@ -1077,6 +1077,29 @@ pub struct VersionOrigin {
     /// merge. Set by the service, never by the request.
     #[serde(default)]
     pub trunk_build: bool,
+    /// The git branch the build ran on (san-1029), as the client read it
+    /// from the runner (or, last, from git). Information only: it never
+    /// changes what a require serves.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    /// The branch a pull or merge request build merges into, when the runner
+    /// said so.
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
+    /// What the admin's branch naming patterns read from `git_branch`, filled
+    /// when the origin is shown, never stored: a changed pattern re-reads
+    /// every version.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub branch_reading: Option<BranchReading>,
+}
+
+/// What the branch naming patterns (san-1029) read from a version's branch:
+/// the `kind` of branch and the branch it merges into. `target` is the
+/// runner's pull request target when there was one, else the pattern's.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct BranchReading {
+    pub kind: Option<String>,
+    pub target: Option<String>,
 }
 
 impl VersionOrigin {
@@ -1088,12 +1111,16 @@ impl VersionOrigin {
     pub const MAX_NOTE_CHARS: usize = 200;
     /// A URL longer than this is refused.
     pub const MAX_URL_CHARS: usize = 2048;
+    /// A branch name longer than this is refused.
+    pub const MAX_BRANCH_CHARS: usize = 255;
 
     pub fn is_empty(&self) -> bool {
         self.build_url.is_none()
             && self.change_url.is_none()
             && self.tickets.is_empty()
             && self.note.is_none()
+            && self.git_branch.is_none()
+            && self.git_target_branch.is_none()
     }
 
     /// The origin as stored: URLs absolute `http(s)`, ticket ids trimmed,
@@ -1156,12 +1183,30 @@ impl VersionOrigin {
                 Self::MAX_NOTE_CHARS
             ));
         }
+        let branch = |field: &str, value: &Option<String>| -> Result<Option<String>, String> {
+            let Some(raw) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {
+                return Ok(None);
+            };
+            if raw.chars().count() > Self::MAX_BRANCH_CHARS {
+                return Err(format!(
+                    "{field} is longer than {} characters",
+                    Self::MAX_BRANCH_CHARS
+                ));
+            }
+            if raw.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                return Err(format!("{field} must not contain whitespace"));
+            }
+            Ok(Some(raw.to_string()))
+        };
         Ok(VersionOrigin {
             build_url: url("build_url", &self.build_url)?,
             change_url: url("change_url", &self.change_url)?,
             tickets,
             note,
             trunk_build: self.trunk_build,
+            git_branch: branch("git_branch", &self.git_branch)?,
+            git_target_branch: branch("git_target_branch", &self.git_target_branch)?,
+            branch_reading: None,
         })
     }
 }

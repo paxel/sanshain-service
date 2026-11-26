@@ -1386,7 +1386,7 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
     let ctx = setup().await;
     let axel = seeded_token(&ctx, "axel", &[]).await;
     let ci = seeded_token(&ctx, "ci", &[]).await;
-    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false});
+    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false, "git_branch": null, "git_target_branch": null});
 
     // A laptop build says nothing.
     let (status, _) = provide_with(&ctx, &axel, &spec_two_endpoints("1.3.0"), json!({})).await;
@@ -1411,6 +1411,8 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
             "tickets": ["ORD-7", "ORD-9"],
             "note": "Adds the users endpoint.",
             "trunk_build": false,
+            "git_branch": null,
+            "git_target_branch": null,
         })
     );
     // Another no-op with other references changes nothing: filled is filled.
@@ -2088,4 +2090,125 @@ async fn the_trunk_build_after_the_merge_takes_over_the_build_link() {
     assert_eq!(origin["change_url"], "https://github.com/acme/svc/pull/7");
     assert_eq!(origin["tickets"], json!(["ORD-7"]));
     assert_eq!(origin["trunk_build"], true);
+}
+
+/// san-1029: the git branch a build names joins the origin; the version keeps
+/// the branch it was born on, and the admin's naming patterns read its kind
+/// and target whenever it is shown.
+#[tokio::test]
+async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let ci = seeded_token(&ctx, "ci", &[]).await;
+
+    // The 1.x field `branch` stays refused (provide_rejects_branch_era_fields_by_name);
+    // the new ones are taken.
+    let (status, body) = provide_with(
+        &ctx,
+        &axel,
+        &spec_two_endpoints("1.3.0"),
+        json!({"git_branch": " feature/master/login "}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let origin = origin_of(&ctx, "1.3.0").await;
+    assert_eq!(origin["git_branch"], "feature/master/login");
+    assert!(
+        origin.get("branch_reading").is_none(),
+        "no patterns, no reading: {origin}"
+    );
+
+    // The trunk build after the merge sends the same bytes from master: the
+    // version keeps the branch it was born on.
+    let (status, _) = provide_with(
+        &ctx,
+        &ci,
+        &spec_two_endpoints("1.3.0"),
+        json!({"git_branch": "master", "trunk": true, "build_url": "https://ci/main/1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await["git_branch"],
+        "feature/master/login"
+    );
+
+    // The admin describes the naming; every version is read with it at once.
+    let rules = json!({"patterns": [r"^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/"]});
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules.clone()),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await["branch_reading"],
+        json!({"kind": "feature", "target": "master"})
+    );
+    let (status, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(as_json(&body), rules);
+    let (_, _, body) = send(&ctx, "GET", "/admin/instance-settings", None, &[]).await;
+    assert_eq!(as_json(&body)["branch_rules"], rules);
+
+    // A pull request build's target wins over the pattern's.
+    let (status, _) = provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.4.0"),
+        json!({"git_branch": "bugfix/main/x", "git_target_branch": "release/2.1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        origin_of(&ctx, "1.4.0").await["branch_reading"],
+        json!({"kind": "bugfix", "target": "release/2.1"})
+    );
+
+    // The test field reads unsaved patterns on the server.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules/test",
+        Some(json!({"patterns": [r"^(?<kind>release)/"], "branch": "release/2.6"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        as_json(&body),
+        json!({"reading": {"kind": "release", "target": null}})
+    );
+
+    // A bad pattern is refused by position and stores nothing.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(json!({"patterns": ["^ok/(?<kind>x)", "("]})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("branch pattern 2"), "{body}");
+    let (_, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
+    assert_eq!(as_json(&body), rules);
+
+    // Branch names with whitespace are refused by name.
+    let (status, body) = provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.5.0"),
+        json!({"git_branch": "feature x"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body.to_string()
+            .contains("git_branch must not contain whitespace"),
+        "{body}"
+    );
 }

@@ -481,6 +481,7 @@ pub async fn diff_versions(
     let options = request.options;
     let hunks =
         super::run_cpu_bound(move || Ok(diff_lines(&from_content, &to_content, options))).await?;
+    let rules = &super::git_branch_service::compiled_branch_rules(repo).await?;
     let origin_of = |version: SemVer| async move {
         match repo.find_service(producername).await? {
             Some(sid) => match repo
@@ -488,7 +489,9 @@ pub async fn diff_versions(
                 .await?
             {
                 Some(entry) => {
-                    Ok::<_, AppError>(repo.get_version_origin(entry.id).await?.unwrap_or_default())
+                    let mut origin = repo.get_version_origin(entry.id).await?.unwrap_or_default();
+                    rules.read_origin(&mut origin);
+                    Ok::<_, AppError>(origin)
                 }
                 None => Ok(VersionOrigin::default()),
             },
@@ -602,7 +605,7 @@ pub async fn blame_version(
         .last()
         .map(|t| t.lines().collect())
         .unwrap_or_default();
-    let origins = repo.list_version_origins().await?;
+    let origins = super::git_branch_service::list_read_version_origins(repo).await?;
     Ok(group_blame(&owners)
         .into_iter()
         .filter_map(|run| {

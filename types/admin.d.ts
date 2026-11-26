@@ -90,6 +90,8 @@ interface InstanceSettings {
   dependency_max_age_days: number;
   trunk_max_age_days: number;
   ticket_url_template?: string | null;
+  /** The branch naming patterns (san-1029). */
+  branch_rules?: { patterns: string[] } | null;
   cache: CacheSettings;
 }
 

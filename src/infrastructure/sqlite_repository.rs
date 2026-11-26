@@ -565,12 +565,13 @@ impl SpecRepository for SqliteSpecRepository {
         }
         sqlx::query(
             "INSERT INTO spec_version_origin \
-                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?) \
+                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at, git_branch, git_target_branch) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
                  ON CONFLICT (spec_version_id) DO UPDATE SET \
                    build_url = excluded.build_url, change_url = excluded.change_url, \
                    tickets_json = excluded.tickets_json, note = excluded.note, \
-                   trunk_build = excluded.trunk_build, updated_at = excluded.updated_at",
+                   trunk_build = excluded.trunk_build, updated_at = excluded.updated_at, \
+                   git_branch = excluded.git_branch, git_target_branch = excluded.git_target_branch",
         )
         .bind(spec_version_id)
         .bind(origin.build_url.as_deref())
@@ -579,6 +580,8 @@ impl SpecRepository for SqliteSpecRepository {
         .bind(origin.note.as_deref())
         .bind(origin.trunk_build)
         .bind(now_iso)
+        .bind(origin.git_branch.as_deref())
+        .bind(origin.git_target_branch.as_deref())
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -590,7 +593,7 @@ impl SpecRepository for SqliteSpecRepository {
         spec_version_id: i64,
     ) -> Result<Option<VersionOrigin>, RepositoryError> {
         let row: Option<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin WHERE spec_version_id = ?",
         )
         .bind(spec_version_id)
@@ -603,7 +606,7 @@ impl SpecRepository for SqliteSpecRepository {
 
     async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
         let rows: Vec<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin",
         )
         .fetch_all(&self.pool)
