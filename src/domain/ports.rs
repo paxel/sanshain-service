@@ -410,6 +410,20 @@ pub trait SpecRepository: Send + Sync {
         &self,
     ) -> impl Future<Output = Result<BTreeMap<i64, Vec<Annotation>>, RepositoryError>> + Send;
 
+    /// Every snapshot of a Product (san-1033), in no particular order.
+    fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> impl Future<Output = Result<Vec<ProductSnapshot>, RepositoryError>> + Send;
+
+    /// Insert a Product snapshot, or replace the one of its chart version
+    /// with its members.
+    fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> impl Future<Output = Result<(), RepositoryError>> + Send;
+
     /// Record a Pin under a Consumer's require-set hash (san-1032): a hash
     /// seen for the first time gets the Consumer's next number. Returns the
     /// number.

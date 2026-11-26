@@ -7,6 +7,7 @@ pub use super::dashboard_service::*;
 pub use super::git_branch_service::*;
 pub use super::move_service::*;
 pub use super::product_service::*;
+pub use super::product_snapshot_service::*;
 pub use super::provide_service::*;
 pub use super::report_service::*;
 pub use super::require_service::*;

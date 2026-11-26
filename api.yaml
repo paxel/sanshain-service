@@ -288,6 +288,83 @@ paths:
         "413":
           description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
+  /products/{name}/chart:
+    put:
+      operationId: pushProductChart
+      summary: Push a Product's umbrella Chart.yaml as a snapshot
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
+      description: |
+        A Helm pipeline pushes the umbrella `Chart.yaml` of a Product (2.18.0),
+        with a full API token of a Product Maintainer of that Product or a
+        holder of `manage_producers`. The chart's own `version` keys a Product
+        snapshot: each dependency is a member (its `alias`, else its `name`)
+        with the chart `version` it asks for, as written; the annotation
+        `sanshain/sales-name` is the snapshot's sales name. The same version
+        with other content replaces the snapshot, keeping a sales name or scope
+        set on the Product page; the same content is a no-op. The highest chart
+        version also sets the Product's members, as a pasted chart does.
+
+        The snapshot's API versions are read from `scope`: `main` (default) or
+        a sanshain-branch, optionally `@<rfc3339>`; without an instant the
+        scope is frozen at the push. Audited as `IMPORT_PRODUCT_CHART`.
+
+        ```
+        curl -X PUT "$SANSHAIN_URL/products/shop/chart?scope=release-2026-10" \
+          -H "Authorization: Bearer $SANSHAIN_TOKEN" --data-binary @Chart.yaml
+        ```
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: { type: string }
+      responses:
+        "200":
+          description: |
+            `{chart_version, outcome, members}`: `outcome` is `created`,
+            `replaced` or `unchanged`; `members` is the member import
+            (`added`, `removed`, `skipped`) when this chart set the members,
+            else `null`.
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          description: |
+            Not a chart with dependencies, no `version`, a version that is not
+            SemVer 2, a sales name over 100 characters, or a `dev` scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: No valid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Neither a Maintainer of this Product nor `manage_producers`, or a read-only token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or sanshain-branch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
   /require:
     get:
       operationId: requireEndpoint

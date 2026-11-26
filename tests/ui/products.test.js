@@ -58,3 +58,40 @@ test("a Product is created, filled from a Chart.yaml, trimmed and deleted", asyn
   await expect(page.locator("#products-list-view")).toBeVisible();
   await expect(page.locator("#products-list")).not.toContainText(PRODUCT);
 });
+
+// san-1033: a chart with a version is a release: the sheet, the sales name a
+// Maintainer sets, CSV, and the comparison of two releases.
+test("a versioned chart becomes a release with a sheet and a comparison", async ({ page }) => {
+  const name = `${PRODUCT}-rel`;
+  await page.goto("/products.html");
+  await page.fill("#product-create-name", name);
+  await page.click("#product-create-button");
+  await expect(page.locator("#product-name")).toHaveText(name, { timeout: 10000 });
+  await expect(page.locator("[data-no-snapshots]")).toBeVisible();
+
+  for (const version of ["1.0.0", "1.1.0"]) {
+    await page.fill(
+      "#product-chart-yaml",
+      `apiVersion: v2\nname: shop\nversion: ${version}\nannotations:\n  sanshain/sales-name: Bulbao\ndependencies:\n  - name: ${MEMBER}\n    version: ~2.0.0\n`,
+    );
+    await page.click("#product-chart-import");
+    await expect(page.locator('[data-import="snapshot"]')).toContainText(`Snapshot ${version}`);
+  }
+  await expect(page.locator('[data-snapshot="1.1.0"]')).toContainText("Bulbao");
+
+  await page.locator('[data-snapshot="1.1.0"] button').click();
+  const sheet = page.locator('[data-release-sheet="1.1.0"]');
+  await expect(sheet.locator(`[data-sheet-member="${MEMBER}"]`)).toContainText("~2.0.0");
+  await page.fill("#snapshot-sales-name", "Bulbao ]|[ - alpha");
+  await page.click('[data-click="saveProductSnapshot"]');
+  await expect(page.locator("[data-sheet-sales-name]")).toHaveText("Bulbao ]|[ - alpha");
+  const csv = page.waitForEvent("download");
+  await page.click('[data-click="downloadProductSheet"]');
+  expect((await csv).suggestedFilename()).toBe(`sanshain-${name}-1.1.0.csv`);
+
+  await page.click('[data-click="compareProductSnapshots"]');
+  await expect(page.locator(`[data-compare-member="${MEMBER}"]`)).toBeVisible();
+
+  await page.click("#product-delete-button");
+  await expect(page.locator("#products-list-view")).toBeVisible();
+});

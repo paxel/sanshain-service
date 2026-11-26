@@ -56,6 +56,14 @@
  * @property {string[]} skipped
  */
 
+/**
+ * `ChartPushReport` in `src/application/product_snapshot_service.rs` (san-1033).
+ * @typedef {object} ChartPushReport
+ * @property {string | null} chart_version
+ * @property {string | null} outcome
+ * @property {ProductImportReport | null} members
+ */
+
 /** @typedef {ReturnType<typeof createPicker>} ProductPicker */
 
 /** @type {SanshainUser | null} */
@@ -184,6 +192,7 @@ async function showProduct(name) {
   renderProductMaintainers();
   applyGates(/** @type {HTMLElement} */ (document.getElementById("product-view")));
   hideLoader();
+  void loadProductSnapshots(productDetail.name);
 }
 
 // Every system that can be added by hand: the Producers and the Consumers.
@@ -389,7 +398,8 @@ async function importProductChart() {
       `<p class="text-red-600" data-import-error>${escapeHtml(message)}</p>`;
     return;
   }
-  const report = /** @type {ProductImportReport} */ (await res.json());
+  const pushed = /** @type {ChartPushReport} */ (await res.json());
+  const report = pushed.members ?? { added: [], removed: [], skipped: [] };
   await reloadProduct();
   /**
    * @param {string} label
@@ -398,7 +408,11 @@ async function importProductChart() {
    */
   const line = (label, names, key) =>
     `<div data-import="${key}"><span class="font-semibold">${label}:</span> ${names.length ? names.map(escapeHtml).join(", ") : "none"}</div>`;
+  const snapshot = pushed.chart_version
+    ? `<div data-import="snapshot"><span class="font-semibold">Snapshot ${escapeHtml(pushed.chart_version)}:</span> ${escapeHtml(pushed.outcome ?? "")}${pushed.members ? "" : " (a higher chart version sets the members)"}</div>`
+    : "";
   /** @type {HTMLElement} */ (document.getElementById("product-import-report")).innerHTML =
+    snapshot +
     line("Added", report.added, "added") +
     line("Removed", report.removed, "removed") +
     line("Skipped (no Producer or Consumer of that name)", report.skipped, "skipped");

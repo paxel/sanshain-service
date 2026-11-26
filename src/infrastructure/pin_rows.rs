@@ -202,3 +202,66 @@ pub(crate) fn require_sets_from_rows(
     }
     Ok(sets)
 }
+
+/// One Product snapshot row LEFT JOINed with one of its members (san-1033):
+/// `(id, chart_version, content_hash, sales_name, sales_name_override, scope,
+/// scope_override, pushed_at, pushed_by, member, member_chart_version)`.
+pub(crate) type ProductSnapshotRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    bool,
+    String,
+    bool,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Rows ordered by snapshot id and member position into snapshots.
+pub(crate) fn product_snapshots_from_rows(
+    rows: Vec<ProductSnapshotRow>,
+) -> Vec<crate::domain::models::ProductSnapshot> {
+    use crate::domain::models::{ProductSnapshot, ProductSnapshotMember};
+    let mut out: Vec<(i64, ProductSnapshot)> = Vec::new();
+    for (
+        id,
+        chart_version,
+        content_hash,
+        sales_name,
+        sales_name_override,
+        scope,
+        scope_override,
+        pushed_at,
+        pushed_by,
+        member,
+        member_version,
+    ) in rows
+    {
+        if out.last().is_none_or(|(last, _)| *last != id) {
+            out.push((
+                id,
+                ProductSnapshot {
+                    chart_version,
+                    content_hash,
+                    sales_name,
+                    sales_name_override,
+                    scope,
+                    scope_override,
+                    pushed_at,
+                    pushed_by,
+                    members: Vec::new(),
+                },
+            ));
+        }
+        if let (Some(system), Some((_, snapshot))) = (member, out.last_mut()) {
+            snapshot.members.push(ProductSnapshotMember {
+                system,
+                chart_version: member_version,
+            });
+        }
+    }
+    out.into_iter().map(|(_, s)| s).collect()
+}

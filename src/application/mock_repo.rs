@@ -131,6 +131,8 @@ pub struct MockRepo {
     /// san-1032: per Consumer, its require-set hashes in order of first sight
     /// with the Pins that arrived under each.
     pub require_sets: Mutex<BTreeMap<String, Vec<(String, RequireSet)>>>,
+    /// san-1033: per Product id, its snapshots.
+    pub product_snapshots: Mutex<BTreeMap<i64, Vec<ProductSnapshot>>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
@@ -235,6 +237,7 @@ impl MockRepo {
             version_annotations: Mutex::new(BTreeMap::new()),
             system_annotations: Mutex::new(BTreeMap::new()),
             require_sets: Mutex::new(BTreeMap::new()),
+            product_snapshots: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
@@ -666,6 +669,39 @@ impl SpecRepository for MockRepo {
             .filter(|(_, m)| !m.is_empty())
             .map(|(id, m)| (*id, annotation_list(m)))
             .collect())
+    }
+
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        Ok(self
+            .product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&product_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let mut all = self
+            .product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let list = all.entry(product_id).or_default();
+        match list
+            .iter_mut()
+            .find(|s| s.chart_version == snapshot.chart_version)
+        {
+            Some(existing) => *existing = snapshot.clone(),
+            None => list.push(snapshot.clone()),
+        }
+        Ok(())
     }
 
     async fn record_require_set(
@@ -2890,6 +2926,10 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|(pid, _)| *pid != product_id);
+        self.product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&product_id);
         Ok(products.len() != before)
     }
 

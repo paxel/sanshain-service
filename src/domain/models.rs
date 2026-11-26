@@ -1646,6 +1646,32 @@ pub struct ConsumerEndpointInfo {
     pub deprecated: bool,
 }
 
+/// A Product snapshot (san-1033): one release of a Product, one per umbrella
+/// chart version. The members are the chart's dependencies with the chart
+/// versions it asks for, as written; the scope is the graph the release is
+/// read from (`main@<instant>` or `<sanshain-branch>@<instant>`).
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProductSnapshot {
+    pub chart_version: String,
+    pub content_hash: String,
+    pub sales_name: Option<String>,
+    /// Set on the page: a re-push keeps it.
+    pub sales_name_override: bool,
+    pub scope: String,
+    /// Set on the page: a re-push keeps it.
+    pub scope_override: bool,
+    pub pushed_at: String,
+    pub pushed_by: Option<String>,
+    pub members: Vec<ProductSnapshotMember>,
+}
+
+/// One member of a Product snapshot.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct ProductSnapshotMember {
+    pub system: String,
+    pub chart_version: Option<String>,
+}
+
 /// A version of a Consumer's require set (san-1032): the `requires` section
 /// of its `sanshain.yaml`, hashed by the client. Sanshain numbers each new
 /// hash of a Consumer 1, 2, 3, … in order of first sight, from trunk and tag

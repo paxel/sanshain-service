@@ -2851,12 +2851,18 @@ paths:
         `name`, is a system name. Names that match no Producer and no Consumer
         are skipped; every other one becomes a `helm` member (a `manual` member
         it lists becomes `helm`); `helm` members the chart no longer lists are
-        removed; `manual` members stay. Answers
-        `{"added": [...], "removed": [...], "skipped": [...]}`, each sorted; a
-        `manual` member switched to `helm` is in neither list. Audited
-        (`IMPORT_PRODUCT_CHART`, with the three lists). Invalid YAML, a missing
-        or empty `dependencies` list, or a dependency with neither name nor
-        alias is `400` and changes nothing.
+        removed; `manual` members stay. A chart with a `version` also creates
+        or replaces the Product snapshot of that version (san-1033, as
+        `PUT /products/{name}/chart` in `api.yaml`, scope `main` frozen now),
+        and sets the members only when it is the highest chart version.
+        Answers `{"chart_version", "outcome", "members": {"added": [...],
+        "removed": [...], "skipped": [...]}}` (`members` is `null` when the
+        chart did not set them, `chart_version` and `outcome` are `null` for a
+        chart without a version), each list sorted; a `manual` member switched
+        to `helm` is in neither list. Audited (`IMPORT_PRODUCT_CHART`). Invalid
+        YAML, a missing or empty `dependencies` list, a dependency with neither
+        name nor alias, or a version that is not SemVer 2 is `400` and changes
+        nothing.
       parameters:
         - name: name
           in: path
@@ -2886,6 +2892,189 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "404":
           description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots:
+    get:
+      summary: "Read: products/name/snapshots"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The Product's snapshots (san-1033), the highest chart version first:
+        `[{chart_version, content_hash, sales_name, sales_name_override, scope, scope_override,
+        pushed_at, pushed_by, members: [{system, chart_version}]}]`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots/compare:
+    get:
+      summary: "Read: products/name/snapshots/compare"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Two snapshots compared (`from`, `to`: chart versions): per member
+        `{system, from_chart, to_chart, only_in, moved: [{api_type, from, to, added, changed,
+        removed}]}`, the API versions that moved between the two scopes with the endpoints each
+        moved line added, changed or removed.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots/{version}:
+    get:
+      summary: "Read: products/name/snapshots/version"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The release sheet of one snapshot: `{product, chart_version, sales_name, scope,
+        pushed_at, members}`, each member `{system, chart_version, provides: [{api_type, version,
+        stability}], require_set, pins: [{producer, api_type, version, shipped, mismatch,
+        proposal}]}`, read from the snapshot's scope. `mismatch` marks a Pin on another member
+        that does not match the version the snapshot ships (information only); `proposal` is the
+        free move when there is one; `require_set` is the newest require-set version seen by
+        the scope's instant.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    put:
+      summary: "Update: products/name/snapshots/version"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path.
+
+        Set a snapshot's `sales_name` (blank or `null` clears it, at most 100 characters) or
+        `scope` (`main` or a sanshain-branch, `@<rfc3339>` optional, frozen now without one);
+        each field sent is kept by later pushes of the same chart version. Audited
+        (`EDIT_PRODUCT_SNAPSHOT`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The snapshot as stored.
+        "400":
+          description: A sales name out of bounds or a `dev` scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
           content:
             application/json:
               schema:

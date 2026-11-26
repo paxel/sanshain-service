@@ -153,6 +153,21 @@ impl SpecRepository for DatabaseRepo {
         delegate!(self, list_version_annotations())
     }
 
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        delegate!(self, list_product_snapshots(product_id))
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        delegate!(self, save_product_snapshot(product_id, snapshot))
+    }
+
     async fn record_require_set(
         &self,
         consumer: &str,

@@ -11,6 +11,7 @@ pub mod git_branch_service;
 pub mod mcp_service;
 pub mod move_service;
 pub mod product_service;
+pub mod product_snapshot_service;
 pub mod provide_service;
 pub mod report_service;
 pub mod require_service;

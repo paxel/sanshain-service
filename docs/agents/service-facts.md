@@ -233,8 +233,15 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Routes in `maintenance.yaml` under `/admin/products*`: reads any signed-in; create/delete
   global `manage_producers`; members/chart `RouteGuard::Product(ManageProducers)` (global or
   Product Maintainer); maintainers `manage_roles` (user or group, directory groups by DN live).
-  `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Not in `api.yaml`,
-  reports or release cuts. Nuke database removes Products.
+  `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Only the chart push
+  is in `api.yaml`; not in reports or release cuts. Nuke database removes Products.
+- Snapshots (san-1033, `src/application/product_snapshot_service.rs`): one per umbrella chart
+  `version` (SemVer 2), members with their dependency `version` as written, sales name from the
+  annotation `sanshain/sales-name`, scope `main|<branch>@<instant>` (frozen when set). `PUT
+  /products/{name}/chart` (api.yaml, raw body, full token, Product guard, `?scope=`) and the
+  paste (a chart without version: members only); same version other bytes = replace (page
+  overrides kept), same bytes = no-op; only the highest chart version sets the members. Sheet,
+  compare and the page edit under `/admin/products/{name}/snapshots*`. Deleted with the Product.
 - UI: `static/products.html` (list, `?name=` page; controls gated by `data-needs-product`), nav
   link; graph focus `product:<name>` beside `tag:` in `static/js/graph.js` (members fetched from
   `GET /admin/products/{name}`, then members + neighbours).

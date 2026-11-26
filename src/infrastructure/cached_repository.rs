@@ -591,6 +591,21 @@ impl SpecRepository for CachedSpecRepository {
         self.inner.list_version_annotations().await
     }
 
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        self.inner.list_product_snapshots(product_id).await
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        self.inner.save_product_snapshot(product_id, snapshot).await
+    }
+
     async fn record_require_set(
         &self,
         consumer: &str,

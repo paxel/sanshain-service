@@ -282,7 +282,10 @@
 <p>
   A <a href="../start/glossary.html#product">Product</a> is an envelope of systems (ADR-0011). Its
   Product Maintainers keep its member list: they add a known system by hand, remove a member, and
-  import the Product's Helm umbrella <code>Chart.yaml</code>, on that Product only. Being one gives
+  import the Product's Helm umbrella <code>Chart.yaml</code>, on that Product only. From 2.18.0
+  they also push it from the Helm pipeline with a full API token
+  (<code>PUT /products/{name}/chart</code>, a read-only token is refused) and set a release's
+  sales name and scope. Being one gives
   no power over the member systems, and none over other Products; creating and deleting Products
   needs <code>manage_producers</code>, assigning Product Maintainers needs
   <code>manage_roles</code>. A user or a group (native or directory) can be assigned, on the

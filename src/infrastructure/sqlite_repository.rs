@@ -83,8 +83,8 @@ fn hash_session_token(token: &str) -> String {
 }
 
 use super::pin_rows::{
-    PinRow, RequireSetRow, SystemContextRow, VersionOriginRow, links_json,
-    periphery_track_key, pin_row_to_info, require_sets_from_rows,
+    PinRow, ProductSnapshotRow, RequireSetRow, SystemContextRow, VersionOriginRow, links_json,
+    periphery_track_key, pin_row_to_info, product_snapshots_from_rows, require_sets_from_rows,
     system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
 use super::product_rows::{ProductMemberRow, ProductRow, import_plan, products_from_rows};
@@ -685,6 +685,84 @@ impl SpecRepository for SqliteSpecRepository {
             out.entry(id).or_default().push(Annotation { name, value });
         }
         Ok(out)
+    }
+
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        let rows: Vec<ProductSnapshotRow> = sqlx::query_as(
+            "SELECT s.id, s.chart_version, s.content_hash, s.sales_name, s.sales_name_override, \
+                    s.scope, s.scope_override, s.pushed_at, s.pushed_by, m.system_name, m.chart_version \
+             FROM product_snapshots s LEFT JOIN product_snapshot_members m ON m.snapshot_id = s.id \
+             WHERE s.product_id = ? ORDER BY s.id, m.position",
+        )
+        .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(product_snapshots_from_rows(rows))
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self.write_tx().await?;
+        sqlx::query(
+            "INSERT INTO product_snapshots \
+               (product_id, chart_version, content_hash, sales_name, sales_name_override, scope, \
+                scope_override, pushed_at, pushed_by) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT (product_id, chart_version) DO UPDATE SET \
+               content_hash = excluded.content_hash, sales_name = excluded.sales_name, \
+               sales_name_override = excluded.sales_name_override, scope = excluded.scope, \
+               scope_override = excluded.scope_override, pushed_at = excluded.pushed_at, \
+               pushed_by = excluded.pushed_by",
+        )
+        .bind(product_id)
+        .bind(&snapshot.chart_version)
+        .bind(&snapshot.content_hash)
+        .bind(snapshot.sales_name.as_deref())
+        .bind(snapshot.sales_name_override)
+        .bind(&snapshot.scope)
+        .bind(snapshot.scope_override)
+        .bind(&snapshot.pushed_at)
+        .bind(snapshot.pushed_by.as_deref())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let (id,): (i64,) = sqlx::query_as(
+            "SELECT id FROM product_snapshots WHERE product_id = ? AND chart_version = ?",
+        )
+        .bind(product_id)
+        .bind(&snapshot.chart_version)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM product_snapshot_members WHERE snapshot_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for (position, member) in snapshot.members.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO product_snapshot_members (snapshot_id, position, system_name, chart_version) \
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .bind(&member.system)
+            .bind(member.chart_version.as_deref())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     async fn record_require_set(
@@ -2060,6 +2138,8 @@ impl SpecRepository for SqliteSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // Products (#76) are instance data like release cuts.
         for statement in [
+            "DELETE FROM product_snapshot_members",
+            "DELETE FROM product_snapshots",
             "DELETE FROM product_members",
             "DELETE FROM product_user_maintainers",
             "DELETE FROM product_group_maintainers",
@@ -3453,6 +3533,8 @@ impl SpecRepository for SqliteSpecRepository {
         // foreign keys enabled.
         let mut tx = self.write_tx().await?;
         for statement in [
+            "DELETE FROM product_snapshot_members WHERE snapshot_id IN (SELECT id FROM product_snapshots WHERE product_id = ?)",
+            "DELETE FROM product_snapshots WHERE product_id = ?",
             "DELETE FROM product_members WHERE product_id = ?",
             "DELETE FROM product_user_maintainers WHERE product_id = ?",
             "DELETE FROM product_group_maintainers WHERE product_id = ?",

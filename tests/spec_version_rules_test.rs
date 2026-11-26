@@ -2485,3 +2485,160 @@ async fn require_sets_are_numbered_from_trunk_requires_and_strips_count_pins() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The chart push: a raw `Chart.yaml` body.
+#[cfg(test)]
+async fn push_chart(
+    ctx: &TestContext,
+    product: &str,
+    query: &str,
+    chart: &str,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/products/{product}/chart{query}"))
+        .header("Authorization", format!("Bearer {}", ctx.token))
+        .header("Content-Type", "application/yaml")
+        .body(Body::from(chart.to_string()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// san-1033: Product snapshots from chart pushes, the release sheet, the
+/// overrides a re-push keeps, the members the highest version sets, and the
+/// comparison of two snapshots.
+#[tokio::test]
+async fn product_snapshots_from_chart_pushes_describe_and_compare_releases() {
+    let ctx = setup().await;
+    for version in ["1.0.0", "2.0.0"] {
+        let payload = json!({"producername": "orders", "stability": "ga", "trunk": true,
+            "openapi_yaml": spec_two_endpoints(version)});
+        let (status, _, body) = send(&ctx, "POST", "/provide", Some(payload), &[]).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=web&producername=orders&version=1.0.0&path=/users&method=GET&trunk=true&requires_hash=abc",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/products",
+        Some(json!({"name": "shop"})),
+        &[],
+    )
+    .await;
+    assert!(status.is_success(), "{body}");
+
+    let chart = |version: &str, extra: &str| {
+        format!(
+            "apiVersion: v2\nname: shop\nversion: {version}\nannotations:\n  sanshain/sales-name: \"Bulbao ]|[ - alpha\"\ndependencies:\n  - name: orders\n    version: \"~2.0.0\"\n  - name: web\n    version: 1.0.0\n  - name: redis\n{extra}"
+        )
+    };
+    let (status, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "created");
+    assert_eq!(body["members"]["added"], json!(["orders", "web"]));
+    assert_eq!(body["members"]["skipped"], json!(["redis"]));
+    let (_, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "")).await;
+    assert_eq!(body["outcome"], "unchanged");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/products/shop/snapshots/1.2.0",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sheet = as_json(&body);
+    assert_eq!(sheet["sales_name"], "Bulbao ]|[ - alpha");
+    assert!(sheet["scope"].as_str().unwrap().starts_with("main@"));
+    let member = |sheet: &Value, name: &str| {
+        sheet["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["system"] == name)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(member(&sheet, "orders")["chart_version"], "~2.0.0");
+    assert_eq!(member(&sheet, "orders")["provides"][0]["version"], "2.0.0");
+    let web = member(&sheet, "web");
+    assert_eq!(web["require_set"]["number"], 1);
+    assert_eq!(web["pins"][0]["version"], "1.0.0");
+    assert_eq!(web["pins"][0]["shipped"], "2.0.0");
+    assert_eq!(web["pins"][0]["mismatch"], true);
+    assert_eq!(web["pins"][0]["proposal"], "2.0.0", "/users kept its shape");
+
+    // A lower chart version stores its snapshot and leaves the members alone.
+    let (_, body) = push_chart(
+        &ctx,
+        "shop",
+        "",
+        "apiVersion: v2\nname: shop\nversion: 1.1.0\ndependencies:\n  - name: orders\n",
+    )
+    .await;
+    assert_eq!(body["outcome"], "created");
+    assert!(body["members"].is_null(), "{body}");
+
+    // The page's sales name survives a re-push with other content.
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/products/shop/snapshots/1.2.0",
+        Some(json!({"sales_name": "Bulbao"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "  - name: billing\n")).await;
+    assert_eq!(body["outcome"], "replaced");
+    let (_, _, body) = send(&ctx, "GET", "/admin/products/shop/snapshots", None, &[]).await;
+    let list = as_json(&body);
+    assert_eq!(list[0]["chart_version"], "1.2.0", "highest first");
+    assert_eq!(list[0]["sales_name"], "Bulbao");
+    assert_eq!(list[1]["chart_version"], "1.1.0");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/products/shop/snapshots/compare?from=1.1.0&to=1.2.0",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let compared = as_json(&body);
+    let web = compared
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["system"] == "web")
+        .unwrap();
+    assert_eq!(web["only_in"], "1.2.0");
+
+    // Refusals: no version, a dev scope, an unknown branch.
+    let (status, body) = push_chart(&ctx, "shop", "", "dependencies:\n  - name: orders\n").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, _) = push_chart(&ctx, "shop", "?scope=dev", &chart("1.3.0", "")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = push_chart(&ctx, "shop", "?scope=nope", &chart("1.3.0", "")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = push_chart(&ctx, "shop", "", &chart("1.3", "")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

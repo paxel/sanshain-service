@@ -157,6 +157,13 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/products/{name}/members", post(products::add_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/members/{system}", delete(products::remove_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/chart", post(products::import_chart).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        // san-1033: Product snapshots. The chart push is a pipeline's: a full API token of a
+        // Product Maintainer or a holder of ManageProducers.
+        .route("/products/{name}/chart", put(products::push_chart).layer(require_with_api_tokens(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        .route("/admin/products/{name}/snapshots", get(products::list_snapshots).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/compare", get(products::compare_snapshots).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/{version}", get(products::snapshot_sheet).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/{version}", put(products::edit_snapshot).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/maintainers", post(products::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/products/{name}/maintainers/users/{user_id}", delete(products::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/products/{name}/maintainers/groups/{group_id}", delete(products::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
@@ -721,7 +728,7 @@ mod tests {
                     continue;
                 };
                 let expected = match kind.as_str() {
-                    "api_auth_write" => "session-or-api-token-full",
+                    "api_auth_write" | "require_with_api_tokens" => "session-or-api-token-full",
                     "api_auth" => "session-or-api-token",
                     "none" => "none",
                     _ => "session",
