@@ -565,6 +565,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/moves:
+    get:
+      summary: "Read: consumers/name/moves"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per Pin of the Consumer (san-1031): `[{producer, api_type, version, stability, newer, proposal}]`.
+        `newer` lists, ascending, the newer versions of the line (a GA Pin counts newer GAs, a
+        snapshot Pin newer GAs and snapshots), each with only the endpoints this Consumer
+        requires, compared with the pinned version: `change` is `unchanged` (same shape:
+        descriptions and examples may differ; for AsyncAPI and proto the same bytes), `changed`
+        or `removed`, with `deprecated`, and `free` when every one is unchanged. `proposal`
+        is the newest free version, `{version, stability, deprecated}`, or `null`; the require
+        answer sends the same as `X-Sanshain-Upgrade`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/consumers/{name}/dependencies/{producer}:
     delete:
       summary: "Delete: consumers/name/dependencies/producer"
@@ -1615,6 +1652,46 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Producer not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/endpoint-changes:
+    get:
+      summary: "Read: producers/name/endpoint-changes"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per version of each line, by API type and version (san-1031):
+        `[{api_type, version, stability, baseline, added, changed, removed, deprecated}]`, each list
+        of `{method, path}`. A version is compared with the highest GA below it (`baseline`); with
+        none, every endpoint is added. A newly deprecated endpoint is listed as deprecated only.
+        404 for an unknown Producer.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "404":
+          description: Unknown Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
           content:
             application/json:
               schema:

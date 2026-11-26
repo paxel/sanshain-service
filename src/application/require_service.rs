@@ -152,6 +152,9 @@ pub struct RequireResponse {
     /// The stream the pins were recorded in, and the warnings when the
     /// declared one could not be honoured (`Sanshain-Warning` headers).
     pub stream: ResolvedStream,
+    /// A newer version that serves every endpoint this Consumer requires of
+    /// the Pin in the same shape (san-1031), sent as `X-Sanshain-Upgrade`.
+    pub upgrade: Option<SemVer>,
 }
 
 pub async fn require_endpoint(
@@ -225,6 +228,16 @@ async fn require_endpoint_inner(
         }
     }
 
+    let upgrade = super::move_service::move_proposal(
+        repo,
+        consumername,
+        producername,
+        api_type,
+        version,
+        &[(path.to_string(), method.clone())],
+    )
+    .await?;
+
     Ok(RequireResponse {
         yaml,
         deprecated,
@@ -233,6 +246,7 @@ async fn require_endpoint_inner(
         stability: entry.stability,
         format,
         stream,
+        upgrade,
     })
 }
 
@@ -338,6 +352,16 @@ async fn require_bundle_inner(
         }
     }
 
+    let upgrade = super::move_service::move_proposal(
+        repo,
+        consumername,
+        producername,
+        api_type,
+        version,
+        &normalized,
+    )
+    .await?;
+
     Ok(RequireResponse {
         yaml,
         deprecated: any_deprecated,
@@ -346,6 +370,7 @@ async fn require_bundle_inner(
         stability: entry.stability,
         format,
         stream,
+        upgrade,
     })
 }
 

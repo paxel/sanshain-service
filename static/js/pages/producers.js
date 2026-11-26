@@ -324,6 +324,57 @@ async function showProducerVersions(serviceName, diffLink = null) {
     const link = diffLink?.apiType === apiType ? diffLink : null;
     list.appendChild(renderVersionLine(serviceName, apiType, line, link));
   }
+  void renderEndpointChanges(serviceName, list);
+}
+
+// san-1031: per line, version by version, the endpoints each version added,
+// changed, removed or newly deprecated against the highest GA below it. Each
+// row opens the spec viewer at that version. Optional: the page reads without it.
+/**
+ * @param {string} serviceName
+ * @param {HTMLElement} list
+ */
+async function renderEndpointChanges(serviceName, list) {
+  /** @type {VersionEndpointChanges[]} */
+  let changes;
+  try {
+    changes = /** @type {VersionEndpointChanges[]} */ (
+      await fetchJSON(`/admin/producers/${encodeURIComponent(serviceName)}/endpoint-changes`)
+    );
+  } catch {
+    return;
+  }
+  /** @type {Map<string, VersionEndpointChanges[]>} */
+  const byType = new Map();
+  for (const c of changes) {
+    const key = (c.api_type || "openapi").toLowerCase();
+    if (!byType.has(key)) byType.set(key, []);
+    /** @type {VersionEndpointChanges[]} */ (byType.get(key)).push(c);
+  }
+  for (const [apiType, line] of byType) {
+    const card = document.createElement("div");
+    card.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+    card.dataset.endpointChanges = apiType;
+    const rows = [...line]
+      .sort((a, b) => compareSemver(b.version, a.version))
+      .map((c) => {
+        const href = `/yaml.html?service=${encodeURIComponent(serviceName)}&api_type=${encodeURIComponent(apiType)}&version=${encodeURIComponent(c.version)}`;
+        return `<details class="border-t border-slate-100 py-1.5" data-endpoint-changes-version="${escapeHtml(c.version)}">
+            <summary class="cursor-pointer flex flex-wrap items-center gap-2 text-sm">
+              <a href="${escapeHtml(href)}" class="font-mono font-semibold text-indigo-700 hover:underline">${escapeHtml(c.version)}</a>
+              ${stabilityBadge(c.stability)}
+              <span class="text-slate-600">${escapeHtml(endpointChangesSummary(c))}</span>
+            </summary>
+            <div class="pl-4 pt-1">${endpointChangesListHtml(c)}</div>
+          </details>`;
+      })
+      .join("");
+    card.innerHTML = `<div class="flex items-center gap-2 mb-2">
+        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">${escapeHtml(apiType)}</span>
+        <h3 class="font-semibold text-slate-800">What each version changed</h3>
+      </div>${rows}`;
+    list.appendChild(card);
+  }
 }
 
 /**

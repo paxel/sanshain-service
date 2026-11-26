@@ -132,3 +132,39 @@ interface DiffHunk {
 interface TextDiff {
   hunks: DiffHunk[];
 }
+
+/** `EndpointRef` in `src/application/move_service.rs`. */
+interface EndpointRef {
+  method: string;
+  path: string;
+}
+
+/** `VersionEndpointChanges` in `src/application/move_service.rs` (san-1031). */
+interface VersionEndpointChanges {
+  api_type: string;
+  version: string;
+  stability: string;
+  baseline: string | null;
+  added: EndpointRef[];
+  changed: EndpointRef[];
+  removed: EndpointRef[];
+  deprecated: EndpointRef[];
+}
+
+/** `EndpointMove` in `src/application/move_service.rs`. */
+interface EndpointMove {
+  method: string;
+  path: string;
+  change: "unchanged" | "changed" | "removed";
+  deprecated: boolean;
+}
+
+/** `PinMoves` in `src/application/move_service.rs` (san-1031). */
+interface PinMoves {
+  producer: string;
+  api_type: string;
+  version: string;
+  stability: string;
+  newer: { version: string; stability: string; endpoints: EndpointMove[]; free: boolean }[];
+  proposal: { version: string; stability: string; deprecated: EndpointRef[] } | null;
+}

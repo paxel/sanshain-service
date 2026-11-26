@@ -157,6 +157,15 @@
   </figcaption>
 </figure>
 
+<p>
+  Below the version lines, <strong>What each version changed</strong> lists every version of a line
+  with the endpoints it added, changed, removed or newly deprecated (2.18.0): "+1 added · −1
+  removed" in the row, the endpoints when it is opened. A version is compared with the highest GA
+  below it, so a snapshot says what a Consumer moving from the last release would see; a version
+  with no GA below shows every endpoint as added. A difference only in the version a snippet
+  carries is no change. The version number opens the spec viewer at that version.
+</p>
+
 <h2>The spec viewer: history, diff and blame</h2>
 <p>
   The viewer shows one document, or one endpoint of it, with its <strong>Version History</strong>
@@ -165,7 +174,8 @@
   <strong>Compare / Diff</strong>; switch <strong>Blame</strong> on to see, for every line, the
   version that last changed it, and, where the providing build said so, why: the diff header and
   every blame block carry the version's <a href="../start/glossary.html#origin">origin</a>. Copy and
-  Download act on what is shown.
+  Download act on what is shown. Opened on a whole document, each version card folds open to the
+  endpoints that version added, changed, removed or deprecated, as on the Producer page.
 </p>
 <p>
   A diff has two switches. <strong>Ignore whitespace</strong> (off by default, per view) drops
@@ -227,6 +237,14 @@
   that Producer, in the dev and the main graph, for a Producer it no longer requires (needs
   <code>manage_consumers</code>; see
   <a href="release-graphs.html#replaced">a trunk require replaces what it no longer names</a>).
+</p>
+<p>
+  Each Pin also lists the newer versions of its line, compared on only the endpoints this Consumer
+  requires (2.18.0): <strong>unchanged</strong> (same shape; descriptions and examples may differ),
+  <strong>changed</strong> or <strong>removed</strong>, and <strong>deprecated</strong> where that
+  version deprecates one. A GA Pin is offered GAs only; a snapshot Pin GAs and snapshots. When a
+  version keeps every one of them, a green box says <em>Move to 1.11.0: nothing changes for the
+  endpoints you require</em>, the newest such version, even across a major.
 </p>
 <figure class="screenshot">
   <img

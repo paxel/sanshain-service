@@ -57,6 +57,26 @@ pub async fn admin_list_consumer_endpoints(
     Ok(Json(res))
 }
 
+/// Per Pin, the newer versions with this Consumer's endpoints and the free
+/// move (san-1031).
+pub async fn admin_consumer_moves(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::consumer_moves(&state.repo, &name).await?))
+}
+
+/// Per version of each line, the endpoints it added, changed, removed or
+/// newly deprecated against the highest GA below it (san-1031).
+pub async fn admin_producer_endpoint_changes(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::producer_endpoint_changes(&state.repo, &name).await?,
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct VersionedSpecQuery {
     pub api_type: Option<ApiType>,

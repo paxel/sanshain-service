@@ -245,6 +245,7 @@ async function loadFullSpecVersions() {
       }),
     );
     yamlTicketTemplate = await loadTicketUrlTemplate();
+    await loadVersionEndpointChanges();
     globalVersions = line.map((v, i) => ({
       version: v.version,
       stability: v.stability,
@@ -261,6 +262,26 @@ async function loadFullSpecVersions() {
     console.error(e);
     hideLoader();
     viewerContainer.innerHTML = `<div class="text-red-400 font-semibold">Failed to load versions: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
+  }
+}
+
+// san-1031: in full-spec mode each version card folds open to the endpoints
+// that version added, changed, removed or deprecated. Optional decoration.
+/** @type {Map<string, VersionEndpointChanges>} */
+const versionEndpointChanges = new Map();
+async function loadVersionEndpointChanges() {
+  try {
+    const res = await apiCall(
+      `/admin/producers/${encodeURIComponent(serviceName)}/endpoint-changes`,
+    );
+    if (!res.ok) return;
+    for (const c of /** @type {VersionEndpointChanges[]} */ (await res.json())) {
+      if ((c.api_type || "openapi").toLowerCase() === apiType) {
+        versionEndpointChanges.set(c.version, c);
+      }
+    }
+  } catch {
+    /* the cards render without it */
   }
 }
 
@@ -364,6 +385,10 @@ function renderVersionsSidebar() {
       const changedBadge = v.changed
         ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full uppercase">changed</span>'
         : "";
+      const changes = isFullSpecMode ? versionEndpointChanges.get(v.version) : undefined;
+      const changesFold = changes
+        ? `<details class="mt-1.5 text-xs" data-version-changes><summary class="cursor-pointer text-slate-600">${escapeHtml(endpointChangesSummary(changes))}</summary><div class="pt-1">${endpointChangesListHtml(changes)}</div></details>`
+        : "";
       const absentBadge = isAbsent
         ? `<span class="text-[10px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded-full uppercase">${isFullSpecMode ? "unavailable" : "absent"}</span>`
         : "";
@@ -383,6 +408,7 @@ function renderVersionsSidebar() {
                             <span>${escapeHtml((v.updated_at ?? "").slice(0, 16).replace("T", " "))}</span>
                         </div>
                     </div>
+                    ${changesFold}
                 </div>
             `;
     })

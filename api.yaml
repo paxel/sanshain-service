@@ -308,7 +308,9 @@ paths:
         Responses carry `X-Sanshain-Resolution` (`served`),
         `X-Sanshain-Version` (the Pin) and `X-Sanshain-Stability`
         (`ga` or `snapshot` — what actually answered), plus an `ETag`;
-        `If-None-Match` yields `304 Not Modified` when unchanged.
+        `If-None-Match` yields `304 Not Modified` when unchanged. When a newer
+        version serves every endpoint this Consumer requires of the Pin in the
+        same shape, `X-Sanshain-Upgrade` names it (2.18.0): a free move.
       parameters:
         - name: annotations
           in: query
@@ -381,6 +383,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: The endpoint snippet as YAML.
           content:
             application/yaml:
@@ -390,6 +394,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "404":
           description: |
@@ -498,6 +504,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: |
             The channel snippet as YAML, or with `format=openapi` the OpenAPI
             3.0.3 document of its payload schemas.
@@ -508,6 +516,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -597,6 +607,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: The .proto snippet.
           content:
             text/plain:
@@ -605,6 +617,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "404":
           description: Unknown Producer or version.
@@ -663,6 +677,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: |
             The merged specification as YAML, or with `format=openapi` the
             OpenAPI 3.0.3 document of the channels' payload schemas.
@@ -673,6 +689,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -1338,6 +1356,18 @@ components:
           example:
             "error": "this API token has scope 'read_only' and may not change the catalog; create a token with scope 'full' for provide, require and catalog pushes"
   headers:
+    SanshainUpgrade:
+      description: |
+        A free move (2.18.0): the newest version of the pinned line that serves
+        every endpoint this Consumer requires of the Pin (recorded and in this
+        call) in the same shape, so generated code stays the same and only
+        descriptions or examples may differ (AsyncAPI and proto: the same
+        bytes). It may cross a major. A GA Pin is offered GAs only; a snapshot
+        Pin GAs and snapshots. Absent when there is none. Information only:
+        what is served is still the Pin, and it is not a `Sanshain-Warning`,
+        so a strict build does not fail on it.
+      schema:
+        type: string
     SanshainWarning:
       description: |
         A warning the caller's build should print — the call itself

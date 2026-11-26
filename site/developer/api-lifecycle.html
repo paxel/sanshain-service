@@ -273,6 +273,26 @@
   reading <code>2.4.0 → 2.5.0</code> can trust the upgrade.
 </p>
 
+<h3 id="free-moves">Free moves for Consumers</h3>
+<p>
+  A Consumer pins <code>1.5.0</code> and requires two endpoints. If neither changed shape up to
+  <code>1.11.0</code>, moving is free: the generated code stays the same. Sanshain says so (2.18.0)
+  on every require that pins <code>1.5.0</code>, with the header
+  <code>X-Sanshain-Upgrade: 1.11.0</code>, and on the Consumer page. "The same shape" allows other
+  descriptions and examples; for AsyncAPI and proto it means the same text apart from the version.
+  The proposal looks at every endpoint the Consumer requires of that Pin, may cross a major (a
+  major that broke someone else's endpoints is no reason to wait), offers a GA Pin only GAs and a
+  snapshot Pin GAs and snapshots, and still proposes a version that deprecates one of the
+  endpoints, which the Consumer page then names. It is information only: what is served is still
+  the Pin, and it is not a <code>Sanshain-Warning</code>, so a strict build does not fail on it.
+</p>
+<pre><code>$ curl -si "$SANSHAIN_URL/require?consumername=shop&amp;producername=orders&amp;version=1.5.0&amp;path=/orders&amp;method=GET" \
+    -H "Authorization: Bearer $SANSHAIN_TOKEN" | grep -i x-sanshain
+x-sanshain-resolution: served
+x-sanshain-version: 1.5.0
+x-sanshain-stability: ga
+x-sanshain-upgrade: 1.11.0</code></pre>
+
 <h2>4. Deprecation and migration</h2>
 <p>Once a new major is GA, move Consumers off the old elements:</p>
 <ul>

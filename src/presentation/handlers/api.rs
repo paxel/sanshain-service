@@ -626,6 +626,17 @@ fn insert_resolution_headers(headers: &mut HeaderMap, res: &services::RequireRes
     );
 }
 
+/// A free move (san-1031): a newer version serving every endpoint the
+/// Consumer requires of this Pin in the same shape. Not a `Sanshain-Warning`,
+/// so a strict build does not fail on it; the clients print it.
+fn insert_upgrade_header(headers: &mut HeaderMap, res: &services::RequireResponse) {
+    if let Some(upgrade) = res.upgrade
+        && let Ok(value) = HeaderValue::from_str(&upgrade.to_string())
+    {
+        headers.insert("X-Sanshain-Upgrade", value);
+    }
+}
+
 fn require_response(
     request_headers: &HeaderMap,
     res: services::RequireResponse,
@@ -647,11 +658,13 @@ fn require_response(
     {
         let mut headers = HeaderMap::new();
         append_warnings(&mut headers, &res.stream.warnings);
+        insert_upgrade_header(&mut headers, &res);
         return (StatusCode::NOT_MODIFIED, headers).into_response();
     }
 
     let mut headers = HeaderMap::new();
     append_warnings(&mut headers, &res.stream.warnings);
+    insert_upgrade_header(&mut headers, &res);
     if let Some(ev) = etag_value {
         headers.insert("ETag", ev);
     }

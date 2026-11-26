@@ -181,6 +181,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // san-1031: what each version changed, endpoint by endpoint.
+        .route("/admin/producers/{name}/endpoint-changes", get(admin::admin_producer_endpoint_changes).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/blame", get(admin::admin_blame_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/structure", get(admin::admin_structure_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/branch-memberships", get(admin::admin_producer_branch_memberships).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -204,6 +206,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}", get(admin::admin_get_consumer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // san-1031: per Pin the newer versions and the free move.
+        .route("/admin/consumers/{name}/moves", get(admin::admin_consumer_moves).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}/dependencies/{producer}", delete(admin::admin_remove_consumer_dependencies).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/statistics/{tab}", get(statistics::admin_statistics).layer(require(state.clone(), RouteGuard::Global(Permission::ViewStatistics))))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))

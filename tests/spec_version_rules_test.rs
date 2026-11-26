@@ -2313,3 +2313,92 @@ async fn a_maintenance_branch_gets_a_patch_proposal_and_main_a_minor() {
         "no kinds, no kind rule"
     );
 }
+
+/// san-1031: what each version changed, endpoint by endpoint, against the
+/// highest GA below it; per Pin the newer versions on the Consumer's own
+/// endpoints, and the newest free move on the page and the require answer.
+#[tokio::test]
+async fn versions_name_their_endpoint_changes_and_requires_get_free_moves() {
+    let ctx = setup().await;
+    for (stability, spec) in [
+        ("ga", spec_two_endpoints("1.0.0")),
+        ("ga", spec_two_endpoints_reworded("1.1.0")),
+        ("ga", spec_users_only("2.0.0")),
+        ("snapshot", spec_users_only("2.1.0")),
+    ] {
+        let (status, body) = provide(&ctx, "svc", stability, &spec).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/svc/endpoint-changes",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let changes = as_json(&body);
+    let of = |version: &str| {
+        changes
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["version"] == version)
+            .cloned()
+            .unwrap()
+    };
+    let paths = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["path"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(of("1.0.0")["baseline"].is_null());
+    assert_eq!(paths(&of("1.0.0")["added"]).len(), 2);
+    assert_eq!(of("1.1.0")["baseline"], "1.0.0");
+    assert_eq!(paths(&of("1.1.0")["changed"]).len(), 2, "reworded");
+    assert_eq!(of("2.0.0")["baseline"], "1.1.0");
+    assert_eq!(paths(&of("2.0.0")["removed"]), vec!["/orders"]);
+    assert_eq!(of("2.1.0")["baseline"], "2.0.0");
+    assert_eq!(paths(&of("2.1.0")["changed"]), Vec::<String>::new());
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/nobody/endpoint-changes",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // `/users` keeps its shape up to 2.0.0 (the 2.1.0 snapshot does not count
+    // for a GA Pin): the free move crosses the major.
+    let (status, headers, _) = require(&ctx, "web", "svc", "1.0.0", "/users", "GET").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers["x-sanshain-upgrade"], "2.0.0");
+    // `/orders` is gone in 2.0.0: the newest free move is 1.1.0.
+    let (_, headers, _) = require(&ctx, "app", "svc", "1.0.0", "/orders", "GET").await;
+    assert_eq!(headers["x-sanshain-upgrade"], "1.1.0");
+    // A Pin on the newest version has nowhere to go.
+    let (_, headers, _) = require(&ctx, "top", "svc", "2.0.0", "/users", "GET").await;
+    assert!(headers.get("x-sanshain-upgrade").is_none());
+    // A snapshot Pin also counts newer snapshots.
+    let (_, headers, _) = require(&ctx, "edge", "svc", "1.1.0", "/users", "GET").await;
+    assert_eq!(headers["x-sanshain-upgrade"], "2.0.0");
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/consumers/app/moves", None, &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let moves = as_json(&body);
+    assert_eq!(moves[0]["producer"], "svc");
+    assert_eq!(moves[0]["proposal"]["version"], "1.1.0");
+    let newer = moves[0]["newer"].as_array().unwrap();
+    assert_eq!(newer.len(), 2);
+    assert_eq!(newer[0]["version"], "1.1.0");
+    assert_eq!(newer[0]["free"], true);
+    assert_eq!(newer[0]["endpoints"][0]["change"], "unchanged");
+    assert_eq!(newer[1]["version"], "2.0.0");
+    assert_eq!(newer[1]["endpoints"][0]["change"], "removed");
+}

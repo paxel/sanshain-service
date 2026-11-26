@@ -65,6 +65,12 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - `POST /require-bundle`: several endpoints of one Producer at one pin, one merged document,
   shared schemas once; 410 names the missing endpoints.
 - ETag + `If-None-Match` → `304`. `X-Sanshain-Deprecated: true` on deprecated endpoints.
+- Free move (san-1031, `src/application/move_service.rs`): `X-Sanshain-Upgrade: <v>` (200 and 304)
+  = newest newer version where every endpoint the Consumer requires of the Pin (recorded + this
+  call) keeps its shape (`same_snippet` ignoring the version, else OpenAPI `classify_change` Patch;
+  AsyncAPI/proto same text); may cross a major; GA Pin → GAs only, snapshot Pin → GAs and
+  snapshots. `/admin/consumers/{name}/moves`; `/admin/producers/{name}/endpoint-changes` (per
+  version vs highest GA below: added/changed/removed/deprecated).
 - `format=openapi` on an AsyncAPI require: payload schemas as OpenAPI 3.0.3.
 - Matching: OpenAPI path + verb (parameter names, double/trailing slashes normalized); AsyncAPI
   channel (2.x key, 3.x address) + `PUB`/`SUB`; proto fully qualified service + rpc

@@ -6,6 +6,7 @@
 /* exported escapeAttr, attrJson, setActionArgs, confirmDelete, promoteVersion */
 /* exported reloadClearingInstance, dismissReloadBanner, togglePasswordVisibility */
 /* exported systemContextHtml, loadTicketUrlTemplate, originHtml, originBranchText, annotationsHtml */
+/* exported endpointChangesSummary, endpointChangesListHtml */
 /* exported appendClearSystemInfo, storeSanshainToken, forgetCsrfToken */
 
 /**
@@ -1270,6 +1271,46 @@ function originHtml(origin, template, dark) {
     );
   }
   return rows.length ? `<div class="space-y-1 mt-1.5" data-origin>${rows.join("")}</div>` : "";
+}
+
+// What one version changed, endpoint by endpoint (san-1031), against the
+// highest GA below it: "+2 ~1 −1 ⚠1", or "no endpoint changed".
+/**
+ * @param {VersionEndpointChanges} c
+ * @returns {string}
+ */
+function endpointChangesSummary(c) {
+  const parts = [];
+  if (c.added.length) parts.push(`+${String(c.added.length)} added`);
+  if (c.changed.length) parts.push(`~${String(c.changed.length)} changed`);
+  if (c.removed.length) parts.push(`−${String(c.removed.length)} removed`);
+  if (c.deprecated.length) parts.push(`⚠${String(c.deprecated.length)} deprecated`);
+  return parts.length ? parts.join(" · ") : "no endpoint changed";
+}
+
+/**
+ * The endpoints of one version's changes as a list, each with its kind.
+ * @param {VersionEndpointChanges} c
+ * @returns {string}
+ */
+function endpointChangesListHtml(c) {
+  /** @type {[string, EndpointRef[], string][]} */
+  const groups = [
+    ["added", c.added, "bg-emerald-50 text-emerald-700 border-emerald-200"],
+    ["changed", c.changed, "bg-indigo-50 text-indigo-700 border-indigo-200"],
+    ["removed", c.removed, "bg-red-50 text-red-700 border-red-200"],
+    ["deprecated", c.deprecated, "bg-amber-50 text-amber-700 border-amber-200"],
+  ];
+  const items = groups.flatMap(([kind, list, tone]) =>
+    list.map(
+      (e) =>
+        `<li class="flex items-center gap-2" data-endpoint-change="${kind}"><span class="px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase ${tone}">${kind}</span><span class="font-mono text-xs">${escapeHtml(e.method)} ${escapeHtml(e.path)}</span></li>`,
+    ),
+  );
+  const against = c.baseline ? `against GA ${escapeHtml(c.baseline)}` : "no GA below: all new";
+  return `<p class="text-[11px] text-slate-500 mb-1">${against}</p>${
+    items.length ? `<ul class="space-y-1">${items.join("")}</ul>` : ""
+  }`;
 }
 
 // Annotations (#91): project-declared entries the builds filled in. A value
