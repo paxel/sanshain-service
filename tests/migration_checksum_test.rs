@@ -246,6 +246,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261126000001_require_sets.sql",
         "d90574dee5a2ce98cb86e78e61595ea05e64267e0a9f16a5de5af7e601b3cd73",
     ),
+    (
+        "20261126000002_product_snapshots.sql",
+        "af0203a72ab1ece1013be08df98740b0420100da79400d225ee217e03c2e3b88",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -444,6 +448,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261126000001_require_sets.sql",
         "2e3a451b510a830ed6ab606c65cd809fd3d87b7db3aa4e83f8ef468f44ceee1f",
+    ),
+    (
+        "20261126000002_product_snapshots.sql",
+        "e5ce25387c3645185a710aaa83cd481bac62730578872e1d1918573f9288e0b2",
     ),
 ];
 
