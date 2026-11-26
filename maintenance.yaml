@@ -3258,9 +3258,11 @@ paths:
       description: |
         Requires the `manage_settings` permission.
 
-        Replace the branch naming patterns: at most 20, each at most 500 characters, a regular
-        expression naming a `kind` or a `target` group; blank ones are dropped. Audited as
-        `SET_BRANCH_RULES`.
+        Replace the branch rules: `patterns`, at most 20, each at most 500 characters, a regular
+        expression naming a `kind` or a `target` group, blank ones dropped;
+        `maintenance_kinds` (default `release`, `bugfix`, `hotfix`, at most 20) and an optional
+        `maintenance_pattern`: a refused provide on such a branch, or one with a stream `tag`, is
+        proposed a patch in its own minor (san-1030). Audited as `SET_BRANCH_RULES`.
       responses:
         "200":
           description: The stored rules.
@@ -3293,8 +3295,9 @@ paths:
         What the given rules, saved or not, read from a sample branch:
         `{"patterns": [...], "branch": "feature/master/login", "target": null}` answers
         `{"reading": {"kind": "feature", "target": "master"}}`, or `{"reading": null}` when
-        nothing matches. A given `target` stands for the runner's pull request target and wins
-        over the pattern's. Stores nothing.
+        nothing matches, with `"maintenance": true` when the branch is a maintenance branch. A
+        given `target` stands for the runner's pull request target and wins over the pattern's.
+        Stores nothing.
       responses:
         "200":
           description: The reading.

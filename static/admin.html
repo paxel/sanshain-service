@@ -422,6 +422,32 @@
             spellcheck="false"
             class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           ></textarea>
+          <p class="text-sm text-slate-500 mt-3">
+            Maintenance branches are side lines of semver: a refused provide on one is proposed a
+            patch in its own minor (<code>2.6.0</code> gives <code>2.6.1</code>). A branch is one
+            when its <code>kind</code> is listed here, when it matches the pattern, or when the
+            build sends a Sanshain stream tag.
+          </p>
+          <div class="flex flex-wrap items-center gap-3 mt-2">
+            <label class="text-sm text-slate-600"
+              >Maintenance kinds
+              <input
+                type="text"
+                id="branch-rules-kinds"
+                data-needs="manage_settings"
+                placeholder="release, bugfix, hotfix"
+                class="ml-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono"
+            /></label>
+            <label class="text-sm text-slate-600"
+              >Maintenance pattern
+              <input
+                type="text"
+                id="branch-rules-maintenance-pattern"
+                data-needs="manage_settings"
+                placeholder="^support/"
+                class="ml-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono"
+            /></label>
+          </div>
           <div class="flex flex-wrap items-center gap-3 mt-2">
             <button
               data-click="saveBranchRules"

@@ -519,11 +519,12 @@ test.describe("Branch names", () => {
     await page.fill("#branch-rules-sample", "bugfix/release/2.1/npe");
     await page.click('[data-click="testBranchRules"]');
     await expect(page.locator("#branch-rules-test-result")).toHaveText(
-      "kind: bugfix · target: release/2.1",
+      "kind: bugfix · target: release/2.1 · maintenance: patch proposals",
     );
     await page.fill("#branch-rules-sample", "wip");
     await page.click('[data-click="testBranchRules"]');
     await expect(page.locator("#branch-rules-test-result")).toHaveText("no pattern matches");
+    await expect(page.locator("#branch-rules-kinds")).toHaveValue("release, bugfix, hotfix");
     await page.click('[data-click="saveBranchRules"]');
     await expect(page.locator("#branch-rules-result")).toHaveText("✓ Saved");
     await page.reload();

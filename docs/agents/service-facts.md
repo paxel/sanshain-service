@@ -36,7 +36,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   (`releaser` role), also for no-ops: `403 ga_requires_releaser`.
 - Proposal (san-1020, `propose_version` in `version_rules.rs`): one minor above the highest version
   of the major (level read against the highest GA of the major); breaking = highest major of the
-  line + 1; never a patch. Same rule for all four refusals that propose.
+  line + 1; never a patch. Same rule for all four refusals that propose. Maintenance branch
+  (san-1030, `propose_maintenance_version`): kind in `maintenance_kinds`, `maintenance_pattern`
+  match, or a stream `tag` → one patch above the highest of the refused `MAJOR.MINOR` (additive
+  too, level read against the entry); breaking still a new major.
 - Mislabel check: GA breaking vs. the highest GA below without a major bump =
   `409 breaking_without_major`. Removing an element deprecated in the previous GA is not breaking;
   the marker must sit on the removed element (no whole-spec switch).

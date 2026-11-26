@@ -2150,9 +2150,12 @@ async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
     );
     let (status, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(as_json(&body), rules);
+    assert_eq!(as_json(&body)["patterns"], rules["patterns"]);
     let (_, _, body) = send(&ctx, "GET", "/admin/instance-settings", None, &[]).await;
-    assert_eq!(as_json(&body)["branch_rules"], rules);
+    assert_eq!(
+        as_json(&body)["branch_rules"]["patterns"],
+        rules["patterns"]
+    );
 
     // A pull request build's target wins over the pattern's.
     let (status, _) = provide_with(
@@ -2180,7 +2183,7 @@ async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         as_json(&body),
-        json!({"reading": {"kind": "release", "target": null}})
+        json!({"reading": {"kind": "release", "target": null}, "maintenance": true})
     );
 
     // A bad pattern is refused by position and stores nothing.
@@ -2195,7 +2198,7 @@ async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.contains("branch pattern 2"), "{body}");
     let (_, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
-    assert_eq!(as_json(&body), rules);
+    assert_eq!(as_json(&body)["patterns"], rules["patterns"]);
 
     // Branch names with whitespace are refused by name.
     let (status, body) = provide_with(
@@ -2210,5 +2213,103 @@ async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
         body.to_string()
             .contains("git_branch must not contain whitespace"),
         "{body}"
+    );
+}
+
+/// san-1030: on a maintenance branch a refusal proposes a patch in the
+/// refused MAJOR.MINOR, a side line of semver; elsewhere the san-1020 rule.
+#[tokio::test]
+async fn a_maintenance_branch_gets_a_patch_proposal_and_main_a_minor() {
+    let ctx = setup().await;
+    for version in ["2.6.0", "2.23.0"] {
+        let (status, _) = provide(&ctx, "svc", "ga", &spec_two_endpoints(version)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+    let rules = json!({"patterns": [r"^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/", r"^(?<kind>release)/"]});
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut hotfix = json!({
+        "producername": "svc",
+        "stability": "ga",
+        "openapi_yaml": spec_two_endpoints_reworded("2.6.0"),
+    });
+    let proposal = |base: &Value, extra: Value| {
+        let mut payload = base.clone();
+        for (k, v) in extra.as_object().unwrap() {
+            payload[k] = v.clone();
+        }
+        payload
+    };
+    for (extra, expected) in [
+        (json!({"git_branch": "release/2.6"}), "2.6.1"),
+        (json!({"git_branch": "hotfix/master/npe"}), "2.6.1"),
+        (json!({"git_branch": "feature/master/login"}), "2.24.0"),
+        (json!({"git_branch": "master"}), "2.24.0"),
+        (json!({}), "2.24.0"),
+    ] {
+        let (status, _, body) = send(
+            &ctx,
+            "POST",
+            "/provide",
+            Some(proposal(&hotfix, extra.clone())),
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{extra}: {body}");
+        assert_eq!(as_json(&body)["proposed_version"], expected, "{extra}");
+    }
+    // A breaking change on a side line still gets a new major.
+    hotfix["openapi_yaml"] = json!(spec_users_only("2.6.0"));
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "release/2.6"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(as_json(&body)["proposed_version"], "3.0.0");
+    // The admin's own maintenance pattern counts too.
+    let rules =
+        json!({"patterns": [], "maintenance_kinds": [], "maintenance_pattern": "^support/"});
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    hotfix["openapi_yaml"] = json!(spec_two_endpoints_reworded("2.6.0"));
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "support/acme"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(as_json(&body)["proposed_version"], "2.6.1");
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "release/2.6"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        as_json(&body)["proposed_version"],
+        "2.24.0",
+        "no kinds, no kind rule"
     );
 }

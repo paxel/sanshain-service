@@ -814,7 +814,8 @@ mod tests {
     use super::*;
     // These exercise the pure version-rule helpers (now in version_rules).
     use super::super::version_rules::{
-        classify_change, diff_endpoints, ga_baseline, highest_ga_in_major, propose_version,
+        classify_change, diff_endpoints, ga_baseline, highest_ga_in_major,
+        propose_maintenance_version, propose_version,
     };
     use crate::application::mock_repo::MockRepo;
 
@@ -1067,6 +1068,34 @@ mod tests {
         assert_eq!(
             propose_version(&line, v("5.0.0"), Impact::Major).to_string(),
             "6.0.0"
+        );
+    }
+
+    #[test]
+    fn a_maintenance_proposal_stays_in_the_refused_minor() {
+        let line = vec![
+            meta("2.6.0", Stability::Ga),
+            meta("2.6.3", Stability::Ga),
+            meta("2.23.0", Stability::Ga),
+            meta("3.0.0", Stability::Ga),
+        ];
+        let v = |s: &str| -> SemVer { s.parse().unwrap() };
+        // Shape kept and additive alike: one patch above the highest of 2.6.
+        for impact in [Impact::Patch, Impact::Minor, Impact::None] {
+            assert_eq!(
+                propose_maintenance_version(&line, v("2.6.0"), impact).to_string(),
+                "2.6.4"
+            );
+        }
+        // A minor the line does not have yet starts from the version itself.
+        assert_eq!(
+            propose_maintenance_version(&line, v("2.7.0"), Impact::Minor).to_string(),
+            "2.7.1"
+        );
+        // Breaking still goes to a new major.
+        assert_eq!(
+            propose_maintenance_version(&line, v("2.6.0"), Impact::Major).to_string(),
+            "4.0.0"
         );
     }
 

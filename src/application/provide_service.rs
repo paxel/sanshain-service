@@ -10,7 +10,7 @@ use super::spec_service::{
 };
 use super::version_rules::{
     check_compatibility, classify_change, diff_endpoints, ga_baseline, highest_ga_in_major,
-    propose_version,
+    propose_maintenance_version, propose_version,
 };
 use super::webhook_service as webhooks;
 use crate::asyncapi;
@@ -275,6 +275,19 @@ fn origin_for_identical_provide(
         }
         Some(_) => None,
     }
+}
+
+/// Whether this provide is on a maintenance branch (san-1030): its git
+/// branch's kind or the maintenance pattern says so, or it carries a stream
+/// tag. Refusals on one propose patches.
+async fn on_maintenance_branch(
+    repo: &impl SpecRepository,
+    origin: &VersionOrigin,
+    tag: Option<&str>,
+) -> Result<bool, AppError> {
+    Ok(super::git_branch_service::compiled_branch_rules(repo)
+        .await?
+        .is_maintenance(origin, tag.is_some()))
 }
 
 /// A Provide without an origin: what every caller but the HTTP handlers uses.
@@ -584,7 +597,13 @@ async fn provide_spec_inner(
             // The level is read against the highest GA of the major, the one
             // the proposal lands above; that is the entry itself unless a
             // newer GA of the major exists.
-            let impact = match highest_ga_in_major(&line, version).filter(|g| g.id != entry.id) {
+            // On a maintenance branch (san-1030) the proposal stays in the
+            // refused MAJOR.MINOR, so the level is read against the entry
+            // itself, not against a newer minor the side line never had.
+            let maintenance = on_maintenance_branch(repo, origin, tag).await?;
+            let impact = match highest_ga_in_major(&line, version)
+                .filter(|g| g.id != entry.id && !maintenance)
+            {
                 Some(newest) => {
                     let newest_content =
                         repo.get_spec_content(newest.id).await?.unwrap_or_default();
@@ -597,7 +616,11 @@ async fn provide_spec_inner(
                 }
                 None => classify_change(api_type, &old_content, content, changes.inserts),
             };
-            let proposed = propose_version(&line, version, impact);
+            let proposed = if maintenance {
+                propose_maintenance_version(&line, version, impact)
+            } else {
+                propose_version(&line, version, impact)
+            };
             // Bytes differ but no endpoint the splitter sees changed: the
             // difference is almost certainly whitespace or comments (line
             // endings and a BOM were normalized away above) — name that, or
@@ -666,7 +689,11 @@ async fn provide_spec_inner(
             if !entry.provided_by.is_empty()
                 && username.is_some_and(|actor| actor != entry.provided_by) =>
         {
-            let proposed = propose_version(&line, version, Impact::Minor);
+            let proposed = if on_maintenance_branch(repo, origin, tag).await? {
+                propose_maintenance_version(&line, version, Impact::Minor)
+            } else {
+                propose_version(&line, version, Impact::Minor)
+            };
             let message = format!(
                 "version {} of {} '{}' is a snapshot provided by '{}' — only they may change it; publish your work as {} instead, or ask an administrator to delete the snapshot",
                 version,

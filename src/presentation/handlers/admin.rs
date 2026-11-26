@@ -890,9 +890,11 @@ pub struct BranchRulesTestPayload {
 pub async fn test_branch_rules(
     Json(payload): Json<BranchRulesTestPayload>,
 ) -> Result<impl IntoResponse, AppError> {
-    let reading =
+    let (reading, maintenance) =
         services::test_branch_rules(&payload.rules, &payload.branch, payload.target.as_deref())?;
-    Ok(Json(json!({ "reading": reading })))
+    Ok(Json(
+        json!({ "reading": reading, "maintenance": maintenance }),
+    ))
 }
 
 pub async fn get_snapshot_max_age(

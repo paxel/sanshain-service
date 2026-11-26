@@ -287,6 +287,10 @@
     <code>feature/master/login → master</code>, and <code>bugfix/release/2.1/npe</code> shows its
     target <code>release/2.1</code>. A runner's pull request target wins over the pattern's. The
     patterns are read whenever a version is shown, so a fix to a pattern also reads old versions.
+    The same section lists the <strong>maintenance kinds</strong> (default <code>release</code>,
+    <code>bugfix</code>, <code>hotfix</code>) and an optional <strong>maintenance pattern</strong>:
+    a refused provide from such a branch is proposed a patch in its own minor
+    (<a href="../developer/api-lifecycle.html#maintenance-branches">maintenance branches</a>).
     <strong>Test</strong> asks the service what a sample branch gives, before anything is saved
     (<code>GET</code>/<code>POST /admin/settings/branch-rules</code>, audited as
     <code>SET_BRANCH_RULES</code>; <code>POST /admin/settings/branch-rules/test</code>; at most 20
