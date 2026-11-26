@@ -68,12 +68,12 @@ test.describe("Documentation site: the walkthrough stepper", () => {
     await expect(page.locator(".story.is-enhanced")).toHaveCount(1);
     await expect(visibleStep(page)).toHaveCount(1);
     await expect(visibleStep(page)).toHaveId("step-1");
-    await expect(page.locator(".step-list a")).toHaveCount(12);
+    await expect(page.locator(".step-list a")).toHaveCount(16);
     await expect(page.locator(".step-list a[aria-current='step']")).toHaveAttribute(
       "href",
       "#step-1",
     );
-    await expect(page.locator(".step-counter")).toHaveText("Step 1 of 12");
+    await expect(page.locator(".step-counter")).toHaveText("Step 1 of 16");
     await expect(page.locator(".step-prev")).toBeDisabled();
     await expect(page.locator(".step-next")).toBeEnabled();
   });
@@ -94,8 +94,8 @@ test.describe("Documentation site: the walkthrough stepper", () => {
     await page.click(".step-list a[href='#step-9']");
     await expect(visibleStep(page)).toHaveId("step-9");
     expect(new URL(page.url()).hash).toBe("#step-9");
-    await expect(page.locator(".step-counter")).toHaveText("Step 9 of 12");
-    await page.click(".step-list a[href='#step-12']");
+    await expect(page.locator(".step-counter")).toHaveText("Step 9 of 16");
+    await page.click(".step-list a[href='#step-16']");
     await expect(page.locator(".step-next")).toBeDisabled();
     // Navigation pushed history entries: Back returns to the previous step.
     await page.goBack();

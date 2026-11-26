@@ -708,6 +708,206 @@
       <a href="../reference/api-usage.html#scopes-full-and-read-only">Using the API: scopes</a>
     </p>
   </section>
+
+  <section
+    class="step"
+    id="step-13"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft,mcp"
+    data-graph-highlight="v210"
+    data-graph-caption="Step 13: every version says which git branch it came from."
+  >
+    <h2>13. Where a snapshot comes from: its git branch</h2>
+    <p>
+      The Producer page of <code>orders</code> lists a dozen snapshots, and nobody remembers who
+      built <code>1.12.0</code>. From 2.18.0 every build sends its git branch with the provide, read
+      from the runner's variables (and only last from <code>git</code> itself), and the version row
+      says it: built on <code>feature/master/login</code>, to be merged into <code>master</code>.
+    </p>
+    <pre><code>curl -X POST "$SANSHAIN_URL/provide" -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"producername": "orders", "stability": "snapshot", "openapi_yaml": "...",
+       "git_branch": "feature/master/login",
+       "change_url": "https://git.example.test/orders/pull/41"}'</code></pre>
+    <figure class="screenshot">
+      <img
+        src="../assets/images/story_branch_chip.png"
+        alt="A snapshot row of orders 1.12.0 with the chip feature/master/login → master next to the change link"
+        loading="lazy"
+      />
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The target <code>master</code> was never sent: the administrator's branch naming pattern
+        <code>^(?&lt;kind&gt;feature|bugfix|hotfix)/(?&lt;target&gt;release/[^/]+|main|master)/</code>
+        read it from the name. A pull request build's own target wins over the pattern.
+      </li>
+      <li>
+        The version keeps the branch it was born on. The trunk build after the merge provides the
+        same bytes from <code>master</code>, and the row still says where the work was done.
+      </li>
+      <li>The branch never changes what a require serves: that is still only the Pin.</li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="ci-integration.html">CI integration: the git branch of a build</a> ·
+      <a href="../operator/administration.html#branch-names">Administration: Branch Names</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-14"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft,mcp"
+    data-graph-highlight="v200"
+    data-graph-caption="Step 14: a hotfix on a release branch is proposed a patch."
+  >
+    <h2>14. A hotfix on a side line gets a patch</h2>
+    <p>
+      <code>2.6.0</code> is in production, the trunk is at <code>2.23.0</code>. A fix on
+      <code>release/2.6</code> changes <code>2.6.0</code> and is refused, as a GA is immutable. Before
+      2.18.0 the proposal was <code>2.24.0</code>, which puts the fix on top of seventeen minors it
+      never had. Now the branch says it is a side line of semver, and the proposal stays there:
+    </p>
+    <pre><code>{ "error": "version 2.6.0 of openapi 'orders' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as 2.6.1 instead",
+  "proposed_version": "2.6.1" }</code></pre>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        A branch is a maintenance branch when its kind is <code>release</code>,
+        <code>bugfix</code> or <code>hotfix</code> (the administrator can change the list), when it
+        matches an extra pattern, or when the build sends a Sanshain stream tag.
+      </li>
+      <li>
+        A breaking change still gets a new major: Sanshain never proposes a number it would then
+        refuse.
+      </li>
+      <li><code>main</code> and <code>master</code> keep the minor proposal of step 4.</li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#maintenance-branches">API lifecycle: maintenance branches</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-15"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft,mcp"
+    data-graph-highlight="pin"
+    data-graph-caption="Step 15: a Consumer learns it can move for free."
+  >
+    <h2>15. A free move for the shop</h2>
+    <p>
+      <code>shop</code> pins <code>orders 1.5.0</code> and requires <code>GET /orders</code>. Six versions later the endpoint has not changed its shape, only its description did. Sanshain
+      says so on every require, so the build log of the shop shows it:
+    </p>
+    <pre><code>x-sanshain-resolution: served
+x-sanshain-version: 1.5.0
+x-sanshain-stability: ga
+x-sanshain-upgrade: 1.11.0</code></pre>
+    <figure class="screenshot">
+      <img
+        src="../assets/images/story_free_move.png"
+        alt="The Pin of shop on orders 1.5.0 with the green box Move to 1.11.0: nothing changes for the endpoints you require, and the newer versions compared on its endpoints"
+        loading="lazy"
+      />
+    </figure>
+    <p>
+      On top of the pages, the strips say who stands where: the Producer page draws one bar per
+      version with the Consumers that pin it, the Consumer page one column per version of its
+      require set, the <code>requires</code> section of its <code>sanshain.yaml</code>.
+    </p>
+    <figure class="screenshot">
+      <img
+        src="../assets/images/story_version_strip.png"
+        alt="The strip Who pins which version on the orders page: a bar of two Consumers on 1.5.0 and zero bars for the newer versions"
+        loading="lazy"
+      />
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        Only the endpoints the shop requires count, so the move may even cross a major that broke
+        someone else's.
+      </li>
+      <li>
+        A GA Pin is offered GAs only; the <code>1.12.0</code> snapshot of step 13 is not proposed.
+      </li>
+      <li>
+        The Producer page lists, per version, the endpoints it added, changed, removed or
+        deprecated against the GA below:
+      </li>
+    </ul>
+    <figure class="screenshot">
+      <img
+        src="../assets/images/story_endpoint_changes.png"
+        alt="What each version changed on the orders page: 1.11.0 opened, both endpoints marked changed against GA 1.5.0"
+        loading="lazy"
+      />
+    </figure>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="api-lifecycle.html#free-moves">API lifecycle: free moves</a> ·
+      <a href="sanshain-yaml.html#require-set-versions">sanshain.yaml: versions of the require set</a>
+      · <a href="web-ui.html">The web UI</a>
+    </p>
+  </section>
+
+  <section
+    class="step"
+    id="step-16"
+    data-graph="payments,v100,v100-ga,orders,pin,v200,v200-ga,v210,v210-ga,branch,periphery,draft,mcp"
+    data-graph-highlight="branch"
+    data-graph-caption="Step 16: the Product release Bulbao is described as a whole."
+  >
+    <h2>16. Bulbao ]|[ - alpha: a Product release</h2>
+    <p>
+      The shop is shipped as one Helm umbrella chart. Its release pipeline pushes the chart after
+      publishing it, and every chart version becomes a release of the Product, with the name sales
+      gave it:
+    </p>
+    <pre><code>apiVersion: v2
+name: shop
+version: 1.3.0
+annotations:
+  sanshain/sales-name: "Bulbao ]|[ - alpha"
+dependencies:
+  - name: orders
+    version: 1.11.0
+  - name: shop
+    version: ~4.1.0
+
+curl -X PUT "$SANSHAIN_URL/products/shop/chart" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" --data-binary @Chart.yaml</code></pre>
+    <figure class="screenshot">
+      <img
+        src="../assets/images/story_release_sheet.png"
+        alt="The release sheet of shop 1.3.0, Bulbao: each member with its chart version, the API versions it provides, its require-set version, and the Pin of shop on orders 1.5.0 marked because the release ships 1.11.0"
+        loading="lazy"
+      />
+    </figure>
+    <p class="eyebrow">What to notice</p>
+    <ul>
+      <li>
+        The sheet reads the API versions from main at the moment of the push; the pipeline may name
+        a sanshain-branch instead. The release keeps showing what it shipped.
+      </li>
+      <li>
+        The shop still pins <code>orders 1.5.0</code> while the release ships
+        <code>1.11.0</code>: the sheet marks it, and names the free move from step 15.
+      </li>
+      <li>
+        <strong>Compare</strong> puts <code>1.2.0</code> and <code>1.3.0</code> side by side: per
+        member the API versions that moved, with the endpoints each moved line changed.
+      </li>
+    </ul>
+    <p class="eyebrow">Go deeper</p>
+    <p>
+      <a href="web-ui.html#product-releases">The web UI: Product releases</a> ·
+      <a href="../reference/api.html">PUT /products/{name}/chart</a>
+    </p>
+  </section>
 </div>
 
 <h2>Behind the story</h2>
@@ -721,4 +921,7 @@
   answer with what the step expects, and overwrites <code>site/evidence/</code>.
 </p>
 
-<p class="checked">Recorded against v2.10.0.</p>
+<p class="checked">
+  Steps 1 to 12 recorded against v2.10.0; steps 13 to 16 written for v2.18.0, their pictures taken
+  by <code>just screenshots</code>.
+</p>
