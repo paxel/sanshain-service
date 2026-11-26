@@ -238,6 +238,10 @@ const SQLITE_MIGRATIONS: &[(&str, &str)] = &[
         "20261108000001_products.sql",
         "0e8a5b6f804990e2cbf9b54d3f3ac06eb5fbf5e602c1e9c17e103c4d0a9d1681",
     ),
+    (
+        "20261126000000_version_origin_git_branch.sql",
+        "1dccc466bb844852d9e64c06c37fa4a897ce5be0d54240d06cd36c13dfa63d9a",
+    ),
 ];
 
 const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
@@ -428,6 +432,10 @@ const POSTGRES_MIGRATIONS: &[(&str, &str)] = &[
     (
         "20261108000001_products.sql",
         "bf1dc4e5e6e5e340e432299cc8056d95f6ace24285ccc92309d7f6aad41ffa03",
+    ),
+    (
+        "20261126000000_version_origin_git_branch.sql",
+        "1dccc466bb844852d9e64c06c37fa4a897ce5be0d54240d06cd36c13dfa63d9a",
     ),
 ];
 
