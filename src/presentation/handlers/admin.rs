@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::application::services::{self, AppError};
+use crate::application::statistics_service;
 use crate::domain::models::{ApiType, AuditLogEntry, AuthMode, LdapConfig, OidcConfig};
 use crate::domain::ports::{NewAuditLog, SpecRepository};
 use axum::{
@@ -975,6 +976,40 @@ pub async fn set_snapshot_max_age(
     )
     .await?;
     Ok(StatusCode::OK)
+}
+
+/// The first day of the week of the statistics (san-1035).
+pub async fn get_week_start(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let day = statistics_service::get_week_start(&state.repo).await?;
+    Ok(Json(
+        json!({ "week_start": statistics_service::weekday_name(day) }),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct WeekStartPayload {
+    pub week_start: String,
+}
+
+pub async fn set_week_start(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<WeekStartPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    let day = statistics_service::set_week_start(&state.repo, &payload.week_start).await?;
+    let name = statistics_service::weekday_name(day);
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_WEEK_START",
+            details: &format!("Set the first day of the week to {name}"),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "week_start": name })))
 }
 
 pub async fn trigger_snapshot_cleanup(

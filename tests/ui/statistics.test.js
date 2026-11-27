@@ -247,3 +247,53 @@ test("the domain sankey colours each domain like the graph does", async ({ page 
   expect(svg).toContain(colours.billing);
   expect(svg).toContain("#94a3b8");
 });
+
+// san-1035: the admin's first day of the week starts the weeks; a daily chart
+// bands every second one, a weekly chart none.
+test("the first day of the week is set on the admin page and bands the daily charts", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/admin.html");
+  await page.click('[data-admin-tab-button="general"]');
+  await expect(page.locator("#week-start")).toHaveValue("monday");
+  await page.selectOption("#week-start", "sunday");
+  await page.locator('[data-click="saveWeekStart"]').click();
+  await expect(page.locator("#week-start-result")).toHaveText("✓ Saved");
+  await page.reload();
+  await page.click('[data-admin-tab-button="general"]');
+  await expect(page.locator("#week-start")).toHaveValue("sunday");
+
+  const answer = page.waitForResponse((r) => r.url().includes("/admin/statistics/activity?"));
+  await page.goto("/reports.html?tab=activity&from=2026-11-01&to=2026-11-21");
+  /** @type {unknown} */
+  const body = await (await answer).json();
+  const periods = /** @type {{ data: { periods: { week_start: string } } }} */ (body).data.periods;
+  expect(periods.week_start).toBe("sunday");
+  await expect(page.locator("#statistics-chart-activity-calls svg")).toBeVisible();
+
+  // 2026-11-01 is a Sunday: the second week, the 8th to the 14th, is banded.
+  const bands = await page.evaluate(() => {
+    const starts = Array.from(
+      { length: 21 },
+      (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`,
+    );
+    return {
+      sunday: statisticsWeekBands({ bucket: "day", week_start: "sunday", starts }),
+      monday: statisticsWeekBands({ bucket: "day", week_start: "monday", starts }),
+      weekly: statisticsWeekBands({ bucket: "week", week_start: "sunday", starts }),
+    };
+  });
+  expect(bands.sunday).toEqual([["2026-11-08", "2026-11-14"]]);
+  expect(bands.monday).toEqual([
+    ["2026-11-02", "2026-11-08"],
+    ["2026-11-16", "2026-11-21"],
+  ]);
+  expect(bands.weekly).toEqual([]);
+
+  await page.goto("/admin.html");
+  await page.click('[data-admin-tab-button="general"]');
+  await page.selectOption("#week-start", "monday");
+  await page.locator('[data-click="saveWeekStart"]').click();
+  await expect(page.locator("#week-start-result")).toHaveText("✓ Saved");
+});

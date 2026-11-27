@@ -365,6 +365,45 @@
           </div>
         </section>
 
+        <!-- Week start (san-1035) -->
+        <section
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
+          <div class="mb-4">
+            <h2 class="text-lg font-semibold text-slate-800">First Day of the Week</h2>
+            <p class="text-sm text-slate-500 mt-1">
+              The statistics count long ranges per week from this day, and band every second week
+              on the daily charts from it. Weekends differ between countries; pick the day your
+              weeks start on.
+            </p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <select
+              id="week-start"
+              aria-label="First day of the week"
+              data-needs="manage_settings"
+              class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value="monday">Monday</option>
+              <option value="tuesday">Tuesday</option>
+              <option value="wednesday">Wednesday</option>
+              <option value="thursday">Thursday</option>
+              <option value="friday">Friday</option>
+              <option value="saturday">Saturday</option>
+              <option value="sunday">Sunday</option>
+            </select>
+            <button
+              data-click="saveWeekStart"
+              data-needs="manage_settings"
+              class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Save
+            </button>
+            <span id="week-start-result" class="text-sm text-slate-500"></span>
+          </div>
+        </section>
+
         <!-- Ticket links -->
         <section
           data-admin-tab="general"

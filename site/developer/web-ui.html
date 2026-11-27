@@ -518,6 +518,14 @@ curl -X PUT "$SANSHAIN_URL/products/shop/chart?scope=release-2026-10" \
   Backstage owner. The data is <code>GET /admin/statistics/{tab}?from=&amp;to=</code>.
 </p>
 <p>
+  The charts over time band every second week when they count per day, and a range longer than 92
+  days is counted per week. Both start the week on the
+  <a href="../operator/administration.html#week-start">first day of the week</a> an admin sets
+  (Monday until then). The sankey <strong>Dependencies between domains</strong> draws each domain
+  in its graph colour on both sides, each flow in the colour of its source, and the systems
+  without a domain in grey.
+</p>
+<p>
   The former Producer isolation report and full dependency report are panels of Landscape:
   <strong>Producer isolation</strong> (who talks to whom, AsyncAPI through <code>KAFKA</code>) with
   sortable columns, and <strong>Every dependency</strong> (each Consumer's Pin on each endpoint)

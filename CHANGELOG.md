@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - A pasted chart with a version also creates its release, and only the highest chart version sets the Product's members; the paste answers the snapshot beside the member lists ([san-1033](https://github.com/paxel/sanshain-service/issues/147)).
 - A refused provide from a release, bugfix or hotfix branch, or with a stream tag, is proposed a patch in its own minor (`2.6.0` gives `2.6.1`, not `2.24.0`); the maintenance kinds and an extra maintenance pattern are part of the Branch Names setting ([san-1030](https://github.com/paxel/sanshain-service/issues/144)).
+- The statistics time charts band every second week when they count per day, and weeks (of a daily chart and of a range counted per week) start on the first day of the week an admin sets on the General tab, Monday until then (`/admin/settings/week-start`) ([san-1035](https://github.com/paxel/sanshain-service/issues/150)).
 - The statistics sankey "Dependencies between domains" draws each domain in its graph colour on both sides, its flows in the colour of their source, and the systems without a domain in grey ([san-1036](https://github.com/paxel/sanshain-service/issues/151)).
 
 ---

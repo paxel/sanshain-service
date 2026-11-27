@@ -3709,6 +3709,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/week-start:
+    get:
+      summary: "Read: settings/week-start"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        The first day of the week of the statistics (`monday` until set): weekly buckets start on it,
+        and the daily charts band every second week from it.
+      responses:
+        "200":
+          description: "`{\"week_start\": \"monday\"}`."
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/week-start"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        Body `{"week_start": "sunday"}`: an English weekday name, any case. Anything else answers `400`.
+        Audited as `SET_WEEK_START`.
+      responses:
+        "200":
+          description: The stored day, `{"week_start": "sunday"}`.
+        "400":
+          description: Not a weekday name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /admin/webhooks:
     get:
       summary: "Read: webhooks/webhooks"
