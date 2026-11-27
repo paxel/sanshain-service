@@ -221,3 +221,29 @@ test("the former reports are Landscape panels: isolation sorts, dependencies fil
   const text = Buffer.concat(await (await file.createReadStream()).toArray()).toString();
   expect(text).toBe("Consumer,Producer,API type,Pin,Stability,Method,Path\r\n");
 });
+
+// san-1036: each domain keeps its graph colour on both sides of the sankey,
+// and the systems without a domain are grey.
+test("the domain sankey colours each domain like the graph does", async ({ page }) => {
+  await signIn(page);
+  await page.route("**/admin/statistics/landscape?*", async (route) => {
+    const response = await route.fetch();
+    const answer = /** @type {{ data: { flows: unknown[] } }} */ (await json(response));
+    answer.data.flows = [
+      { from: "payments", to: "billing", pairs: 2 },
+      { from: "no domain", to: "payments", pairs: 1 },
+    ];
+    await route.fulfill({ response, json: answer });
+  });
+  await page.goto("/reports.html?tab=landscape");
+  const chart = page.locator("#statistics-chart-landscape-flows svg");
+  await expect(chart).toBeVisible();
+  const colours = await page.evaluate(() => ({
+    payments: window.graphDomainColor("payments").border,
+    billing: window.graphDomainColor("billing").border,
+  }));
+  const svg = await chart.evaluate((el) => el.outerHTML.toLowerCase());
+  expect(svg).toContain(colours.payments);
+  expect(svg).toContain(colours.billing);
+  expect(svg).toContain("#94a3b8");
+});
