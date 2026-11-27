@@ -11,7 +11,7 @@ use crate::domain::models::{
     SystemContext, SystemLink, VersionOrigin,
 };
 use crate::domain::ports::SpecRepository;
-use chrono::{Datelike, Days, Months, NaiveDate};
+use chrono::{Datelike, Days, Months, NaiveDate, Weekday};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -480,43 +480,106 @@ pub struct StatisticsAnswer<T: Serialize> {
 /// A range longer than this many days is counted per week, not per day.
 pub const DAILY_UP_TO_DAYS: usize = 92;
 
-/// The periods of a range: its days, or the Mondays of its weeks when the
-/// range is long.
+/// The setting that holds the first day of the week (san-1035).
+pub const WEEK_START_SETTING: &str = "statistics_week_start";
+
+/// The weekdays by their setting name, Monday first.
+const WEEKDAYS: [(&str, Weekday); 7] = [
+    ("monday", Weekday::Mon),
+    ("tuesday", Weekday::Tue),
+    ("wednesday", Weekday::Wed),
+    ("thursday", Weekday::Thu),
+    ("friday", Weekday::Fri),
+    ("saturday", Weekday::Sat),
+    ("sunday", Weekday::Sun),
+];
+
+/// The setting name of `day`.
+pub fn weekday_name(day: Weekday) -> &'static str {
+    WEEKDAYS
+        .iter()
+        .find(|(_, w)| *w == day)
+        .map_or("monday", |(name, _)| name)
+}
+
+/// The weekday a setting name stands for, `None` for anything else.
+pub fn parse_weekday(name: &str) -> Option<Weekday> {
+    let name = name.trim().to_ascii_lowercase();
+    WEEKDAYS.iter().find(|(n, _)| *n == name).map(|(_, w)| *w)
+}
+
+/// The first day of the week the statistics count from: Monday until an
+/// admin sets another. An unreadable stored value reads as Monday.
+pub async fn get_week_start(repo: &impl SpecRepository) -> Result<Weekday, AppError> {
+    Ok(repo
+        .get_setting(WEEK_START_SETTING)
+        .await?
+        .as_deref()
+        .and_then(parse_weekday)
+        .unwrap_or(Weekday::Mon))
+}
+
+/// Stores the first day of the week, by its English name (`monday` …
+/// `sunday`, any case).
+pub async fn set_week_start(repo: &impl SpecRepository, name: &str) -> Result<Weekday, AppError> {
+    let day = parse_weekday(name).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "week_start must be one of monday, tuesday, wednesday, thursday, friday, saturday, sunday; got '{name}'"
+        ))
+    })?;
+    repo.set_setting(WEEK_START_SETTING, weekday_name(day))
+        .await?;
+    Ok(day)
+}
+
+/// The periods of a range: its days, or the first days of its weeks when the
+/// range is long. Weeks start on the configured day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Periods {
     /// `day` or `week`.
     pub bucket: &'static str,
+    /// The first day of the week, `monday` … `sunday`: the week bands of the
+    /// daily charts start there.
+    pub week_start: &'static str,
     /// The first day of each period, `YYYY-MM-DD`.
     pub starts: Vec<String>,
     #[serde(skip)]
     first_days: Vec<NaiveDate>,
+    #[serde(skip)]
+    first_weekday: Weekday,
 }
 
 impl Periods {
-    pub fn of(range: StatisticsRange) -> Periods {
+    pub fn of(range: StatisticsRange, first_weekday: Weekday) -> Periods {
         let days = range.days();
         let weekly = days.len() > DAILY_UP_TO_DAYS;
         let mut first_days: Vec<NaiveDate> = Vec::new();
         for day in days {
-            let start = if weekly { week_start(day) } else { day };
+            let start = if weekly {
+                start_of_week(day, first_weekday)
+            } else {
+                day
+            };
             if first_days.last() != Some(&start) {
                 first_days.push(start);
             }
         }
         Periods {
             bucket: if weekly { "week" } else { "day" },
+            week_start: weekday_name(first_weekday),
             starts: first_days
                 .iter()
                 .map(|d| d.format("%Y-%m-%d").to_string())
                 .collect(),
             first_days,
+            first_weekday,
         }
     }
 
     /// The index of the period `day` falls into.
     pub fn index(&self, day: NaiveDate) -> Option<usize> {
         let start = if self.bucket == "week" {
-            week_start(day)
+            start_of_week(day, self.first_weekday)
         } else {
             day
         };
@@ -532,9 +595,9 @@ impl Periods {
     }
 }
 
-/// The Monday of `day`'s week.
-fn week_start(day: NaiveDate) -> NaiveDate {
-    day.checked_sub_days(Days::new(u64::from(day.weekday().num_days_from_monday())))
+/// The first day of `day`'s week, for weeks starting on `first`.
+fn start_of_week(day: NaiveDate, first: Weekday) -> NaiveDate {
+    day.checked_sub_days(Days::new(u64::from(day.weekday().days_since(first))))
         .unwrap_or(day)
 }
 
@@ -591,7 +654,7 @@ pub async fn activity(
 ) -> Result<Activity, AppError> {
     let contexts = repo.list_system_contexts().await?;
     let scan = scan_audit(repo, range).await?;
-    let periods = Periods::of(range);
+    let periods = Periods::of(range, get_week_start(repo).await?);
     let labels = [
         ("PROVIDE_SPEC", "Provides"),
         ("REQUIRE_SPEC", "Requires"),
@@ -724,7 +787,7 @@ pub async fn versions(
     repo: &impl SpecRepository,
     range: StatisticsRange,
 ) -> Result<Versions, AppError> {
-    let periods = Periods::of(range);
+    let periods = Periods::of(range, get_week_start(repo).await?);
     let mut ga_created = vec![0usize; periods.len()];
     let mut snapshot_created = vec![0usize; periods.len()];
     let mut per_producer: BTreeMap<String, ProducerVersions> = BTreeMap::new();
@@ -895,7 +958,7 @@ pub async fn branches(
     }
     list.sort_by(|a, b| b.cut_at.cmp(&a.cut_at).then_with(|| a.name.cmp(&b.name)));
 
-    let periods = Periods::of(range);
+    let periods = Periods::of(range, get_week_start(repo).await?);
     let streams = ["dev", "trunk", "tag"];
     let mut builds: Vec<Series> = streams
         .iter()
@@ -1057,6 +1120,8 @@ pub struct SystemSheet {
     pub links: Vec<SystemLink>,
     pub annotations: Vec<Annotation>,
     pub external: bool,
+    /// Whether the system has a recorded catalog push (a system context).
+    pub has_catalog: bool,
     pub provides: Vec<ProvidedLine>,
     pub consumes: Vec<SheetDependency>,
     pub consumed_by: Vec<SheetDependency>,
@@ -1169,6 +1234,7 @@ pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
     let systems = names
         .into_iter()
         .map(|name| {
+            let has_catalog = contexts.contains_key(&name);
             let context = contexts.get(&name).cloned().unwrap_or_default();
             let (domain, external) = domain_of
                 .get(&name)
@@ -1197,6 +1263,7 @@ pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
                 links: context.links,
                 annotations: annotations.get(&name).cloned().unwrap_or_default(),
                 external,
+                has_catalog,
                 provides,
                 consumes: sheet_dependencies(&pairs, &name, true),
                 consumed_by: sheet_dependencies(&pairs, &name, false),
@@ -1267,6 +1334,7 @@ mod tests {
         let short = Periods::of(
             StatisticsRange::parse(Some("2026-11-01"), Some("2026-11-30"), d("2026-11-30"))
                 .unwrap(),
+            Weekday::Mon,
         );
         assert_eq!(short.bucket, "day");
         assert_eq!(short.len(), 30);
@@ -1275,6 +1343,7 @@ mod tests {
         let long = Periods::of(
             StatisticsRange::parse(Some("2026-01-01"), Some("2026-12-31"), d("2026-12-31"))
                 .unwrap(),
+            Weekday::Mon,
         );
         assert_eq!(long.bucket, "week");
         // 2026-01-01 is a Thursday: its week starts on Monday 2025-12-29.
@@ -1282,6 +1351,60 @@ mod tests {
         assert_eq!(long.index(d("2026-01-04")), Some(0));
         assert_eq!(long.index(d("2026-01-05")), Some(1));
         assert!(!long.is_empty());
+        assert_eq!(long.week_start, "monday");
+    }
+
+    #[test]
+    fn weeks_start_on_the_configured_day() {
+        let range = StatisticsRange::parse(Some("2026-01-01"), Some("2026-12-31"), d("2026-12-31"))
+            .unwrap();
+        let sunday = Periods::of(range, Weekday::Sun);
+        assert_eq!(sunday.week_start, "sunday");
+        // 2026-01-01 is a Thursday: its week starts on Sunday 2025-12-28.
+        assert_eq!(
+            sunday.starts.first().map(String::as_str),
+            Some("2025-12-28")
+        );
+        assert_eq!(sunday.index(d("2026-01-03")), Some(0));
+        assert_eq!(sunday.index(d("2026-01-04")), Some(1));
+        let saturday = Periods::of(range, Weekday::Sat);
+        assert_eq!(
+            saturday.starts.first().map(String::as_str),
+            Some("2025-12-27")
+        );
+    }
+
+    #[test]
+    fn weekday_names_round_trip_and_others_are_refused() {
+        for (name, day) in WEEKDAYS {
+            assert_eq!(parse_weekday(name), Some(day));
+            assert_eq!(weekday_name(day), name);
+        }
+        assert_eq!(parse_weekday(" Sunday "), Some(Weekday::Sun));
+        assert_eq!(parse_weekday("sun"), None);
+        assert_eq!(parse_weekday(""), None);
+    }
+
+    #[tokio::test]
+    async fn the_week_start_is_monday_until_set_and_refuses_a_non_day() {
+        let repo = crate::application::mock_repo::MockRepo::new();
+        assert_eq!(get_week_start(&repo).await.unwrap(), Weekday::Mon);
+        assert_eq!(set_week_start(&repo, "Sunday").await.unwrap(), Weekday::Sun);
+        assert_eq!(get_week_start(&repo).await.unwrap(), Weekday::Sun);
+        assert_eq!(
+            repo.get_setting(WEEK_START_SETTING)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("sunday")
+        );
+        let refused = set_week_start(&repo, "funday").await.unwrap_err();
+        assert!(matches!(refused, AppError::BadRequest(m) if m.contains("funday")));
+        assert_eq!(get_week_start(&repo).await.unwrap(), Weekday::Sun);
+        repo.set_setting(WEEK_START_SETTING, "garbage")
+            .await
+            .unwrap();
+        assert_eq!(get_week_start(&repo).await.unwrap(), Weekday::Mon);
     }
 
     #[test]

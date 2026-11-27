@@ -7,7 +7,7 @@
 /* exported onSessionExpired, saveWebhookAllowedHosts, downloadDatabaseSnapshot, saveCacheConfig */
 /* exported clearCache, saveTrunkMaxAge, triggerTrunkCleanup, saveSnapshotMaxAge */
 /* exported saveTicketUrlTemplate, triggerSnapshotCleanup, saveDependencyMaxAge */
-/* exported saveBranchRules, testBranchRules */
+/* exported saveBranchRules, testBranchRules, saveWeekStart */
 /* exported triggerDependencyCleanup, toggleRegistration, toggleAutoApproveUsers, toggleGravatar */
 /* exported toggleDetailedErrors, grantRole, revokeRole, createGroup, removeGroupMember */
 /* exported addGroupRole, toggleUserChip, renameServiceAccount, approveUser, pasteSpecSubmit */
@@ -219,6 +219,7 @@ async function loadAll() {
   void loadBranches();
   void loadTrunkMaxAge();
   void loadSnapshotMaxAge();
+  if (can("manage_settings")) void loadWeekStart();
   void loadTicketUrlTemplateSetting();
   void loadBranchRules();
   void loadDependencyMaxAge();
@@ -597,6 +598,37 @@ async function saveSnapshotMaxAge() {
         ).textContent = "";
       }, 3000);
     }
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
+}
+
+// san-1035: the first day of the week of the statistics.
+async function loadWeekStart() {
+  try {
+    const res = await apiCall("/admin/settings/week-start");
+    if (res.ok) {
+      const data = /** @type {{ week_start: string }} */ (await res.json());
+      /** @type {HTMLSelectElement} */ (document.getElementById("week-start")).value =
+        data.week_start;
+    }
+  } catch {
+    // The select keeps Monday.
+  }
+}
+
+async function saveWeekStart() {
+  const select = /** @type {HTMLSelectElement} */ (document.getElementById("week-start"));
+  const result = /** @type {HTMLElement} */ (document.getElementById("week-start-result"));
+  try {
+    const res = await apiCall("/admin/settings/week-start", {
+      method: "POST",
+      body: { week_start: select.value },
+    });
+    result.textContent = res.ok ? "✓ Saved" : await errorMessage(res);
+    setTimeout(() => {
+      result.textContent = "";
+    }, 3000);
   } catch {
     // Nothing was saved, and the result line stays empty.
   }

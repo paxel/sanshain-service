@@ -55,6 +55,16 @@ function statisticsOutgoing(connections) {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
+// `NO_DOMAIN` in src/application/statistics_service.rs.
+const STATISTICS_NO_DOMAIN = "no domain";
+
+// The sankey's colour of a domain: the graph's domain colour, grey for the
+// systems without a domain.
+/** @param {string} domain */
+function statisticsDomainColour(domain) {
+  return domain === STATISTICS_NO_DOMAIN ? "#94a3b8" : graphDomainColor(domain).border;
+}
+
 STATISTICS_RENDERERS.set("landscape", (/** @type {StatisticsLandscape} */ data) => {
   const systems = [...new Set([...data.producers, ...data.consumers])].sort((a, b) =>
     a.localeCompare(b),
@@ -87,11 +97,12 @@ STATISTICS_RENDERERS.set("landscape", (/** @type {StatisticsLandscape} */ data) 
   ])) {
     for (const g of list) groupRows.push([kind, g.name, g.members.length, g.members.join(", ")]);
   }
-  /** @type {Set<string>} */
-  const nodeNames = new Set();
+  // Each domain keeps its graph colour on both sides (san-1036).
+  /** @type {Map<string, string>} */
+  const nodeColours = new Map();
   for (const f of data.flows) {
-    nodeNames.add(`${f.from} (consumers)`);
-    nodeNames.add(`${f.to} (producers)`);
+    nodeColours.set(`${f.from} (consumers)`, statisticsDomainColour(f.from));
+    nodeColours.set(`${f.to} (producers)`, statisticsDomainColour(f.to));
   }
   /** @type {StatisticsPanel[]} */
   const panels = [
@@ -156,7 +167,8 @@ STATISTICS_RENDERERS.set("landscape", (/** @type {StatisticsLandscape} */ data) 
             {
               type: "sankey",
               emphasis: { focus: "adjacency" },
-              data: [...nodeNames].map((name) => ({ name })),
+              data: [...nodeColours].map(([name, color]) => ({ name, itemStyle: { color } })),
+              lineStyle: { color: "source", opacity: 0.4 },
               links: data.flows.map((f) => ({
                 source: `${f.from} (consumers)`,
                 target: `${f.to} (producers)`,

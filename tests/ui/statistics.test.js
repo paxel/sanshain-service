@@ -181,6 +181,18 @@ test("the Catalog lists systems, filters them and opens a sheet from the URL", a
   await expect(page.locator("#catalog-sheet article")).toContainText(producer);
   await expect(page.locator("#catalog-filter-domain")).toHaveValue("no domain");
 
+  // The fresh Consumer has no catalog push: "no" keeps it, "yes" drops it.
+  const consumerRow = page.locator("#catalog-root button[data-click='catalogOpen']", {
+    hasText: consumer,
+  });
+  await page.selectOption("#catalog-filter-catalog", "no");
+  await expect(page).toHaveURL(/catalog=no/);
+  await expect(consumerRow).toHaveCount(1);
+  await page.selectOption("#catalog-filter-catalog", "yes");
+  await expect(consumerRow).toHaveCount(0);
+  await page.selectOption("#catalog-filter-catalog", "");
+  await expect(consumerRow).toHaveCount(1);
+
   // Both print paths go through window.print.
   await page.evaluate(() => {
     const counter = /** @type {Window & { printed: number }} */ (/** @type {unknown} */ (window));
@@ -220,4 +232,80 @@ test("the former reports are Landscape panels: isolation sorts, dependencies fil
   const file = await csv;
   const text = Buffer.concat(await (await file.createReadStream()).toArray()).toString();
   expect(text).toBe("Consumer,Producer,API type,Pin,Stability,Method,Path\r\n");
+});
+
+// san-1036: each domain keeps its graph colour on both sides of the sankey,
+// and the systems without a domain are grey.
+test("the domain sankey colours each domain like the graph does", async ({ page }) => {
+  await signIn(page);
+  await page.route("**/admin/statistics/landscape?*", async (route) => {
+    const response = await route.fetch();
+    const answer = /** @type {{ data: { flows: unknown[] } }} */ (await json(response));
+    answer.data.flows = [
+      { from: "payments", to: "billing", pairs: 2 },
+      { from: "no domain", to: "payments", pairs: 1 },
+    ];
+    await route.fulfill({ response, json: answer });
+  });
+  await page.goto("/reports.html?tab=landscape");
+  const chart = page.locator("#statistics-chart-landscape-flows svg");
+  await expect(chart).toBeVisible();
+  const colours = await page.evaluate(() => ({
+    payments: window.graphDomainColor("payments").border,
+    billing: window.graphDomainColor("billing").border,
+  }));
+  const svg = await chart.evaluate((el) => el.outerHTML.toLowerCase());
+  expect(svg).toContain(colours.payments);
+  expect(svg).toContain(colours.billing);
+  expect(svg).toContain("#94a3b8");
+});
+
+// san-1035: the admin's first day of the week starts the weeks; a daily chart
+// bands every second one, a weekly chart none.
+test("the first day of the week is set on the admin page and bands the daily charts", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/admin.html");
+  await page.click('[data-admin-tab-button="general"]');
+  await expect(page.locator("#week-start")).toHaveValue("monday");
+  await page.selectOption("#week-start", "sunday");
+  await page.locator('[data-click="saveWeekStart"]').click();
+  await expect(page.locator("#week-start-result")).toHaveText("✓ Saved");
+  await page.reload();
+  await page.click('[data-admin-tab-button="general"]');
+  await expect(page.locator("#week-start")).toHaveValue("sunday");
+
+  const answer = page.waitForResponse((r) => r.url().includes("/admin/statistics/activity?"));
+  await page.goto("/reports.html?tab=activity&from=2026-11-01&to=2026-11-21");
+  /** @type {unknown} */
+  const body = await (await answer).json();
+  const periods = /** @type {{ data: { periods: { week_start: string } } }} */ (body).data.periods;
+  expect(periods.week_start).toBe("sunday");
+  await expect(page.locator("#statistics-chart-activity-calls svg")).toBeVisible();
+
+  // 2026-11-01 is a Sunday: the second week, the 8th to the 14th, is banded.
+  const bands = await page.evaluate(() => {
+    const starts = Array.from(
+      { length: 21 },
+      (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`,
+    );
+    return {
+      sunday: statisticsWeekBands({ bucket: "day", week_start: "sunday", starts }),
+      monday: statisticsWeekBands({ bucket: "day", week_start: "monday", starts }),
+      weekly: statisticsWeekBands({ bucket: "week", week_start: "sunday", starts }),
+    };
+  });
+  expect(bands.sunday).toEqual([["2026-11-08", "2026-11-14"]]);
+  expect(bands.monday).toEqual([
+    ["2026-11-02", "2026-11-08"],
+    ["2026-11-16", "2026-11-21"],
+  ]);
+  expect(bands.weekly).toEqual([]);
+
+  await page.goto("/admin.html");
+  await page.click('[data-admin-tab-button="general"]');
+  await page.selectOption("#week-start", "monday");
+  await page.locator('[data-click="saveWeekStart"]').click();
+  await expect(page.locator("#week-start-result")).toHaveText("✓ Saved");
 });

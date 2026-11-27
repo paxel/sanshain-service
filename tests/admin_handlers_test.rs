@@ -1083,6 +1083,60 @@ async fn snapshot_max_age_roundtrip_and_cleanup_trigger() {
     assert_eq!(json["deleted"], 0);
 }
 
+/// san-1035: the first day of the week reads Monday until set, takes a weekday
+/// name in any case, refuses anything else, and the statistics count from it.
+#[tokio::test]
+async fn week_start_roundtrip_refusal_and_statistics_periods() {
+    let (app, _repo, token) = app_with_seed().await;
+    let auth = format!("Bearer {}", token);
+    let post = |body: &'static str| {
+        Request::builder()
+            .method("POST")
+            .uri("/admin/settings/week-start")
+            .header(axum::http::header::AUTHORIZATION, &auth)
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap()
+    };
+
+    let (status, json) = get_json(&app, "/admin/settings/week-start", &auth).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["week_start"], "monday");
+
+    let res = app
+        .clone()
+        .oneshot(post(r#"{"week_start":"Sunday"}"#))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let (_, json) = get_json(&app, "/admin/settings/week-start", &auth).await;
+    assert_eq!(json["week_start"], "sunday");
+
+    let res = app
+        .clone()
+        .oneshot(post(r#"{"week_start":"funday"}"#))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let (_, json) = get_json(&app, "/admin/settings/week-start", &auth).await;
+    assert_eq!(
+        json["week_start"], "sunday",
+        "a refused day changes nothing"
+    );
+
+    let (status, json) = get_json(
+        &app,
+        "/admin/statistics/activity?from=2026-01-01&to=2026-12-31",
+        &auth,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["data"]["periods"]["bucket"], "week");
+    assert_eq!(json["data"]["periods"]["week_start"], "sunday");
+    // 2026-01-01 is a Thursday: its week starts on Sunday 2025-12-28.
+    assert_eq!(json["data"]["periods"]["starts"][0], "2025-12-28");
+}
+
 // --- Carried-over surfaces that survived the rework unchanged ---
 
 #[tokio::test]

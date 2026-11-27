@@ -1,5 +1,6 @@
 // The Catalog tab of the statistics page (san-1027): documentation of the
-// data. A list of systems with filters by owner, domain, Product and tag; a
+// data. A list of systems with filters by owner, domain, Product, tag and
+// whether the system has a catalog push (san-1037); a
 // click opens the system's sheet with both roles on it. "Print" prints the
 // open sheet, "Print all filtered" every sheet of the list, one per page. The
 // URL carries the filters and the open system.
@@ -13,7 +14,7 @@
  *   name: string, owner: string, domain: string, products: string[], tags: string[],
  *   description: string | null, source_location: string | null,
  *   links: { url: string, title: string }[], annotations: { name: string, value: string }[],
- *   external: boolean,
+ *   external: boolean, has_catalog: boolean,
  *   provides: { api_type: string, versions: number, latest: string, latest_ga: string | null, origin: CatalogOrigin | null }[],
  *   consumes: CatalogDependency[], consumed_by: CatalogDependency[],
  * }} CatalogSheet
@@ -23,7 +24,7 @@
 let catalogSystems = [];
 
 /** The filters the URL names, by key. */
-const CATALOG_FILTERS = /** @type {const} */ (["owner", "domain", "product", "tag"]);
+const CATALOG_FILTERS = /** @type {const} */ (["owner", "domain", "product", "tag", "catalog"]);
 
 /** @param {string} key */
 function catalogParam(key) {
@@ -47,12 +48,15 @@ function catalogFiltered() {
   const domain = catalogParam("domain");
   const product = catalogParam("product");
   const tag = catalogParam("tag");
+  const catalog = catalogParam("catalog");
   return catalogSystems.filter(
     (s) =>
       (!owner || s.owner === owner) &&
       (!domain || s.domain === domain) &&
       (!product || s.products.includes(product)) &&
-      (!tag || s.tags.includes(tag)),
+      (!tag || s.tags.includes(tag)) &&
+      (catalog !== "yes" || s.has_catalog) &&
+      (catalog !== "no" || !s.has_catalog),
   );
 }
 
@@ -156,7 +160,13 @@ function catalogDraw() {
   const root = document.getElementById("catalog-root");
   if (!root) return;
   /** @type {Record<string, Set<string>>} */
-  const values = { owner: new Set(), domain: new Set(), product: new Set(), tag: new Set() };
+  const values = {
+    owner: new Set(),
+    domain: new Set(),
+    product: new Set(),
+    tag: new Set(),
+    catalog: new Set(["yes", "no"]),
+  };
   for (const s of catalogSystems) {
     values.owner?.add(s.owner);
     values.domain?.add(s.domain);
@@ -166,7 +176,7 @@ function catalogDraw() {
   const selects = CATALOG_FILTERS.map((key) => {
     const current = catalogParam(key);
     const options = [...(values[key] ?? [])]
-      .sort((a, b) => a.localeCompare(b))
+      .sort((a, b) => (key === "catalog" ? 0 : a.localeCompare(b)))
       .map(
         (v) =>
           `<option value="${escapeAttr(v)}"${v === current ? " selected" : ""}>${escapeHtml(v)}</option>`,

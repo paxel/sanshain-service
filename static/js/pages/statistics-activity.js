@@ -3,7 +3,7 @@
 // is named.
 
 /**
- * @typedef {{ bucket: string, starts: string[] }} StatisticsPeriods
+ * @typedef {{ bucket: string, week_start: string, starts: string[] }} StatisticsPeriods
  * @typedef {{ label: string, counts: number[] }} StatisticsSeries
  * @typedef {{
  *   periods: StatisticsPeriods,
@@ -15,19 +15,73 @@
  * }} StatisticsActivity
  */
 
+const STATISTICS_WEEKDAYS = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+];
+
 /**
- * A stacked bar chart over the periods of the range.
+ * The background bands of a daily chart (san-1035): every second week, counted
+ * from the admin's first day of the week, as `[first day, last day]` pairs.
+ * A weekly chart has none.
+ * @param {StatisticsPeriods} periods
+ * @returns {[string, string][]}
+ */
+function statisticsWeekBands(periods) {
+  if (periods.bucket !== "day") return [];
+  const first = STATISTICS_WEEKDAYS.indexOf(periods.week_start);
+  /** @type {[string, string][]} */
+  const bands = [];
+  let week = 0;
+  /** @type {string | null} */
+  let bandStart = null;
+  let previous = "";
+  for (const [i, day] of periods.starts.entries()) {
+    if (i > 0 && new Date(`${day}T00:00:00Z`).getUTCDay() === first) {
+      if (bandStart !== null) bands.push([bandStart, previous]);
+      bandStart = null;
+      week += 1;
+    }
+    if (week % 2 === 1 && bandStart === null) bandStart = day;
+    previous = day;
+  }
+  if (bandStart !== null) bands.push([bandStart, previous]);
+  return bands;
+}
+
+/**
+ * A stacked bar chart over the periods of the range; a daily one bands every
+ * second week.
  * @param {StatisticsPeriods} periods
  * @param {StatisticsSeries[]} series
  */
 function statisticsTimeChart(periods, series) {
+  const bands = statisticsWeekBands(periods);
   return {
     grid: { left: 50, right: 20, top: 30, bottom: 50 },
     legend: { top: 0 },
     tooltip: { trigger: "axis" },
     xAxis: { type: "category", data: periods.starts },
     yAxis: { type: "value", minInterval: 1 },
-    series: series.map((s) => ({ name: s.label, type: "bar", stack: "total", data: s.counts })),
+    series: series.map((s, i) => ({
+      name: s.label,
+      type: "bar",
+      stack: "total",
+      data: s.counts,
+      ...(i === 0 &&
+        bands.length > 0 && {
+          markArea: {
+            silent: true,
+            itemStyle: { color: "rgba(148, 163, 184, 0.15)" },
+            data: bands.map(([from, to]) => [{ xAxis: from }, { xAxis: to }]),
+          },
+        }),
+    })),
   };
 }
 

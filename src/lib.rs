@@ -235,6 +235,8 @@ pub fn create_app(state: AppState) -> Router {
         // #50: the backup CronJob calls this with an API token, so it admits
         // a full-scope token beside a session; read-only tokens are refused.
         .route("/admin/backup/sqlite", get(admin::download_sqlite_snapshot).layer(require_with_api_tokens(state.clone(), RouteGuard::Global(Permission::RunDestructiveOperations))))
+        // san-1035: the first day of the week the statistics count and band from.
+        .route("/admin/settings/week-start", get(admin::get_week_start).post(admin::set_week_start).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/settings/snapshot-max-age", get(admin::get_snapshot_max_age).post(admin::set_snapshot_max_age).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         // The ticket URL template is set under settings (ManageSettings) and read by every
         // signed-in user from its own path: the pages link ticket ids with it.
