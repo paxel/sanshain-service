@@ -3745,7 +3745,7 @@ paths:
         Audited as `SET_WEEK_START`.
       responses:
         "200":
-          description: The stored day, `{"week_start": "sunday"}`.
+          description: "The stored day, `{\"week_start\": \"sunday\"}`."
         "400":
           description: Not a weekday name.
           content:
