@@ -219,7 +219,7 @@ async function loadAll() {
   void loadBranches();
   void loadTrunkMaxAge();
   void loadSnapshotMaxAge();
-  void loadWeekStart();
+  if (can("manage_settings")) void loadWeekStart();
   void loadTicketUrlTemplateSetting();
   void loadBranchRules();
   void loadDependencyMaxAge();
