@@ -33,6 +33,7 @@ const POST_2_0_MIGRATIONS: &[&str] = &[
     "20261023000007_user_own_avatar_hash.sql",
     "20261108000000_annotations.sql",
     "20261108000001_products.sql",
+    "20261126000000_version_origin_git_branch.sql",
 ];
 
 /// Apply every SQLite migration file older than the 2.0 rework, in order —
