@@ -323,6 +323,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   every second week on daily charts (`statisticsWeekBands`); answers carry `periods.week_start`.
 - Domain colours: one per domain by a hash of its name (`static/js/domain-colors.js`), shared by
   the graph and the domain sankey (san-1036); `no domain` grey.
+- Catalog tab filters: owner, domain, Product, tag, catalog (yes/no = `has_catalog`, a stored
+  system context; san-1037), all in the URL.
 - Code: `src/application/statistics_service.rs`, `src/presentation/handlers/statistics.rs`,
   `static/js/pages/statistics.js`. Source: `site/developer/web-ui.html` (Reports).
 

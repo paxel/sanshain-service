@@ -181,6 +181,18 @@ test("the Catalog lists systems, filters them and opens a sheet from the URL", a
   await expect(page.locator("#catalog-sheet article")).toContainText(producer);
   await expect(page.locator("#catalog-filter-domain")).toHaveValue("no domain");
 
+  // The fresh Consumer has no catalog push: "no" keeps it, "yes" drops it.
+  const consumerRow = page.locator("#catalog-root button[data-click='catalogOpen']", {
+    hasText: consumer,
+  });
+  await page.selectOption("#catalog-filter-catalog", "no");
+  await expect(page).toHaveURL(/catalog=no/);
+  await expect(consumerRow).toHaveCount(1);
+  await page.selectOption("#catalog-filter-catalog", "yes");
+  await expect(consumerRow).toHaveCount(0);
+  await page.selectOption("#catalog-filter-catalog", "");
+  await expect(consumerRow).toHaveCount(1);
+
   // Both print paths go through window.print.
   await page.evaluate(() => {
     const counter = /** @type {Window & { printed: number }} */ (/** @type {unknown} */ (window));

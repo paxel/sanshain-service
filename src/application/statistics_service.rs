@@ -1120,6 +1120,8 @@ pub struct SystemSheet {
     pub links: Vec<SystemLink>,
     pub annotations: Vec<Annotation>,
     pub external: bool,
+    /// Whether the system has a recorded catalog push (a system context).
+    pub has_catalog: bool,
     pub provides: Vec<ProvidedLine>,
     pub consumes: Vec<SheetDependency>,
     pub consumed_by: Vec<SheetDependency>,
@@ -1232,6 +1234,7 @@ pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
     let systems = names
         .into_iter()
         .map(|name| {
+            let has_catalog = contexts.contains_key(&name);
             let context = contexts.get(&name).cloned().unwrap_or_default();
             let (domain, external) = domain_of
                 .get(&name)
@@ -1260,6 +1263,7 @@ pub async fn catalog(repo: &impl SpecRepository) -> Result<Catalog, AppError> {
                 links: context.links,
                 annotations: annotations.get(&name).cloned().unwrap_or_default(),
                 external,
+                has_catalog,
                 provides,
                 consumes: sheet_dependencies(&pairs, &name, true),
                 consumed_by: sheet_dependencies(&pairs, &name, false),

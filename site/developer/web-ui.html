@@ -526,6 +526,12 @@ curl -X PUT "$SANSHAIN_URL/products/shop/chart?scope=release-2026-10" \
   without a domain in grey.
 </p>
 <p>
+  Catalog lists every Producer and Consumer with its sheet, filtered by owner, domain, Product,
+  tag, and by <strong>catalog</strong>: <em>yes</em> keeps the systems that pushed a
+  <code>catalog-info.yaml</code>, <em>no</em> the ones that still need one. The address keeps the
+  filters, and <strong>Print all filtered</strong> prints a sheet for each listed system.
+</p>
+<p>
   The former Producer isolation report and full dependency report are panels of Landscape:
   <strong>Producer isolation</strong> (who talks to whom, AsyncAPI through <code>KAFKA</code>) with
   sortable columns, and <strong>Every dependency</strong> (each Consumer's Pin on each endpoint)
