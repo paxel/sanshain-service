@@ -648,6 +648,8 @@ void test("the real api.yaml classifies exactly the catalog-changing routes as f
     "post /provide/grpc",
     "post /require-bundle",
     "put /catalog/{systemname}",
+    // san-1033: the chart push takes a full token too (require_with_api_tokens).
+    "put /products/{name}/chart",
   ]);
   assert.deepEqual(byLabel.none?.sort(), ["get /version", "post /validate"]);
   assert.deepEqual(byLabel["session token"]?.sort(), [

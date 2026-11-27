@@ -148,6 +148,13 @@ async function showClientDependencies(clientName) {
       clientName;
     list.appendChild(breadcrumb);
 
+    // san-1032: what each version of the require set requires, on top.
+    const strip = document.createElement("div");
+    strip.className = "bg-white p-4 rounded-xl border border-slate-200 shadow-xs";
+    strip.dataset.versionStrip = "consumer";
+    list.appendChild(strip);
+    void renderConsumerStrip(clientName, strip);
+
     // Owner, description, repository and links from the Consumer's
     // catalog-info (#48), under the title. Optional: the page reads without it.
     try {
@@ -223,6 +230,18 @@ async function showClientDependencies(clientName) {
         String(a.api_type).localeCompare(String(b.api_type)) ||
         compareSemver(a.version, b.version),
     );
+
+    // san-1031: per Pin the newer versions and the free move. Optional.
+    /** @type {Map<string, PinMoves>} */
+    const moves = new Map();
+    try {
+      const all = /** @type {PinMoves[]} */ (
+        await fetchJSON(`/admin/consumers/${encodeURIComponent(clientName)}/moves`)
+      );
+      for (const m of all) moves.set(`${m.producer} ${m.api_type} ${m.version}`, m);
+    } catch {
+      /* the page reads without it */
+    }
 
     for (const group of sortedGroups) {
       const section = document.createElement("div");
@@ -301,6 +320,10 @@ async function showClientDependencies(clientName) {
         filterRows.push({ ep, row, section });
       }
       section.appendChild(rows);
+      const pinMoves = moves.get(
+        `${group.service} ${((group.api_type ?? "") || "openapi").toLowerCase()} ${group.version}`,
+      );
+      if (pinMoves) section.insertAdjacentHTML("beforeend", pinMovesHtml(pinMoves));
       list.appendChild(section);
       filterSections.push(section);
     }
@@ -334,6 +357,52 @@ async function showClientDependencies(clientName) {
     hideLoader();
     list.innerHTML = `<div class="text-red-500 text-center py-10">Error: ${escapeHtml(/** @type {Error} */ (err).message)}</div>`;
   }
+}
+
+/**
+ * The newer versions of one Pin, seen through this Consumer's endpoints, and
+ * the free move when there is one (san-1031).
+ * @param {PinMoves} m
+ * @returns {string}
+ */
+function pinMovesHtml(m) {
+  if (m.newer.length === 0) return "";
+  const tone = {
+    unchanged: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    changed: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    removed: "bg-red-50 text-red-700 border-red-200",
+  };
+  const proposal = m.proposal
+    ? `<div class="mt-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800" data-move-proposal="${escapeHtml(m.proposal.version)}">
+        Move to <span class="font-mono font-semibold">${escapeHtml(m.proposal.version)}</span>: nothing changes for the endpoints you require.${
+          m.proposal.deprecated.length
+            ? ` <span class="text-amber-700">Deprecated there: ${m.proposal.deprecated
+                .map((e) => escapeHtml(`${e.method} ${e.path}`))
+                .join(", ")}.</span>`
+            : ""
+        }
+      </div>`
+    : "";
+  const versions = m.newer
+    .map(
+      (v) => `<li class="py-1" data-move-version="${escapeHtml(v.version)}">
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="font-mono font-semibold text-slate-700">${escapeHtml(v.version)}</span>${stabilityBadge(v.stability)}
+          ${v.free ? '<span class="text-[10px] font-bold uppercase text-emerald-700">free move</span>' : ""}
+        </div>
+        <ul class="pl-3 mt-0.5 space-y-0.5">${v.endpoints
+          .map(
+            (e) =>
+              `<li class="flex items-center gap-2 text-xs"><span class="px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase ${tone[e.change]}">${e.change}</span><span class="font-mono">${escapeHtml(e.method)} ${escapeHtml(e.path)}</span>${e.deprecated ? '<span class="text-[10px] text-amber-600 font-bold uppercase">deprecated</span>' : ""}</li>`,
+          )
+          .join("")}</ul>
+      </li>`,
+    )
+    .join("");
+  return `${proposal}<details class="mt-2 text-sm" data-pin-moves>
+      <summary class="cursor-pointer text-slate-600">${String(m.newer.length)} newer version${m.newer.length === 1 ? "" : "s"}, compared on your endpoints</summary>
+      <ul class="mt-1 divide-y divide-slate-100">${versions}</ul>
+    </details>`;
 }
 
 /**

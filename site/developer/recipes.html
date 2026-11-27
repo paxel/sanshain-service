@@ -243,4 +243,65 @@
   </p>
 </div>
 
+<h2 id="send-the-git-branch">Send the git branch of a build</h2>
+<div class="recipe">
+  <p>
+    The clients fill it from the runner; a raw <code>curl</code> pipeline sends it itself, with the
+    pull request target when there is one.
+  </p>
+  <pre><code>curl -X POST $SANSHAIN/provide -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"producername\": \"orders\", \"stability\": \"snapshot\", \"openapi_yaml\": $(jq -Rs . &lt; openapi.yaml),
+       \"git_branch\": \"$GITHUB_HEAD_REF\", \"git_target_branch\": \"$GITHUB_BASE_REF\"}"</code></pre>
+  <p>
+    Story <a href="story.html#step-13">step 13</a> ·
+    <a href="ci-integration.html">CI integration</a> ·
+    <a href="../operator/administration.html#branch-names">Branch Names</a>
+  </p>
+</div>
+
+<h2 id="get-a-patch-proposal-on-a-release-branch">Get a patch proposal on a release branch</h2>
+<div class="recipe">
+  <p>
+    Build the hotfix on <code>release/2.6</code> (or <code>hotfix/…</code>, or with a stream tag); a
+    refused provide then proposes the next patch of <code>2.6</code>. Check what Sanshain makes of a
+    branch name before relying on it:
+  </p>
+  <pre><code>curl -s -X POST $SANSHAIN/admin/settings/branch-rules/test \
+  -H "Authorization: Bearer $SESSION" -H "X-CSRF-Token: $CSRF" -H "Content-Type: application/json" \
+  -d '{"patterns": ["^(?&lt;kind&gt;release)/"], "branch": "release/2.6"}'
+{"reading": {"kind": "release", "target": null}, "maintenance": true}</code></pre>
+  <p>
+    Story <a href="story.html#step-14">step 14</a> ·
+    <a href="api-lifecycle.html#maintenance-branches">maintenance branches</a>
+  </p>
+</div>
+
+<h2 id="find-a-free-move">Find a free move for a Consumer</h2>
+<div class="recipe">
+  <p>Every require names it, when there is one:</p>
+  <pre><code>curl -si "$SANSHAIN/require?consumername=shop&amp;producername=orders&amp;version=1.5.0&amp;path=/orders&amp;method=GET" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" | grep -i x-sanshain-upgrade
+x-sanshain-upgrade: 1.11.0</code></pre>
+  <p>
+    Story <a href="story.html#step-15">step 15</a> ·
+    <a href="api-lifecycle.html#free-moves">free moves</a>
+  </p>
+</div>
+
+<h2 id="push-a-product-release">Push a Product release from the Helm pipeline</h2>
+<div class="recipe">
+  <p>
+    After the umbrella chart is published, with a full token of a Product Maintainer; name a
+    sanshain-branch when the release is cut from one.
+  </p>
+  <pre><code>curl -X PUT "$SANSHAIN/products/shop/chart?scope=release-2026.10" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" --data-binary @Chart.yaml
+{"chart_version": "1.3.0", "outcome": "created", "members": {"added": [], "removed": [], "skipped": []}}</code></pre>
+  <p>
+    Story <a href="story.html#step-16">step 16</a> ·
+    <a href="web-ui.html#product-releases">Product releases</a>
+  </p>
+</div>
+
 <p class="checked">Recorded against v2.6.0.</p>

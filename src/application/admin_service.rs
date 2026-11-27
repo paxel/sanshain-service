@@ -354,7 +354,7 @@ async fn producer_versions_map(
 
     let mut versions_by_service: std::collections::HashMap<String, Vec<ProducerVersionInfo>> =
         std::collections::HashMap::new();
-    let origins = repo.list_version_origins().await?;
+    let origins = super::git_branch_service::list_read_version_origins(repo).await?;
     let annotations = repo.list_version_annotations().await?;
     for (service_name, meta, endpoint_count) in repo.list_all_spec_versions().await? {
         // Use-based expiry: a snapshot dies only when neither provided nor

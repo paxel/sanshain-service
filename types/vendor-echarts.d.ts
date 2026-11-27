@@ -11,6 +11,7 @@ declare namespace echarts {
     dispose(): void;
     getWidth(): number;
     getHeight(): number;
+    on(event: string, handler: (params: { dataIndex: number }) => void): void;
   }
   function init(
     element: HTMLElement,

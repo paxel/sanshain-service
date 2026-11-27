@@ -5,7 +5,8 @@
 /* exported personLabel, externalTag, byCodeUnit, renderBanner, sanshainLogout, friendlyError */
 /* exported escapeAttr, attrJson, setActionArgs, confirmDelete, promoteVersion */
 /* exported reloadClearingInstance, dismissReloadBanner, togglePasswordVisibility */
-/* exported systemContextHtml, loadTicketUrlTemplate, originHtml, annotationsHtml */
+/* exported systemContextHtml, loadTicketUrlTemplate, originHtml, originBranchText, annotationsHtml */
+/* exported endpointChangesSummary, endpointChangesListHtml */
 /* exported appendClearSystemInfo, storeSanshainToken, forgetCsrfToken */
 
 /**
@@ -1204,6 +1205,20 @@ function ticketUrl(template, id) {
   return template ? template.replaceAll("{id}", encodeURIComponent(id)) : null;
 }
 
+// The branch of an origin as "branch → target" (san-1029); the target is
+// the runner's pull request target, else what the naming patterns read.
+// Empty string when the build named no branch.
+/**
+ * @param {VersionOrigin | null | undefined} origin
+ * @returns {string}
+ */
+function originBranchText(origin) {
+  const branch = origin?.git_branch;
+  const target = origin?.branch_reading?.target ?? origin?.git_target_branch;
+  if (!branch) return target ? `→ ${target}` : "";
+  return target ? `${branch} → ${target}` : branch;
+}
+
 // A version's origin (what the providing build said about why): the note,
 // then chips for the build, the change and each ticket. Empty string when
 // the build said nothing.
@@ -1229,6 +1244,14 @@ function originHtml(origin, template, dark) {
     );
   }
   const chips = [];
+  // san-1029: the branch the version was born on, "branch → target" when a
+  // target is known (the runner's, else what the naming patterns read).
+  const branchLabel = originBranchText(origin);
+  if (branchLabel) {
+    chips.push(
+      `<span data-origin-branch class="px-2 py-0.5 rounded-full text-[11px] font-mono ${plain}">${escapeHtml(branchLabel)}</span>`,
+    );
+  }
   // Only the trunk build's link: branch builds are deleted after the merge.
   if (origin.build_url && origin.trunk_build) {
     chips.push(linkChip(origin.build_url, "build", "build", chip));
@@ -1248,6 +1271,46 @@ function originHtml(origin, template, dark) {
     );
   }
   return rows.length ? `<div class="space-y-1 mt-1.5" data-origin>${rows.join("")}</div>` : "";
+}
+
+// What one version changed, endpoint by endpoint (san-1031), against the
+// highest GA below it: "+2 ~1 −1 ⚠1", or "no endpoint changed".
+/**
+ * @param {VersionEndpointChanges} c
+ * @returns {string}
+ */
+function endpointChangesSummary(c) {
+  const parts = [];
+  if (c.added.length) parts.push(`+${String(c.added.length)} added`);
+  if (c.changed.length) parts.push(`~${String(c.changed.length)} changed`);
+  if (c.removed.length) parts.push(`−${String(c.removed.length)} removed`);
+  if (c.deprecated.length) parts.push(`⚠${String(c.deprecated.length)} deprecated`);
+  return parts.length ? parts.join(" · ") : "no endpoint changed";
+}
+
+/**
+ * The endpoints of one version's changes as a list, each with its kind.
+ * @param {VersionEndpointChanges} c
+ * @returns {string}
+ */
+function endpointChangesListHtml(c) {
+  /** @type {[string, EndpointRef[], string][]} */
+  const groups = [
+    ["added", c.added, "bg-emerald-50 text-emerald-700 border-emerald-200"],
+    ["changed", c.changed, "bg-indigo-50 text-indigo-700 border-indigo-200"],
+    ["removed", c.removed, "bg-red-50 text-red-700 border-red-200"],
+    ["deprecated", c.deprecated, "bg-amber-50 text-amber-700 border-amber-200"],
+  ];
+  const items = groups.flatMap(([kind, list, tone]) =>
+    list.map(
+      (e) =>
+        `<li class="flex items-center gap-2" data-endpoint-change="${kind}"><span class="px-1.5 py-0.5 rounded border text-[10px] font-bold uppercase ${tone}">${kind}</span><span class="font-mono text-xs">${escapeHtml(e.method)} ${escapeHtml(e.path)}</span></li>`,
+    ),
+  );
+  const against = c.baseline ? `against GA ${escapeHtml(c.baseline)}` : "no GA below: all new";
+  return `<p class="text-[11px] text-slate-500 mb-1">${against}</p>${
+    items.length ? `<ul class="space-y-1">${items.join("")}</ul>` : ""
+  }`;
 }
 
 // Annotations (#91): project-declared entries the builds filled in. A value

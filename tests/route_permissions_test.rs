@@ -500,6 +500,9 @@ async fn snapshot_settings_and_cleanup_are_settings_scoped() {
     for (method, uri) in [
         ("POST", "/admin/settings/snapshot-max-age"),
         ("POST", "/admin/settings/ticket-url-template"),
+        ("GET", "/admin/settings/branch-rules"),
+        ("POST", "/admin/settings/branch-rules"),
+        ("POST", "/admin/settings/branch-rules/test"),
         ("POST", "/admin/cleanup/snapshots"),
     ] {
         for token in [&w.plain, &w.maintainer, &w.user_manager] {

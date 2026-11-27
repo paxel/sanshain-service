@@ -398,6 +398,85 @@
           </div>
         </section>
 
+        <section
+          id="branch-rules-section"
+          data-admin-tab="general"
+          class="bg-white rounded-xl border border-slate-200 shadow-xs p-6"
+        >
+          <div class="mb-4">
+            <h2 class="text-lg font-semibold text-slate-800">Branch Names</h2>
+            <p class="text-sm text-slate-500 mt-1">
+              How your git branches are named, so each version shows where it merges to. One
+              regular expression per line, with the named groups <code>kind</code> and
+              <code>target</code>; the first that matches a branch reads it. For example
+              <code>^(?&lt;kind&gt;feature|bugfix|hotfix)/(?&lt;target&gt;release/[^/]+|main|master)/</code>
+              reads <code>feature/master/login</code> as a feature that merges into
+              <code>master</code>.
+            </p>
+          </div>
+          <textarea
+            id="branch-rules-patterns"
+            aria-label="Branch naming patterns"
+            data-needs="manage_settings"
+            rows="3"
+            spellcheck="false"
+            class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          ></textarea>
+          <p class="text-sm text-slate-500 mt-3">
+            Maintenance branches are side lines of semver: a refused provide on one is proposed a
+            patch in its own minor (<code>2.6.0</code> gives <code>2.6.1</code>). A branch is one
+            when its <code>kind</code> is listed here, when it matches the pattern, or when the
+            build sends a Sanshain stream tag.
+          </p>
+          <div class="flex flex-wrap items-center gap-3 mt-2">
+            <label class="text-sm text-slate-600"
+              >Maintenance kinds
+              <input
+                type="text"
+                id="branch-rules-kinds"
+                data-needs="manage_settings"
+                placeholder="release, bugfix, hotfix"
+                class="ml-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono"
+            /></label>
+            <label class="text-sm text-slate-600"
+              >Maintenance pattern
+              <input
+                type="text"
+                id="branch-rules-maintenance-pattern"
+                data-needs="manage_settings"
+                placeholder="^support/"
+                class="ml-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono"
+            /></label>
+          </div>
+          <div class="flex flex-wrap items-center gap-3 mt-2">
+            <button
+              data-click="saveBranchRules"
+              data-needs="manage_settings"
+              class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              Save
+            </button>
+            <span id="branch-rules-result" class="text-sm text-slate-500"></span>
+            <span class="flex-1"></span>
+            <input
+              type="text"
+              id="branch-rules-sample"
+              aria-label="A branch to test the patterns with"
+              data-needs="manage_settings"
+              placeholder="feature/master/login"
+              class="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono"
+            />
+            <button
+              data-click="testBranchRules"
+              data-needs="manage_settings"
+              class="px-3 py-1.5 border border-slate-300 text-sm rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Test
+            </button>
+            <span id="branch-rules-test-result" class="text-sm text-slate-600 font-mono"></span>
+          </div>
+        </section>
+
         <!-- Dependency Cleanup -->
         <section
           data-admin-tab="general"

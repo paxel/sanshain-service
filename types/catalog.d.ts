@@ -89,8 +89,3 @@ interface StructureViewOptions {
   /** Copies an example to the clipboard. */
   copy: (text: string) => void;
 }
-
-interface Window {
-  /** Opens a report at the chosen graph scope; set by `static/js/pages/reports.js` for its buttons. */
-  openScopedReport: (src: string, title: string) => void;
-}

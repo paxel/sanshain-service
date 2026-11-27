@@ -1327,6 +1327,7 @@ mod tests {
                 tickets: vec!["ORD-7".to_string()],
                 note: Some("Ship v2".to_string()),
                 trunk_build: false,
+                ..VersionOrigin::default()
             },
             annotations: &[Annotation {
                 name: "requirements".to_string(),
@@ -1342,6 +1343,7 @@ mod tests {
                 "origin": {
                     "build_url": "https://ci.acme.corp/job/orders/42", "change_url": null,
                     "tickets": ["ORD-7"], "note": "Ship v2", "trunk_build": false,
+                    "git_branch": null, "git_target_branch": null,
                 },
                 "annotations": [{"name": "requirements", "value": "https://req/ORD-7"}],
             })

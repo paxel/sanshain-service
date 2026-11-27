@@ -70,6 +70,48 @@ async fn to_openapi(
     .await
 }
 
+/// A require-set hash (san-1032) as the client sends it: at most 128 letters
+/// and digits. Blank is none.
+fn valid_requires_hash(raw: Option<&str>) -> Result<Option<&str>, AppError> {
+    let Some(hash) = raw.map(str::trim).filter(|h| !h.is_empty()) else {
+        return Ok(None);
+    };
+    if hash.len() > 128 || !hash.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(AppError::BadRequest(
+            "requires_hash must be at most 128 letters and digits".to_string(),
+        ));
+    }
+    Ok(Some(hash))
+}
+
+/// Record this require's Pin under the Consumer's require-set version
+/// (san-1032): only from trunk and tag requires; a plain dev require, or one
+/// without a hash, numbers nothing.
+async fn record_require_set(
+    repo: &impl SpecRepository,
+    consumername: &str,
+    requires_hash: Option<&str>,
+    stream: &ResolvedStream,
+    producername: &str,
+    api_type: ApiType,
+    version: SemVer,
+) -> Result<(), AppError> {
+    let Some(hash) = requires_hash else {
+        return Ok(());
+    };
+    if !stream.trunk && stream.branch.is_none() {
+        return Ok(());
+    }
+    let pin = RequireSetPin {
+        producer: producername.to_string(),
+        api_type,
+        version,
+    };
+    repo.record_require_set(consumername, hash, &pin, &super::now_iso())
+        .await?;
+    Ok(())
+}
+
 pub struct RequireEndpointParams<'a> {
     pub consumername: &'a str,
     pub producername: &'a str,
@@ -85,6 +127,9 @@ pub struct RequireEndpointParams<'a> {
     pub tag: Option<&'a str>,
     /// The shape of the answer (see [`RequireFormat`]).
     pub format: RequireFormat,
+    /// The client's hash of the Consumer's `requires` section (san-1032):
+    /// a trunk or tag require records its Pin under that require-set version.
+    pub requires_hash: Option<&'a str>,
 }
 
 pub struct RequireBundleParams<'a> {
@@ -99,6 +144,8 @@ pub struct RequireBundleParams<'a> {
     pub tag: Option<&'a str>,
     /// See [`RequireEndpointParams::format`].
     pub format: RequireFormat,
+    /// See [`RequireEndpointParams::requires_hash`].
+    pub requires_hash: Option<&'a str>,
 }
 
 /// Resolve a Producer's version-line entry for a Pin, or fail the way the
@@ -152,6 +199,9 @@ pub struct RequireResponse {
     /// The stream the pins were recorded in, and the warnings when the
     /// declared one could not be honoured (`Sanshain-Warning` headers).
     pub stream: ResolvedStream,
+    /// A newer version that serves every endpoint this Consumer requires of
+    /// the Pin in the same shape (san-1031), sent as `X-Sanshain-Upgrade`.
+    pub upgrade: Option<SemVer>,
 }
 
 pub async fn require_endpoint(
@@ -183,9 +233,11 @@ async fn require_endpoint_inner(
         trunk,
         tag,
         format,
+        requires_hash,
     } = params;
     // Dev only when the declared stream cannot be honoured (ADR-0005).
     let stream = resolve_stream(repo, trunk, tag).await?;
+    let requires_hash = valid_requires_hash(requires_hash)?;
 
     let (_sid, entry) = resolve_pin(repo, producername, api_type, version).await?;
     let method = method_for(api_type, method);
@@ -223,7 +275,27 @@ async fn require_endpoint_inner(
         if let Some(branch) = &stream.branch {
             count_branch_update(&branch.name);
         }
+        record_require_set(
+            repo,
+            consumername,
+            requires_hash,
+            &stream,
+            producername,
+            api_type,
+            version,
+        )
+        .await?;
     }
+
+    let upgrade = super::move_service::move_proposal(
+        repo,
+        consumername,
+        producername,
+        api_type,
+        version,
+        &[(path.to_string(), method.clone())],
+    )
+    .await?;
 
     Ok(RequireResponse {
         yaml,
@@ -233,6 +305,7 @@ async fn require_endpoint_inner(
         stability: entry.stability,
         format,
         stream,
+        upgrade,
     })
 }
 
@@ -264,9 +337,11 @@ async fn require_bundle_inner(
         trunk,
         tag,
         format,
+        requires_hash,
     } = params;
     // Dev only when the declared stream cannot be honoured (ADR-0005).
     let stream = resolve_stream(repo, trunk, tag).await?;
+    let requires_hash = valid_requires_hash(requires_hash)?;
 
     if endpoints.is_empty() {
         return Err(AppError::BadRequest(
@@ -336,7 +411,27 @@ async fn require_bundle_inner(
         if let Some(branch) = &stream.branch {
             count_branch_update(&branch.name);
         }
+        record_require_set(
+            repo,
+            consumername,
+            requires_hash,
+            &stream,
+            producername,
+            api_type,
+            version,
+        )
+        .await?;
     }
+
+    let upgrade = super::move_service::move_proposal(
+        repo,
+        consumername,
+        producername,
+        api_type,
+        version,
+        &normalized,
+    )
+    .await?;
 
     Ok(RequireResponse {
         yaml,
@@ -346,6 +441,7 @@ async fn require_bundle_inner(
         stability: entry.stability,
         format,
         stream,
+        upgrade,
     })
 }
 

@@ -7,6 +7,7 @@
 /* exported onSessionExpired, saveWebhookAllowedHosts, downloadDatabaseSnapshot, saveCacheConfig */
 /* exported clearCache, saveTrunkMaxAge, triggerTrunkCleanup, saveSnapshotMaxAge */
 /* exported saveTicketUrlTemplate, triggerSnapshotCleanup, saveDependencyMaxAge */
+/* exported saveBranchRules, testBranchRules */
 /* exported triggerDependencyCleanup, toggleRegistration, toggleAutoApproveUsers, toggleGravatar */
 /* exported toggleDetailedErrors, grantRole, revokeRole, createGroup, removeGroupMember */
 /* exported addGroupRole, toggleUserChip, renameServiceAccount, approveUser, pasteSpecSubmit */
@@ -219,6 +220,7 @@ async function loadAll() {
   void loadTrunkMaxAge();
   void loadSnapshotMaxAge();
   void loadTicketUrlTemplateSetting();
+  void loadBranchRules();
   void loadDependencyMaxAge();
   void loadServices();
   void loadClients();
@@ -631,6 +633,92 @@ async function saveTicketUrlTemplate() {
     setTimeout(() => (result.textContent = ""), 5000);
   } catch {
     // Nothing was saved, and the result line stays empty.
+  }
+}
+
+// --- Branch names (san-1029) ---
+// The patterns live in the instance settings, readable by every signed-in
+// user; saving and testing stay behind manage_settings.
+
+/** The rules of the form: the patterns one per line, the kinds comma-separated. */
+function branchRulesForm() {
+  const value = (/** @type {string} */ id) =>
+    /** @type {HTMLInputElement} */ (document.getElementById(id)).value;
+  const pattern = value("branch-rules-maintenance-pattern").trim();
+  return {
+    patterns: branchRulesPatterns(),
+    maintenance_kinds: value("branch-rules-kinds")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean),
+    maintenance_pattern: pattern || null,
+  };
+}
+
+/** The patterns of the textarea, one per line, blank lines dropped. */
+function branchRulesPatterns() {
+  return /** @type {HTMLTextAreaElement} */ (document.getElementById("branch-rules-patterns")).value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+async function loadBranchRules() {
+  const settings = await instanceSettings();
+  const field = /** @type {HTMLTextAreaElement | null} */ (
+    document.getElementById("branch-rules-patterns")
+  );
+  if (field) field.value = (settings?.branch_rules?.patterns ?? []).join("\n");
+  const kinds = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("branch-rules-kinds")
+  );
+  if (kinds) kinds.value = (settings?.branch_rules?.maintenance_kinds ?? []).join(", ");
+  const pattern = /** @type {HTMLInputElement | null} */ (
+    document.getElementById("branch-rules-maintenance-pattern")
+  );
+  if (pattern) pattern.value = settings?.branch_rules?.maintenance_pattern ?? "";
+}
+
+async function saveBranchRules() {
+  const result = /** @type {HTMLElement} */ (document.getElementById("branch-rules-result"));
+  try {
+    const res = await apiCall("/admin/settings/branch-rules", {
+      method: "POST",
+      body: branchRulesForm(),
+    });
+    result.textContent = res.ok ? "✓ Saved" : "✗ " + (await errorMessage(res));
+    setTimeout(() => (result.textContent = ""), 5000);
+  } catch {
+    // Nothing was saved, and the result line stays empty.
+  }
+}
+
+// The service reads the sample, not the browser: its regular expressions
+// are the ones that read the versions.
+async function testBranchRules() {
+  const result = /** @type {HTMLElement} */ (document.getElementById("branch-rules-test-result"));
+  const branch = /** @type {HTMLInputElement} */ (
+    document.getElementById("branch-rules-sample")
+  ).value.trim();
+  try {
+    const res = await apiCall("/admin/settings/branch-rules/test", {
+      method: "POST",
+      body: { ...branchRulesForm(), branch },
+    });
+    if (!res.ok) {
+      result.textContent = "✗ " + (await errorMessage(res));
+      return;
+    }
+    const { reading, maintenance } =
+      /** @type {{ reading: { kind?: string | null, target?: string | null } | null, maintenance: boolean }} */ (
+        await res.json()
+      );
+    const side = maintenance ? " · maintenance: patch proposals" : "";
+    result.textContent = reading
+      ? `kind: ${reading.kind ?? "–"} · target: ${reading.target ?? "–"}${side}`
+      : `no pattern matches${side}`;
+  } catch {
+    // The result line stays as it was.
   }
 }
 

@@ -84,7 +84,8 @@ fn hash_session_token(token: &str) -> String {
 }
 
 use super::pin_rows::{
-    PinRow, SystemContextRow, VersionOriginRow, links_json, periphery_track_key, pin_row_to_info,
+    PinRow, ProductSnapshotRow, RequireSetRow, SystemContextRow, VersionOriginRow, links_json,
+    periphery_track_key, pin_row_to_info, product_snapshots_from_rows, require_sets_from_rows,
     system_context_from_row, tags_json, tickets_json, version_origin_from_row,
 };
 use super::product_rows::{ProductMemberRow, ProductRow, import_plan, products_from_rows};
@@ -564,12 +565,13 @@ impl SpecRepository for PostgresSpecRepository {
         }
         sqlx::query(
             "INSERT INTO spec_version_origin \
-                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                   (spec_version_id, build_url, change_url, tickets_json, note, trunk_build, updated_at, git_branch, git_target_branch) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
                  ON CONFLICT (spec_version_id) DO UPDATE SET \
                    build_url = EXCLUDED.build_url, change_url = EXCLUDED.change_url, \
                    tickets_json = EXCLUDED.tickets_json, note = EXCLUDED.note, \
-                   trunk_build = EXCLUDED.trunk_build, updated_at = EXCLUDED.updated_at",
+                   trunk_build = EXCLUDED.trunk_build, updated_at = EXCLUDED.updated_at, \
+                   git_branch = EXCLUDED.git_branch, git_target_branch = EXCLUDED.git_target_branch",
         )
         .bind(spec_version_id)
         .bind(origin.build_url.as_deref())
@@ -578,6 +580,8 @@ impl SpecRepository for PostgresSpecRepository {
         .bind(origin.note.as_deref())
         .bind(origin.trunk_build)
         .bind(now_iso)
+        .bind(origin.git_branch.as_deref())
+        .bind(origin.git_target_branch.as_deref())
         .execute(&self.pool)
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -589,7 +593,7 @@ impl SpecRepository for PostgresSpecRepository {
         spec_version_id: i64,
     ) -> Result<Option<VersionOrigin>, RepositoryError> {
         let row: Option<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin WHERE spec_version_id = $1",
         )
         .bind(spec_version_id)
@@ -602,7 +606,7 @@ impl SpecRepository for PostgresSpecRepository {
 
     async fn list_version_origins(&self) -> Result<BTreeMap<i64, VersionOrigin>, RepositoryError> {
         let rows: Vec<VersionOriginRow> = sqlx::query_as(
-            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build \
+            "SELECT spec_version_id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch \
              FROM spec_version_origin",
         )
         .fetch_all(&self.pool)
@@ -684,6 +688,149 @@ impl SpecRepository for PostgresSpecRepository {
             out.entry(id).or_default().push(Annotation { name, value });
         }
         Ok(out)
+    }
+
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        let rows: Vec<ProductSnapshotRow> = sqlx::query_as(
+            "SELECT s.id, s.chart_version, s.content_hash, s.sales_name, s.sales_name_override, \
+                    s.scope, s.scope_override, s.pushed_at, s.pushed_by, m.system_name, m.chart_version \
+             FROM product_snapshots s LEFT JOIN product_snapshot_members m ON m.snapshot_id = s.id \
+             WHERE s.product_id = $1 ORDER BY s.id, m.position",
+        )
+        .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(product_snapshots_from_rows(rows))
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO product_snapshots \
+               (product_id, chart_version, content_hash, sales_name, sales_name_override, scope, \
+                scope_override, pushed_at, pushed_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (product_id, chart_version) DO UPDATE SET \
+               content_hash = excluded.content_hash, sales_name = excluded.sales_name, \
+               sales_name_override = excluded.sales_name_override, scope = excluded.scope, \
+               scope_override = excluded.scope_override, pushed_at = excluded.pushed_at, \
+               pushed_by = excluded.pushed_by",
+        )
+        .bind(product_id)
+        .bind(&snapshot.chart_version)
+        .bind(&snapshot.content_hash)
+        .bind(snapshot.sales_name.as_deref())
+        .bind(snapshot.sales_name_override)
+        .bind(&snapshot.scope)
+        .bind(snapshot.scope_override)
+        .bind(&snapshot.pushed_at)
+        .bind(snapshot.pushed_by.as_deref())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let (id,): (i64,) = sqlx::query_as(
+            "SELECT id FROM product_snapshots WHERE product_id = $1 AND chart_version = $2",
+        )
+        .bind(product_id)
+        .bind(&snapshot.chart_version)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM product_snapshot_members WHERE snapshot_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        for (position, member) in snapshot.members.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO product_snapshot_members (snapshot_id, position, system_name, chart_version) \
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(id)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .bind(&member.system)
+            .bind(member.chart_version.as_deref())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> Result<i64, RepositoryError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO require_sets (consumer, hash, number, first_seen_at) \
+             SELECT $1, $2, COALESCE(MAX(number), 0) + 1, $3 FROM require_sets WHERE consumer = $4 \
+             ON CONFLICT (consumer, hash) DO NOTHING",
+        )
+        .bind(consumer)
+        .bind(hash)
+        .bind(now_iso)
+        .bind(consumer)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let (id, number): (i64, i64) =
+            sqlx::query_as("SELECT id, number FROM require_sets WHERE consumer = $1 AND hash = $2")
+                .bind(consumer)
+                .bind(hash)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO require_set_pins (set_id, producer, api_type, version) \
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(id)
+        .bind(&pin.producer)
+        .bind(pin.api_type.as_str())
+        .bind(pin.version.to_string())
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(number)
+    }
+
+    async fn list_require_sets(&self, consumer: &str) -> Result<Vec<RequireSet>, RepositoryError> {
+        let rows: Vec<RequireSetRow> = sqlx::query_as(
+            "SELECT s.number, s.first_seen_at, p.producer, p.api_type, p.version \
+             FROM require_sets s LEFT JOIN require_set_pins p ON p.set_id = s.id \
+             WHERE s.consumer = $1 ORDER BY s.number, p.producer, p.api_type, p.version",
+        )
+        .bind(consumer)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        require_sets_from_rows(rows)
     }
 
     async fn upsert_system_annotations(
@@ -1864,6 +2011,14 @@ impl SpecRepository for PostgresSpecRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_set_pins")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let result = sqlx::query("DELETE FROM clients")
             .execute(&self.pool)
             .await
@@ -1970,6 +2125,8 @@ impl SpecRepository for PostgresSpecRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         // Products (#76) are instance data like release cuts.
         for statement in [
+            "DELETE FROM product_snapshot_members",
+            "DELETE FROM product_snapshots",
             "DELETE FROM product_members",
             "DELETE FROM product_user_maintainers",
             "DELETE FROM product_group_maintainers",
@@ -2001,6 +2158,14 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM services")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_set_pins")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets")
             .execute(&mut *tx)
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
@@ -2166,6 +2331,18 @@ impl SpecRepository for PostgresSpecRepository {
         .await
         .map_err(|e| RepositoryError::Internal(e.to_string()))?;
 
+        sqlx::query(
+            "DELETE FROM require_set_pins WHERE set_id IN (SELECT id FROM require_sets WHERE consumer = $1)",
+        )
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        sqlx::query("DELETE FROM require_sets WHERE consumer = $1")
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         sqlx::query("DELETE FROM clients WHERE id = $1")
             .bind(client_id)
             .execute(&self.pool)
@@ -3364,6 +3541,8 @@ impl SpecRepository for PostgresSpecRepository {
             .await
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         for statement in [
+            "DELETE FROM product_snapshot_members WHERE snapshot_id IN (SELECT id FROM product_snapshots WHERE product_id = $1)",
+            "DELETE FROM product_snapshots WHERE product_id = $1",
             "DELETE FROM product_members WHERE product_id = $1",
             "DELETE FROM product_user_maintainers WHERE product_id = $1",
             "DELETE FROM product_group_maintainers WHERE product_id = $1",

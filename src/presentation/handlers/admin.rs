@@ -58,6 +58,54 @@ pub async fn admin_list_consumer_endpoints(
 }
 
 #[derive(Deserialize)]
+pub struct PinnedByQuery {
+    pub scope: Option<String>,
+}
+
+/// Per version of a Producer, the Consumers that pin it in a graph scope
+/// (san-1032): the Producer page's strip.
+pub async fn admin_producer_pinned_by(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<PinnedByQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let scope = services::ReportScope::parse(query.scope.as_deref())?;
+    Ok(Json(
+        services::producer_pinned_by(&state.repo, &name, scope).await?,
+    ))
+}
+
+/// A Consumer's require-set versions with their Pins (san-1032).
+pub async fn admin_consumer_require_sets(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::consumer_require_sets(&state.repo, &name).await?,
+    ))
+}
+
+/// Per Pin, the newer versions with this Consumer's endpoints and the free
+/// move (san-1031).
+pub async fn admin_consumer_moves(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::consumer_moves(&state.repo, &name).await?))
+}
+
+/// Per version of each line, the endpoints it added, changed, removed or
+/// newly deprecated against the highest GA below it (san-1031).
+pub async fn admin_producer_endpoint_changes(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::producer_endpoint_changes(&state.repo, &name).await?,
+    ))
+}
+
+#[derive(Deserialize)]
 pub struct VersionedSpecQuery {
     pub api_type: Option<ApiType>,
     pub version: crate::domain::models::SemVer,
@@ -847,6 +895,54 @@ pub async fn set_ticket_url_template(
     )
     .await?;
     Ok(Json(json!({ "template": template })))
+}
+
+/// The branch rules (san-1029): the naming patterns that read a version's
+/// git branch.
+pub async fn get_branch_rules(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(services::get_branch_rules(&state.repo).await?))
+}
+
+pub async fn set_branch_rules(
+    State(state): State<AppState>,
+    user: Option<axum::Extension<crate::domain::models::User>>,
+    Json(payload): Json<services::BranchRules>,
+) -> Result<impl IntoResponse, AppError> {
+    let rules = services::set_branch_rules(&state.repo, &payload).await?;
+    record_audit_log(
+        &state.repo,
+        user,
+        NewAuditLog {
+            action: "SET_BRANCH_RULES",
+            details: &format!("Set {} branch naming patterns", rules.patterns.len()),
+            action_type: Some("ADMIN"),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(Json(rules))
+}
+
+#[derive(Deserialize)]
+pub struct BranchRulesTestPayload {
+    #[serde(flatten)]
+    pub rules: services::BranchRules,
+    pub branch: String,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+/// What the given rules, saved or not, read from a sample branch.
+pub async fn test_branch_rules(
+    Json(payload): Json<BranchRulesTestPayload>,
+) -> Result<impl IntoResponse, AppError> {
+    let (reading, maintenance) =
+        services::test_branch_rules(&payload.rules, &payload.branch, payload.target.as_deref())?;
+    Ok(Json(
+        json!({ "reading": reading, "maintenance": maintenance }),
+    ))
 }
 
 pub async fn get_snapshot_max_age(
@@ -1669,6 +1765,7 @@ pub async fn get_instance_settings(
         "dependency_max_age_days": services::get_dependency_max_age_days(&state.repo).await?,
         "trunk_max_age_days": services::get_trunk_max_age_days(&state.repo).await?,
         "ticket_url_template": services::get_ticket_url_template(&state.repo).await?,
+        "branch_rules": services::get_branch_rules(&state.repo).await?,
         "cache": {
             "enabled": stats.enabled,
             "memory_limit_mb": stats.memory_limit_mb,

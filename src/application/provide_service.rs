@@ -10,7 +10,7 @@ use super::spec_service::{
 };
 use super::version_rules::{
     check_compatibility, classify_change, diff_endpoints, ga_baseline, highest_ga_in_major,
-    propose_version,
+    propose_maintenance_version, propose_version,
 };
 use super::webhook_service as webhooks;
 use crate::asyncapi;
@@ -232,8 +232,10 @@ async fn record_version_rejection(
 /// With nothing stored, the new origin is taken. A trunk build's origin over
 /// a branch build's takes over only the build link, which the branch build's
 /// Jenkins job deletes after the merge, and fills empty fields; the change
-/// link, tickets and note from the branch build stay. Anything else leaves the
-/// stored origin alone. `None` means: write nothing.
+/// link, tickets and note from the branch build stay. The git branch
+/// (san-1029) is the one the version was born on: a re-provide only fills an
+/// empty one. Anything else leaves the stored origin alone. `None` means:
+/// write nothing.
 fn origin_for_identical_provide(
     stored: Option<VersionOrigin>,
     incoming: &VersionOrigin,
@@ -255,9 +257,37 @@ fn origin_for_identical_provide(
             },
             note: stored.note.or_else(|| incoming.note.clone()),
             trunk_build: true,
+            git_branch: stored.git_branch.or_else(|| incoming.git_branch.clone()),
+            git_target_branch: stored
+                .git_target_branch
+                .or_else(|| incoming.git_target_branch.clone()),
+            branch_reading: None,
         }),
+        Some(stored) if stored.git_branch.is_none() && incoming.git_branch.is_some() => {
+            Some(VersionOrigin {
+                git_branch: incoming.git_branch.clone(),
+                git_target_branch: stored
+                    .git_target_branch
+                    .clone()
+                    .or_else(|| incoming.git_target_branch.clone()),
+                ..stored
+            })
+        }
         Some(_) => None,
     }
+}
+
+/// Whether this provide is on a maintenance branch (san-1030): its git
+/// branch's kind or the maintenance pattern says so, or it carries a stream
+/// tag. Refusals on one propose patches.
+async fn on_maintenance_branch(
+    repo: &impl SpecRepository,
+    origin: &VersionOrigin,
+    tag: Option<&str>,
+) -> Result<bool, AppError> {
+    Ok(super::git_branch_service::compiled_branch_rules(repo)
+        .await?
+        .is_maintenance(origin, tag.is_some()))
 }
 
 /// A Provide without an origin: what every caller but the HTTP handlers uses.
@@ -567,7 +597,13 @@ async fn provide_spec_inner(
             // The level is read against the highest GA of the major, the one
             // the proposal lands above; that is the entry itself unless a
             // newer GA of the major exists.
-            let impact = match highest_ga_in_major(&line, version).filter(|g| g.id != entry.id) {
+            // On a maintenance branch (san-1030) the proposal stays in the
+            // refused MAJOR.MINOR, so the level is read against the entry
+            // itself, not against a newer minor the side line never had.
+            let maintenance = on_maintenance_branch(repo, origin, tag).await?;
+            let impact = match highest_ga_in_major(&line, version)
+                .filter(|g| g.id != entry.id && !maintenance)
+            {
                 Some(newest) => {
                     let newest_content =
                         repo.get_spec_content(newest.id).await?.unwrap_or_default();
@@ -580,7 +616,11 @@ async fn provide_spec_inner(
                 }
                 None => classify_change(api_type, &old_content, content, changes.inserts),
             };
-            let proposed = propose_version(&line, version, impact);
+            let proposed = if maintenance {
+                propose_maintenance_version(&line, version, impact)
+            } else {
+                propose_version(&line, version, impact)
+            };
             // Bytes differ but no endpoint the splitter sees changed: the
             // difference is almost certainly whitespace or comments (line
             // endings and a BOM were normalized away above) — name that, or
@@ -649,7 +689,11 @@ async fn provide_spec_inner(
             if !entry.provided_by.is_empty()
                 && username.is_some_and(|actor| actor != entry.provided_by) =>
         {
-            let proposed = propose_version(&line, version, Impact::Minor);
+            let proposed = if on_maintenance_branch(repo, origin, tag).await? {
+                propose_maintenance_version(&line, version, Impact::Minor)
+            } else {
+                propose_version(&line, version, Impact::Minor)
+            };
             let message = format!(
                 "version {} of {} '{}' is a snapshot provided by '{}' — only they may change it; publish your work as {} instead, or ask an administrator to delete the snapshot",
                 version,
@@ -1042,6 +1086,13 @@ async fn plan_provide_events(
         _ => None,
     };
     let mut events = Vec::new();
+    // The branch reading (san-1029) travels with the origin, as on the pages.
+    let mut origin = facts.origin.clone();
+    if !published_to.is_empty() {
+        super::git_branch_service::compiled_branch_rules(repo)
+            .await?
+            .read_origin(&mut origin);
+    }
     let published = webhooks::version_published_data(&webhooks::VersionPublished {
         producer: facts.producername,
         api_type: facts.api_type,
@@ -1051,7 +1102,7 @@ async fn plan_provide_events(
         stream: facts.stream,
         actor: facts.username,
         compatibility,
-        origin: facts.origin,
+        origin: &origin,
         annotations: facts.annotations,
     });
     events.extend(webhooks::event_for(
@@ -1288,7 +1339,46 @@ mod tests {
             tickets: Vec::new(),
             note: None,
             trunk_build,
+            ..VersionOrigin::default()
         }
+    }
+
+    #[test]
+    fn a_re_provide_keeps_the_branch_the_version_was_born_on() {
+        let born = VersionOrigin {
+            git_branch: Some("feature/master/login".to_string()),
+            ..origin(Some("https://ci/branch/9"), None, false)
+        };
+        let trunk = VersionOrigin {
+            git_branch: Some("master".to_string()),
+            ..origin(Some("https://ci/main/41"), None, false)
+        };
+        let merged = origin_for_identical_provide(Some(born.clone()), &trunk, true).unwrap();
+        assert_eq!(merged.git_branch.as_deref(), Some("feature/master/login"));
+        assert_eq!(merged.build_url.as_deref(), Some("https://ci/main/41"));
+        // A plain re-provide from another branch writes nothing.
+        assert_eq!(
+            origin_for_identical_provide(Some(born), &trunk, false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_re_provide_fills_an_empty_branch_and_keeps_the_rest() {
+        let stored = VersionOrigin {
+            note: Some("laptop".to_string()),
+            ..origin(None, Some("https://git/pr/3"), false)
+        };
+        let incoming = VersionOrigin {
+            git_branch: Some("feature/master/login".to_string()),
+            git_target_branch: Some("master".to_string()),
+            ..origin(Some("https://ci/branch/9"), None, false)
+        };
+        let merged = origin_for_identical_provide(Some(stored), &incoming, false).unwrap();
+        assert_eq!(merged.git_branch.as_deref(), Some("feature/master/login"));
+        assert_eq!(merged.git_target_branch.as_deref(), Some("master"));
+        assert_eq!(merged.note.as_deref(), Some("laptop"));
+        assert_eq!(merged.build_url, None, "only the branch is filled");
     }
 
     #[test]

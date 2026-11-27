@@ -149,8 +149,9 @@ _Avoid_: ghost service, unknown system
 
 **Origin**:
 What the build that provided a Version said about why: its build URL, the pull or merge request
-behind it (change URL), the ticket ids it closes and one line of intent. References, never content;
-the latest Provide carrying any of it wins, a no-op re-provide only fills an empty one.
+behind it (change URL), the ticket ids it closes, one line of intent, and the git branch it ran on
+with the branch it merges into. References, never content; the latest Provide carrying any of it
+wins, a no-op re-provide only fills an empty one (the branch stays the one the Version was born on).
 _Avoid_: commit, changelog, reason (without qualifier)
 
 **Annotation**:

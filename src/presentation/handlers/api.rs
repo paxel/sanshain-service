@@ -66,6 +66,13 @@ pub struct ProvideRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -394,6 +401,9 @@ pub async fn provide(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },
@@ -430,6 +440,13 @@ pub struct ProvideAsyncApiRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -462,6 +479,9 @@ pub async fn provide_asyncapi(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },
@@ -498,6 +518,13 @@ pub struct ProvideProtoRequest {
     pub tickets: Vec<String>,
     #[serde(default)]
     pub note: Option<String>,
+    /// The git branch of the build and, on a pull or merge request build, the
+    /// branch it merges into (san-1029). Not `branch`: that stays the
+    /// refused 1.x field.
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub git_target_branch: Option<String>,
     /// Annotations (#91): `scope: version` entries are stored with this
     /// version, `scope: system` entries with the Producer.
     #[serde(default)]
@@ -530,6 +557,9 @@ pub async fn provide_proto(
                 tickets: payload.tickets.clone(),
                 note: payload.note.clone(),
                 trunk_build: false,
+                git_branch: payload.git_branch.clone(),
+                git_target_branch: payload.git_target_branch.clone(),
+                branch_reading: None,
             },
             annotations: &payload.annotations,
         },
@@ -564,6 +594,9 @@ pub struct RequireQuery {
     /// `{scope: "system", name, value}`, the body field's shape in a query.
     #[serde(default)]
     pub annotations: Option<String>,
+    /// The client's hash of the Consumer's `requires` section (san-1032).
+    #[serde(default)]
+    pub requires_hash: Option<String>,
 }
 
 /// The `annotations` query parameter of a GET require: the JSON array the
@@ -596,6 +629,17 @@ fn insert_resolution_headers(headers: &mut HeaderMap, res: &services::RequireRes
     );
 }
 
+/// A free move (san-1031): a newer version serving every endpoint the
+/// Consumer requires of this Pin in the same shape. Not a `Sanshain-Warning`,
+/// so a strict build does not fail on it; the clients print it.
+fn insert_upgrade_header(headers: &mut HeaderMap, res: &services::RequireResponse) {
+    if let Some(upgrade) = res.upgrade
+        && let Ok(value) = HeaderValue::from_str(&upgrade.to_string())
+    {
+        headers.insert("X-Sanshain-Upgrade", value);
+    }
+}
+
 fn require_response(
     request_headers: &HeaderMap,
     res: services::RequireResponse,
@@ -617,11 +661,13 @@ fn require_response(
     {
         let mut headers = HeaderMap::new();
         append_warnings(&mut headers, &res.stream.warnings);
+        insert_upgrade_header(&mut headers, &res);
         return (StatusCode::NOT_MODIFIED, headers).into_response();
     }
 
     let mut headers = HeaderMap::new();
     append_warnings(&mut headers, &res.stream.warnings);
+    insert_upgrade_header(&mut headers, &res);
     if let Some(ev) = etag_value {
         headers.insert("ETag", ev);
     }
@@ -654,6 +700,7 @@ async fn require_common(
         trunk: query.trunk,
         tag: query.tag.as_deref(),
         format,
+        requires_hash: query.requires_hash.as_deref(),
     };
     let res = if query.dry_run {
         services::require_endpoint_dry_run(&state.repo, params).await?
@@ -747,6 +794,9 @@ pub struct RequireBundleRequest {
     /// Annotations (#91) of the requiring Consumer, `scope: system` only.
     #[serde(default)]
     pub annotations: Vec<AnnotationEntry>,
+    /// See `RequireQuery::requires_hash`.
+    #[serde(default)]
+    pub requires_hash: Option<String>,
 }
 
 /// Query parameters of `POST /require-bundle`. Not `deny_unknown_fields`:
@@ -784,6 +834,7 @@ pub async fn require_bundle(
         trunk: payload.trunk,
         tag: payload.tag.as_deref(),
         format,
+        requires_hash: payload.requires_hash.as_deref(),
     };
     let res = if payload.dry_run {
         services::require_bundle_dry_run(&state.repo, params).await?

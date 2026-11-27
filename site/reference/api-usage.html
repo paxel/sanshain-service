@@ -228,7 +228,9 @@
     Every require route supports <code>ETag</code> and <code>If-None-Match</code>; unchanged content
     answers <code>304 Not Modified</code>. Responses carry <code>X-Sanshain-Version</code> (the pin)
     and <code>X-Sanshain-Stability</code> (what actually answered, <code>ga</code> or
-    <code>snapshot</code>).
+    <code>snapshot</code>). From 2.18.0, <code>X-Sanshain-Upgrade</code> names a free move when
+    there is one: the newest version that serves every endpoint the Consumer requires of the Pin in
+    the same shape (see <a href="../developer/api-lifecycle.html#free-moves">free moves</a>).
   </li>
 </ul>
 

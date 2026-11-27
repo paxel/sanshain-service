@@ -13,7 +13,8 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   in each role. Tables say `services` (Producer) and `clients` (Consumer); only the repository
   layer uses those words. Wire names `producername`/`consumername` only (1.x aliases refused).
 - Tooling = software calling Sanshain for a system (our five clients below, curl). Never "client" in
-  domain text, never a domain entity. Sanshain never sees git; clients never read git.
+  domain text, never a domain entity. Sanshain never sees git; clients read git only for the
+  branch name, as a last resort (ADR-0003 amendment).
 - Version: strict `MAJOR.MINOR.PATCH` from the spec (`info.version`; proto: mandatory
   `// sanshain-version:` comment, 400 when missing or conflicting). Never assigned by Sanshain.
   Version line = one Producer × one API type.
@@ -35,7 +36,10 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
   (`releaser` role), also for no-ops: `403 ga_requires_releaser`.
 - Proposal (san-1020, `propose_version` in `version_rules.rs`): one minor above the highest version
   of the major (level read against the highest GA of the major); breaking = highest major of the
-  line + 1; never a patch. Same rule for all four refusals that propose.
+  line + 1; never a patch. Same rule for all four refusals that propose. Maintenance branch
+  (san-1030, `propose_maintenance_version`): kind in `maintenance_kinds`, `maintenance_pattern`
+  match, or a stream `tag` → one patch above the highest of the refused `MAJOR.MINOR` (additive
+  too, level read against the entry); breaking still a new major.
 - Mislabel check: GA breaking vs. the highest GA below without a major bump =
   `409 breaking_without_major`. Removing an element deprecated in the previous GA is not breaking;
   the marker must sit on the removed element (no whole-spec switch).
@@ -61,16 +65,33 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - `POST /require-bundle`: several endpoints of one Producer at one pin, one merged document,
   shared schemas once; 410 names the missing endpoints.
 - ETag + `If-None-Match` → `304`. `X-Sanshain-Deprecated: true` on deprecated endpoints.
+- Free move (san-1031, `src/application/move_service.rs`): `X-Sanshain-Upgrade: <v>` (200 and 304)
+  = newest newer version where every endpoint the Consumer requires of the Pin (recorded + this
+  call) keeps its shape (`same_snippet` ignoring the version, else OpenAPI `classify_change` Patch;
+  AsyncAPI/proto same text); may cross a major; GA Pin → GAs only, snapshot Pin → GAs and
+  snapshots. `/admin/consumers/{name}/moves`; `/admin/producers/{name}/endpoint-changes` (per
+  version vs highest GA below: added/changed/removed/deprecated).
 - `format=openapi` on an AsyncAPI require: payload schemas as OpenAPI 3.0.3.
 - Matching: OpenAPI path + verb (parameter names, double/trailing slashes normalized); AsyncAPI
   channel (2.x key, 3.x address) + `PUB`/`SUB`; proto fully qualified service + rpc
   (case-sensitive).
+- Require-set versions (san-1032): `requires_hash` (query / bundle body, ≤128 alnum) on a trunk or
+  tag require numbers the hash per Consumer (1, 2, …, first sight) and keeps the Pins under it
+  (`require_sets`, `require_set_pins`; deleted with the Consumer). Strips: `GET
+  /admin/consumers/{name}/require-sets`, `/admin/producers/{name}/pinned-by?scope=`
+  (`src/application/version_strip_service.rs`, `static/js/version-strip.js`).
 - Code: `src/application/require_service.rs`. Source: `site/developer/sanshain-yaml.html`.
 
 ## Origin (why a version exists)
 
 - Only provides carry an Origin: `build_url`, `change_url` (PR/MR), `tickets` (≤20 ids),
-  `note` (one line ≤200). Requires and catalog pushes carry none.
+  `note` (one line ≤200), `git_branch`/`git_target_branch` (2.18.0, ≤255, no whitespace; not
+  `branch`, the refused 1.x field). Requires and catalog pushes carry none.
+- Branch (san-1029): information only, never changes serving or rules. Kept from the version's
+  birth (a no-op re-provide only fills an empty one). Admin's naming patterns (`branch_rules`
+  setting: regexes with groups `kind`/`target`, `/admin/settings/branch-rules[/test]`,
+  `manage_settings`) are read when shown (`branch_reading`, never stored); the runner's target
+  wins. Code: `src/application/git_branch_service.rs`.
 - It comes from the pipeline, never from a person. Clients fill the two URLs from runner
   variables: GitHub Actions (run URL; PR URL on `refs/pull/<n>/…`), GitLab CI (`CI_JOB_URL`; MR
   URL in MR pipelines), Jenkins (`BUILD_URL`; `CHANGE_URL` on multibranch PR builds). Bitbucket
@@ -212,8 +233,15 @@ Upkeep). Glossary: `CONTEXT.md`. User docs: `site/` (built by `scripts/build-sit
 - Routes in `maintenance.yaml` under `/admin/products*`: reads any signed-in; create/delete
   global `manage_producers`; members/chart `RouteGuard::Product(ManageProducers)` (global or
   Product Maintainer); maintainers `manage_roles` (user or group, directory groups by DN live).
-  `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Not in `api.yaml`,
-  reports or release cuts. Nuke database removes Products.
+  `/auth/me` answers `maintains_products`. All writes audited (`*_PRODUCT*`). Only the chart push
+  is in `api.yaml`; not in reports or release cuts. Nuke database removes Products.
+- Snapshots (san-1033, `src/application/product_snapshot_service.rs`): one per umbrella chart
+  `version` (SemVer 2), members with their dependency `version` as written, sales name from the
+  annotation `sanshain/sales-name`, scope `main|<branch>@<instant>` (frozen when set). `PUT
+  /products/{name}/chart` (api.yaml, raw body, full token, Product guard, `?scope=`) and the
+  paste (a chart without version: members only); same version other bytes = replace (page
+  overrides kept), same bytes = no-op; only the highest chart version sets the members. Sheet,
+  compare and the page edit under `/admin/products/{name}/snapshots*`. Deleted with the Product.
 - UI: `static/products.html` (list, `?name=` page; controls gated by `data-needs-product`), nav
   link; graph focus `product:<name>` beside `tag:` in `static/js/graph.js` (members fetched from
   `GET /admin/products/{name}`, then members + neighbours).

@@ -157,6 +157,13 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/products/{name}/members", post(products::add_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/members/{system}", delete(products::remove_member).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/chart", post(products::import_chart).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        // san-1033: Product snapshots. The chart push is a pipeline's: a full API token of a
+        // Product Maintainer or a holder of ManageProducers.
+        .route("/products/{name}/chart", put(products::push_chart).layer(require_with_api_tokens(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
+        .route("/admin/products/{name}/snapshots", get(products::list_snapshots).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/compare", get(products::compare_snapshots).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/{version}", get(products::snapshot_sheet).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/products/{name}/snapshots/{version}", put(products::edit_snapshot).layer(require(state.clone(), RouteGuard::Product(Permission::ManageProducers))))
         .route("/admin/products/{name}/maintainers", post(products::assign_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/products/{name}/maintainers/users/{user_id}", delete(products::unassign_user_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
         .route("/admin/products/{name}/maintainers/groups/{group_id}", delete(products::unassign_group_maintainer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageRoles))))
@@ -181,6 +188,11 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/producers/{name}/endpoints", get(admin::admin_list_producer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/full-spec", get(admin::admin_get_full_spec).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/diff", get(admin::admin_diff_versions).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // san-1031: what each version changed, endpoint by endpoint.
+        // san-1032: the version strips of the Producer and Consumer pages.
+        .route("/admin/producers/{name}/pinned-by", get(admin::admin_producer_pinned_by).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/consumers/{name}/require-sets", get(admin::admin_consumer_require_sets).layer(require(state.clone(), RouteGuard::Authenticated)))
+        .route("/admin/producers/{name}/endpoint-changes", get(admin::admin_producer_endpoint_changes).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/blame", get(admin::admin_blame_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/structure", get(admin::admin_structure_version).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/producers/{name}/branch-memberships", get(admin::admin_producer_branch_memberships).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -204,6 +216,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/admin/consumers/{name}", get(admin::admin_get_consumer).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}", delete(admin::admin_delete_consumer).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/consumers/{name}/endpoints", get(admin::admin_list_consumer_endpoints).layer(require(state.clone(), RouteGuard::Authenticated)))
+        // san-1031: per Pin the newer versions and the free move.
+        .route("/admin/consumers/{name}/moves", get(admin::admin_consumer_moves).layer(require(state.clone(), RouteGuard::Authenticated)))
         .route("/admin/consumers/{name}/dependencies/{producer}", delete(admin::admin_remove_consumer_dependencies).layer(require(state.clone(), RouteGuard::Global(Permission::ManageConsumers))))
         .route("/admin/statistics/{tab}", get(statistics::admin_statistics).layer(require(state.clone(), RouteGuard::Global(Permission::ViewStatistics))))
         .route("/admin/endpoint-yaml", get(admin::admin_get_endpoint_yaml).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -225,6 +239,9 @@ pub fn create_app(state: AppState) -> Router {
         // The ticket URL template is set under settings (ManageSettings) and read by every
         // signed-in user from its own path: the pages link ticket ids with it.
         .route("/admin/settings/ticket-url-template", post(admin::set_ticket_url_template).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        // san-1029: the branch naming patterns, and a test of patterns not yet saved.
+        .route("/admin/settings/branch-rules", get(admin::get_branch_rules).post(admin::set_branch_rules).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
+        .route("/admin/settings/branch-rules/test", post(admin::test_branch_rules).layer(require(state.clone(), RouteGuard::Global(Permission::ManageSettings))))
         .route("/admin/ticket-url-template", get(admin::get_ticket_url_template).layer(require(state.clone(), RouteGuard::Authenticated)))
         // The harmless settings as values for everyone signed in; changing each stays behind ManageSettings.
         .route("/admin/instance-settings", get(admin::get_instance_settings).layer(require(state.clone(), RouteGuard::Authenticated)))
@@ -711,7 +728,7 @@ mod tests {
                     continue;
                 };
                 let expected = match kind.as_str() {
-                    "api_auth_write" => "session-or-api-token-full",
+                    "api_auth_write" | "require_with_api_tokens" => "session-or-api-token-full",
                     "api_auth" => "session-or-api-token",
                     "none" => "none",
                     _ => "session",

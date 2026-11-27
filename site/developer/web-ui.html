@@ -98,8 +98,9 @@
   </li>
   <li>
     the <a href="../start/glossary.html#origin">origin</a> when the providing build sent one: the
-    note, then chips for the build, the change (pull or merge request) and each ticket, the tickets
-    linked through the ticket URL template an administrator set.
+    note, then chips for the git branch (<code>feature/master/login → master</code>, 2.18.0), the
+    build, the change (pull or merge request) and each ticket, the tickets linked through the
+    ticket URL template an administrator set.
   </li>
 </ul>
 <figure class="screenshot">
@@ -156,6 +157,21 @@
   </figcaption>
 </figure>
 
+<p>
+  On top, <strong>Who pins which version</strong> draws one bar per version of the Producer's lines
+  (2.18.0), as high as the number of Consumers that pin it: in <strong>main</strong> by default,
+  in <strong>dev</strong> (all activity) or in a sanshain-branch. GA bars are indigo, snapshots
+  grey; a version nobody pins is a zero bar; the tooltip and a click name the Consumers.
+</p>
+<p>
+  Below the version lines, <strong>What each version changed</strong> lists every version of a line
+  with the endpoints it added, changed, removed or newly deprecated (2.18.0): "+1 added · −1
+  removed" in the row, the endpoints when it is opened. A version is compared with the highest GA
+  below it, so a snapshot says what a Consumer moving from the last release would see; a version
+  with no GA below shows every endpoint as added. A difference only in the version a snippet
+  carries is no change. The version number opens the spec viewer at that version.
+</p>
+
 <h2>The spec viewer: history, diff and blame</h2>
 <p>
   The viewer shows one document, or one endpoint of it, with its <strong>Version History</strong>
@@ -164,7 +180,8 @@
   <strong>Compare / Diff</strong>; switch <strong>Blame</strong> on to see, for every line, the
   version that last changed it, and, where the providing build said so, why: the diff header and
   every blame block carry the version's <a href="../start/glossary.html#origin">origin</a>. Copy and
-  Download act on what is shown.
+  Download act on what is shown. Opened on a whole document, each version card folds open to the
+  endpoints that version added, changed, removed or deprecated, as on the Producer page.
 </p>
 <p>
   A diff has two switches. <strong>Ignore whitespace</strong> (off by default, per view) drops
@@ -227,6 +244,19 @@
   <code>manage_consumers</code>; see
   <a href="release-graphs.html#replaced">a trunk require replaces what it no longer names</a>).
 </p>
+<p>
+  On top, <strong>What each version requires</strong> shows the Consumer's
+  <a href="sanshain-yaml.html#require-set-versions">require-set versions</a> (2.18.0), one column
+  each, with the Pins that arrived under it as chips (<code>orders 2.5.0</code>).
+</p>
+<p>
+  Each Pin also lists the newer versions of its line, compared on only the endpoints this Consumer
+  requires (2.18.0): <strong>unchanged</strong> (same shape; descriptions and examples may differ),
+  <strong>changed</strong> or <strong>removed</strong>, and <strong>deprecated</strong> where that
+  version deprecates one. A GA Pin is offered GAs only; a snapshot Pin GAs and snapshots. When a
+  version keeps every one of them, a green box says <em>Move to 1.11.0: nothing changes for the
+  endpoints you require</em>, the newest such version, even across a major.
+</p>
 <figure class="screenshot">
   <img
     src="../assets/images/consumers_list.png"
@@ -258,6 +288,48 @@
   users and groups maintaining it (a directory group is first added on the admin page). Being a
   Product Maintainer gives no power over the member systems. See
   <a href="../operator/roles.html">Roles and permissions</a>.
+</p>
+<h3 id="product-releases">Releases: Product snapshots</h3>
+<p>
+  A chart with a <code>version</code> is also a release of the Product (2.18.0). The Helm pipeline
+  pushes it, or someone pastes it, and <strong>Releases</strong> lists one snapshot per chart
+  version: each member with the chart version the umbrella asks for (<code>~2.1.0</code> stays a
+  range), a sales name and the graph its API versions are read from. Only the highest chart
+  version sets the members, so a hotfix of <code>1.2.1</code> after <code>1.3.0</code> stores its
+  release and leaves the Product as it is. Pushing the same version with other content replaces
+  the snapshot; the same content changes nothing.
+</p>
+<pre><code># Chart.yaml of the umbrella chart
+apiVersion: v2
+name: shop
+version: 1.3.0
+annotations:
+  sanshain/sales-name: "Bulbao ]|[ - alpha"
+dependencies:
+  - name: orders
+    version: 2.5.0
+  - name: webshop
+    version: ~4.1.0
+
+# in the release pipeline, after the chart is published
+curl -X PUT "$SANSHAIN_URL/products/shop/chart?scope=release-2026-10" \
+  -H "Authorization: Bearer $SANSHAIN_TOKEN" --data-binary @Chart.yaml</code></pre>
+<p>
+  The <strong>scope</strong> is <code>main</code> or a sanshain-branch at an instant; the push may
+  name it, otherwise it is <code>main</code> at the moment of the push, and a scope without an
+  instant is frozen when it is set, so a shipped release keeps showing what it shipped. A
+  Maintainer can change the sales name and the scope on the release sheet; a later push of the
+  same chart version keeps both.
+</p>
+<p>
+  The <strong>release sheet</strong> describes the snapshot as a whole: per member its chart
+  version, the API versions it provides in the scope, its
+  <a href="sanshain-yaml.html#require-set-versions">require-set version</a> and its Pins. A Pin on
+  another member that does not match what the release ships is marked, "pins
+  <code>orders 2.3.0</code> · the Product ships <code>2.5.0</code>", with the free move when the
+  member's endpoints are unchanged. The sheet exports CSV and prints. <strong>Compare</strong>
+  puts two releases side by side: per member the API versions that moved, with the endpoints each
+  moved line added, changed or removed.
 </p>
 
 <h2>The dependency graph</h2>

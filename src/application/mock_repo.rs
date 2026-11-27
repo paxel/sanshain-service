@@ -128,6 +128,11 @@ pub struct MockRepo {
     pub version_annotations: Mutex<BTreeMap<i64, BTreeMap<String, String>>>,
     /// In-memory `system_annotation` rows (#91): system, then name to value.
     pub system_annotations: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+    /// san-1032: per Consumer, its require-set hashes in order of first sight
+    /// with the Pins that arrived under each.
+    pub require_sets: Mutex<BTreeMap<String, Vec<(String, RequireSet)>>>,
+    /// san-1033: per Product id, its snapshots.
+    pub product_snapshots: Mutex<BTreeMap<i64, Vec<ProductSnapshot>>>,
     pub api_tokens: Mutex<Vec<ApiToken>>,
     pub webhooks: Mutex<Vec<Webhook>>,
     pub webhook_events: Mutex<Vec<MockWebhookEvent>>,
@@ -231,6 +236,8 @@ impl MockRepo {
             version_origins: Mutex::new(BTreeMap::new()),
             version_annotations: Mutex::new(BTreeMap::new()),
             system_annotations: Mutex::new(BTreeMap::new()),
+            require_sets: Mutex::new(BTreeMap::new()),
+            product_snapshots: Mutex::new(BTreeMap::new()),
             api_tokens: Mutex::new(Vec::new()),
             webhooks: Mutex::new(Vec::new()),
             webhook_events: Mutex::new(Vec::new()),
@@ -662,6 +669,88 @@ impl SpecRepository for MockRepo {
             .filter(|(_, m)| !m.is_empty())
             .map(|(id, m)| (*id, annotation_list(m)))
             .collect())
+    }
+
+    async fn list_product_snapshots(
+        &self,
+        product_id: i64,
+    ) -> Result<Vec<ProductSnapshot>, RepositoryError> {
+        Ok(self
+            .product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&product_id)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn save_product_snapshot(
+        &self,
+        product_id: i64,
+        snapshot: &ProductSnapshot,
+    ) -> Result<(), RepositoryError> {
+        let mut all = self
+            .product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let list = all.entry(product_id).or_default();
+        match list
+            .iter_mut()
+            .find(|s| s.chart_version == snapshot.chart_version)
+        {
+            Some(existing) => *existing = snapshot.clone(),
+            None => list.push(snapshot.clone()),
+        }
+        Ok(())
+    }
+
+    async fn record_require_set(
+        &self,
+        consumer: &str,
+        hash: &str,
+        pin: &RequireSetPin,
+        now_iso: &str,
+    ) -> Result<i64, RepositoryError> {
+        let mut all = self
+            .require_sets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let sets = all.entry(consumer.to_string()).or_default();
+        let next = i64::try_from(sets.len())
+            .unwrap_or(i64::MAX)
+            .saturating_add(1);
+        let set = match sets.iter_mut().find(|(h, _)| h == hash) {
+            Some((_, set)) => set,
+            None => {
+                sets.push((
+                    hash.to_string(),
+                    RequireSet {
+                        number: next,
+                        first_seen_at: now_iso.to_string(),
+                        pins: Vec::new(),
+                    },
+                ));
+                match sets.last_mut() {
+                    Some((_, set)) => set,
+                    None => return Err(RepositoryError::Internal("no set".to_string())),
+                }
+            }
+        };
+        if !set.pins.contains(pin) {
+            set.pins.push(pin.clone());
+            set.pins.sort();
+        }
+        Ok(set.number)
+    }
+
+    async fn list_require_sets(&self, consumer: &str) -> Result<Vec<RequireSet>, RepositoryError> {
+        Ok(self
+            .require_sets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(consumer)
+            .map(|sets| sets.iter().map(|(_, s)| s.clone()).collect())
+            .unwrap_or_default())
     }
 
     async fn upsert_system_annotations(
@@ -2837,6 +2926,10 @@ impl SpecRepository for MockRepo {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|(pid, _)| *pid != product_id);
+        self.product_snapshots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&product_id);
         Ok(products.len() != before)
     }
 

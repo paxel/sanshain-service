@@ -478,9 +478,11 @@ async fn a_chart_import_follows_the_current_chart_and_leaves_manual_members_alon
     // alias wins over name; infrastructure subcharts are skipped and named.
     let (status, report) = import(&f, "shop", &f.admin, FIRST_CHART).await;
     assert_eq!(status, StatusCode::OK, "{report}");
+    // The chart has a version: it is also snapshot 1.0.0 (san-1033).
     assert_eq!(
         report,
-        json!({"added": ["billing", "orders"], "removed": [], "skipped": ["postgresql", "redis"]})
+        json!({"chart_version": "1.0.0", "outcome": "created",
+            "members": {"added": ["billing", "orders"], "removed": [], "skipped": ["postgresql", "redis"]}})
     );
     assert_eq!(
         members(&f, "shop").await,
@@ -506,9 +508,11 @@ async fn a_chart_import_follows_the_current_chart_and_leaves_manual_members_alon
     let second = "dependencies:\n  - name: orders\n  - name: webapp\n";
     let (status, report) = import(&f, "shop", &f.admin, second).await;
     assert_eq!(status, StatusCode::OK, "{report}");
+    // Without a version: members only, no snapshot.
     assert_eq!(
         report,
-        json!({"added": ["orders"], "removed": ["billing"], "skipped": []})
+        json!({"chart_version": null, "outcome": null,
+            "members": {"added": ["orders"], "removed": ["billing"], "skipped": []}})
     );
     assert_eq!(
         members(&f, "shop").await,
@@ -521,20 +525,20 @@ async fn a_chart_import_follows_the_current_chart_and_leaves_manual_members_alon
     // webapp is chart-sourced now: a chart without it removes it.
     let (status, report) = import(&f, "shop", &f.admin, "dependencies:\n  - name: orders\n").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(report["removed"], json!(["webapp"]));
+    assert_eq!(report["members"]["removed"], json!(["webapp"]));
 
     let entries = audit(&f).await;
     assert!(audited(
         &entries,
         "IMPORT_PRODUCT_CHART",
         "admin",
-        "Imported a Chart.yaml into Product 'shop': added billing, orders; removed none; skipped postgresql, redis"
+        "Imported a Chart.yaml into Product 'shop': snapshot 1.0.0 Created; added billing, orders; removed none; skipped postgresql, redis"
     ));
     assert!(audited(
         &entries,
         "IMPORT_PRODUCT_CHART",
         "admin",
-        "Imported a Chart.yaml into Product 'shop': added orders; removed billing; skipped none"
+        "Imported a Chart.yaml into Product 'shop': no snapshot (the chart has no version); added orders; removed billing; skipped none"
     ));
 }
 
@@ -787,4 +791,57 @@ async fn a_member_whose_system_is_gone_is_not_in_sanshain_until_it_returns() {
             member("orders", "helm", true, false),
         ]
     );
+}
+
+/// san-1033: the chart push takes a Product Maintainer's or an admin's full
+/// API token and refuses everyone else, a read-only token included.
+#[tokio::test]
+async fn the_chart_push_follows_the_product_guard() {
+    let f = fixture().await;
+    create(&f, "shop").await;
+    let (status, _) = call(
+        &f,
+        "POST",
+        "/admin/products/shop/maintainers",
+        &f.admin,
+        Some(json!({"user_id": f.pm_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let push = |token: String| {
+        let app = f.app.clone();
+        async move {
+            let request = Request::builder()
+                .method("PUT")
+                .uri("/products/shop/chart")
+                .header("Authorization", format!("Bearer {token}"))
+                .header("X-CSRF-Token", TEST_CSRF_TOKEN)
+                .body(Body::from(FIRST_CHART))
+                .unwrap();
+            app.oneshot(request).await.unwrap().status()
+        }
+    };
+    assert_eq!(push(f.pm.clone()).await, StatusCode::OK);
+    assert_eq!(push(f.plain.clone()).await, StatusCode::FORBIDDEN);
+    let (status, body) = call(
+        &f,
+        "POST",
+        "/auth/tokens",
+        &f.pm,
+        Some(json!({"name": "ci", "scope": "full", "expires_in_days": 30})),
+    )
+    .await;
+    assert!(status.is_success(), "{body}");
+    let full = body["token"].as_str().unwrap().to_string();
+    assert_eq!(push(full).await, StatusCode::OK);
+    let (_, body) = call(
+        &f,
+        "POST",
+        "/auth/tokens",
+        &f.pm,
+        Some(json!({"name": "ro", "scope": "read_only", "expires_in_days": 30})),
+    )
+    .await;
+    let read_only = body["token"].as_str().unwrap().to_string();
+    assert_eq!(push(read_only).await, StatusCode::FORBIDDEN);
 }

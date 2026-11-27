@@ -1386,7 +1386,7 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
     let ctx = setup().await;
     let axel = seeded_token(&ctx, "axel", &[]).await;
     let ci = seeded_token(&ctx, "ci", &[]).await;
-    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false});
+    let empty = json!({"build_url": null, "change_url": null, "tickets": [], "note": null, "trunk_build": false, "git_branch": null, "git_target_branch": null});
 
     // A laptop build says nothing.
     let (status, _) = provide_with(&ctx, &axel, &spec_two_endpoints("1.3.0"), json!({})).await;
@@ -1411,6 +1411,8 @@ async fn the_latest_provide_sets_the_origin_and_a_no_op_only_fills_an_empty_one(
             "tickets": ["ORD-7", "ORD-9"],
             "note": "Adds the users endpoint.",
             "trunk_build": false,
+            "git_branch": null,
+            "git_target_branch": null,
         })
     );
     // Another no-op with other references changes nothing: filled is filled.
@@ -2088,4 +2090,555 @@ async fn the_trunk_build_after_the_merge_takes_over_the_build_link() {
     assert_eq!(origin["change_url"], "https://github.com/acme/svc/pull/7");
     assert_eq!(origin["tickets"], json!(["ORD-7"]));
     assert_eq!(origin["trunk_build"], true);
+}
+
+/// san-1029: the git branch a build names joins the origin; the version keeps
+/// the branch it was born on, and the admin's naming patterns read its kind
+/// and target whenever it is shown.
+#[tokio::test]
+async fn the_git_branch_joins_the_origin_and_the_naming_patterns_read_it() {
+    let ctx = setup().await;
+    let axel = seeded_token(&ctx, "axel", &[]).await;
+    let ci = seeded_token(&ctx, "ci", &[]).await;
+
+    // The 1.x field `branch` stays refused (provide_rejects_branch_era_fields_by_name);
+    // the new ones are taken.
+    let (status, body) = provide_with(
+        &ctx,
+        &axel,
+        &spec_two_endpoints("1.3.0"),
+        json!({"git_branch": " feature/master/login "}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let origin = origin_of(&ctx, "1.3.0").await;
+    assert_eq!(origin["git_branch"], "feature/master/login");
+    assert!(
+        origin.get("branch_reading").is_none(),
+        "no patterns, no reading: {origin}"
+    );
+
+    // The trunk build after the merge sends the same bytes from master: the
+    // version keeps the branch it was born on.
+    let (status, _) = provide_with(
+        &ctx,
+        &ci,
+        &spec_two_endpoints("1.3.0"),
+        json!({"git_branch": "master", "trunk": true, "build_url": "https://ci/main/1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await["git_branch"],
+        "feature/master/login"
+    );
+
+    // The admin describes the naming; every version is read with it at once.
+    let rules = json!({"patterns": [r"^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/"]});
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules.clone()),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        origin_of(&ctx, "1.3.0").await["branch_reading"],
+        json!({"kind": "feature", "target": "master"})
+    );
+    let (status, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(as_json(&body)["patterns"], rules["patterns"]);
+    let (_, _, body) = send(&ctx, "GET", "/admin/instance-settings", None, &[]).await;
+    assert_eq!(
+        as_json(&body)["branch_rules"]["patterns"],
+        rules["patterns"]
+    );
+
+    // A pull request build's target wins over the pattern's.
+    let (status, _) = provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.4.0"),
+        json!({"git_branch": "bugfix/main/x", "git_target_branch": "release/2.1"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        origin_of(&ctx, "1.4.0").await["branch_reading"],
+        json!({"kind": "bugfix", "target": "release/2.1"})
+    );
+
+    // The test field reads unsaved patterns on the server.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules/test",
+        Some(json!({"patterns": [r"^(?<kind>release)/"], "branch": "release/2.6"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        as_json(&body),
+        json!({"reading": {"kind": "release", "target": null}, "maintenance": true})
+    );
+
+    // A bad pattern is refused by position and stores nothing.
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(json!({"patterns": ["^ok/(?<kind>x)", "("]})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("branch pattern 2"), "{body}");
+    let (_, _, body) = send(&ctx, "GET", "/admin/settings/branch-rules", None, &[]).await;
+    assert_eq!(as_json(&body)["patterns"], rules["patterns"]);
+
+    // Branch names with whitespace are refused by name.
+    let (status, body) = provide_with(
+        &ctx,
+        &axel,
+        &spec_users_only("1.5.0"),
+        json!({"git_branch": "feature x"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body.to_string()
+            .contains("git_branch must not contain whitespace"),
+        "{body}"
+    );
+}
+
+/// san-1030: on a maintenance branch a refusal proposes a patch in the
+/// refused MAJOR.MINOR, a side line of semver; elsewhere the san-1020 rule.
+#[tokio::test]
+async fn a_maintenance_branch_gets_a_patch_proposal_and_main_a_minor() {
+    let ctx = setup().await;
+    for version in ["2.6.0", "2.23.0"] {
+        let (status, _) = provide(&ctx, "svc", "ga", &spec_two_endpoints(version)).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+    let rules = json!({"patterns": [r"^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/", r"^(?<kind>release)/"]});
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut hotfix = json!({
+        "producername": "svc",
+        "stability": "ga",
+        "openapi_yaml": spec_two_endpoints_reworded("2.6.0"),
+    });
+    let proposal = |base: &Value, extra: Value| {
+        let mut payload = base.clone();
+        for (k, v) in extra.as_object().unwrap() {
+            payload[k] = v.clone();
+        }
+        payload
+    };
+    for (extra, expected) in [
+        (json!({"git_branch": "release/2.6"}), "2.6.1"),
+        (json!({"git_branch": "hotfix/master/npe"}), "2.6.1"),
+        (json!({"git_branch": "feature/master/login"}), "2.24.0"),
+        (json!({"git_branch": "master"}), "2.24.0"),
+        (json!({}), "2.24.0"),
+    ] {
+        let (status, _, body) = send(
+            &ctx,
+            "POST",
+            "/provide",
+            Some(proposal(&hotfix, extra.clone())),
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{extra}: {body}");
+        assert_eq!(as_json(&body)["proposed_version"], expected, "{extra}");
+    }
+    // A breaking change on a side line still gets a new major.
+    hotfix["openapi_yaml"] = json!(spec_users_only("2.6.0"));
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "release/2.6"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(as_json(&body)["proposed_version"], "3.0.0");
+    // The admin's own maintenance pattern counts too.
+    let rules =
+        json!({"patterns": [], "maintenance_kinds": [], "maintenance_pattern": "^support/"});
+    let (status, _, _) = send(
+        &ctx,
+        "POST",
+        "/admin/settings/branch-rules",
+        Some(rules),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    hotfix["openapi_yaml"] = json!(spec_two_endpoints_reworded("2.6.0"));
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "support/acme"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(as_json(&body)["proposed_version"], "2.6.1");
+    let (_, _, body) = send(
+        &ctx,
+        "POST",
+        "/provide",
+        Some(proposal(&hotfix, json!({"git_branch": "release/2.6"}))),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        as_json(&body)["proposed_version"],
+        "2.24.0",
+        "no kinds, no kind rule"
+    );
+}
+
+/// san-1031: what each version changed, endpoint by endpoint, against the
+/// highest GA below it; per Pin the newer versions on the Consumer's own
+/// endpoints, and the newest free move on the page and the require answer.
+#[tokio::test]
+async fn versions_name_their_endpoint_changes_and_requires_get_free_moves() {
+    let ctx = setup().await;
+    for (stability, spec) in [
+        ("ga", spec_two_endpoints("1.0.0")),
+        ("ga", spec_two_endpoints_reworded("1.1.0")),
+        ("ga", spec_users_only("2.0.0")),
+        ("snapshot", spec_users_only("2.1.0")),
+    ] {
+        let (status, body) = provide(&ctx, "svc", stability, &spec).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/svc/endpoint-changes",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let changes = as_json(&body);
+    let of = |version: &str| {
+        changes
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["version"] == version)
+            .cloned()
+            .unwrap()
+    };
+    let paths = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["path"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(of("1.0.0")["baseline"].is_null());
+    assert_eq!(paths(&of("1.0.0")["added"]).len(), 2);
+    assert_eq!(of("1.1.0")["baseline"], "1.0.0");
+    assert_eq!(paths(&of("1.1.0")["changed"]).len(), 2, "reworded");
+    assert_eq!(of("2.0.0")["baseline"], "1.1.0");
+    assert_eq!(paths(&of("2.0.0")["removed"]), vec!["/orders"]);
+    assert_eq!(of("2.1.0")["baseline"], "2.0.0");
+    assert_eq!(paths(&of("2.1.0")["changed"]), Vec::<String>::new());
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/admin/producers/nobody/endpoint-changes",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // `/users` keeps its shape up to 2.0.0 (the 2.1.0 snapshot does not count
+    // for a GA Pin): the free move crosses the major.
+    let (status, headers, _) = require(&ctx, "web", "svc", "1.0.0", "/users", "GET").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers["x-sanshain-upgrade"], "2.0.0");
+    // `/orders` is gone in 2.0.0: the newest free move is 1.1.0.
+    let (_, headers, _) = require(&ctx, "app", "svc", "1.0.0", "/orders", "GET").await;
+    assert_eq!(headers["x-sanshain-upgrade"], "1.1.0");
+    // A Pin on the newest version has nowhere to go.
+    let (_, headers, _) = require(&ctx, "top", "svc", "2.0.0", "/users", "GET").await;
+    assert!(headers.get("x-sanshain-upgrade").is_none());
+    // A snapshot Pin also counts newer snapshots.
+    let (_, headers, _) = require(&ctx, "edge", "svc", "1.1.0", "/users", "GET").await;
+    assert_eq!(headers["x-sanshain-upgrade"], "2.0.0");
+
+    let (status, _, body) = send(&ctx, "GET", "/admin/consumers/app/moves", None, &[]).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let moves = as_json(&body);
+    assert_eq!(moves[0]["producer"], "svc");
+    assert_eq!(moves[0]["proposal"]["version"], "1.1.0");
+    let newer = moves[0]["newer"].as_array().unwrap();
+    assert_eq!(newer.len(), 2);
+    assert_eq!(newer[0]["version"], "1.1.0");
+    assert_eq!(newer[0]["free"], true);
+    assert_eq!(newer[0]["endpoints"][0]["change"], "unchanged");
+    assert_eq!(newer[1]["version"], "2.0.0");
+    assert_eq!(newer[1]["endpoints"][0]["change"], "removed");
+}
+
+/// san-1032: a trunk or tag require that sends the hash of the `requires`
+/// section numbers it per Consumer; a plain require numbers nothing. The
+/// Producer strip counts who pins each version in a scope.
+#[tokio::test]
+async fn require_sets_are_numbered_from_trunk_requires_and_strips_count_pins() {
+    let ctx = setup().await;
+    for spec in [spec_two_endpoints("1.0.0"), spec_two_endpoints("1.1.0")] {
+        let (status, _) = provide(&ctx, "svc", "ga", &spec).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+    }
+    let get = |uri: String| {
+        let ctx = &ctx;
+        async move {
+            let (status, headers, body) = send(ctx, "GET", &uri, None, &[]).await;
+            (status, headers, body)
+        }
+    };
+    let req = |consumer: &str, version: &str, extra: &str| {
+        format!(
+            "/require?consumername={consumer}&producername=svc&version={version}&path=/users&method=GET{extra}"
+        )
+    };
+    // Plain dev require with a hash: nothing numbered.
+    let (status, _, _) = get(req("web", "1.0.0", "&requires_hash=aaa")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, body) = get("/admin/consumers/web/require-sets".to_string()).await;
+    assert_eq!(as_json(&body), json!([]));
+    // Trunk requires: the first hash is #1, a new one #2, an old one stays #1.
+    get(req("web", "1.0.0", "&requires_hash=aaa&trunk=true")).await;
+    get(req("web", "1.1.0", "&requires_hash=bbb&trunk=true")).await;
+    get(req("web", "1.0.0", "&requires_hash=aaa&trunk=true")).await;
+    let (status, _, body) = get("/admin/consumers/web/require-sets".to_string()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sets = as_json(&body);
+    assert_eq!(sets.as_array().unwrap().len(), 2);
+    assert_eq!(sets[0]["number"], 1);
+    assert_eq!(
+        sets[0]["pins"],
+        json!([{"producer": "svc", "api_type": "openapi", "version": "1.0.0"}])
+    );
+    assert_eq!(sets[1]["number"], 2);
+    assert_eq!(sets[1]["pins"][0]["version"], "1.1.0");
+    // A malformed hash is refused by name.
+    let (status, _, body) = get(req("web", "1.0.0", "&requires_hash=not-ok&trunk=true")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("requires_hash"), "{body}");
+
+    // The Producer strip: main counts trunk pins (web moved to 1.1.0 then
+    // back to 1.0.0, its last trunk pin wins); dev counts all activity.
+    get(req("app", "1.1.0", "")).await;
+    let (status, _, body) = get("/admin/producers/svc/pinned-by?scope=main".to_string()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let bars = as_json(&body);
+    let bar = |v: &str| {
+        bars.as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["version"] == v)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(bar("1.0.0")["consumers"], json!(["web"]));
+    assert_eq!(bar("1.1.0")["consumers"], json!([]), "a zero bar");
+    assert_eq!(bar("1.1.0")["stability"], "ga");
+    let (_, _, body) = get("/admin/producers/svc/pinned-by?scope=dev".to_string()).await;
+    let dev = as_json(&body);
+    let app_pins = dev
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["version"] == "1.1.0")
+        .unwrap()["consumers"]
+        .clone();
+    assert!(
+        app_pins.as_array().unwrap().contains(&json!("app")),
+        "{dev}"
+    );
+    let (status, _, _) =
+        get("/admin/producers/svc/pinned-by?scope=dev@2026-01-01T00:00:00Z".to_string()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// The chart push: a raw `Chart.yaml` body.
+#[cfg(test)]
+async fn push_chart(
+    ctx: &TestContext,
+    product: &str,
+    query: &str,
+    chart: &str,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/products/{product}/chart{query}"))
+        .header("Authorization", format!("Bearer {}", ctx.token))
+        .header("Content-Type", "application/yaml")
+        .body(Body::from(chart.to_string()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// san-1033: Product snapshots from chart pushes, the release sheet, the
+/// overrides a re-push keeps, the members the highest version sets, and the
+/// comparison of two snapshots.
+#[tokio::test]
+async fn product_snapshots_from_chart_pushes_describe_and_compare_releases() {
+    let ctx = setup().await;
+    for version in ["1.0.0", "2.0.0"] {
+        let payload = json!({"producername": "orders", "stability": "ga", "trunk": true,
+            "openapi_yaml": spec_two_endpoints(version)});
+        let (status, _, body) = send(&ctx, "POST", "/provide", Some(payload), &[]).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+    let (status, _, _) = send(
+        &ctx,
+        "GET",
+        "/require?consumername=web&producername=orders&version=1.0.0&path=/users&method=GET&trunk=true&requires_hash=abc",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, body) = send(
+        &ctx,
+        "POST",
+        "/admin/products",
+        Some(json!({"name": "shop"})),
+        &[],
+    )
+    .await;
+    assert!(status.is_success(), "{body}");
+
+    let chart = |version: &str, extra: &str| {
+        format!(
+            "apiVersion: v2\nname: shop\nversion: {version}\nannotations:\n  sanshain/sales-name: \"Bulbao ]|[ - alpha\"\ndependencies:\n  - name: orders\n    version: \"~2.0.0\"\n  - name: web\n    version: 1.0.0\n  - name: redis\n{extra}"
+        )
+    };
+    let (status, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "created");
+    assert_eq!(body["members"]["added"], json!(["orders", "web"]));
+    assert_eq!(body["members"]["skipped"], json!(["redis"]));
+    let (_, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "")).await;
+    assert_eq!(body["outcome"], "unchanged");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/products/shop/snapshots/1.2.0",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sheet = as_json(&body);
+    assert_eq!(sheet["sales_name"], "Bulbao ]|[ - alpha");
+    assert!(sheet["scope"].as_str().unwrap().starts_with("main@"));
+    let member = |sheet: &Value, name: &str| {
+        sheet["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["system"] == name)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(member(&sheet, "orders")["chart_version"], "~2.0.0");
+    assert_eq!(member(&sheet, "orders")["provides"][0]["version"], "2.0.0");
+    let web = member(&sheet, "web");
+    assert_eq!(web["require_set"]["number"], 1);
+    assert_eq!(web["pins"][0]["version"], "1.0.0");
+    assert_eq!(web["pins"][0]["shipped"], "2.0.0");
+    assert_eq!(web["pins"][0]["mismatch"], true);
+    assert_eq!(web["pins"][0]["proposal"], "2.0.0", "/users kept its shape");
+
+    // A lower chart version stores its snapshot and leaves the members alone.
+    let (_, body) = push_chart(
+        &ctx,
+        "shop",
+        "",
+        "apiVersion: v2\nname: shop\nversion: 1.1.0\ndependencies:\n  - name: orders\n",
+    )
+    .await;
+    assert_eq!(body["outcome"], "created");
+    assert!(body["members"].is_null(), "{body}");
+
+    // The page's sales name survives a re-push with other content.
+    let (status, _, body) = send(
+        &ctx,
+        "PUT",
+        "/admin/products/shop/snapshots/1.2.0",
+        Some(json!({"sales_name": "Bulbao"})),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = push_chart(&ctx, "shop", "", &chart("1.2.0", "  - name: billing\n")).await;
+    assert_eq!(body["outcome"], "replaced");
+    let (_, _, body) = send(&ctx, "GET", "/admin/products/shop/snapshots", None, &[]).await;
+    let list = as_json(&body);
+    assert_eq!(list[0]["chart_version"], "1.2.0", "highest first");
+    assert_eq!(list[0]["sales_name"], "Bulbao");
+    assert_eq!(list[1]["chart_version"], "1.1.0");
+
+    let (status, _, body) = send(
+        &ctx,
+        "GET",
+        "/admin/products/shop/snapshots/compare?from=1.1.0&to=1.2.0",
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let compared = as_json(&body);
+    let web = compared
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["system"] == "web")
+        .unwrap();
+    assert_eq!(web["only_in"], "1.2.0");
+
+    // Refusals: no version, a dev scope, an unknown branch.
+    let (status, body) = push_chart(&ctx, "shop", "", "dependencies:\n  - name: orders\n").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, _) = push_chart(&ctx, "shop", "?scope=dev", &chart("1.3.0", "")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = push_chart(&ctx, "shop", "?scope=nope", &chart("1.3.0", "")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = push_chart(&ctx, "shop", "", &chart("1.3", "")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

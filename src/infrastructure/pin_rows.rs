@@ -109,8 +109,9 @@ pub(crate) fn system_context_from_row(
     ))
 }
 
-/// `(spec_version_id, build_url, change_url, tickets_json, note, trunk_build)`
-/// — one `spec_version_origin` row, shared by both engines.
+/// `(spec_version_id, build_url, change_url, tickets_json, note, trunk_build,
+/// git_branch, git_target_branch)` — one `spec_version_origin` row, shared by
+/// both engines.
 pub(crate) type VersionOriginRow = (
     i64,
     Option<String>,
@@ -118,13 +119,16 @@ pub(crate) type VersionOriginRow = (
     String,
     Option<String>,
     bool,
+    Option<String>,
+    Option<String>,
 );
 
 /// A `spec_version_origin` row into the domain's [`VersionOrigin`] and its id.
 pub(crate) fn version_origin_from_row(
     row: VersionOriginRow,
 ) -> Result<(i64, crate::domain::models::VersionOrigin), RepositoryError> {
-    let (id, build_url, change_url, tickets_json, note, trunk_build) = row;
+    let (id, build_url, change_url, tickets_json, note, trunk_build, git_branch, git_target_branch) =
+        row;
     let tickets = serde_json::from_str(&tickets_json).map_err(|e| {
         RepositoryError::Internal(format!("tickets of version {id} are not JSON: {e}"))
     })?;
@@ -136,6 +140,9 @@ pub(crate) fn version_origin_from_row(
             tickets,
             note,
             trunk_build,
+            git_branch,
+            git_target_branch,
+            branch_reading: None,
         },
     ))
 }
@@ -159,4 +166,102 @@ pub(crate) fn links_json(
     context: &crate::domain::models::SystemContext,
 ) -> Result<String, RepositoryError> {
     serde_json::to_string(&context.links).map_err(|e| RepositoryError::Internal(e.to_string()))
+}
+
+/// `(number, first_seen_at, producer, api_type, version)` — one require set
+/// LEFT JOINed with one of its Pins (san-1032), shared by both engines.
+pub(crate) type RequireSetRow = (i64, String, Option<String>, Option<String>, Option<String>);
+
+/// Rows ordered by number into require sets, each with its Pins.
+pub(crate) fn require_sets_from_rows(
+    rows: Vec<RequireSetRow>,
+) -> Result<Vec<crate::domain::models::RequireSet>, RepositoryError> {
+    use crate::domain::models::{ApiType, RequireSet, RequireSetPin, SemVer};
+    use std::str::FromStr;
+    let mut sets: Vec<RequireSet> = Vec::new();
+    for (number, first_seen_at, producer, api_type, version) in rows {
+        if sets.last().is_none_or(|s| s.number != number) {
+            sets.push(RequireSet {
+                number,
+                first_seen_at,
+                pins: Vec::new(),
+            });
+        }
+        if let (Some(producer), Some(api_type), Some(version), Some(set)) =
+            (producer, api_type, version, sets.last_mut())
+        {
+            let version = SemVer::from_str(&version).map_err(|e| {
+                RepositoryError::Internal(format!("require set pin version '{version}': {e}"))
+            })?;
+            set.pins.push(RequireSetPin {
+                producer,
+                api_type: ApiType::from_str(&api_type).unwrap_or_default(),
+                version,
+            });
+        }
+    }
+    Ok(sets)
+}
+
+/// One Product snapshot row LEFT JOINed with one of its members (san-1033):
+/// `(id, chart_version, content_hash, sales_name, sales_name_override, scope,
+/// scope_override, pushed_at, pushed_by, member, member_chart_version)`.
+pub(crate) type ProductSnapshotRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    bool,
+    String,
+    bool,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Rows ordered by snapshot id and member position into snapshots.
+pub(crate) fn product_snapshots_from_rows(
+    rows: Vec<ProductSnapshotRow>,
+) -> Vec<crate::domain::models::ProductSnapshot> {
+    use crate::domain::models::{ProductSnapshot, ProductSnapshotMember};
+    let mut out: Vec<(i64, ProductSnapshot)> = Vec::new();
+    for (
+        id,
+        chart_version,
+        content_hash,
+        sales_name,
+        sales_name_override,
+        scope,
+        scope_override,
+        pushed_at,
+        pushed_by,
+        member,
+        member_version,
+    ) in rows
+    {
+        if out.last().is_none_or(|(last, _)| *last != id) {
+            out.push((
+                id,
+                ProductSnapshot {
+                    chart_version,
+                    content_hash,
+                    sales_name,
+                    sales_name_override,
+                    scope,
+                    scope_override,
+                    pushed_at,
+                    pushed_by,
+                    members: Vec::new(),
+                },
+            ));
+        }
+        if let (Some(system), Some((_, snapshot))) = (member, out.last_mut()) {
+            snapshot.members.push(ProductSnapshotMember {
+                system,
+                chart_version: member_version,
+            });
+        }
+    }
+    out.into_iter().map(|(_, s)| s).collect()
 }

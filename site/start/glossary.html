@@ -420,7 +420,8 @@
   <dt id="origin">Origin</dt>
   <dd>
     What the build that provided a version said about why: its build URL, the pull or merge request
-    behind it (<code>change_url</code>), the ticket ids it closes and one line of intent. The latest
+    behind it (<code>change_url</code>), the ticket ids it closes, one line of intent and the git
+    branch it ran on (<code>git_branch</code>, with where it merges to). The latest
     provide that carries any of them wins; a no-op re-provide of identical bytes only fills an empty
     one. References, never content: the ticket itself stays in the tracker.
   </dd>

@@ -59,6 +59,10 @@ interface VersionOrigin {
   tickets?: string[] | null;
   note?: string | null;
   trunk_build?: boolean;
+  git_branch?: string | null;
+  git_target_branch?: string | null;
+  /** What the branch naming patterns read, computed when shown (san-1029). */
+  branch_reading?: { kind?: string | null; target?: string | null } | null;
 }
 
 /** `Annotation` in `src/domain/models.rs`. */
@@ -127,4 +131,55 @@ interface DiffHunk {
 /** The JSON diff of `GET /admin/producers/{name}/diff?format=json`. */
 interface TextDiff {
   hunks: DiffHunk[];
+}
+
+/** `EndpointRef` in `src/application/move_service.rs`. */
+interface EndpointRef {
+  method: string;
+  path: string;
+}
+
+/** `VersionEndpointChanges` in `src/application/move_service.rs` (san-1031). */
+interface VersionEndpointChanges {
+  api_type: string;
+  version: string;
+  stability: string;
+  baseline: string | null;
+  added: EndpointRef[];
+  changed: EndpointRef[];
+  removed: EndpointRef[];
+  deprecated: EndpointRef[];
+}
+
+/** `EndpointMove` in `src/application/move_service.rs`. */
+interface EndpointMove {
+  method: string;
+  path: string;
+  change: "unchanged" | "changed" | "removed";
+  deprecated: boolean;
+}
+
+/** `PinMoves` in `src/application/move_service.rs` (san-1031). */
+interface PinMoves {
+  producer: string;
+  api_type: string;
+  version: string;
+  stability: string;
+  newer: { version: string; stability: string; endpoints: EndpointMove[]; free: boolean }[];
+  proposal: { version: string; stability: string; deprecated: EndpointRef[] } | null;
+}
+
+/** `PinnedVersion` in `src/application/version_strip_service.rs` (san-1032). */
+interface PinnedVersion {
+  api_type: string;
+  version: string;
+  stability: string | null;
+  consumers: string[];
+}
+
+/** `RequireSet` in `src/domain/models.rs` (san-1032). */
+interface RequireSet {
+  number: number;
+  first_seen_at: string;
+  pins: { producer: string; api_type: string; version: string }[];
 }

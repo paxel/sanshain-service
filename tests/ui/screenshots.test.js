@@ -305,25 +305,6 @@ test.describe("Sanshain Screenshot Capture", () => {
     }
   });
 
-  test("Capture report scope selector", async ({ page }) => {
-    await page.goto("/reports.html", { waitUntil: "domcontentloaded" });
-    await ensureLoaderHidden(page);
-    const scope = page.locator("#report-scope");
-    await scope.waitFor({ timeout: 15000 });
-    const box = await scope.boundingBox();
-    if (box) {
-      await capture(page, {
-        path: path.join(screenshotDir, "report_scope_crop.png"),
-        clip: {
-          x: Math.max(0, box.x - 220),
-          y: Math.max(0, box.y - 16),
-          width: Math.min(box.width + 760, 1440 - Math.max(0, box.x - 220)),
-          height: box.height + 32,
-        },
-      });
-    }
-  });
-
   test("Capture audit timeline", async ({ page }) => {
     await page.goto("/audit.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
@@ -370,34 +351,19 @@ test.describe("Sanshain Screenshot Capture", () => {
     await capture(page, { path: path.join(screenshotDir, "audit_dark.png") });
   });
 
-  test("Capture reports and observability", async ({ page }) => {
-    await page.goto("/reports.html", { waitUntil: "domcontentloaded" });
+  // The Reports page is the statistics page since 2.17.0 (san-1021).
+  test("Capture statistics and observability", async ({ page }) => {
+    await page.goto("/reports.html?tab=landscape", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
-
-    // Dashboard view
     await page
-      .waitForSelector('h3:has-text("Full Dependency Report")', { timeout: 15000 })
-      .catch(async () => {
-        console.log("Reports dashboard timeout, forcing unhide");
-        await page.evaluate(() => {
-          const dash = document.getElementById("report-dashboard");
-          if (dash) dash.classList.remove("hidden");
-        });
+      .locator("#statistics-panel-landscape-counts svg")
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(() => {
+        // The capture is taken with or without the chart.
       });
-
-    await page.waitForTimeout(2000);
-    await capture(page, { path: path.join(screenshotDir, "reports_dashboard.png") });
-
-    // Actual report view
-    const viewReportBtn = page.locator("text=View Markdown Report");
-    if (await viewReportBtn.isVisible()) {
-      await viewReportBtn.click();
-      await page.waitForSelector("#report-container table", { timeout: 20000 }).catch(() => {
-        // The capture is taken with or without the table.
-      });
-      await page.waitForTimeout(2000);
-      await capture(page, { path: path.join(screenshotDir, "reports.png") });
-    }
+    await page.waitForTimeout(1000);
+    await capture(page, { path: path.join(screenshotDir, "statistics.png") });
 
     await page.goto("/observability.html", { waitUntil: "domcontentloaded" });
     await ensureLoaderHidden(page);
@@ -460,5 +426,110 @@ test.describe("Sanshain Screenshot Capture", () => {
     await page.waitForSelector("#ldap-config-form:not(.hidden)", { timeout: 10000 });
     await page.waitForTimeout(1000);
     await capture(page, { path: path.join(screenshotDir, "admin_auth_ldap.png") });
+  });
+
+  // 2.18.0 (san-1034): the pictures of the story steps 13 to 16. The test
+  // seeds its own systems, so it runs on any instance with an admin token.
+  test("Capture branches, strips, free moves and a Product release", async ({ page, request }) => {
+    const headers = { Authorization: `Bearer ${token ?? ""}` };
+    /** @param {string} version @param {boolean} [orders] @param {string} [text] */
+    const spec = (version, orders = true, text = "OK") =>
+      [
+        "openapi: 3.0.3",
+        "info:",
+        "  title: Orders",
+        `  version: ${version}`,
+        "paths:",
+        "  /orders:",
+        "    get:",
+        "      responses:",
+        "        '200':",
+        `          description: ${text}`,
+        ...(orders
+          ? [
+              "  /orders/{id}:",
+              "    get:",
+              "      responses:",
+              "        '200':",
+              `          description: ${text}`,
+            ]
+          : []),
+      ].join("\n") + "\n";
+    await request.post("/admin/settings/branch-rules", {
+      headers,
+      data: {
+        patterns: ["^(?<kind>feature|bugfix|hotfix)/(?<target>release/[^/]+|main|master)/"],
+      },
+    });
+    for (const [version, stability, branch, text] of [
+      ["1.5.0", "ga", "master", "OK"],
+      ["1.11.0", "ga", "master", "The orders"],
+      ["1.12.0", "snapshot", "feature/master/login", "The orders"],
+    ]) {
+      await request.post("/provide", {
+        headers,
+        data: {
+          producername: "story-orders",
+          stability,
+          trunk: stability === "ga",
+          openapi_yaml: spec(/** @type {string} */ (version), true, /** @type {string} */ (text)),
+          git_branch: branch,
+          change_url: "https://git.example.test/orders/pull/41",
+        },
+      });
+    }
+    for (const [consumer, hash] of [
+      ["story-shop", "a1"],
+      ["story-app", "b2"],
+    ]) {
+      await request.get("/require", {
+        headers,
+        params: {
+          consumername: /** @type {string} */ (consumer),
+          producername: "story-orders",
+          version: "1.5.0",
+          path: "/orders",
+          method: "GET",
+          trunk: "true",
+          requires_hash: /** @type {string} */ (hash),
+        },
+      });
+    }
+    await request.post("/admin/products", { headers, data: { name: "story-shop-product" } });
+    for (const version of ["1.2.0", "1.3.0"]) {
+      await request.put("/products/story-shop-product/chart", {
+        headers: { ...headers, "Content-Type": "application/yaml" },
+        data: `apiVersion: v2\nname: shop\nversion: ${version}\nannotations:\n  sanshain/sales-name: "Bulbao ]|[ - alpha"\ndependencies:\n  - name: story-orders\n    version: 1.11.0\n  - name: story-shop\n    version: ~4.1.0\n`,
+      });
+    }
+
+    await page.goto("/producers.html?service=story-orders", { waitUntil: "domcontentloaded" });
+    await ensureLoaderHidden(page);
+    const card = page.locator(".endpoint-card", { hasText: "1.12.0" }).first();
+    await card.locator("[data-origin-branch]").waitFor({ timeout: 15000 });
+    await capture(card, { path: path.join(screenshotDir, "story_branch_chip.png") });
+    const strip = page.locator('[data-version-strip="producer"]');
+    await strip.locator("svg").first().waitFor({ timeout: 15000 });
+    await page.waitForTimeout(800);
+    await capture(strip, { path: path.join(screenshotDir, "story_version_strip.png") });
+    const changes = page.locator('[data-endpoint-changes="openapi"]');
+    await changes.waitFor({ timeout: 15000 });
+    await changes.locator('[data-endpoint-changes-version="1.11.0"] summary').click();
+    await capture(changes, { path: path.join(screenshotDir, "story_endpoint_changes.png") });
+
+    await page.goto("/consumers.html?name=story-shop", { waitUntil: "domcontentloaded" });
+    await ensureLoaderHidden(page);
+    const pin = page.locator("[data-move-proposal]").first();
+    await pin.waitFor({ timeout: 15000 });
+    await page.locator("[data-pin-moves] summary").first().click();
+    const section = page.locator("[data-pin-moves]").first().locator("xpath=..");
+    await capture(section, { path: path.join(screenshotDir, "story_free_move.png") });
+
+    await page.goto("/products.html?name=story-shop-product", { waitUntil: "domcontentloaded" });
+    await ensureLoaderHidden(page);
+    await page.locator('[data-snapshot="1.3.0"] button').click();
+    const sheet = page.locator('[data-release-sheet="1.3.0"]');
+    await sheet.waitFor({ timeout: 15000 });
+    await capture(sheet, { path: path.join(screenshotDir, "story_release_sheet.png") });
   });
 });

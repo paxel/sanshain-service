@@ -44,6 +44,27 @@ pub(crate) fn propose_version(line: &[SpecVersionMeta], version: SemVer, impact:
     highest_in_major.increment(Impact::Minor)
 }
 
+/// The number a refusal proposes on a maintenance branch (san-1030): a side
+/// line of semver. The proposal stays in the refused `MAJOR.MINOR`, one patch
+/// above its highest version (`2.6.0` refused gives `2.6.1`, not `2.23.0`),
+/// for an additive change as for one that keeps the shape. A breaking change
+/// still gets a new major: Sanshain never proposes a number it would refuse
+/// with `breaking_without_major`.
+pub(crate) fn propose_maintenance_version(
+    line: &[SpecVersionMeta],
+    version: SemVer,
+    impact: Impact,
+) -> SemVer {
+    if impact == Impact::Major {
+        return propose_version(line, version, Impact::Major);
+    }
+    line.iter()
+        .map(|v| v.version)
+        .filter(|v| v.major == version.major && v.minor == version.minor)
+        .fold(version, SemVer::max)
+        .increment(Impact::Patch)
+}
+
 /// The GA the level of a proposal is classified against: the highest GA of
 /// `version`'s major. The proposal lands above it, so a change that is
 /// additive against the conflicting entry but drops what that GA added is

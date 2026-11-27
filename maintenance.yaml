@@ -18,7 +18,7 @@ info:
     listed in `SANSHAIN_ROOT_USERS` holds every permission.
 
     See [Roles and permissions](https://paxel.github.io/sanshain-service/operator/roles.html) for the concepts.
-  version: "2.17.0"
+  version: "2.18.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -544,6 +544,76 @@ paths:
         Any signed-in caller.
 
         Every endpoint the Consumer is recorded as depending on, with the pinned version, its current stability and the endpoint's one-line summary.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/require-sets:
+    get:
+      summary: "Read: consumers/name/require-sets"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The Consumer's require-set versions (san-1032), ascending:
+        `[{number, first_seen_at, pins: [{producer, api_type, version}]}]`. A version is one hash of
+        the `requires` section of its `sanshain.yaml`, sent by the client with trunk and tag
+        requires; the Pins are those that arrived under it.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/consumers/{name}/moves:
+    get:
+      summary: "Read: consumers/name/moves"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per Pin of the Consumer (san-1031): `[{producer, api_type, version, stability, newer, proposal}]`.
+        `newer` lists, ascending, the newer versions of the line (a GA Pin counts newer GAs, a
+        snapshot Pin newer GAs and snapshots), each with only the endpoints this Consumer
+        requires, compared with the pinned version: `change` is `unchanged` (same shape:
+        descriptions and examples may differ; for AsyncAPI and proto the same bytes), `changed`
+        or `removed`, with `deprecated`, and `free` when every one is unchanged. `proposal`
+        is the newest free version, `{version, stability, deprecated}`, or `null`; the require
+        answer sends the same as `X-Sanshain-Upgrade`.
       parameters:
         - name: name
           in: path
@@ -1615,6 +1685,91 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "404":
           description: Producer not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/pinned-by:
+    get:
+      summary: "Read: producers/name/pinned-by"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per version of the Producer's lines (san-1032), the Consumers that pin it in `scope`
+        (`main` default of the page, `dev`, `<branch>`, each `@<rfc3339>` except dev, the report
+        selector grammar): `[{api_type, version, stability, consumers}]`; a version nobody pins
+        has `consumers: []`, a pinned version the line no longer has `stability: null`. Without
+        `scope` the dev graph. 404 for an unknown Producer or branch.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "400":
+          description: An unreadable scope (`dev@…`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/producers/{name}/endpoint-changes:
+    get:
+      summary: "Read: producers/name/endpoint-changes"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Per version of each line, by API type and version (san-1031):
+        `[{api_type, version, stability, baseline, added, changed, removed, deprecated}]`, each list
+        of `{method, path}`. A version is compared with the highest GA below it (`baseline`); with
+        none, every endpoint is added. A newly deprecated endpoint is listed as deprecated only.
+        404 for an unknown Producer.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "404":
+          description: Unknown Producer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
           content:
             application/json:
               schema:
@@ -2696,12 +2851,18 @@ paths:
         `name`, is a system name. Names that match no Producer and no Consumer
         are skipped; every other one becomes a `helm` member (a `manual` member
         it lists becomes `helm`); `helm` members the chart no longer lists are
-        removed; `manual` members stay. Answers
-        `{"added": [...], "removed": [...], "skipped": [...]}`, each sorted; a
-        `manual` member switched to `helm` is in neither list. Audited
-        (`IMPORT_PRODUCT_CHART`, with the three lists). Invalid YAML, a missing
-        or empty `dependencies` list, or a dependency with neither name nor
-        alias is `400` and changes nothing.
+        removed; `manual` members stay. A chart with a `version` also creates
+        or replaces the Product snapshot of that version (san-1033, as
+        `PUT /products/{name}/chart` in `api.yaml`, scope `main` frozen now),
+        and sets the members only when it is the highest chart version.
+        Answers `{"chart_version", "outcome", "members": {"added": [...],
+        "removed": [...], "skipped": [...]}}` (`members` is `null` when the
+        chart did not set them, `chart_version` and `outcome` are `null` for a
+        chart without a version), each list sorted; a `manual` member switched
+        to `helm` is in neither list. Audited (`IMPORT_PRODUCT_CHART`). Invalid
+        YAML, a missing or empty `dependencies` list, a dependency with neither
+        name nor alias, or a version that is not SemVer 2 is `400` and changes
+        nothing.
       parameters:
         - name: name
           in: path
@@ -2731,6 +2892,189 @@ paths:
                 $ref: "#/components/schemas/ErrorBody"
         "404":
           description: No Product of that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots:
+    get:
+      summary: "Read: products/name/snapshots"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The Product's snapshots (san-1033), the highest chart version first:
+        `[{chart_version, content_hash, sales_name, sales_name_override, scope, scope_override,
+        pushed_at, pushed_by, members: [{system, chart_version}]}]`.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots/compare:
+    get:
+      summary: "Read: products/name/snapshots/compare"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        Two snapshots compared (`from`, `to`: chart versions): per member
+        `{system, from_chart, to_chart, only_in, moved: [{api_type, from, to, added, changed,
+        removed}]}`, the API versions that moved between the two scopes with the endpoints each
+        moved line added, changed or removed.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/products/{name}/snapshots/{version}:
+    get:
+      summary: "Read: products/name/snapshots/version"
+      x-permission: any-signed-in
+      x-scope: global
+      description: |
+        Any signed-in caller.
+
+        The release sheet of one snapshot: `{product, chart_version, sales_name, scope,
+        pushed_at, members}`, each member `{system, chart_version, provides: [{api_type, version,
+        stability}], require_set, pins: [{producer, api_type, version, shipped, mismatch,
+        proposal}]}`, read from the snapshot's scope. `mismatch` marks a Pin on another member
+        that does not match the version the snapshot ships (information only); `proposal` is the
+        free move when there is one; `require_set` is the newest require-set version seen by
+        the scope's instant.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    put:
+      summary: "Update: products/name/snapshots/version"
+      x-permission: manage_producers
+      x-scope: product
+      description: |
+        Requires the `manage_producers` permission, **or** being a Product Maintainer of the Product named in the path.
+
+        Set a snapshot's `sales_name` (blank or `null` clears it, at most 100 characters) or
+        `scope` (`main` or a sanshain-branch, `@<rfc3339>` optional, frozen now without one);
+        each field sent is kept by later pushes of the same chart version. Audited
+        (`EDIT_PRODUCT_SNAPSHOT`).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The snapshot as stored.
+        "400":
+          description: A sales name out of bounds or a `dev` scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or snapshot.
           content:
             application/json:
               schema:
@@ -3161,7 +3505,7 @@ paths:
 
         The harmless instance settings as values, for the admin page to show to someone who may
         see but not change them: `auto_approve_users`, `snapshot_max_age_days`,
-        `dependency_max_age_days`, `trunk_max_age_days`, `ticket_url_template` and `cache`
+        `dependency_max_age_days`, `trunk_max_age_days`, `ticket_url_template`, `branch_rules` and `cache`
         (`enabled`, `memory_limit_mb`, `memory_used_mb`, `entry_count`, `hit_count`, `miss_count`,
         `hit_rate`). Changing each stays behind `manage_settings`; the auth configuration, the
         webhook allow-list and the database are not included.
@@ -3209,6 +3553,100 @@ paths:
           description: Success.
         "400":
           description: Not an absolute http(s) URL with `{id}`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/branch-rules:
+    get:
+      summary: "Read: settings/branch-rules"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        The branch naming patterns (san-1029): `{"patterns": ["^(?<kind>feature|bugfix)/(?<target>release/[^/]+|main|master)/"]}`.
+        Each is a regular expression with the named groups `kind` and `target`; the first that
+        matches a version's git branch reads it, whenever the origin is shown.
+      responses:
+        "200":
+          description: Success.
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      summary: "Create or run: settings/branch-rules"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        Replace the branch rules: `patterns`, at most 20, each at most 500 characters, a regular
+        expression naming a `kind` or a `target` group, blank ones dropped;
+        `maintenance_kinds` (default `release`, `bugfix`, `hotfix`, at most 20) and an optional
+        `maintenance_pattern`: a refused provide on such a branch, or one with a stream `tag`, is
+        proposed a patch in its own minor (san-1030). Audited as `SET_BRANCH_RULES`.
+      responses:
+        "200":
+          description: The stored rules.
+        "400":
+          description: A pattern that does not compile or names neither group, by position.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: Not signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Signed in, but without what this endpoint requires.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /admin/settings/branch-rules/test:
+    post:
+      summary: "Create or run: settings/branch-rules/test"
+      x-permission: manage_settings
+      x-scope: global
+      description: |
+        Requires the `manage_settings` permission.
+
+        What the given rules, saved or not, read from a sample branch:
+        `{"patterns": [...], "branch": "feature/master/login", "target": null}` answers
+        `{"reading": {"kind": "feature", "target": "master"}}`, or `{"reading": null}` when
+        nothing matches, with `"maintenance": true` when the branch is a maintenance branch. A
+        given `target` stands for the runner's pull request target and wins over the pattern's.
+        Stores nothing.
+      responses:
+        "200":
+          description: The reading.
+        "400":
+          description: Invalid rules or no branch.
           content:
             application/json:
               schema:

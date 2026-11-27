@@ -5,22 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 
-## [2.17.0]
+## [2.18.0]
 
 ### Added
-- A statistics page on Reports, with one tab per topic, one time range for the page (30 days, 90 days, 12 months or from–to) carried in the shareable URL, and CSV, SVG, PNG and Print on every panel; it needs the new `view_statistics` permission, held by `admin` and the new role `report_viewer` ([san-1021](https://github.com/paxel/sanshain-service/issues/134)).
-- Statistics, Landscape tab: counts and member lists of Producers, Consumers, Products, domains, Backstage tags and Peripheral Resources, systems active in the range against systems on main, the API type mix, a sankey of the dependencies between domains, and the External Producers ([san-1022](https://github.com/paxel/sanshain-service/issues/135)).
-- Statistics, Activity tab: provides, requires and catalog pushes over time and per owner (the system's Backstage owner, never a person), the busiest systems, and refused provides over time ([san-1023](https://github.com/paxel/sanshain-service/issues/136)).
-- Statistics, Versions and releases tab: versions created over time as GA or snapshot, promotions, versions per Producer, retired API families, Outdated and Snapshot-pinned Consumers, and deprecated endpoints still required ([san-1024](https://github.com/paxel/sanshain-service/issues/137)).
-- Statistics, Tags and branches tab: the sanshain-branches with their cut date and member versions, and the builds per stream (dev, trunk, tag) over time and per tag ([san-1025](https://github.com/paxel/sanshain-service/issues/138)).
-- Statistics, Users and access tab: users per role, users waiting for approval, groups by source, API tokens by scope and the sign-in mode, as counts without names ([san-1026](https://github.com/paxel/sanshain-service/issues/139)).
-- Statistics, Catalog tab: documentation of the data, a sheet per system with what it provides (with the Origin of the latest version), what it consumes, who consumes it, its owner, domain, Products, tags, links and Annotations; filters by owner, domain, Product and tag, Print for one sheet and Print all filtered, one sheet per page ([san-1027](https://github.com/paxel/sanshain-service/issues/140)).
+- A version shows the git branch it was built from, and where it merges to (`feature/master/login → master`): provides take `git_branch` and `git_target_branch` in the origin, a version keeps the branch it was born on, and the new Branch Names setting reads the target and the kind of branch from the company's naming patterns, with a test field ([san-1029](https://github.com/paxel/sanshain-service/issues/143)).
+- The Producer page lists, per version, the endpoints it added, changed, removed or newly deprecated against the highest GA below it, and the spec viewer folds each version open to the same list ([san-1031](https://github.com/paxel/sanshain-service/issues/145)).
+- The Consumer page shows per Pin the newer versions on only the endpoints that Consumer requires, and proposes the newest one where all of them keep their shape; the require answer names it in the new header `X-Sanshain-Upgrade` ([san-1031](https://github.com/paxel/sanshain-service/issues/145)).
+- A Consumer's `requires` section is versioned: requires send `requires_hash`, and each new hash from a trunk or tag require gets the Consumer's next number with the Pins it holds; the Consumer page shows them in a strip on top, and the Producer page a strip of who pins each version, in main, dev or a sanshain-branch ([san-1032](https://github.com/paxel/sanshain-service/issues/146)).
+- Product releases: a Helm pipeline pushes the umbrella `Chart.yaml` (`PUT /products/{name}/chart`, or the paste on the Product page) and each chart version becomes a snapshot with its members' chart versions, a sales name from the `sanshain/sales-name` annotation and the graph scope it is read from; the release sheet shows each member's API versions, require-set version and Pins, marks Pins that do not match what the release ships, exports CSV and prints, and two releases can be compared ([san-1033](https://github.com/paxel/sanshain-service/issues/147)).
 
 ### Changed
-- The Reports page and its nav link need `view_statistics`; signed-in users without it no longer see them ([san-1021](https://github.com/paxel/sanshain-service/issues/134)).
-- The Producer isolation report and the full dependency report are Landscape panels of the statistics page, sortable, the dependencies filterable and exported as CSV, instead of Markdown tables in a viewer; `/report`, `/report/markdown` and `/report/isolation` are unchanged ([san-1028](https://github.com/paxel/sanshain-service/issues/141)).
-- The version a `409` proposes is one minor above the highest version of the same major, or the highest major plus one for a breaking change; a patch is no longer proposed ([san-1020](https://github.com/paxel/sanshain-service/issues/133)).
-- Dependencies brought up to date: the graph page loads Mermaid 12.3.0 and dagre 3.1.3, and the service uuid 1.29.2, rustls-pki-types 1.16.0 and flate2 1.1.11 ([san-1019](https://github.com/paxel/sanshain-service/issues/132)).
+- A pasted chart with a version also creates its release, and only the highest chart version sets the Product's members; the paste answers the snapshot beside the member lists ([san-1033](https://github.com/paxel/sanshain-service/issues/147)).
+- A refused provide from a release, bugfix or hotfix branch, or with a stream tag, is proposed a patch in its own minor (`2.6.0` gives `2.6.1`, not `2.24.0`); the maintenance kinds and an extra maintenance pattern are part of the Branch Names setting ([san-1030](https://github.com/paxel/sanshain-service/issues/144)).
 
 ---
 

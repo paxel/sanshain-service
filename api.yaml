@@ -30,7 +30,7 @@ info:
     **Only the canonical names** `producername` and `consumername` are
     accepted; the 1.x aliases `servicename` and `clientname` are rejected as
     unknown fields like every other branch-era leftover.
-  version: "2.17.0"
+  version: "2.18.0"
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.txt
@@ -288,6 +288,83 @@ paths:
         "413":
           description: Request body exceeds the configured size limit (`MAX_SPEC_BODY_BYTES`, default 4 MiB).
 
+  /products/{name}/chart:
+    put:
+      operationId: pushProductChart
+      summary: Push a Product's umbrella Chart.yaml as a snapshot
+      x-auth: session-or-api-token-full
+      security:
+        - bearerToken: []
+      description: |
+        A Helm pipeline pushes the umbrella `Chart.yaml` of a Product (2.18.0),
+        with a full API token of a Product Maintainer of that Product or a
+        holder of `manage_producers`. The chart's own `version` keys a Product
+        snapshot: each dependency is a member (its `alias`, else its `name`)
+        with the chart `version` it asks for, as written; the annotation
+        `sanshain/sales-name` is the snapshot's sales name. The same version
+        with other content replaces the snapshot, keeping a sales name or scope
+        set on the Product page; the same content is a no-op. The highest chart
+        version also sets the Product's members, as a pasted chart does.
+
+        The snapshot's API versions are read from `scope`: `main` (default) or
+        a sanshain-branch, optionally `@<rfc3339>`; without an instant the
+        scope is frozen at the push. Audited as `IMPORT_PRODUCT_CHART`.
+
+        ```
+        curl -X PUT "$SANSHAIN_URL/products/shop/chart?scope=release-2026-10" \
+          -H "Authorization: Bearer $SANSHAIN_TOKEN" --data-binary @Chart.yaml
+        ```
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema: { type: string }
+      responses:
+        "200":
+          description: |
+            `{chart_version, outcome, members}`: `outcome` is `created`,
+            `replaced` or `unchanged`; `members` is the member import
+            (`added`, `removed`, `skipped`) when this chart set the members,
+            else `null`.
+          content:
+            application/json:
+              schema: { type: object }
+        "400":
+          description: |
+            Not a chart with dependencies, no `version`, a version that is not
+            SemVer 2, a sales name over 100 characters, or a `dev` scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "401":
+          description: No valid token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "403":
+          description: Neither a Maintainer of this Product nor `manage_producers`, or a read-only token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: No such Product or sanshain-branch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
   /require:
     get:
       operationId: requireEndpoint
@@ -308,8 +385,21 @@ paths:
         Responses carry `X-Sanshain-Resolution` (`served`),
         `X-Sanshain-Version` (the Pin) and `X-Sanshain-Stability`
         (`ga` or `snapshot` — what actually answered), plus an `ETag`;
-        `If-None-Match` yields `304 Not Modified` when unchanged.
+        `If-None-Match` yields `304 Not Modified` when unchanged. When a newer
+        version serves every endpoint this Consumer requires of the Pin in the
+        same shape, `X-Sanshain-Upgrade` names it (2.18.0): a free move.
       parameters:
+        - name: requires_hash
+          in: query
+          required: false
+          schema: { type: string, maxLength: 128, pattern: "^[A-Za-z0-9]+$" }
+          description: |
+            The client's hash of the Consumer's `requires` section of
+            `sanshain.yaml` (2.18.0). A trunk or tag require records its Pin
+            under the Consumer's require-set version for that hash; a new hash
+            gets the Consumer's next number (1, 2, 3, …). A plain dev require,
+            a dry run or a failed require numbers nothing. Services before
+            2.18.0 answer `400` naming the parameter.
         - name: annotations
           in: query
           required: false
@@ -381,6 +471,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: The endpoint snippet as YAML.
           content:
             application/yaml:
@@ -390,6 +482,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "404":
           description: |
@@ -498,6 +592,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: |
             The channel snippet as YAML, or with `format=openapi` the OpenAPI
             3.0.3 document of its payload schemas.
@@ -508,6 +604,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -597,6 +695,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: The .proto snippet.
           content:
             text/plain:
@@ -605,6 +705,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "404":
           description: Unknown Producer or version.
@@ -663,6 +765,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: |
             The merged specification as YAML, or with `format=openapi` the
             OpenAPI 3.0.3 document of the channels' payload schemas.
@@ -673,6 +777,8 @@ paths:
           headers:
             Sanshain-Warning:
               $ref: "#/components/headers/SanshainWarning"
+            X-Sanshain-Upgrade:
+              $ref: "#/components/headers/SanshainUpgrade"
           description: Not modified (ETag match).
         "400":
           description: |
@@ -1203,7 +1309,7 @@ paths:
           content:
             application/json:
               example:
-                "version": "2.17.0"
+                "version": "2.18.0"
               schema:
                 type: object
                 properties:
@@ -1338,6 +1444,18 @@ components:
           example:
             "error": "this API token has scope 'read_only' and may not change the catalog; create a token with scope 'full' for provide, require and catalog pushes"
   headers:
+    SanshainUpgrade:
+      description: |
+        A free move (2.18.0): the newest version of the pinned line that serves
+        every endpoint this Consumer requires of the Pin (recorded and in this
+        call) in the same shape, so generated code stays the same and only
+        descriptions or examples may differ (AsyncAPI and proto: the same
+        bytes). It may cross a major. A GA Pin is offered GAs only; a snapshot
+        Pin GAs and snapshots. Absent when there is none. Information only:
+        what is served is still the Pin, and it is not a `Sanshain-Warning`,
+        so a strict build does not fail on it.
+      schema:
+        type: string
     SanshainWarning:
       description: |
         A warning the caller's build should print — the call itself
@@ -1517,6 +1635,23 @@ components:
           type: string
           nullable: true
           description: One line of intent, at most 200 characters.
+        git_branch:
+          type: string
+          nullable: true
+          description: |
+            The git branch this build ran on (2.18.0), at most 255 characters
+            without whitespace. Part of the origin, information only: it never
+            changes what a require serves. The version keeps the branch it was
+            born on; a no-op re-provide only fills an empty one. The admin's
+            branch naming patterns read its kind and target when it is shown.
+            Not `branch`, which stays the refused 1.x field. Services before
+            2.18.0 answer `422` naming the field.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: |
+            On a pull or merge request build, the branch it merges into (2.18.0);
+            wins over what the naming patterns read. Same bounds as `git_branch`.
         annotations:
           type: array
           items:
@@ -1589,6 +1724,14 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        git_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_branch`.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_target_branch`.
         annotations:
           type: array
           items:
@@ -1649,6 +1792,14 @@ components:
           type: string
           nullable: true
           description: See `ProvidePayload.note`.
+        git_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_branch`.
+        git_target_branch:
+          type: string
+          nullable: true
+          description: See `ProvidePayload.git_target_branch`.
         annotations:
           type: array
           items:
@@ -1818,6 +1969,10 @@ components:
         tag:
           type: string
           description: See `tag` on `/require`.
+        requires_hash:
+          type: string
+          maxLength: 128
+          description: See `requires_hash` on `/require`. Services before 2.18.0 answer `422` naming the field.
         annotations:
           type: array
           items:
@@ -1949,6 +2104,25 @@ components:
         note:
           type: string
           nullable: true
+        git_branch:
+          type: string
+          nullable: true
+          description: The git branch the version was born on (2.18.0).
+        git_target_branch:
+          type: string
+          nullable: true
+          description: The pull or merge request target the build named (2.18.0).
+        branch_reading:
+          type: object
+          nullable: true
+          description: |
+            What the instance's branch naming patterns read from `git_branch`
+            (2.18.0), computed when shown: `kind` and `target` (the runner's
+            target when there was one, else the pattern's). Absent when
+            nothing was read.
+          properties:
+            kind: { type: string, nullable: true }
+            target: { type: string, nullable: true }
     ProducerVersionInfo:
       type: object
       required:

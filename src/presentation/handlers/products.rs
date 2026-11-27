@@ -7,7 +7,7 @@ use crate::domain::models::User;
 use crate::domain::ports::NewAuditLog;
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -151,27 +151,167 @@ fn listed(names: &[String]) -> String {
 }
 
 /// `POST /admin/products/{name}/chart`: apply a pasted umbrella
-/// `Chart.yaml` directly and answer what it added, removed and skipped.
+/// `Chart.yaml`. With a chart `version` it creates or replaces that
+/// snapshot (san-1033) and, as the highest version, sets the members; without
+/// one it sets the members only, as before.
 pub async fn import_chart(
     State(state): State<AppState>,
     user: Option<Extension<User>>,
     Path(name): Path<String>,
     Json(payload): Json<ImportChartRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let report = services::import_product_chart(&state.repo, &name, &payload.chart_yaml).await?;
+    let actor = user.as_ref().map(|u| u.username.clone());
+    let report = services::push_product_chart(
+        &state.repo,
+        &name,
+        &payload.chart_yaml,
+        None,
+        actor.as_deref(),
+        false,
+    )
+    .await?;
+    audit_chart(&state, user, &name, &report).await?;
+    Ok(Json(report))
+}
+
+async fn audit_chart(
+    state: &AppState,
+    user: Option<Extension<User>>,
+    name: &str,
+    report: &services::ChartPushReport,
+) -> Result<(), AppError> {
+    let members = match &report.members {
+        Some(m) => format!(
+            "added {}; removed {}; skipped {}",
+            listed(&m.added),
+            listed(&m.removed),
+            listed(&m.skipped)
+        ),
+        None => "members unchanged".to_string(),
+    };
+    let snapshot = match (&report.chart_version, &report.outcome) {
+        (Some(v), Some(o)) => format!("snapshot {v} {o:?}"),
+        _ => "no snapshot (the chart has no version)".to_string(),
+    };
+    record(
+        state,
+        user,
+        "IMPORT_PRODUCT_CHART",
+        &format!("Imported a Chart.yaml into Product '{name}': {snapshot}; {members}"),
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+pub struct PushChartQuery {
+    pub scope: Option<String>,
+}
+
+/// `PUT /products/{name}/chart` (san-1033): a Helm pipeline pushes the
+/// umbrella `Chart.yaml` as the body, with a full API token of a Product
+/// Maintainer or a holder of `manage_producers`.
+pub async fn push_chart(
+    State(state): State<AppState>,
+    user: Option<Extension<User>>,
+    Path(name): Path<String>,
+    Query(query): Query<PushChartQuery>,
+    body: String,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = user.as_ref().map(|u| u.username.clone());
+    let report = services::push_product_chart(
+        &state.repo,
+        &name,
+        &body,
+        query.scope.as_deref(),
+        actor.as_deref(),
+        true,
+    )
+    .await?;
+    audit_chart(&state, user, &name, &report).await?;
+    Ok(Json(report))
+}
+
+/// The snapshots of a Product, the highest chart version first.
+pub async fn list_snapshots(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::list_product_snapshots(&state.repo, &name).await?,
+    ))
+}
+
+/// The release sheet of one snapshot.
+pub async fn snapshot_sheet(
+    State(state): State<AppState>,
+    Path((name, version)): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::product_release_sheet(&state.repo, &name, &version).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct EditSnapshotRequest {
+    /// Present: set it (blank clears); absent: leave it.
+    #[serde(default, deserialize_with = "present_option")]
+    pub sales_name: Option<Option<String>>,
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+/// A field that is present, `null` included, is `Some`.
+fn present_option<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<String>::deserialize(deserializer)?))
+}
+
+/// Set a snapshot's sales name or scope; a later push keeps them.
+pub async fn edit_snapshot(
+    State(state): State<AppState>,
+    user: Option<Extension<User>>,
+    Path((name, version)): Path<(String, String)>,
+    Json(payload): Json<EditSnapshotRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let snapshot = services::edit_product_snapshot(
+        &state.repo,
+        &name,
+        &version,
+        payload.sales_name.as_ref().map(|n| n.as_deref()),
+        payload.scope.as_deref(),
+    )
+    .await?;
     record(
         &state,
         user,
-        "IMPORT_PRODUCT_CHART",
+        "EDIT_PRODUCT_SNAPSHOT",
         &format!(
-            "Imported a Chart.yaml into Product '{name}': added {}; removed {}; skipped {}",
-            listed(&report.added),
-            listed(&report.removed),
-            listed(&report.skipped)
+            "Set snapshot {version} of Product '{name}': sales name {}, scope {}",
+            snapshot.sales_name.as_deref().unwrap_or("none"),
+            snapshot.scope
         ),
     )
     .await?;
-    Ok(Json(report))
+    Ok(Json(snapshot))
+}
+
+#[derive(Deserialize)]
+pub struct CompareSnapshotsQuery {
+    pub from: String,
+    pub to: String,
+}
+
+/// Two snapshots compared: per member the API versions that moved.
+pub async fn compare_snapshots(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<CompareSnapshotsQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    Ok(Json(
+        services::compare_product_snapshots(&state.repo, &name, &query.from, &query.to).await?,
+    ))
 }
 
 #[derive(Deserialize)]

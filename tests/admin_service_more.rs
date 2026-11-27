@@ -209,6 +209,7 @@ async fn delete_version_returns_pinned_consumers() {
             trunk: false,
             tag: None,
             format: sanshain_service::application::require_service::RequireFormat::Native,
+            requires_hash: None,
         },
     )
     .await

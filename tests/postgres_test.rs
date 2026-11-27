@@ -1077,6 +1077,9 @@ async fn test_postgres_version_origin_set_get_list_and_swept_with_its_version() 
         tickets: vec!["ORD-7".to_string()],
         note: Some("why".to_string()),
         trunk_build: true,
+        git_branch: Some("feature/master/login".to_string()),
+        git_target_branch: Some("master".to_string()),
+        branch_reading: None,
     };
     repo.set_version_origin(id, &origin, "2026-01-01T00:00:00Z")
         .await
@@ -1227,4 +1230,90 @@ async fn postgres_trunk_requires_replace_the_dependencies_on_their_producer() {
     let repo = PostgresSpecRepository::new(pool);
     repo.run_migrations().await.unwrap();
     trunk_require_replaces::trunk_requires_replace_the_dependencies_on_their_producer(&repo).await;
+}
+
+/// san-1032: require-set versions on PostgreSQL: numbered per Consumer in
+/// order of first sight, Pins kept per set, deleted with the Consumer.
+#[tokio::test]
+async fn test_postgres_require_sets_numbered_listed_and_deleted() {
+    use sanshain_service::domain::models::{ApiType, RequireSetPin, SemVer};
+    use sanshain_service::domain::ports::SpecRepository;
+
+    let postgres_container = common::start_postgres().await;
+    let host = postgres_container.get_host().await.unwrap();
+    let port = postgres_container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@{}:{}/postgres", host, port);
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .unwrap();
+    let repo = PostgresSpecRepository::new(pool.clone());
+    repo.run_migrations().await.unwrap();
+
+    let pin = |producer: &str, version: &str| RequireSetPin {
+        producer: producer.to_string(),
+        api_type: ApiType::OpenApi,
+        version: version.parse::<SemVer>().unwrap(),
+    };
+    assert_eq!(
+        repo.record_require_set(
+            "web",
+            "aaa",
+            &pin("orders", "2.3.0"),
+            "2026-01-01T00:00:00Z"
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    repo.record_require_set(
+        "web",
+        "aaa",
+        &pin("billing", "1.0.0"),
+        "2026-01-02T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    repo.record_require_set(
+        "web",
+        "aaa",
+        &pin("billing", "1.0.0"),
+        "2026-01-02T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.record_require_set(
+            "web",
+            "bbb",
+            &pin("orders", "2.5.0"),
+            "2026-01-03T00:00:00Z"
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    let sets = repo.list_require_sets("web").await.unwrap();
+    assert_eq!(sets.len(), 2);
+    assert_eq!(sets[0].first_seen_at, "2026-01-01T00:00:00Z");
+    assert_eq!(
+        sets[0].pins,
+        vec![pin("billing", "1.0.0"), pin("orders", "2.3.0")]
+    );
+    assert_eq!(sets[1].pins, vec![pin("orders", "2.5.0")]);
+
+    repo.ensure_client("web").await.unwrap();
+    assert!(repo.delete_consumer("web").await.unwrap());
+    assert!(repo.list_require_sets("web").await.unwrap().is_empty());
+    repo.record_require_set(
+        "app",
+        "ccc",
+        &pin("orders", "2.5.0"),
+        "2026-01-04T00:00:00Z",
+    )
+    .await
+    .unwrap();
+    repo.delete_all_clients().await.unwrap();
+    assert!(repo.list_require_sets("app").await.unwrap().is_empty());
 }

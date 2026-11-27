@@ -196,8 +196,8 @@
   <li>
     <strong>You forgot to bump</strong>: the number is GA with different content. The proposal is
     one minor above the highest version of the same major; a breaking change, read against the
-    highest GA of the major, goes to the highest major of the line plus one. A patch is never
-    proposed.
+    highest GA of the major, goes to the highest major of the line plus one. Outside a maintenance
+    branch a patch is never proposed.
   </li>
   <li>
     <strong>The semver is a lie</strong>: the changes relative to the highest GA below the new
@@ -217,6 +217,27 @@
 
 { "error": "version 1.3.0 of openapi 'orders' is breaking relative to GA 1.1.0 but does not bump the major — publish as 2.0.0 instead: &lt;what broke&gt;",
   "proposed_version": "2.0.0" }</code></pre>
+<h3 id="maintenance-branches">On a maintenance branch: a patch in the same minor</h3>
+<p>
+  A release, bugfix or hotfix branch is a side line of semver (2.18.0). When a refused provide comes
+  from one, the proposal stays in the refused <code>MAJOR.MINOR</code>, one patch above its highest
+  version. With <code>2.6.0</code> and <code>2.23.0</code> released, a hotfix on
+  <code>release/2.6</code> that changes <code>2.6.0</code> is told <code>2.6.1</code>, not
+  <code>2.24.0</code>, which would put the fix on top of seventeen minors it never had:
+</p>
+<pre><code>{ "error": "version 2.6.0 of openapi 'orders' is GA and immutable, but the submitted content differs — did you forget to increment info's version? Publish as 2.6.1 instead",
+  "proposed_version": "2.6.1" }</code></pre>
+<p>
+  An additive change on a side line is proposed a patch too: it is still only a recommendation.
+  A breaking change still gets a new major, because Sanshain never proposes a number it would then
+  refuse as breaking without a major bump. A provide is on a maintenance branch when any one of
+  these holds: its <code>git_branch</code> has a <code>kind</code> the administrator listed
+  (<code>release</code>, <code>bugfix</code> and <code>hotfix</code> by default, read by the
+  <a href="../operator/administration.html#branch-names">branch naming patterns</a>), the
+  administrator's maintenance pattern matches the branch, or the build sends a Sanshain stream
+  <code>tag</code>. <code>main</code>, <code>master</code>, every other branch and a provide without
+  a branch keep the rule above.
+</p>
 <p>
   When the bytes differ but no endpoint the splitter sees changed, the first two messages add
   <em
@@ -251,6 +272,26 @@
   Consumers are never broken by a new version; the checks keep the numbers honest so that a Consumer
   reading <code>2.4.0 → 2.5.0</code> can trust the upgrade.
 </p>
+
+<h3 id="free-moves">Free moves for Consumers</h3>
+<p>
+  A Consumer pins <code>1.5.0</code> and requires two endpoints. If neither changed shape up to
+  <code>1.11.0</code>, moving is free: the generated code stays the same. Sanshain says so (2.18.0)
+  on every require that pins <code>1.5.0</code>, with the header
+  <code>X-Sanshain-Upgrade: 1.11.0</code>, and on the Consumer page. "The same shape" allows other
+  descriptions and examples; for AsyncAPI and proto it means the same text apart from the version.
+  The proposal looks at every endpoint the Consumer requires of that Pin, may cross a major (a
+  major that broke someone else's endpoints is no reason to wait), offers a GA Pin only GAs and a
+  snapshot Pin GAs and snapshots, and still proposes a version that deprecates one of the
+  endpoints, which the Consumer page then names. It is information only: what is served is still
+  the Pin, and it is not a <code>Sanshain-Warning</code>, so a strict build does not fail on it.
+</p>
+<pre><code>$ curl -si "$SANSHAIN_URL/require?consumername=shop&amp;producername=orders&amp;version=1.5.0&amp;path=/orders&amp;method=GET" \
+    -H "Authorization: Bearer $SANSHAIN_TOKEN" | grep -i x-sanshain
+x-sanshain-resolution: served
+x-sanshain-version: 1.5.0
+x-sanshain-stability: ga
+x-sanshain-upgrade: 1.11.0</code></pre>
 
 <h2>4. Deprecation and migration</h2>
 <p>Once a new major is GA, move Consumers off the old elements:</p>

@@ -246,6 +246,35 @@ curl -s -X POST $SANSHAIN/auth/tokens \
   </tbody>
 </table>
 
+<h3>Where: the git branch of a build</h3>
+<p>
+  A provide may also say which git branch it was built from (Sanshain Service 2.18.0 or later):
+  <code>git_branch</code> and, on a pull or merge request build, <code>git_target_branch</code>, the
+  branch it merges into. Each is at most 255 characters without whitespace. They are part of the
+  origin and information only: a branch never changes what a require serves, never creates
+  anything and never relaxes a version rule. The version row then says where a snapshot comes from:
+</p>
+<pre><code>curl -X POST "$SANSHAIN_URL/provide" -H "Authorization: Bearer $SANSHAIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"producername": "orders", "stability": "snapshot", "openapi_yaml": "...",
+       "git_branch": "feature/master/login",
+       "change_url": "https://github.com/acme/orders/pull/41"}'</code></pre>
+<p>
+  The version keeps the branch it was born on. When the trunk build after the merge provides the
+  same bytes from <code>master</code>, the row still says <code>feature/master/login</code>; a
+  re-provide only fills a branch that is empty. A real write (other bytes) replaces the whole
+  origin, the branch with it.
+</p>
+<p>
+  Where the branch merges to is shown as <code>feature/master/login → master</code>. The target is
+  the runner's pull request target when the build had one, else what the administrator's
+  <a href="../operator/administration.html#branch-names">branch naming patterns</a> read from the
+  branch name. Patterns are read when a version is shown, so a pattern added today also reads the
+  versions of last month. The field is named <code>git_branch</code> because <code>branch</code>
+  stays the refused field of Sanshain 1.x. Services before 2.18.0 answer <code>422</code> naming
+  the field.
+</p>
+
 <h3>The catalog push</h3>
 <p>
   A build with <code>catalogInfo</code> in its <code>sanshain.yaml</code> also pushes the project's
