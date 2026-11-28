@@ -5,15 +5,6 @@
   emits and what each flag does.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
-  <ul>
-    <li>
-      OpenTelemetry exports retry a failed send up to 3 times with backoff instead of dropping the batch (<a href="#traces-over-otlp">Traces over OTLP</a>).
-    </li>
-  </ul>
-</div>
-
 <h2>Prometheus metrics</h2>
 <p>
   <code>GET /metrics</code> answers the text exposition (<code>text/plain; version=0.0.4</code>).

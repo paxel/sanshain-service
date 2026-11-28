@@ -5,15 +5,6 @@
   the webhook allow-list) lives in the database instead and is listed at the end.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
-  <ul>
-    <li>
-      <code>EXTRA_CA_CERTS_DIR</code> also applies to webhook deliveries and the OIDC login, which trust the platform's certificate authorities plus that directory instead of a list built into the binary (<a href="#additional-ca-certificates">Additional CA certificates</a>).
-    </li>
-  </ul>
-</div>
-
 <h2>Environment variables</h2>
 <p>
   A variable that is unset takes its default. A variable set to something the service cannot use
