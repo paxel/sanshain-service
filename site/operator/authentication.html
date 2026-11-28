@@ -6,18 +6,6 @@
   operator from locking themselves out.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
-  <ul>
-    <li>
-      The OIDC login refuses a provider whose key set (<code>jwks_uri</code>) is served over plain http; serve it over https. A provider behind a private CA needs that CA in <code>EXTRA_CA_CERTS_DIR</code> (<a href="configuration.html#additional-ca-certificates">Additional CA certificates</a>).
-    </li>
-    <li>
-      The OIDC login trusts the platform's certificate authorities plus <code>EXTRA_CA_CERTS_DIR</code>, like LDAPS, instead of a list built into the binary.
-    </li>
-  </ul>
-</div>
-
 <h2>Authentication modes</h2>
 <p>
   The mode is a setting (<code>auth_mode</code>), chosen in the

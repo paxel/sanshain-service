@@ -5,24 +5,6 @@
   Helm chart for Kubernetes, the choice between SQLite and PostgreSQL, and what an upgrade does.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
-  <ul>
-    <li>
-      The image is based on Alpine 3.24 instead of 3.21.
-    </li>
-    <li>
-      The health check asks <code>127.0.0.1</code>, so a container where <code>localhost</code> resolves to IPv6 first is no longer reported unhealthy.
-    </li>
-    <li>
-      Releases are signed with cosign 3; verify them with cosign 3, or with cosign 2.6 and <code>--new-bundle-format</code> (<a href="#verifying-a-release">Verifying a release</a>).
-    </li>
-    <li>
-      Webhooks and the OIDC login trust the platform's certificate authorities plus <code>EXTRA_CA_CERTS_DIR</code>; the OIDC key set must be served over https (<a href="#outbound-tls-trust">Outbound TLS trust</a>).
-    </li>
-  </ul>
-</div>
-
 <h2>The image</h2>
 <p>
   <code>ghcr.io/paxel/sanshain-service:&lt;tag&gt;</code>, built by the release workflow from the

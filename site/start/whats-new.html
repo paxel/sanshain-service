@@ -1,83 +1,80 @@
-<!-- page: title="What's new" track="start" order=4 summary="What changed from 2.11 to 2.12.0, sorted by who notices it: the one breaking change, what an operator sees, what a Producer or Consumer sees, and the security fixes." -->
+<!-- page: title="What's new" track="start" order=4 summary="What changed from 2.17 to 2.18.0, sorted by who notices it: what to know before the upgrade, what an operator sees, what a Producer or Consumer sees, and security." -->
 <p class="lede">
-  2.12.0 is a maintenance and security release: every library is on its current version and three
-  security advisories are gone. Its one feature tells why a login was refused. This page is the short version of the
+  2.18.0 tells why a version exists and where it goes: the git branch of a build, a patch proposal
+  on maintenance branches, free moves for Consumers, versioned require sets, and Product releases
+  from the Helm pipeline. This page is the short version of the
   <a href="https://github.com/paxel/sanshain-service/blob/summer/CHANGELOG.md">changelog</a>, sorted
   by who notices a change.
 </p>
 
 <h2>Before you upgrade</h2>
 <p>
-  One change can stop a working setup: the OpenID Connect login refuses a provider whose key set
-  (<code>jwks_uri</code>) is served over plain http. Serve it over https; a provider behind a
-  private CA needs that CA in <code>EXTRA_CA_CERTS_DIR</code>
-  (<a href="../operator/configuration.html#additional-ca-certificates">Additional CA certificates</a>).
-  Local accounts and LDAP are not affected.
+  Nothing stops a working setup. Two things behave differently for those who use Products: a
+  pasted <code>Chart.yaml</code> with a <code>version</code> also creates a release, and only the
+  highest chart version sets the Product's members; the admin paste answers the release beside the
+  member lists (<code>{chart_version, outcome, members}</code>) instead of the bare member lists. A
+  script that reads that answer needs the new shape. The database migrations run at start, forward
+  only, as always.
 </p>
 
 <h2>For operators</h2>
 <ul>
   <li>
-    A refused login is logged and audited with the masked name and the reason, such as a wrong
-    password, no directory entry for the typed name, or a locked or expired Active Directory account
-    (<a href="../operator/troubleshooting.html#logins-sessions-and-tokens">Troubleshooting</a>).
-    The login page says when a directory account is locked, and an admin can turn on
-    <a href="../operator/authentication.html#detailed-sign-in-errors">Detailed sign-in errors</a>
-    for 15 minutes so it names every reason.
+    <a href="../operator/administration.html#branch-names">Branch Names</a> on the General tab: the
+    company's branch naming patterns, which read where a branch merges to and which branches are
+    maintenance branches, with a test field.
   </li>
   <li>
-    The image is based on Alpine 3.24 instead of 3.21, and its health check asks
-    <code>127.0.0.1</code>, so a container where <code>localhost</code> resolves to IPv6 first is no
-    longer reported unhealthy.
+    <a href="../operator/administration.html#week-start">First Day of the Week</a> on the General
+    tab: the day the weeks of the statistics start, Monday until it is set.
   </li>
   <li>
-    Webhook deliveries and the OIDC login trust the platform's certificate authorities plus
-    <code>EXTRA_CA_CERTS_DIR</code>, like LDAPS, instead of a list built into the binary.
+    The statistics page bands every second week on its daily charts, draws each domain of the sankey
+    "Dependencies between domains" in its graph colour, and filters the Catalog by whether a system
+    has a catalog push (<a href="../developer/web-ui.html#reports">Reports</a>).
   </li>
   <li>
-    Releases are signed with cosign 3; verify them with cosign 3, or with cosign 2.6 and
-    <code>--new-bundle-format</code>
-    (<a href="../operator/deployment.html#verifying-a-release">Verifying a release</a>).
+    A Product Maintainer pushes the umbrella chart from the Helm pipeline with a full API token, and
+    each chart version becomes a release with a sheet, a CSV export and a compare
+    (<a href="../developer/web-ui.html#product-releases">Product releases</a>,
+    <a href="../operator/roles.html">Roles</a>).
   </li>
-  <li>
-    The Helm backup CronJobs use curl 8.23.0 and <code>pg_dump</code> 18, which also backs up a
-    PostgreSQL 18 database; restore those dumps with <code>pg_restore</code> 18.
-  </li>
-  <li>OpenTelemetry exports retry a failed send up to 3 times instead of dropping the batch.</li>
-  <li>SQLite 3.51 is built in instead of 3.46; an existing database opens unchanged.</li>
 </ul>
 
 <h2>For Producers and Consumers</h2>
 <ul>
   <li>
-    Endpoint snippets and required specs are written in a slightly different YAML style: double
-    quotes, quoted version strings (<code>version: "1.0.0"</code>), long single-line texts folded
-    with <code>&gt;</code>. Their content is the same. A Consumer that commits a required spec sees
-    a one-time text diff after the upgrade.
+    A provide carries the git branch of its build (<code>git_branch</code>, and
+    <code>git_target_branch</code> on a pull or merge request build); the version row shows it as
+    <code>feature/master/login → master</code>
+    (<a href="../developer/ci-integration.html">CI integration</a>).
   </li>
   <li>
-    An unchanged re-provide is still a no-op. The first re-provide of a snapshot that changes
-    anything counts all its endpoints as updated once.
+    A refused provide from a release, bugfix or hotfix branch, or with a stream tag, is proposed a
+    patch in its own minor: <code>2.6.0</code> gives <code>2.6.1</code>, not <code>2.24.0</code>
+    (<a href="../developer/api-lifecycle.html#maintenance-branches">maintenance branches</a>).
   </li>
   <li>
-    A spec nested deeper than 64 levels is refused with <code>400</code>; the limit was 128.
+    A require names a free move in the header <code>X-Sanshain-Upgrade</code>: the newest version
+    that serves every endpoint the Consumer requires of its Pin in the same shape. The Consumer page
+    shows the newer versions per Pin
+    (<a href="../developer/api-lifecycle.html#free-moves">free moves</a>).
   </li>
   <li>
-    The official clients need no update for 2.12. Their current releases (sanshain-js 2.5.1,
-    sanshain-rs 3.2.0, sanshain-go 2.4.0, sanshain-maven-plugin 2.4.1, sanshain-conan 2.4.0) are
-    dependency and security updates too.
+    Requires send <code>requires_hash</code>, and each new hash from a trunk or tag require gets the
+    Consumer's next require-set version
+    (<a href="../developer/sanshain-yaml.html#require-set-versions">require-set versions</a>). The
+    Consumer page shows them in a strip, the Producer page a strip of who pins each version.
+  </li>
+  <li>
+    The Producer page lists per version the endpoints it added, changed, removed or newly deprecated
+    against the highest GA below it.
+  </li>
+  <li>
+    Services before 2.18.0 refuse the new fields (<code>422</code> on a provide or a bundle,
+    <code>400</code> on <code>GET /require</code>).
   </li>
 </ul>
 
 <h2>Security</h2>
-<ul>
-  <li>
-    YAML is read and written by <code>serde-saphyr</code>, pure Rust without <code>unsafe</code>
-    code, instead of a library on the unmaintained <code>unsafe-libyaml</code>.
-  </li>
-  <li>
-    The OIDC login verifies ID tokens without the <code>rsa</code> crate (Marvin attack,
-    RUSTSEC-2023-0071); <code>cargo audit</code> runs without exceptions.
-  </li>
-  <li>The unmaintained <code>basic-toml</code> is no longer part of the build.</li>
-</ul>
+<p>No security changes in 2.18.0.</p>

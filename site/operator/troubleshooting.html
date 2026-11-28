@@ -9,25 +9,6 @@
   in depth in <a href="../developer/ci-integration.html">CI integration</a>.
 </p>
 
-<div class="callout">
-  <p class="eyebrow">What changed in 2.12.0</p>
-  <ul>
-    <li>
-      An OIDC provider with a plain-http key set is refused at login; see <a href="#openid-connect">OpenID Connect</a>.
-    </li>
-    <li>
-      A refused login is logged and audited with its reason, and the login page can name it (<a
-        href="authentication.html#detailed-sign-in-errors"
-        >Detailed sign-in errors</a
-      >); see
-      <a href="#logins-sessions-and-tokens">Logins, sessions and tokens</a>.
-    </li>
-    <li>
-      A spec nested deeper than 64 levels is refused with <code>400</code> (<a href="#provides-and-requires">Provides and requires</a>); the limit was 128.
-    </li>
-  </ul>
-</div>
-
 <h2>Startup</h2>
 <dl>
   <dt>
